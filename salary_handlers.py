@@ -602,9 +602,8 @@ async def salary_template_day_off(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(uid, state)
     current_db.set_shift_template(target_uid, wd, None, None)
     await callback.answer(f"🚫 {_WEEKDAY_NAMES[wd]}: выходной сохранён")
-    # Вернуться на экран шаблона
-    callback.data = f"slr_tmpl_{target_uid}_{yr}_{mo}"
-    await salary_template_screen(callback, state)
+    # Сразу возвращаемся в календарь
+    await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
 
 
 @salary_router.callback_query(F.data.startswith("slr_ts_"))
@@ -637,7 +636,7 @@ async def salary_template_day_end(callback: CallbackQuery, state: FSMContext):
 
 @salary_router.callback_query(F.data.startswith("slr_te_"))
 async def salary_template_day_save(callback: CallbackQuery, state: FSMContext):
-    """Сохранить шаблон для дня недели и вернуться на экран шаблона."""
+    """Сохранить шаблон для дня недели и сразу вернуться к календарю сотрудника."""
     uid = callback.from_user.id
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
@@ -657,8 +656,8 @@ async def salary_template_day_save(callback: CallbackQuery, state: FSMContext):
     current_db.set_shift_template(target_uid, wd, start_t, end_t)
     await callback.answer(f"✅ {_WEEKDAY_NAMES[wd]}: {start_t}–{end_t} сохранено")
 
-    callback.data = f"slr_tmpl_{target_uid}_{yr}_{mo}"
-    await salary_template_screen(callback, state)
+    # Сразу возвращаемся в календарь (без промежуточного экрана шаблона)
+    await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
 
 
 # ── Сводка ФОТ за месяц (admin) ───────────────────────────────────────────────
@@ -763,7 +762,9 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
 
 @salary_router.callback_query(F.data.startswith("my_d_"))
 async def my_day_detail(callback: CallbackQuery, state: FSMContext):
-    """Сотрудник нажимает на отмеченный день — показывает время смены во всплывашке."""
+    """Сотрудник нажимает на отмеченный день — показывает время смены во всплывашке.
+    Приоритет: конкретное время из work_schedule → шаблон дня недели → 'не указано'.
+    """
     uid = callback.from_user.id
     current_db = await get_db(uid, state)
     user_id = current_db.get_user_id(uid)
@@ -773,12 +774,22 @@ async def my_day_detail(callback: CallbackQuery, state: FSMContext):
     # my_d_{YYYY-MM-DD}
     date_str = callback.data[5:]
     start_t, end_t = current_db.get_work_day_time(user_id, date_str)
+
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
     day_name = _WEEKDAY_NAMES[date_dt.weekday()]
     date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
 
+    # Если у конкретной смены нет времени — берём из шаблона дня недели
+    source = ""
+    if not (start_t and end_t):
+        templates = current_db.get_shift_templates(user_id)
+        tmpl = templates.get(date_dt.weekday())
+        if tmpl:
+            start_t, end_t = tmpl[0], tmpl[1]
+            source = " (по шаблону)"
+
     if start_t and end_t:
-        msg = f"📅 {date_ru}\n⏰ Смена: {start_t} – {end_t}"
+        msg = f"📅 {date_ru}\n⏰ Смена: {start_t} – {end_t}{source}"
     else:
         msg = f"📅 {date_ru}\n✅ Рабочая смена · время не указано"
 
