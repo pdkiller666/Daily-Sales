@@ -126,7 +126,6 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
 
     if is_admin or is_super_admin:
         from filter_utils import ADMIN_FILTER_KEY, get_available_filter_values, filter_button_text, has_anything_to_filter, empty_filter
-        from db_utils import get_user_org_scope
         try:
             _scope_type, _scope_values = get_user_org_scope(callback.from_user.id)
             _avail = get_available_filter_values(current_db, _scope_type, _scope_values)
@@ -898,7 +897,6 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         # Применяем ручной фильтр если установлен (только для полного admin-отчёта без shop_name/city_filter)
         if not shop_name and not city_filter:
             from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
-            from db_utils import get_user_org_scope
             try:
                 _af = data.get(ADMIN_FILTER_KEY, empty_filter())
                 _sc, _sv = get_user_org_scope(callback.from_user.id)
@@ -1196,7 +1194,6 @@ async def rankings_menu_admin(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
-    from db_utils import get_user_org_scope
     data_r = await state.get_data()
     _af = data_r.get(ADMIN_FILTER_KEY, empty_filter())
     filter_row = []
