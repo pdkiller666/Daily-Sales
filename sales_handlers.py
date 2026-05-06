@@ -50,9 +50,9 @@ async def _show_sale_categories(
     reset_cart=False  — не очищает корзину (используется при добавлении следующего товара).
     """
     if reset_cart:
-        await state.update_data(shop_name=shop_name, sale_cart=[])
+        await state.update_data(shop_name=shop_name, sale_cart=[], sale_current_shop=shop_name)
     else:
-        await state.update_data(shop_name=shop_name)
+        await state.update_data(shop_name=shop_name, sale_current_shop=shop_name)
 
     categories = current_db.get_all_categories()
 
@@ -77,32 +77,26 @@ async def _show_sale_categories(
         builder.row(InlineKeyboardButton(text=change_label.strip("· ") if not is_other_shop else change_label,
                                          callback_data="sale_change_shop"))
 
-    # Блок избранных товаров
+    # Кнопки «Избранное» и «Недавние» — раскрываются в отдельном экране
     try:
         user_row = current_db.get_user(callback.from_user.id)
         if user_row:
             u_db_id = user_row[0]
-            fav_ids = current_db.get_favorite_products(u_db_id)
+            fav_ids  = current_db.get_favorite_products(u_db_id) or []
+            recent   = current_db.get_user_recent_products(u_db_id, limit=8) or []
+            row_btns = []
             if fav_ids:
-                fav_products = [current_db.get_product(pid) for pid in fav_ids[:5]]
-                fav_products = [p for p in fav_products if p]
-                if fav_products:
-                    builder.row(InlineKeyboardButton(text="⭐ Избранное", callback_data="pg_noop"))
-                    for p in fav_products:
-                        builder.row(InlineKeyboardButton(
-                            text=f"⭐ {p[1]}",
-                            callback_data=f"sale_product_{p[0]}"
-                        ))
-
-            # Блок недавних продаж
-            recent = current_db.get_user_recent_products(u_db_id, limit=5)
+                row_btns.append(InlineKeyboardButton(
+                    text=f"⭐ Избранное ({len(fav_ids)})",
+                    callback_data="sale_show_favorites"
+                ))
             if recent:
-                builder.row(InlineKeyboardButton(text="🔄 Недавние", callback_data="pg_noop"))
-                for pid, pname, pprice, pcat in recent:
-                    builder.row(InlineKeyboardButton(
-                        text=f"🔄 {pname}",
-                        callback_data=f"sale_product_{pid}"
-                    ))
+                row_btns.append(InlineKeyboardButton(
+                    text=f"🔄 Недавние ({len(recent)})",
+                    callback_data="sale_show_recent"
+                ))
+            if row_btns:
+                builder.row(*row_btns)
     except Exception:
         pass
 
@@ -234,6 +228,102 @@ async def select_sale_shop(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     shop_name = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
     await _show_sale_categories(callback, state, current_db, shop_name)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ИЗБРАННОЕ И НЕДАВНИЕ — отдельные экраны
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _sale_list_screen_kb(items_kb_rows: list, cart: list) -> InlineKeyboardMarkup:
+    """Клавиатура для подэкранов Избранное / Недавние: товары + корзина + назад."""
+    rows = list(items_kb_rows)
+    if cart:
+        rows.append([
+            InlineKeyboardButton(text=f"🛒 Корзина ({len(cart)})", callback_data="view_cart"),
+            InlineKeyboardButton(text="✅ Завершить", callback_data="complete_sale"),
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="sale_back_to_cats")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@sales_router.callback_query(F.data == "sale_show_favorites")
+async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
+    """Подэкран: список избранных товаров."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    user_row = current_db.get_user(callback.from_user.id)
+    if not user_row:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    u_db_id   = user_row[0]
+    fav_ids   = current_db.get_favorite_products(u_db_id) or []
+    fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+    fav_prods = [p for p in fav_prods if p]
+
+    data = await state.get_data()
+    cart = data.get("sale_cart", [])
+
+    if not fav_prods:
+        await callback.message.edit_text(
+            "⭐ <b>Избранное</b>\n\nСписок пуст — добавляйте товары через карточку товара.",
+            reply_markup=_sale_list_screen_kb([], cart),
+            parse_mode="HTML"
+        )
+        return
+
+    rows = [[InlineKeyboardButton(text=f"⭐ {p[1]}", callback_data=f"sale_product_{p[0]}")]
+            for p in fav_prods]
+    await callback.message.edit_text(
+        f"⭐ <b>Избранное</b> · {len(fav_prods)} товаров\n\nВыберите товар:",
+        reply_markup=_sale_list_screen_kb(rows, cart),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data == "sale_show_recent")
+async def sale_show_recent_handler(callback: CallbackQuery, state: FSMContext):
+    """Подэкран: недавно проданные товары."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    user_row = current_db.get_user(callback.from_user.id)
+    if not user_row:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    u_db_id = user_row[0]
+    recent  = current_db.get_user_recent_products(u_db_id, limit=8) or []
+
+    data = await state.get_data()
+    cart = data.get("sale_cart", [])
+
+    if not recent:
+        await callback.message.edit_text(
+            "🔄 <b>Недавние</b>\n\nПока нет истории продаж.",
+            reply_markup=_sale_list_screen_kb([], cart),
+            parse_mode="HTML"
+        )
+        return
+
+    rows = [[InlineKeyboardButton(text=f"🔄 {pname}", callback_data=f"sale_product_{pid}")]
+            for pid, pname, pprice, pcat in recent]
+    await callback.message.edit_text(
+        f"🔄 <b>Недавние</b> · {len(recent)} товаров\n\nВыберите товар:",
+        reply_markup=_sale_list_screen_kb(rows, cart),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data == "sale_back_to_cats")
+async def sale_back_to_cats(callback: CallbackQuery, state: FSMContext):
+    """Возврат к экрану выбора категорий из подэкранов (Избранное / Недавние)."""
+    await callback.answer()
+    current_db  = await get_db(callback.from_user.id, state)
+    data        = await state.get_data()
+    shop_name   = data.get("sale_current_shop") or data.get("shop_name", "")
+    allow_change = data.get("sale_allow_change", False)
+    await _show_sale_categories(
+        callback, state, current_db, shop_name,
+        allow_change=allow_change, reset_cart=False
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
