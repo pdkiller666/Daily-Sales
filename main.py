@@ -187,17 +187,19 @@ async def send_payment_alerts(bot: Bot):
         current_utc = datetime.now(pytz.UTC)
 
         for path in db_paths:
+            await asyncio.sleep(0)  # уступаем event loop между DB-файлами
             current_db = Database(path)
             try:
-                users = current_db.get_users_for_notifications('payment')
+                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'payment')
 
                 for user_data in users:
+                    await asyncio.sleep(0)  # уступаем event loop между пользователями
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
 
                     if not telegram_id or not notification_time_str:
                         continue
 
-                    user_timezone = current_db.get_user_timezone(telegram_id)
+                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
                         user_now = current_utc.astimezone(user_tz)
@@ -206,10 +208,10 @@ async def send_payment_alerts(bot: Bot):
                     except Exception:
                         continue
 
-                    shop_bot_user = shop_bot_db.get_user(telegram_id)
+                    shop_bot_user = await asyncio.to_thread(shop_bot_db.get_user, telegram_id)
                     if not shop_bot_user:
                         continue
-                    subscription = shop_bot_db.get_user_subscription(shop_bot_user[0])
+                    subscription = await asyncio.to_thread(shop_bot_db.get_user_subscription, shop_bot_user[0])
                     if not subscription:
                         continue
 
@@ -230,7 +232,7 @@ async def send_payment_alerts(bot: Bot):
                     # Для каждого порога — отправляем первый неотправленный
                     for t in THRESHOLDS:
                         if days_remaining <= t:
-                            if shop_bot_db.has_sent_reminder(shop_user_id, t, end_date):
+                            if await asyncio.to_thread(shop_bot_db.has_sent_reminder, shop_user_id, t, end_date):
                                 continue  # этот порог уже отправлен, проверяем следующий
                             # Формируем сообщение
                             if days_remaining <= 0:
@@ -250,8 +252,8 @@ async def send_payment_alerts(bot: Bot):
                             )
                             try:
                                 await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=add_read_btn())
-                                shop_bot_db.mark_reminder_sent(shop_user_id, t, end_date)
-                                current_db.add_notification_to_history(user_id, 'payment', reminder)
+                                await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
+                                await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
                             except Exception as send_err:
                                 logging.error(f"Ошибка отправки напоминания {telegram_id}: {send_err}")
                             break  # отправляем только самый срочный непосланный порог
@@ -270,14 +272,16 @@ async def send_sales_alerts(bot: Bot):
         current_utc = datetime.now(pytz.UTC)
 
         for path in db_paths:
+            await asyncio.sleep(0)
             current_db = Database(path)
             try:
-                users = current_db.get_users_for_notifications('sales')
+                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'sales')
                 for user_data in users:
+                    await asyncio.sleep(0)
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
                     if not telegram_id or not notification_time_str: continue
 
-                    user_timezone = current_db.get_user_timezone(telegram_id)
+                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
                         if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str: continue
@@ -285,7 +289,7 @@ async def send_sales_alerts(bot: Bot):
 
                     yesterday = (datetime.now() - timedelta(days=1)).isoformat()
                     today = datetime.now().isoformat()
-                    recent_sales = current_db.get_user_sales_by_date(user_id, yesterday, today)
+                    recent_sales = await asyncio.to_thread(current_db.get_user_sales_by_date, user_id, yesterday, today)
 
                     if recent_sales:
                         message = f"🛍️ <b>Уведомление о новых продажах</b>\n\n"
@@ -298,7 +302,7 @@ async def send_sales_alerts(bot: Bot):
                             message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
 
                         await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                        current_db.add_notification_to_history(user_id, 'sales', message)
+                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
             except Exception: continue
     except Exception as e:
         logging.error(f"Error in send_sales_alerts: {e}")
@@ -313,20 +317,22 @@ async def send_personalized_notifications(bot: Bot):
         current_utc = datetime.now(pytz.UTC)
 
         for path in db_paths:
+            await asyncio.sleep(0)
             current_db = Database(path)
             try:
-                users = current_db.get_users_for_notifications('low_stock')
+                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'low_stock')
                 for user_data in users:
+                    await asyncio.sleep(0)
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
                     if not telegram_id or not notification_time_str: continue
 
-                    user_timezone = current_db.get_user_timezone(telegram_id)
+                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
                         if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str: continue
                     except Exception: continue
 
-                    low_stock_items = current_db.get_low_stock_items_for_user(user_id, shop_name, threshold or 5)
+                    low_stock_items = await asyncio.to_thread(current_db.get_low_stock_items_for_user, user_id, shop_name, threshold or 5)
                     if low_stock_items:
                         message = f"📦 <b>Уведомление о низких остатках</b>\n\n"
                         if shop_name: message += f"🏪 Магазин: {he(shop_name)}\n\n"
@@ -334,7 +340,7 @@ async def send_personalized_notifications(bot: Bot):
                             message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
                         
                         await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                        current_db.add_notification_to_history(user_id, 'low_stock', message)
+                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
             except Exception: continue
     except Exception as e:
         logging.error(f"Error in send_personalized_notifications: {e}")
@@ -352,15 +358,17 @@ async def send_daily_reports(bot: Bot):
         yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
 
         for path in db_paths:
+            await asyncio.sleep(0)
             current_db = Database(path)
             try:
-                users = current_db.get_users_for_notifications('daily_report')
+                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'daily_report')
                 for user_data in users:
+                    await asyncio.sleep(0)
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
                     if not telegram_id or not notification_time_str:
                         continue
 
-                    user_timezone = current_db.get_user_timezone(telegram_id)
+                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
                         if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str:
@@ -372,17 +380,19 @@ async def send_daily_reports(bot: Bot):
                         if is_any_admin(telegram_id):
                             from db_utils import get_user_org_scope
                             _sct, _scv = get_user_org_scope(telegram_id)
-                            message = build_admin_daily_text(
+                            message = await asyncio.to_thread(
+                                build_admin_daily_text,
                                 current_db, yesterday, shop_name,
                                 scope_type=_sct, scope_values=_scv
                             )
                         else:
-                            message = build_user_daily_text(
+                            message = await asyncio.to_thread(
+                                build_user_daily_text,
                                 current_db, user_id, telegram_id, yesterday, shop_name
                             )
                     except Exception as e:
                         logging.error(f"send_daily_reports: ошибка формирования текста для {telegram_id}: {e}")
-                        sales = current_db.get_user_sales_by_date(user_id, yesterday, yesterday)
+                        sales = await asyncio.to_thread(current_db.get_user_sales_by_date, user_id, yesterday, yesterday)
                         message = f"📊 <b>Ежедневный отчёт за {yesterday}</b>\n\n"
                         if shop_name:
                             message += f"🏪 Магазин: {he(shop_name)}\n\n"
@@ -393,7 +403,7 @@ async def send_daily_reports(bot: Bot):
                             message += "ℹ️ Продаж не было."
 
                     await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                    current_db.add_notification_to_history(user_id, 'daily_report', message)
+                    await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'daily_report', message)
             except Exception:
                 continue
     except Exception as e:
@@ -407,11 +417,12 @@ async def check_scheduled_notifications(bot: Bot):
         now_iso = datetime.now().isoformat()
 
         for path in db_paths:
+            await asyncio.sleep(0)
             if not os.path.exists(path):
                 continue
             current_db = Database(path)
             try:
-                pending = current_db.get_scheduled_notifications(status='pending')
+                pending = await asyncio.to_thread(current_db.get_scheduled_notifications, status='pending')
                 for notif in pending:
                     notif_id = notif[0]
                     job_id = notif[1]
@@ -431,10 +442,11 @@ async def check_scheduled_notifications(bot: Bot):
                     send_count = 0
                     seen_tids: set = set()
                     for send_path in all_paths:
+                        await asyncio.sleep(0)
                         if not os.path.exists(send_path):
                             continue
                         send_db = Database(send_path)
-                        recipients = send_db.get_users_for_notifications('admin')
+                        recipients = await asyncio.to_thread(send_db.get_users_for_notifications, 'admin')
                         for user_data in recipients:
                             uid_internal, telegram_id = user_data[0], user_data[1]
                             if not telegram_id:
@@ -620,47 +632,42 @@ async def main():
     # Сохраняем scheduler в модуле для доступа из других файлов
     scheduler_module.set_scheduler(scheduler)
     
-    # Задача уведомлений о продажах каждую минуту
+    # Задача уведомлений о продажах — каждую минуту, старт на секунде 0
     scheduler.add_job(
         send_sales_alerts,
-        'cron',
-        minute='*',
+        CronTrigger(minute='*', second=0),
         args=[bot],
         id='personalized_sales_alerts'
     )
 
-    # Задача платежных уведомлений каждую минуту
+    # Задача платежных уведомлений — каждую минуту, старт на секунде 12
     scheduler.add_job(
         send_payment_alerts,
-        'cron',
-        minute='*',
+        CronTrigger(minute='*', second=12),
         args=[bot],
         id='personalized_payment_alerts'
     )
-    
-    # Задача ежедневных отчетов каждую минуту (для проверки времени пользователей)
+
+    # Задача ежедневных отчетов — каждую минуту, старт на секунде 24
     scheduler.add_job(
         send_daily_reports,
-        'cron',
-        minute='*',
+        CronTrigger(minute='*', second=24),
         args=[bot],
         id='personalized_daily_reports'
     )
-    
-    # Задача проверки остатков каждую минуту (для проверки времени пользователей)
+
+    # Задача проверки остатков — каждую минуту, старт на секунде 36
     scheduler.add_job(
         send_personalized_notifications,
-        'cron',
-        minute='*',
+        CronTrigger(minute='*', second=36),
         args=[bot],
         id='personalized_stock_check'
     )
-    
-    # Задача выполнения запланированных уведомлений каждую минуту
+
+    # Задача выполнения запланированных уведомлений — каждую минуту, старт на секунде 48
     scheduler.add_job(
         check_scheduled_notifications,
-        'cron',
-        minute='*',
+        CronTrigger(minute='*', second=48),
         args=[bot],
         id='check_scheduled_notifications'
     )
