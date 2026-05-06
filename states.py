@@ -139,6 +139,9 @@ class PaymentSystemStates(StatesGroup):
     waiting_trial_days = State()
     waiting_trial_plan = State()
 
+class QuickSaleStates(StatesGroup):
+    searching_product = State()
+
 class RankingStates(StatesGroup):
     choosing_start_date = State()
     choosing_end_date   = State()

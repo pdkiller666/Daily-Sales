@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import Database
 from env_manager import env_manager
 from keyboards import main_menu, inventory_menu, back_button, create_selection_keyboard
-from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates
+from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates
 from utils import format_currency, get_stock_color_indicator, format_date_display, he
 
 # Создаем роутер для продаж
@@ -18,6 +18,21 @@ from keyboards import safe_cb, resolve_cb_name
 from message_utils import fsm_edit, delete_message_safe
 
 # ПРОДАЖИ
+
+def _make_qty_keyboard(max_qty: int) -> InlineKeyboardMarkup:
+    """Клавиатура быстрого выбора количества (кнопки + ввод вручную)"""
+    common = [1, 2, 3, 5, 10, 20, 50]
+    available = [q for q in common if q <= max_qty]
+    rows = []
+    # Кнопки количества, по 4 в строку
+    for i in range(0, len(available), 4):
+        rows.append([
+            InlineKeyboardButton(text=str(q), callback_data=f"sq_qty_{q}")
+            for q in available[i:i+4]
+        ])
+    rows.append([InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="sq_qty_manual")])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, current_db, shop_name: str):
     """Вспомогательная функция: показывает категории для выбора товара в продаже"""
@@ -33,19 +48,26 @@ async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, curr
         return
 
     builder = InlineKeyboardBuilder()
-    for category in categories:
-        builder.add(InlineKeyboardButton(text=f"📂 {category}", callback_data=safe_cb("sale_category_", category)))
+    # Кнопка быстрого поиска — во всю ширину первой строкой
+    builder.row(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_quick_search"))
 
+    # Категории по 2 в строку
     products = current_db.get_all_products()
     has_no_category = any(not p[2] or p[2] == "Без категории" for p in products)
+    cat_buttons = [
+        InlineKeyboardButton(text=f"📂 {cat}", callback_data=safe_cb("sale_category_", cat))
+        for cat in categories
+    ]
     if has_no_category:
-        builder.add(InlineKeyboardButton(text="📁 Без категории", callback_data="sale_category_Без категории"))
+        cat_buttons.append(InlineKeyboardButton(text="📁 Без категории", callback_data="sale_category_Без категории"))
+    for i in range(0, len(cat_buttons), 2):
+        builder.row(*cat_buttons[i:i+2])
 
-    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale"))
-    builder.adjust(2, 1)
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale"))
 
     await callback.message.edit_text(
-        f"🛒 Новая продажа <b>[{he(shop_name)}]</b>\n\nВыберите категорию товара для добавления в корзину:",
+        f"🛒 Новая продажа <b>[{he(shop_name)}]</b>\n\n"
+        f"🔍 Найдите товар по названию или выберите категорию:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -122,6 +144,86 @@ async def select_sale_shop(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     shop_name = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
     await _show_sale_categories(callback, state, current_db, shop_name)
+
+
+@sales_router.callback_query(F.data == "sale_quick_search")
+async def quick_search_start(callback: CallbackQuery, state: FSMContext):
+    """Запуск быстрого поиска товара по названию"""
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        "🔍 <b>Быстрый поиск товара</b>\n\n"
+        "Введите название или часть названия товара:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")]
+        ]),
+        parse_mode="HTML"
+    )
+    await state.set_state(QuickSaleStates.searching_product)
+
+
+@sales_router.message(QuickSaleStates.searching_product)
+async def process_quick_search(message: Message, state: FSMContext):
+    """Поиск товара по введённому запросу — показывает товары в наличии"""
+    query = (message.text or "").strip()
+    if not query:
+        await fsm_edit(
+            state, message,
+            "🔍 Введите название товара:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")]
+            ])
+        )
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    data = await state.get_data()
+    shop_name = data.get("shop_name", "")
+
+    all_products = current_db.get_all_products()
+    query_lower = query.lower()
+
+    matching = []
+    for p in all_products:
+        pid, name, category, price = p[0], p[1], p[2], p[3]
+        qty = current_db.get_inventory(shop_name, pid)
+        if qty > 0 and query_lower in name.lower():
+            matching.append((pid, name, category or "Без категории", price, qty))
+
+    if not matching:
+        await fsm_edit(
+            state, message,
+            f"🔍 По запросу «{he(query)}» ничего не найдено в наличии.\n\n"
+            f"Попробуйте другой запрос:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Искать снова", callback_data="sale_quick_search")],
+                [InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    shown = matching[:15]
+    rows = []
+    for pid, name, category, price, qty in shown:
+        color = get_stock_color_indicator(qty)
+        rows.append([InlineKeyboardButton(
+            text=f"{color} {name} — {qty} шт. × {price:.0f}₽",
+            callback_data=f"sale_product_{pid}"
+        )])
+
+    extra = f"\n<i>(показаны первые 15 из {len(matching)})</i>" if len(matching) > 15 else ""
+    rows.append([InlineKeyboardButton(text="🔍 Искать снова", callback_data="sale_quick_search")])
+    rows.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")])
+
+    await fsm_edit(
+        state, message,
+        f"🔍 <b>Результаты поиска</b> «{he(query)}»{extra}\n\n"
+        f"Найдено: {len(matching)} — выберите товар:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+
 
 @sales_router.callback_query(F.data.startswith("sale_category_"))
 async def select_sale_category(callback: CallbackQuery, state: FSMContext):
@@ -216,13 +318,12 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         f"💰 Продажа товара:\n\n"
-        f"🏷 {product[1]}\n"
+        f"🏷 {he(product[1])}\n"
         f"💰 Цена: {format_currency(product[3])}\n"
         f"📦 В наличии: {quantity} шт.{motivation_text}\n\n"
-        f"Введите количество для продажи:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")]
-        ])
+        f"Выберите количество или введите вручную:",
+        reply_markup=_make_qty_keyboard(quantity),
+        parse_mode="HTML"
     )
     await state.set_state(SaleStates.entering_quantity)
 
@@ -294,6 +395,83 @@ async def process_sale_quantity(message: Message, state: FSMContext):
     except Exception:
         await fsm_edit(state, message, "❌ Произошла ошибка при обработке продажи. Попробуйте ещё раз.",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")]]))
+
+
+@sales_router.callback_query(F.data.startswith("sq_qty_"), SaleStates.entering_quantity)
+async def quick_qty_select(callback: CallbackQuery, state: FSMContext):
+    """Быстрый выбор количества кнопкой вместо ввода текста"""
+    qty_str = callback.data.replace("sq_qty_", "")
+    current_db = await get_db(callback.from_user.id, state)
+    data = await state.get_data()
+    shop_name = data.get("shop_name", "")
+    product_id = data.get("product_id")
+
+    if not product_id:
+        await callback.answer("❌ Сессия устарела. Начните продажу заново.", show_alert=True)
+        return
+
+    # «Ввести вручную» — оставляем текстовый ввод, просто убираем кнопки
+    if qty_str == "manual":
+        await callback.answer()
+        product = current_db.get_product(product_id)
+        max_qty = current_db.get_inventory(shop_name, product_id)
+        await callback.message.edit_text(
+            f"✏️ <b>Введите количество вручную</b>\n\n"
+            f"🏷 {he(product[1])}\n"
+            f"📦 В наличии: {max_qty} шт.\n\n"
+            f"Напишите число и отправьте:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        quantity = int(qty_str)
+    except ValueError:
+        await callback.answer("❌ Неверное значение", show_alert=True)
+        return
+
+    max_qty = current_db.get_inventory(shop_name, product_id)
+    if quantity > max_qty:
+        await callback.answer(f"❌ В наличии только {max_qty} шт.", show_alert=True)
+        return
+
+    await callback.answer()
+    product = current_db.get_product(product_id)
+    default_price = product[3]
+
+    motivation_info = current_db.get_product_motivation(product_id)
+    motivation_text = ""
+    if motivation_info:
+        if motivation_info['motivation_type'] == 'percentage':
+            earn = (default_price * quantity) * (motivation_info['motivation_value'] / 100)
+            motivation_text = f"\n🎯 Мотивация: {motivation_info['motivation_value']}% = {format_currency(earn)}"
+        else:
+            earn = motivation_info['motivation_value'] * quantity
+            motivation_text = f"\n🎯 Мотивация: {format_currency(motivation_info['motivation_value'])} × {quantity} = {format_currency(earn)}"
+    else:
+        motivation_text = "\n🎯 Мотивация: не установлена"
+
+    await state.update_data(quantity=quantity)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💰 Стандартная цена ({format_currency(default_price)})", callback_data="use_default_price")],
+        [InlineKeyboardButton(text="✏️ Указать свою цену", callback_data="custom_price")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")]
+    ])
+
+    await callback.message.edit_text(
+        f"💰 <b>Выберите цену для продажи:</b>\n\n"
+        f"🏷 {he(product[1])}\n"
+        f"📦 Количество: {quantity} шт.\n"
+        f"💰 Стандартная цена: {format_currency(default_price)}{motivation_text}\n\n"
+        f"Выберите вариант:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
 
 @sales_router.callback_query(F.data == "use_default_price")
 async def use_default_price(callback: CallbackQuery, state: FSMContext):

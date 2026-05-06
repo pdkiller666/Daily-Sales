@@ -1001,6 +1001,43 @@ day_cbs_feb25 = [cb for cb in [btn.callback_data for row in kb_feb25.inline_keyb
 check("_calendar_kb февраль 2025: 28 дней", len(day_cbs_feb25) == 28)
 
 # ─────────────────────────────────────────────────────────
+# БЫСТРЫЙ ПОИСК ТОВАРОВ (_make_qty_keyboard, QuickSaleStates)
+# ─────────────────────────────────────────────────────────
+from sales_handlers import _make_qty_keyboard
+from states import QuickSaleStates
+from aiogram.fsm.state import State
+
+# _make_qty_keyboard: при max_qty=0 — только кнопки «Вручную» и «Отмена»
+kb0 = _make_qty_keyboard(0)
+all_cb0 = [btn.callback_data for row in kb0.inline_keyboard for btn in row]
+check("_make_qty_keyboard(0): нет числовых кнопок", not any(
+    cb.startswith("sq_qty_") and cb.replace("sq_qty_", "").isdigit() for cb in all_cb0
+))
+check("_make_qty_keyboard(0): есть sq_qty_manual", "sq_qty_manual" in all_cb0)
+check("_make_qty_keyboard(0): есть cancel_sale", "cancel_sale" in all_cb0)
+
+# _make_qty_keyboard: при max_qty=3 — кнопки 1,2,3 только
+kb3 = _make_qty_keyboard(3)
+all_cb3 = [btn.callback_data for row in kb3.inline_keyboard for btn in row]
+digit_cbs3 = [cb for cb in all_cb3 if cb.startswith("sq_qty_") and cb.replace("sq_qty_", "").isdigit()]
+check("_make_qty_keyboard(3): ровно 3 числовые кнопки", len(digit_cbs3) == 3)
+check("_make_qty_keyboard(3): есть sq_qty_1", "sq_qty_1" in all_cb3)
+check("_make_qty_keyboard(3): есть sq_qty_3", "sq_qty_3" in all_cb3)
+check("_make_qty_keyboard(3): нет sq_qty_5", "sq_qty_5" not in all_cb3)
+
+# _make_qty_keyboard: при max_qty=100 — все 7 стандартных значений
+kb100 = _make_qty_keyboard(100)
+all_cb100 = [btn.callback_data for row in kb100.inline_keyboard for btn in row]
+digit_cbs100 = [cb for cb in all_cb100 if cb.startswith("sq_qty_") and cb.replace("sq_qty_", "").isdigit()]
+check("_make_qty_keyboard(100): 7 числовых кнопок (1-2-3-5-10-20-50)", len(digit_cbs100) == 7)
+check("_make_qty_keyboard(100): sq_qty_50 присутствует", "sq_qty_50" in all_cb100)
+check("_make_qty_keyboard(100): sq_qty_manual присутствует", "sq_qty_manual" in all_cb100)
+
+# QuickSaleStates: состояние существует и является State
+check("QuickSaleStates.searching_product — это State",
+      isinstance(QuickSaleStates.searching_product, State))
+
+# ─────────────────────────────────────────────────────────
 # ИТОГ
 # ─────────────────────────────────────────────────────────
 print(f"\n{'='*60}")
