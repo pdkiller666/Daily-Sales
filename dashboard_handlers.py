@@ -548,19 +548,20 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     text += "\n"
 
     # ── Планы продаж ─────────────────────────────────────────────────────────
-    text += "📋 <b>Планы продаж</b>\n"
-    if scale == 'single':
-        text += "\n"
-        if plans_progress:
-            for plan_row, actual, pct in plans_progress:
-                try:
-                    text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
-                except Exception:
-                    pass
-        else:
-            text += "• Активных планов нет\n\n"
+    text += "📋 <b>Планы продаж</b>\n\n"
+    if plans_progress:
+        MAX_BARS = 8 if scale == 'single' else 6
+        for plan_row, actual, pct in plans_progress[:MAX_BARS]:
+            try:
+                text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+            except Exception:
+                pass
+        if len(plans_progress) > MAX_BARS:
+            rest = plans_progress[MAX_BARS:]
+            on_track = sum(1 for _, _, p in rest if p >= 75)
+            text += f"  ···  ещё {len(rest)} планов · ✅ {on_track} в графике\n\n"
     else:
-        text += _plans_summary_text(plans_progress) + "\n"
+        text += "• Активных планов нет\n\n"
 
     # ── Конкурсы ─────────────────────────────────────────────────────────────
     if contests_cnt:

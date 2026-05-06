@@ -1282,21 +1282,7 @@ async def edit_sales_menu(callback: CallbackQuery, state: FSMContext):
     
     await clear_state_keep_org(state)
     
-    if is_admin:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="📝 Редактировать продажи", callback_data="edit_sales_start")
-        builder.button(text="⬅️ Назад", callback_data="admin_management")
-        builder.adjust(1)
-        
-        await callback.message.edit_text(
-            "📝 <b>Управление продажами</b>\n\n"
-            "Выберите раздел:",
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML"
-        )
-    else:
-        # Для обычного пользователя показываем сразу выбор периода
-        await edit_sales_start(callback, state)
+    await edit_sales_start(callback, state)
 
 @sales_router.callback_query(F.data == "edit_sales_start")
 async def edit_sales_start(callback: CallbackQuery, state: FSMContext):
@@ -1395,11 +1381,10 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
 async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
                               period_title: str, page: int = 0):
     """Показывает список продаж для редактирования (с пагинацией)."""
-    # Сохраняем полный список в FSM для навигации по страницам
     await state.update_data(edit_sales_cache=sales, edit_sales_title=period_title)
 
     builder = InlineKeyboardBuilder()
-    message_text = f"📝 Редактирование продаж — {period_title}\n\n"
+    message_text = f"📝 <b>Редактирование продаж</b> — {he(period_title)}\n\n"
 
     if not sales:
         message_text += "❌ Продажи не найдены."
@@ -1420,7 +1405,7 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
             total        = quantity * sale_price
             formatted_date = format_date_for_user(sale_date, callback.from_user.id)
 
-            message_text += f"{i}. 🏷 {product_name}\n"
+            message_text += f"{i}. 🏷 {he(product_name)}\n"
             message_text += f"   📦 {quantity} × {format_currency(sale_price)} = {format_currency(total)}\n"
             message_text += f"   📅 {formatted_date}\n\n"
             builder.add(InlineKeyboardButton(
@@ -1434,7 +1419,9 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
         builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
         builder.adjust(1)
 
-    await callback.message.edit_text(message_text, reply_markup=builder.as_markup())
+    # Сохраняем текущую страницу для восстановления из карточки продажи
+    await state.update_data(edit_sales_page_num=page)
+    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await state.set_state(EditSaleStates.choosing_sale)
 
 
@@ -1491,20 +1478,22 @@ async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegr
     builder.add(
         InlineKeyboardButton(text="📦 Изменить количество", callback_data="edit_quantity"),
         InlineKeyboardButton(text="💰 Изменить цену", callback_data="edit_price"),
+        InlineKeyboardButton(text="📅 Изменить дату", callback_data="edit_sale_date"),
         InlineKeyboardButton(text="🗑 Удалить продажу", callback_data="delete_sale"),
         InlineKeyboardButton(text="⬅️ К списку", callback_data="back_to_sales_list")
     )
     builder.adjust(1)
-    
+
     await message.edit_text(
-        f"📝 Редактирование продажи\n\n"
-        f"🏷 Товар: {product_name}\n"
+        f"📝 <b>Редактирование продажи</b>\n\n"
+        f"🏷 Товар: <b>{he(product_name)}</b>\n"
         f"📦 Количество: {quantity} шт.\n"
         f"💰 Цена продажи: {format_currency(sale_price)}\n"
         f"💸 Сумма: {format_currency(total)}\n"
         f"📅 Дата: {formatted_date}\n\n"
         f"Выберите действие:",
-        reply_markup=builder.as_markup()
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
     )
 
 @sales_router.callback_query(F.data.startswith("edit_sale_"))
@@ -1548,17 +1537,21 @@ async def process_quantity_edit(message: Message, state: FSMContext):
         current_db = await get_db(message.from_user.id, state)
         _editor_id = current_db.get_user_id(message.from_user.id)
         if current_db.update_sale(sale_id, new_quantity, changed_by=_editor_id):
+            await state.update_data(current_quantity=new_quantity)
             await fsm_edit(
                 state, message,
-                f"✅ Количество успешно изменено!\n\n"
-                f"🏷 Товар: {data['product_name']}\n"
-                f"📦 Новое количество: {new_quantity} шт.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📝 К редактированию", callback_data="edit_sales")]]),
+                f"✅ <b>Количество изменено!</b>\n\n"
+                f"🏷 Товар: <b>{he(data['product_name'])}</b>\n"
+                f"📦 Новое количество: <b>{new_quantity} шт.</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✏️ Ещё изменить", callback_data="back_to_edit_sale")],
+                    [InlineKeyboardButton(text="⬅️ К списку продаж", callback_data="back_to_sales_list")],
+                    [InlineKeyboardButton(text="📋 Меню", callback_data="edit_sales")],
+                ]),
             )
+            await state.set_state(EditSaleStates.choosing_sale)
         else:
             await fsm_edit(state, message, "❌ Ошибка при обновлении количества!", reply_markup=_cancel_kb)
-        
-        await clear_state_keep_org(state)
         
     except ValueError:
         await fsm_edit(state, message, "📦 ❌ Введите корректное целое число!", reply_markup=_cancel_kb)
@@ -1598,19 +1591,23 @@ async def process_price_edit(message: Message, state: FSMContext):
         current_db = await get_db(message.from_user.id, state)
         _editor_id = current_db.get_user_id(message.from_user.id)
         if current_db.update_sale(sale_id, quantity, sale_price=new_price, changed_by=_editor_id):
+            await state.update_data(price=new_price)
             await fsm_edit(
                 state, message,
-                f"✅ Цена продажи успешно изменена!\n\n"
-                f"🏷 Товар: {data['product_name']}\n"
-                f"💰 Новая цена: {format_currency(new_price)}\n"
+                f"✅ <b>Цена изменена!</b>\n\n"
+                f"🏷 Товар: <b>{he(data['product_name'])}</b>\n"
+                f"💰 Новая цена: <b>{format_currency(new_price)}</b>\n"
                 f"📦 Количество: {quantity} шт.\n"
-                f"💸 Новая сумма: {format_currency(new_price * quantity)}",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📝 К редактированию", callback_data="edit_sales")]]),
+                f"💸 Новая сумма: <b>{format_currency(new_price * quantity)}</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✏️ Ещё изменить", callback_data="back_to_edit_sale")],
+                    [InlineKeyboardButton(text="⬅️ К списку продаж", callback_data="back_to_sales_list")],
+                    [InlineKeyboardButton(text="📋 Меню", callback_data="edit_sales")],
+                ]),
             )
+            await state.set_state(EditSaleStates.choosing_sale)
         else:
             await fsm_edit(state, message, "❌ Ошибка при обновлении цены!", reply_markup=_cancel_kb)
-        
-        await clear_state_keep_org(state)
         
     except ValueError:
         await fsm_edit(state, message, "💰 ❌ Введите корректное число (например: 1500 или 1500.50)!", reply_markup=_cancel_kb)
@@ -1645,26 +1642,35 @@ async def delete_sale_confirmed(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
     sale_id = data['sale_id']
-    
+
     current_db = await get_db(callback.from_user.id, state)
     if current_db.delete_sale(sale_id):
+        # Убираем удалённую продажу из кеша, чтобы список был актуален
+        cached = data.get('edit_sales_cache') or []
+        updated_cache = [s for s in cached if s[0] != sale_id]
+        await state.update_data(edit_sales_cache=updated_cache)
+
+        has_list = bool(updated_cache)
+        kb_rows = []
+        if has_list:
+            kb_rows.append([InlineKeyboardButton(text="⬅️ К списку продаж", callback_data="back_to_sales_list")])
+        kb_rows.append([InlineKeyboardButton(text="📋 Меню", callback_data="edit_sales")])
+
         await callback.message.edit_text(
-            f"✅ Продажа успешно удалена!\n\n"
-            f"🏷 Товар: {data['product_name']}\n"
+            f"✅ <b>Продажа удалена!</b>\n\n"
+            f"🏷 Товар: <b>{he(data['product_name'])}</b>\n"
             f"📦 Количество: {data['current_quantity']} шт.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📝 К редактированию", callback_data="edit_sales")]
-            ])
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+            parse_mode="HTML"
         )
+        await state.set_state(EditSaleStates.choosing_sale)
     else:
         await callback.message.edit_text(
             "❌ Ошибка при удалении продажи!",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📝 К редактированию", callback_data="edit_sales")]
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_edit_sale")]
             ])
         )
-    
-    await clear_state_keep_org(state)
 
 @sales_router.callback_query(F.data == "back_to_edit_sale")
 async def back_to_edit_sale(callback: CallbackQuery, state: FSMContext):
@@ -1676,9 +1682,149 @@ async def back_to_edit_sale(callback: CallbackQuery, state: FSMContext):
 
 @sales_router.callback_query(F.data == "back_to_sales_list")
 async def back_to_sales_list(callback: CallbackQuery, state: FSMContext):
-    """Возврат к списку продаж"""
-    # Возвращаемся к меню редактирования продаж
-    await edit_sales_menu(callback, state)
+    """Возврат к списку продаж из кеша FSM (без повторного запроса к БД)."""
+    await callback.answer()
+    data = await state.get_data()
+    cached = data.get('edit_sales_cache')
+    title  = data.get('edit_sales_title', 'Продажи')
+    page   = data.get('edit_sales_page_num', 0)
+    if cached is not None:
+        await show_sales_for_edit(callback, cached, state, title, page=page)
+    else:
+        # Кеш утерян — возвращаем на выбор периода
+        await edit_sales_start(callback, state)
+
+@sales_router.callback_query(F.data == "edit_sale_date")
+async def edit_sale_date_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню смены даты продажи — быстрые варианты + календарь."""
+    await callback.answer()
+    from datetime import date, timedelta
+    data = await state.get_data()
+    today_dt  = date.today()
+    yesterday = today_dt - timedelta(days=1)
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        f"📅 <b>Изменить дату продажи</b>\n\n"
+        f"🏷 Товар: <b>{he(data.get('product_name', ''))}</b>\n\n"
+        f"Выберите новую дату:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"📅 Сегодня ({today_dt.strftime('%d.%m')})",
+                                  callback_data=f"esd_quick_{today_dt.isoformat()}")],
+            [InlineKeyboardButton(text=f"📅 Вчера ({yesterday.strftime('%d.%m')})",
+                                  callback_data=f"esd_quick_{yesterday.isoformat()}")],
+            [InlineKeyboardButton(text="🗓 Выбрать другую дату", callback_data="esd_calendar")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_edit_sale")],
+        ]),
+        parse_mode="HTML"
+    )
+    await state.set_state(EditSaleStates.editing_date)
+
+@sales_router.callback_query(F.data.startswith("esd_quick_"))
+async def edit_sale_date_quick(callback: CallbackQuery, state: FSMContext):
+    """Применить быструю дату к продаже."""
+    await callback.answer()
+    new_date = callback.data.replace("esd_quick_", "")
+    data = await state.get_data()
+    sale_id = data.get('sale_id')
+    if not sale_id:
+        await callback.answer("❌ Продажа не найдена!", show_alert=True)
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    editor_id  = current_db.get_user_id(callback.from_user.id)
+    if current_db.update_sale_date(sale_id, new_date, changed_by=editor_id):
+        from datetime import datetime
+        disp = format_date_display(new_date)
+        await callback.message.edit_text(
+            f"✅ <b>Дата изменена!</b>\n\n"
+            f"🏷 Товар: <b>{he(data['product_name'])}</b>\n"
+            f"📅 Новая дата: <b>{disp}</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✏️ Ещё изменить", callback_data="back_to_edit_sale")],
+                [InlineKeyboardButton(text="⬅️ К списку продаж", callback_data="back_to_sales_list")],
+                [InlineKeyboardButton(text="📋 Меню", callback_data="edit_sales")],
+            ]),
+            parse_mode="HTML"
+        )
+        await state.set_state(EditSaleStates.choosing_sale)
+    else:
+        await callback.answer("❌ Ошибка при изменении даты!", show_alert=True)
+
+@sales_router.callback_query(F.data == "esd_calendar")
+async def edit_sale_date_calendar(callback: CallbackQuery, state: FSMContext):
+    """Открыть календарь для выбора даты продажи."""
+    await callback.answer()
+    from keyboards import generate_calendar
+    calendar = generate_calendar(cancel_callback="edit_sale_date", prefix="esd_cal_")
+    await callback.message.edit_text(
+        "📅 Выберите новую дату продажи:",
+        reply_markup=calendar
+    )
+
+@sales_router.callback_query(F.data.startswith("esd_cal_"))
+async def edit_sale_date_calendar_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора даты через календарь для смены даты продажи."""
+    from keyboards import generate_calendar
+    from datetime import datetime, date
+    action = callback.data.replace("esd_cal_", "")
+    data_state = await state.get_data()
+
+    if action == "ignore":
+        await callback.answer()
+        return
+    if action.startswith("nav_"):
+        parts = action.replace("nav_", "").split("_")
+        yr, mo = int(parts[0]), int(parts[1])
+        await state.update_data(esd_cal_year=yr, esd_cal_month=mo)
+        cal = generate_calendar(yr, mo, "edit_sale_date", "esd_cal_")
+        await callback.message.edit_text("📅 Выберите новую дату продажи:", reply_markup=cal)
+        await callback.answer()
+        return
+    if action in ("prev_month", "next_month"):
+        yr = data_state.get('esd_cal_year', date.today().year)
+        mo = data_state.get('esd_cal_month', date.today().month)
+        if action == "prev_month":
+            mo -= 1
+            if mo == 0:
+                mo = 12; yr -= 1
+        else:
+            mo += 1
+            if mo == 13:
+                mo = 1; yr += 1
+        await state.update_data(esd_cal_year=yr, esd_cal_month=mo)
+        cal = generate_calendar(yr, mo, "edit_sale_date", "esd_cal_")
+        await callback.message.edit_text("📅 Выберите новую дату продажи:", reply_markup=cal)
+        await callback.answer()
+        return
+    if action.startswith("date_"):
+        date_str = action.replace("date_", "")
+        try:
+            datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            await callback.answer("❌ Неверный формат даты!", show_alert=True)
+            return
+        sale_id = data_state.get('sale_id')
+        if not sale_id:
+            await callback.answer("❌ Продажа не найдена!", show_alert=True)
+            return
+        current_db = await get_db(callback.from_user.id, state)
+        editor_id  = current_db.get_user_id(callback.from_user.id)
+        if current_db.update_sale_date(sale_id, date_str, changed_by=editor_id):
+            disp = format_date_display(date_str)
+            await callback.message.edit_text(
+                f"✅ <b>Дата изменена!</b>\n\n"
+                f"🏷 Товар: <b>{he(data_state['product_name'])}</b>\n"
+                f"📅 Новая дата: <b>{disp}</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✏️ Ещё изменить", callback_data="back_to_edit_sale")],
+                    [InlineKeyboardButton(text="⬅️ К списку продаж", callback_data="back_to_sales_list")],
+                    [InlineKeyboardButton(text="📋 Меню", callback_data="edit_sales")],
+                ]),
+                parse_mode="HTML"
+            )
+            await state.set_state(EditSaleStates.choosing_sale)
+        else:
+            await callback.answer("❌ Ошибка при изменении даты!", show_alert=True)
+        await callback.answer()
 
 @sales_router.callback_query(F.data == "edit_sales_period")
 async def edit_sales_period_start(callback: CallbackQuery, state: FSMContext):

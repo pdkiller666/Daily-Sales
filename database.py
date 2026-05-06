@@ -2563,6 +2563,35 @@ class Database:
                 conn.close()
             return False
 
+    def update_sale_date(self, sale_id: int, new_date: str, changed_by: int = None) -> bool:
+        """Изменить дату продажи. new_date — строка 'YYYY-MM-DD'."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout = 30000')
+            cursor = conn.cursor()
+            cursor.execute('SELECT sale_date FROM sales WHERE id = ?', (sale_id,))
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return False
+            old_date = row[0]
+            cursor.execute('UPDATE sales SET sale_date = ? WHERE id = ?', (new_date, sale_id))
+            try:
+                cursor.execute('''
+                    INSERT INTO sales_audit_log
+                    (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
+                    SELECT ?, ?, quantity_sold, quantity_sold, sale_price, sale_price
+                    FROM sales WHERE id = ?
+                ''', (sale_id, changed_by, sale_id))
+            except Exception:
+                pass
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"update_sale_date error: {e}")
+            return False
+
     def get_sales_ranking(self, start_date=None, end_date=None,
                           shop_name=None, city=None, trade_network=None,
                           shop_names=None, cities=None, trade_networks=None):

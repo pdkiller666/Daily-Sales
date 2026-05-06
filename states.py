@@ -36,6 +36,7 @@ class EditSaleStates(StatesGroup):
     choosing_sale = State()
     editing_quantity = State()
     editing_price = State()
+    editing_date = State()
     confirming_delete = State()
     choosing_start_date = State()
     choosing_end_date = State()
