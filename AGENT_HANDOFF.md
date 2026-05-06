@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-06 (сессия 35)
+> Последнее обновление: 2026-05-06 (сессия 38)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub + Amvera — сессия 35 (2026-05-06)
+**Последний деплой:** GitHub + Amvera — сессия 38 (2026-05-06), commit `d6de26f`
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -41,13 +41,13 @@ Telegram API
 main.py  — polling, регистрация роутеров, APScheduler (7 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
-│  18 РОУТЕРОВ (handlers)                                          │
+│  19 РОУТЕРОВ (handlers)                                          │
 │  router               ← handlers.py         (старт, профиль)    │
 │  admin_router         ← admin_handlers.py   (орг, юзеры)        │
 │  sales_router         ← sales_handlers.py   (продажи)           │
 │  products_router      ← products_handlers.py (каталог, остатки) │
 │  inventory_router     ← inventory_handlers.py (склад)           │
-│  reports_router       ← reports_handlers.py  (отчёты+дашборд)   │
+│  reports_router       ← reports_handlers.py  (отчёты+рейтинги)  │
 │  commission_router    ← commission_handlers.py (мотивация)      │
 │  earnings_router      ← earnings_handlers.py  (заработок)       │
 │  sales_plans_router   ← sales_plans_handlers.py (планы продаж)  │
@@ -55,17 +55,18 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 │  contacts_router      ← contacts_handlers.py  (контакты)        │
 │  notifications_router ← notifications_handlers.py               │
 │  payment_admin_router ← payment_admin_handlers.py               │
-│  payment_system_router← payment_system_admin.py (~90 функций)   │
-│  subscription_router  ← subscription_router.py (агрегатор)      │
+│  payment_system_router← payment_system_admin.py                 │
+│  subscription_router  ← subscription_router.py                  │
 │  backup_router        ← backup_handlers.py                      │
 │  contests_router      ← contests_handlers.py  (конкурсы)        │
 │  dashboard_router     ← dashboard_handlers.py (дашборд-сводка)  │
+│  filter_router        ← filter_handlers.py    (общий фильтр)    │
 └──────────────────────────────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  СЛОЙ ДАННЫХ                                                     │
 │  db_utils.py        — get_db(), is_any_admin() [ГЛАВНЫЙ]        │
-│  database.py        — класс Database (133+ методов)             │
+│  database.py        — класс Database (156+ методов)             │
 │  tenant_manager.py  — маршрутизация БД по организации           │
 │  env_manager.py     — BOT_TOKEN, ADMIN_CHAT_ID                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -80,11 +81,12 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 ```
 
 **Вспомогательные модули:**
+
 | Файл | Назначение |
 |---|---|
 | `plan_notifications.py` | Уведомления об изменениях тарифов (lazy-импорт из payment_system_admin.py) |
 | `scheduler_module.py` | Синглтон APScheduler — set_scheduler() / get_scheduler() |
-| `timezone_utils.py` | Работа с часовыми поясами пользователей |
+| `timezone_utils.py` | get_user_time(), get_current_user_time(), format_user_datetime(), get_utc_time() |
 | `reports_access_control.py` | Проверка доступа к отчётам по подписке |
 | `subscription_utils.py` | Лимиты подписки, get_plan_limits() |
 | `backup_manager.py` | Резервное копирование и восстановление всех БД |
@@ -92,6 +94,11 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 | `message_utils.py` | fsm_edit(), safe_edit_message() — anchor message pattern |
 | `utils.py` | he(), escape_md(), format_currency(), format_price(), generate_excel_report() |
 | `pickle_storage.py` | FSM persistence через PickleStorage (data/fsm_storage.pkl) |
+| `filter_utils.py` | empty_filter(), get_available_filter_values(), merge_scope_with_filter(), build_filter_keyboard() |
+| `filter_handlers.py` | filter_router: flt_open_{back_cb}, ftog_s/c/n_*, flt_reset |
+| `hints.py` | hint_suffix(), maybe_send_welcome() — onboarding и inline-подсказки |
+| `notif_utils.py` | add_read_btn() — добавляет «✅ Прочитано» ко всем push-уведомлениям |
+| `pagination_utils.py` | paginate(), page_nav_row(), PAGE_SIZE_DEFAULT/SALES/USERS/ORGS |
 
 ---
 
@@ -114,7 +121,7 @@ db = Database('data/shop_bot.db')  # создаёт утечку изоляци�
 
 **get_db() логика (db_utils.py):**
 ```
-super-admin + selected_org_db в state → Database(selected_db) + create_tables()  ← ВАЖНО: create_tables() теперь вызывается!
+super-admin + selected_org_db в state → Database(selected_db) + create_tables()
 user в org (tenant_manager)            → Database(org_*.db)   + create_tables()
 иначе                                  → Database(shop_bot.db) + create_tables()
 ```
@@ -124,7 +131,7 @@ user в org (tenant_manager)            → Database(org_*.db)   + create_tables
 ```python
 # ✅ ПРАВИЛЬНО:
 from db_utils import is_any_admin
-if is_any_admin(telegram_id):  # проверяет ADMIN_CHAT_ID ИЛИ роль в org
+if is_any_admin(telegram_id):  # проверяет ADMIN_CHAT_ID ИЛИ роль owner/admin в org
 
 # ❌ НЕПРАВИЛЬНО (не знает об org-ролях):
 from env_manager import env_manager
@@ -146,75 +153,76 @@ await fsm_edit(callback, state, text, keyboard)
 ### 2.4 Очистка state — ТОЛЬКО через clear_state_keep_org()
 
 ```python
-# ✅ ПРАВИЛЬНО — сохраняет selected_org_db для супер-админа:
+# ✅ ПРАВИЛЬНО:
 from db_utils import clear_state_keep_org
 await clear_state_keep_org(state)
 
-# ❌ НЕПРАВИЛЬНО — теряет контекст орг у супер-админа:
+# ✅ С доп. ключами (например Excel):
+await clear_state_keep_org(state, extra_keys=["excel_start", "excel_end", "excel_shop"])
+
+# ❌ ЗАПРЕЩЕНО — теряет контекст орг у супер-админа:
 await state.clear()
 ```
 
-### 2.5 callback_data — КРИТИЧЕСКИЙ ЛИМИТ 64 байта (aiogram)
+### 2.5 callback_data — КРИТИЧЕСКИЙ ЛИМИТ 64 байта
 
 ```python
-# ✅ ПРАВИЛЬНО — для любых user-provided строк:
+# ✅ ПРАВИЛЬНО — для user-provided строк:
 from keyboards import safe_cb, resolve_cb_name
 builder.button(text=shop, callback_data=safe_cb("sale_shop_", shop))
-# В handler'е:
-shop_raw = callback.data.replace("sale_shop_", "")
-shop = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+shop = resolve_cb_name(raw, current_db.get_all_shops() or [])
 
 # ❌ НЕПРАВИЛЬНО — кириллица >= 22 символов ломает API:
 callback_data=f"sale_shop_{shop_name}"
 ```
 
-### 2.6 HTML в сообщениях — ТОЛЬКО через he() для пользовательских строк
+### 2.6 HTML в сообщениях — ТОЛЬКО через he() для user-строк
 
 ```python
 # ✅ ПРАВИЛЬНО:
 from utils import he
 text = f"Товар: <b>{he(product_name)}</b>\nМагазин: <b>{he(shop_name)}</b>"
 
-# ❌ НЕПРАВИЛЬНО — если в имени есть < > & → TelegramBadRequest:
+# ✅ ИСКЛЮЧЕНИЕ — тексты кнопок Telegram НЕ парсит как HTML:
+InlineKeyboardButton(text=f"🏪 {shop_name}")  # he() не нужен
+
+# ❌ НЕПРАВИЛЬНО — < > & → TelegramBadRequest:
 text = f"Товар: <b>{product_name}</b>"
 ```
 
 ### 2.7 Инициализация переменных перед try/except
 
 ```python
-# ✅ ПРАВИЛЬНО — переменная доступна даже при исключении:
+# ✅ ПРАВИЛЬНО:
 plans_progress = []
 try:
     plans_progress = current_db.get_plans_progress()
 except Exception:
     pass
-if plans_progress:   # не NameError
 
 # ❌ НЕПРАВИЛЬНО — NameError если try бросит исключение:
 try:
     plans_progress = current_db.get_plans_progress()
 except Exception:
     pass
-if plans_progress:   # NameError!
+if plans_progress:  # NameError!
 ```
 
-### 2.8 get_all_shops() → list[str], НЕ list[tuple]!
+### 2.8 Timezone — отображение времени пользователю
 
 ```python
-# ✅ ПРАВИЛЬНО:
-shops = current_db.get_all_shops()  # ['Магазин 1', 'Магазин 2']
-for shop in shops:
-    builder.button(text=shop, callback_data=safe_cb("prefix_", shop))
+# ✅ ПРАВИЛЬНО — все отображения времени через timezone_utils:
+from timezone_utils import format_user_datetime, get_current_user_time
+user_tz = current_db.get_user_timezone(user_id)
+now_str = get_current_user_time(user_tz).strftime('%d.%m.%Y · %H:%M')
+time_str = format_user_datetime(raw_iso_str, user_tz, '%H:%M')
 
-# ❌ НЕПРАВИЛЬНО — даёт первый символ строки!:
-builder.button(text=shop[0], ...)   # 'М' вместо 'Магазин 1'
-```
+# ✅ ПРАВИЛЬНО — сохранять время в UTC:
+from timezone_utils import get_utc_time
+utc_dt = get_utc_time(naive_local_dt, admin_tz)  # admin вводит → конвертировать в UTC
 
-### 2.9 Database.db_file, НЕ .db_path!
-
-```python
-current_db.db_file   # ✅ строка пути к файлу
-current_db.db_path   # ❌ AttributeError
+# ❌ НЕПРАВИЛЬНО — datetime.now() на Amvera это UTC, не Москва:
+now_str = datetime.now().strftime('%H:%M')
 ```
 
 ---
@@ -223,28 +231,23 @@ current_db.db_path   # ❌ AttributeError
 
 ### deploy.sh — механика
 
-- Синхронизирует файлы workspace → `/tmp/github-deploy` и `/tmp/amvera-deploy` (отдельные git repo)
+- Синхронизирует файлы workspace → `/tmp/github-deploy` и `/tmp/amvera-deploy`
 - **Исключает**: `.git`, `.local`, `__pycache__`, `data/backup`, `data/tenants`, `*.db`, `*.pkl`, `*.log`
-- `AGENT_HANDOFF.md` и `replit.md` → только в GitHub, не в Amvera
+- `AGENT_HANDOFF.md`, `replit.md`, `PROJECT_MAP.md`, `README.md` → только в GitHub, не в Amvera
 - GitHub: `git push --force origin HEAD:main`
 - Amvera: `git push amvera HEAD:master --force` (ВСЕГДА по умолчанию)
-- После пуша на Amvera: `git ls-remote amvera refs/heads/master` → верификация совпадения хэшей
-- Флаг `--no-amvera` — пропустить Amvera, только GitHub
-
-### Почему Amvera всегда напрямую
-
-Amvera webhook срабатывал ненадёжно — иногда не пересобирал контейнер. Начиная с сессии 34 `deploy.sh` всегда пушит на Amvera напрямую и верифицирует хэш.
+- После пуша: `git ls-remote amvera` → верификация хэша
+- Флаг `--no-amvera` — только GitHub
 
 ### Amvera warnings ("вне persistenceMount") — ВСЕ ЛОЖНЫЕ
 
-Amvera статически сканирует код и видит `sqlite3.connect('data/...')` → предупреждает. Но рабочая директория на Amvera = `/app`, поэтому `data/xxx.db` = `/app/data/xxx.db` = **persistenceMount** ✅. Все файлы `data/main.db`, `data/shop_bot.db`, `data/*.json`, `data/fsm_storage.pkl` хранятся корректно.
+Amvera статически сканирует `sqlite3.connect('data/...')` → предупреждает. Но рабочая директория на Amvera = `/app`, поэтому `data/` = `/app/data/` = persistenceMount ✅.
 
 ### Amvera persistent data (production)
 
-- Persistent mount: `/app/data` (только эта папка сохраняется между перезапусками)
+- Persistent mount: `/app/data`
 - Файлы: `main.db`, `shop_bot.db`, `fsm_storage.pkl`, `tenants/org_huawei.db`, `backup/`
-- Код приходит из git (Amvera repo), данные — из persistent volume (git не перезаписывает)
-- `org_huawei.db` — единственная тенант-БД в production. Создана до ряда миграций, но `create_tables()` авто-применяет их при первом обращении
+- `org_huawei.db` — единственная тенант-БД в production. `create_tables()` авто-применяет миграции.
 
 ---
 
@@ -255,35 +258,42 @@ Amvera статически сканирует код и видит `sqlite3.con
 | Таблица | Ключевые колонки |
 |---|---|
 | `organizations` | id, name, owner_id, invite_code, db_path, subscription_plan, is_active |
-| `user_org_mapping` | telegram_id, org_id, role (super_admin/admin/user) |
-| `users` | зеркало профиля для быстрого поиска |
+| `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title |
 
 ### data/shop_bot.db и data/tenants/org_*.db — идентичная схема
 
 | Таблица | Назначение |
 |---|---|
-| `users` | telegram_id, first_name, last_name, phone, email, trade_network, shop_name, city, timezone, admin_notifications |
+| `users` | telegram_id, first_name, last_name, phone, email, trade_network, shop_name, city, timezone |
 | `products` | id, name, category, price, motivation_type, motivation_value |
 | `inventory` | shop_name, product_id, quantity, last_updated |
+| `inventory_history` | shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
 | `sales` | product_id, shop_name, quantity_sold, sale_price, user_id, sale_date |
-| `seller_earnings` | user_id, sale_id, amount, earning_date |
+| `seller_earnings` | user_id, sale_id, product_id, quantity, base_amount, commission_amount, total_amount, sale_date |
 | `motivation_rules` | product_id, commission_type, commission_value, admin_id |
 | `motivation_conditions` | условия мотивации (сверхплан, коэф. смены, фильтр категорий) |
-| `motivation_extra_conditions` | доп. условия (создана миграцией в create_tables) |
+| `motivation_extra_conditions` | доп. условия (миграция в create_tables) |
 | `salary_settings` | user_id, daily_rate, updated_by |
-| `work_schedule` | user_id, work_date, UNIQUE(user_id, work_date) |
+| `work_schedule` | user_id, work_date, **start_time**, **end_time**, marked_by — UNIQUE(user_id, work_date) |
+| `shift_templates` | user_id, weekday (0=Пн..6=Вс), start_time, end_time — UNIQUE(user_id, weekday) |
 | `sales_plans` | id, plan_type, metric_type, target_value, target_type, user_id, shop_name, filter_type, filter_value, is_active, created_by |
+| `plan_milestone_alerts` | user_id, plan_id, milestone (50/75/100), period_start — UNIQUE(user_id, plan_id, milestone, period_start) |
 | `notification_settings` | low_stock_alerts, daily_reports, sales_alerts, payment_alerts, admin_notifications |
-| `scheduled_notifications` | id, job_id(UUID), created_by(FK→users.id!), notification_text, recipients_type, scheduled_datetime, status |
+| `notification_history` | id, user_id, notification_type, message, created_at, is_read |
+| `scheduled_notifications` | id, job_id(UUID), created_by(FK→users.id!), notification_text, recipients_type, scheduled_datetime(**UTC**), status |
 | `contests` | id, title, contest_type, scope, metric, target_value, reward_type, reward_value, start_date, end_date, status, winner_user_id |
+| `user_hints_seen` | user_id, hint_key, seen_at |
+| `user_product_favorites` | user_id, product_id |
+| `user_product_recent` | user_id, product_id, last_used |
 
 ### data/shop_bot.db ТОЛЬКО (платежи централизованы):
 
 | Таблица | Назначение |
 |---|---|
 | `subscriptions` | user_id, plan_type, start_date, end_date, is_active |
+| `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
 | `payment_requests` | заявки на оплату + file_id чека + promocode_id |
-| `payment_settings` | card_number, recipient_name, bank_name |
+| `payment_settings` | card_number, recipient_name, bank_name, trial_days, trial_plan |
 | `subscription_plans` | name, price, duration_days, max_products, max_shops, features |
 | `promocodes` | code, discount_percent, max_usage, current_usage, is_active |
 
@@ -291,82 +301,120 @@ Amvera статически сканирует код и видит `sqlite3.con
 
 ## 5. КЛЮЧЕВЫЕ ФУНКЦИИ
 
-### db_utils.py — точка входа к БД
+### db_utils.py
 
 ```
-get_db(telegram_id, state)     → Database  — ОСНОВНАЯ функция
-  super-admin + selected_org → org_db + create_tables()  ← create_tables() ОБЯЗАТЕЛЕН
-  user в org                 → tenant org_*.db + create_tables()
-  иначе                      → shop_bot.db + create_tables()
-
-get_db_sync(telegram_id)       → Database  — для синхронных контекстов
-is_any_admin(telegram_id)      → bool      — ADMIN_CHAT_ID ИЛИ роль в org
-get_user_org_role(telegram_id) → str|None  — 'super_admin'/'admin'/'user'/None
-clear_state_keep_org(state)    → None      — очистка state БЕЗ потери selected_org_db
+get_db(telegram_id, state)            → Database  — ОСНОВНАЯ функция
+get_db_sync(telegram_id)              → Database  — для синхронных контекстов (APScheduler)
+is_any_admin(telegram_id)             → bool      — ADMIN_CHAT_ID ИЛИ роль owner/admin в org
+get_user_org_role(telegram_id)        → str|None  — 'owner'/'admin'/'user'/None
+get_user_org_scope(telegram_id)       → (scope_type, list[str])
+get_user_full_scope(telegram_id)      → (scope_type, list[str], custom_title)
+get_role_display_label(role, scope_type, scope_values, custom_title=None) → str
+clear_state_keep_org(state, extra_keys=None) → None
 ```
 
-### dashboard_handlers.py — дашборд
+### timezone_utils.py
+
+```python
+get_user_time(naive_dt, tz_name)         → datetime  — naive UTC → tz-aware local
+get_current_user_time(tz_name)           → datetime  — текущее время в TZ пользователя
+format_user_datetime(raw_str, tz, fmt)   → str       — ISO UTC-строка → форматированное локальное
+get_utc_time(naive_local_dt, tz_name)    → datetime  — local naive → UTC datetime
+
+# raw_str в format_user_datetime может быть ISO datetime или "HH:MM" — оба обрабатываются
+```
+
+### dashboard_handlers.py
 
 ```python
 build_admin_dashboard(current_db, today, now_str, user_id=0, telegram_id=0) → str
-  # Показывает: зарплатный блок, продажи + мотивация за сегодня, остатки,
-  #             ВСЕ активные планы с прогресс-барами, конкурсы, список смены с ФИО
-  # Планы отображаются через _plan_summary_line() — тот же формат что в "Мои планы"
-
-build_user_dashboard(current_db, user_id, telegram_id, today, now_str) → str
-  # Показывает: зарплата, мотивация, продажи сегодня, планы, призы конкурсов
-
-_on_shift_details(db_file, today) → list[(first_name, last_name, shop_name)]
-  # JOIN work_schedule + users — список сотрудников на смене сегодня
-
+build_user_dashboard(current_db, user_id, telegram_id, today, now_str)      → str
+_on_shift_details(db_file, today)     → list[(first_name, last_name, shop_name)]
 _today_total_earnings(db_file, today) → float
-  # SUM(seller_earnings.commission_amount) JOIN sales WHERE sale_date = today
-
-_plan_summary_line(plan, actual, percent) → str
-  # Формат: "📋 **who** · период · метрика · кат. «...»\nbar pct%\nФакт: x / Цель: y"
+_plan_summary_line(plan, actual, percent) → str  — канонический формат плана
+# now_str вычисляется через get_current_user_time(user_tz) в вызывающем коде
 ```
 
-### sales_plans_handlers.py — планы продаж
+### salary_handlers.py — callbacks смен и шаблонов
 
 ```
-_plan_summary_line(plan, actual, percent) → str  — канонический формат отображения плана
-_PERIOD_LABELS = {'weekly': 'Неделя', 'monthly': 'Месяц', ...}
-_METRIC_LABELS = {'turnover': 'Оборот (₽)', 'quantity': 'Количество (шт)'}
-
-Callback prefixes (редактирование плана):
-  epwho_       — выбор получателя (seller/shop/all)
-  epwhousr_    — выбор конкретного продавца
-  epwhoshp_    — выбор конкретного магазина
-  epwhotgt_    — подтверждение получателя
-  epperiod_    — выбор периода
-  epmetric_    — выбор метрики
-  epfilter_    — выбор фильтра (all/category/product)
-  epperset_    — сохранить filter=all
-  epmset_      — подтверждение мультивыбора категорий/товаров
-  plnflt_cat   — мультивыбор категорий (в create и edit режиме)
+Callback prefixes:
+  slr_rates              — ставки сотрудников
+  slr_set_{uid}          — редактировать ставку
+  slr_scheds             — список графиков
+  slr_cal_{uid}_{y}_{m}  — календарь смен (admin)
+  slr_tog_{uid}_{date}   — переключить день (добавить/снять, применяет шаблон при добавлении)
+  slr_day_{uid}_{date}   — под-экран управления конкретным днём
+  slr_rm_{uid}_{date}    — снять смену
+  slr_ets_{uid}_{date}   — изменить время: пикер часов начала
+  slr_etw_{uid}_{date}   — пикер часов конца
+  slr_te_{h}_{uid}_{date}  — выбрать час начала → сразу к slr_etw_
+  slr_tw_{h}_{uid}_{date}  — выбрать час конца → сохранить + slr_day_
+  slr_tmpl_{uid}_{y}_{m}   — шаблон смен (⏰ Расписание смен)
+  tmpl_day_{uid}_{wd}       — день шаблона (0=Пн..6=Вс)
+  tmpl_off_{uid}_{wd}       — отметить выходным
+  tmpl_te_{uid}_{wd}        — пикер начала шаблона
+  tmpl_tw_{uid}_{wd}        — пикер конца шаблона
+  tmpl_te_h_{h}_{uid}_{wd}  — выбрать час начала шаблона
+  tmpl_tw_h_{h}_{uid}_{wd}  — выбрать час конца → сохранить
+  my_schedule               — своё расписание (user)
+  my_d_{date}               — детали дня (user, editable=False)
+  slr_sum_{y}_{m}           — зарплатный итог за месяц
 ```
 
-### utils.py — утилиты
+### filter_utils.py + filter_handlers.py
 
 ```
-he(text)                → str   — html.escape для Telegram HTML parse_mode
-escape_md(text)         → str   — экранирование Markdown V1
-format_currency(amount) → str   — '12 345₽'
-format_price(price)     → str   — '12 345' (без знака валюты)
-generate_excel_report(...)      — выгрузка продаж в .xlsx
+ADMIN_FILTER_KEY = "admin_filter"  — ключ в FSM data, сохраняется между экранами
+
+empty_filter()                     → dict  — пустой фильтр {shops:[], cities:[], networks:[]}
+get_available_filter_values(db, scope_type, scope_values) → dict
+merge_scope_with_filter(scope_type, scope_values, active_filter) → dict  — scope потолок, фильтр пол
+build_filter_keyboard(available, active, back_cb) → InlineKeyboardMarkup
+
+Callbacks (filter_router):
+  flt_open_{back_cb}  — открыть панель (back_cb = callback кнопки «✅ Применить»)
+  ftog_s_{val}        — переключить магазин (safe_cb/resolve_cb_name)
+  ftog_c_{val}        — переключить город
+  ftog_n_{val}        — переключить торговую сеть
+  flt_reset           — сбросить фильтр
+```
+
+### hints.py + notif_utils.py + pagination_utils.py
+
+```python
+# hints.py
+hint_suffix(db, user_id, hint_key) → str   — подсказка при первом визите раздела
+maybe_send_welcome(msg_or_cb, db, user_id, is_admin)  — popup при первом входе
+# Ключи HINT_TEXTS: 'sales','reports','products','dashboard','plans','contests','rankings'
+# hint_dismiss:{hint_key} → удаляет попап (registered in main.py)
+
+# notif_utils.py
+add_read_btn(existing_markup=None) → InlineKeyboardMarkup
+# Добавляет «✅ Прочитано» (callback notif_read) ко всем push-уведомлениям
+
+# pagination_utils.py
+PAGE_SIZE_DEFAULT=8, PAGE_SIZE_USERS=10, PAGE_SIZE_ORGS=8, PAGE_SIZE_SALES=8
+paginate(items, page=0, per_page) → (page_items, total_pages)
+page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ```
 
 ### main.py — APScheduler (7 задач)
 
-| ID задачи | Функция | Расписание |
+| ID задачи | Расписание | Назначение |
 |---|---|---|
-| `send_sales_alerts` | send_sales_alerts | каждую минуту |
-| `send_payment_alerts` | send_payment_alerts | каждую минуту |
-| `send_daily_reports` | send_daily_reports | каждую минуту |
-| `send_personalized_notifications` | send_personalized_notifications | каждую минуту |
-| `check_scheduled_notifications` | check_scheduled_notifications | каждую минуту |
-| `auto_finish_contests` | auto_finish_contests | каждую минуту |
-| `backup_job` | daily_backup_task | 03:00 ежедневно |
+| `send_sales_alerts` | каждую минуту | уведомления о дневных целях продаж |
+| `send_payment_alerts` | каждую минуту | напоминания об окончании подписки |
+| `send_daily_reports` | каждую минуту | ежедневные отчёты |
+| `send_personalized_notifications` | каждую минуту | персонализированные уведомления |
+| `check_scheduled_notifications` | каждую минуту | запланированные рассылки (UTC) |
+| `auto_finish_contests` | каждые 30 минут | автозавершение конкурсов |
+| `backup_job` | 03:00 ежедневно | авто-бэкап всех БД |
+
+**Timezone в APScheduler:** все задачи используют `datetime.now()` (UTC на Amvera), конвертируют через `.astimezone(user_tz)` для сравнения с настроенным временем.
+
+**Scheduled notifications:** admin вводит время → `get_utc_time(naive, admin_tz)` → хранится UTC → `check_scheduled_notifications` сравнивает `datetime.now().isoformat()` (UTC) с UTC → корректно. Список показывается через `format_user_datetime(raw_utc, admin_tz)`.
 
 ---
 
@@ -380,141 +428,115 @@ generate_excel_report(...)      — выгрузка продаж в .xlsx
 
 **Сессии 24–25:** мотивационные условия (сверхплан, коэф.); планы продаж; зарплата и смены.
 
-**Сессия 26:** кросс-организационный broadcast баг; check_notifications_permission получал DB-id вместо telegram_id; JOIN sn.created_by = u.id (не u.telegram_id); добавлена задача check_scheduled_notifications.
+**Сессия 26:** cross-org broadcast баг; check_notifications_permission получал DB-id вместо telegram_id; JOIN sn.created_by = u.id; добавлена задача check_scheduled_notifications.
 
-**Сессия 27:** итоговый аудит. HTML-инъекция устранена в 44 местах / 9 файлах (he()). 0 bare except, 0 print(). GitHub `bcd5c2f`.
+**Сессия 27:** итоговый аудит. HTML-инъекция устранена в 44 местах / 9 файлах (he()). 0 bare except, 0 print().
 
 **Сессия 28:** аудит сессий 24–25. Критический баг salary_handlers (fsm_edit вместо edit_text). he() в commission_handlers и sales_plans_handlers.
 
 **Сессия 29:** `is_any_admin()` переписан — роль в user_org_mapping приоритетнее ADMIN_CHAT_ID. role='user' всегда False.
 
-**Сессия 30:** конкурсы (полный жизненный цикл); дашборд перенесён в Отчёты; инвайт для орг-admin; баг salary_handlers с is_admin().
+**Сессия 30:** конкурсы (полный жизненный цикл); дашборд перенесён в Отчёты; инвайт для орг-admin.
 
-**Сессии 31–32:** multi-select категорий в plan wizard; редактирование планов; дашборд пользователя (все планы, призы конкурсов); инвайт для орг-admin.
+**Сессии 31–32:** multi-select категорий в plan wizard; редактирование планов; дашборд пользователя (все планы, призы конкурсов).
 
 **Сессия 33:**
-1. **Anchor message fix** — `clear_state_keep_org` ПОСЛЕ `fsm_edit` (не до). Файлы: `sales_plans_handlers.py`, `commission_handlers.py`.
-2. **Edit plan: все поля** — расширено редактирование до Получателя/Периода/Метрики/Фильтра. Callback prefixes: `epwho_*`, `epperiod_*`, `epmetric_*`, `epfilter_*`.
-3. **Admin dashboard: все планы** — `build_admin_dashboard` итерирует ВСЕ активные планы через `_plan_summary_line()`.
-4. **Баг: `plans_progress` NameError** — исправлено: `plans_progress = []` до try.
-5. **Баг: create_tables() не вызывался для супер-админа** — исправлено в `db_utils.py`.
-6. **deploy.sh exclusions** — исключены `.db`, `.pkl`, `data/tenants/` из GitHub.
-7. **Amvera webhook lag** — решение: `--with-amvera` для прямого push.
+1. Anchor message fix — `clear_state_keep_org` ПОСЛЕ `fsm_edit`.
+2. Edit plan: все поля (Получатель/Период/Метрика/Фильтр). Callback prefixes: `epwho_*`, `epperiod_*`, `epmetric_*`, `epfilter_*`.
+3. Admin dashboard: все планы через `_plan_summary_line()`.
+4. Баг `plans_progress` NameError исправлен.
+5. `create_tables()` теперь вызывается для супер-адмна в `get_db()`.
+6. `deploy.sh exclusions` — исключены `.db`, `.pkl`, `data/tenants/` из GitHub.
 
 **Сессия 34:**
-1. **Профиль пользователя** (`handlers.py`) — роль показывается вверху (👑/🔧/👤), дата регистрации в формате DD.MM.YYYY через таймзону пользователя, `he()` на всех полях.
-2. **Очистка архива конкурсов** (`contests_handlers.py` + `database.py`) — кнопка «Очистить архив» с подтверждением; метод `clear_contests_archive()`.
-3. **`is_any_admin()` приоритет** (`db_utils.py`) — роль в `user_org_mapping` теперь приоритетнее `env_manager`. Исправлено: join-mode пользователи не получают права админа.
-4. **Admin dashboard** (`dashboard_handlers.py`):
-   - Подпись: `build_admin_dashboard(db, today, now_str, user_id=0, telegram_id=0)` — теперь передаётся из `reports_menu` (был баг: вызов без user_id).
-   - Новый хелпер `_on_shift_details()` — JOIN work_schedule+users, возвращает список `(fn, ln, shop)` вместо простого счётчика.
-   - Новый хелпер `_today_total_earnings()` — суммарная мотивация за сегодня из seller_earnings+sales.
-   - Блок «Продажи сегодня» показывает «Мотивация (выплачено): N ₽».
-   - Блок «Команда сегодня» показывает детальный список: «— Тарасов Илья · ТЦ Лето».
-5. **Reports: меню и отчёты** (`reports_handlers.py`):
-   - Кнопка «🏙️ По городу» убрана из главного меню админа — она перенесена внутрь «За период».
-   - «За период» для админа: `📊 Общий | 🏪 По магазину | 🏙️ По городу` (три кнопки на экране выбора дат).
-   - Сотрудник — новые кнопки: `📊 Мои продажи` (бывший «Отчёт по магазину»), `📅 Текущий месяц` (быстрый отчёт с 1-го числа по сегодня), `📅 За период`.
-   - `generate_period_report`: сотрудник теперь фильтрует по `user_id` (не shop_name) — только свои продажи.
-   - `report_today`: Markdown → HTML, `he()` на именах товаров/магазинов.
-   - Новые обработчики: `period_report_city` → список городов → `period_city_*` → отчёт; `report_my_month`.
-6. **Rankings: полный рефакторинг** (`reports_handlers.py` + `database.py`):
-   - Удалён дублирующий `user_rankings_menu_handler` (строка 136), который обходил меню.
-   - `get_sales_ranking()` → теперь 8 колонок (добавлен `u.id as user_db_id`); все старые `row[:7]` работают.
-   - Новые хелперы: `_ranking_period(period)` → `(start, end, label)`; `_period_kb(active, rtype, back_cb)` → клавиатура с тоглами периода.
-   - Меню: admin = Продавцы + Магазины + Города + Очистить; user = Продавцы + Магазины.
-   - Рейтинг магазинов открыт для всех (не только admin).
-   - Период: `7 дней | ✅ Этот месяц | Прошлый` — тогл без возврата в меню.
-   - Продавцы: если пользователь вне топ-10 — показывается его позиция внизу («📍 Ваша позиция: 15-е место»).
-   - Все рейтинги: HTML вместо Markdown, единый период (текущий месяц по умолчанию).
-   - Callback-схема: `rank_sel_month/7d/prev`, `rank_shp_month/7d/prev`, `rank_cty_month/7d/prev`.
-7. **deploy.sh** — `--with-amvera` стал дефолтом; добавлен флаг `--no-amvera`; после каждого Amvera пуша верификация через `git ls-remote`.
+1. Профиль пользователя — роль вверху, дата в DD.MM.YYYY, he() на всех полях.
+2. Очистка архива конкурсов с подтверждением.
+3. `is_any_admin()` приоритет: org-роль > env_manager.
+4. Admin dashboard: `_on_shift_details()` + `_today_total_earnings()`.
+5. Reports: «По городу» внутри «За период»; сотрудник — «Мои продажи» + «Текущий месяц».
+6. Rankings: 8 колонок в `get_sales_ranking()`; `_ranking_period()`; `_period_kb()`; позиция вне топ-10.
+7. `deploy.sh` — `--no-amvera` флаг; верификация через `git ls-remote`.
 
-**Сессия 36 — быстрый поиск товара + кнопки количества в продаже:**
+**Сессия 35:**
+1. he() аудит: contacts_handlers, payment_admin_handlers, main.py, plan_notifications, payment_system_admin.
+2. `clear_state_keep_org(state, extra_keys=[...])` — сохранение доп. ключей FSM.
+3. Excel download → FSM (избавился от длинных callback_data).
+4. `safe_cb()` / `resolve_cb_name()` в handlers.py и admin_handlers.py.
+5. **Multi-scope**: scope_value = JSON array; toggle UI `adm_t_s/c/n_*` + `adm_scope_submit`.
+6. **Custom title**: custom_title в user_org_mapping; `set_user_title()`; 🏷️ в карточке пользователя.
 
-1. **`QuickSaleStates`** — новый FSM-класс в `states.py` (`searching_product = State()`).
-2. **`_make_qty_keyboard(max_qty)`** в `sales_handlers.py` — возвращает `InlineKeyboardMarkup` с кнопками [1,2,3,5,10,20,50] (только ≤ max_qty) + «✏️ Ввести вручную» + «❌ Отмена». Автоматически фильтрует значения по остатку склада.
-3. **`_show_sale_categories`** — добавлена кнопка «🔍 Найти товар» в первую строку экрана категорий; категории выводятся по 2 в ряд через `builder.row()`.
-4. **`quick_search_start`** — хендлер `sale_quick_search`: переводит в `QuickSaleStates.searching_product`, просит ввести текст.
-5. **`process_quick_search`** — хендлер текста в `QuickSaleStates.searching_product`: ищет case-insensitive по названию среди товаров **с ненулевым остатком** в магазине пользователя, показывает до 15 результатов с кнопками `sale_product_{id}`. При отсутствии — предлагает повтор или возврат к категориям.
-6. **`select_sale_product`** — заменён одиночный «❌ Отмена» на `_make_qty_keyboard(quantity)` + `he()` добавлен к `product[1]`.
-7. **`quick_qty_select`** — хендлер `sq_qty_*` в `SaleStates.entering_quantity`: при нажатии цифры — сразу переходит к выбору цены (минуя ввод текста); при `sq_qty_manual` — убирает кнопки и предлагает ввести число.
-8. **Тесты**: 11 новых сценариев в `test_scenarios.py` для `_make_qty_keyboard` и `QuickSaleStates` → итого **279/279 ✅**.
-9. **Деплой**: GitHub `599f305` · Amvera `9b8fd1f` — хэши совпадают ✅.
+**Сессия 36:**
+1. **QuickSaleStates** (`searching_product = State()`).
+2. **`_make_qty_keyboard(max_qty)`** — кнопки [1,2,3,5,10,20,50] + «✏️ Ввести вручную».
+3. **Быстрый поиск** — «🔍 Найти товар» в экране категорий; поиск по ненулевому остатку.
+4. **`sq_qty_*`** — выбор количества без ввода текста.
+5. Тесты: 11 новых → итого **279/279 ✅**.
 
-**Сессия 35 — полный he() аудит + multi-scope + custom_title:**
+**Сессия 37:**
+1. **`shift_templates`** таблица — UNIQUE(user_id, weekday), weekday 0=Пн..6=Вс.
+2. **`work_schedule`** — добавлены колонки `start_time`, `end_time`; миграция авто.
+3. **6 новых методов database.py**: `set_shift_template`, `get_shift_templates`, `get_work_day_time`, `add_work_day`, `remove_work_day`, `set_work_day_time`.
+4. **salary_handlers.py** (~796 строк): пикер часов `_hour_picker_kb()`; цепочки slr_te/slr_tw; при slr_tog → применяет шаблон дня недели.
+5. **⏰ Расписание смен** — кнопка `slr_tmpl_` в календаре; экран просмотра/редактирования 7 дней.
+6. **my_day_detail** — сотрудник: время из work_schedule или шаблона (fallback).
 
-1. **he() аудит: все оставшиеся файлы** — добавлен `from utils import he` в `contacts_handlers.py` и `payment_admin_handlers.py`; применён `he()` ко всем user-строкам в HTML-блоках:
-   - `contacts_handlers.py` — all 5 handlers: my profile, support contact, shop contacts, city contacts, all contacts (first_name, last_name, middle_name, phone, email, shop, city, trade_network).
-   - `main.py:286` `he(shop_name)` в уведомлении о продажах; `L292` `he(product_name)` в том же блоке; `L326` `he(shop_name)` в уведомлении об остатках.
-   - `payment_admin_handlers.py:179` — `he(first_name)`, `he(last_name)`, `he(plan_name)` в caption чека.
-   - `plan_notifications.py:31,78,120` — `he(first_name)` в трёх notification-функциях.
-   - `payment_system_admin.py:1198` — `he(shop_name)` в активных подписках.
-2. **`clear_state_keep_org` расширен** — параметр `extra_keys: list | None = None` для сохранения доп. ключей FSM (использован для Excel: `excel_start`, `excel_end`, `excel_shop`).
-3. **`download_excel_period_` → FSM** — callback_data с русскими именами магазинов мог превышать 64 байта; перенесено в FSM-ключи; обработчик изменён на `F.data == "download_excel_period"`.
-4. **`prof_shop_pick_` / `prof_net_pick_`** в `handlers.py` — `safe_cb()` + `resolve_cb_name()`.
-5. **`adm_shop_pick_` / `adm_net_pick_`** в `admin_handlers.py` — `safe_cb()` + `resolve_cb_name()`.
-6. **Multi-scope (multi-select)** — `scope_value` хранится как JSON array; UI: toggle `adm_t_s_*`/`adm_t_c_*`/`adm_t_n_*` + `adm_scope_submit`; `get_user_org_scope()` → `(scope_type, list[str])`.
-7. **Custom title** — `custom_title` колонка в `user_org_mapping`; `set_user_title()` в tenant_manager; `get_role_display_label(..., custom_title)` — приоритет над вычисленным ярлыком; `AdminUserStates.waiting_for_admin_title`; кнопка 🏷️ в карточке пользователя и меню роли.
-8. **Импорт-аудит** — 28 модулей проверены (26 основных + plan_notifications + payment_system_admin): 0 ошибок.
+**Сессия 38:**
+1. **«📝 Мои продажи»** восстановлена в `main_menu()` для обычных продавцов (keyboards.py).
+2. **«query is too old»** TelegramBadRequest → DEBUG (не засоряет логи).
+3. **Timezone earnings**: время продажи в «Моём заработке» → `format_user_datetime(sale_date, user_tz, '%H:%M')`.
+4. **now_str**: дашборд и отчёты → `get_current_user_time(user_tz).strftime(...)`.
+5. **Scheduled notifications UTC fix**: ввод → `get_utc_time(naive, admin_tz)` → хранить; список → `format_user_datetime(raw_utc, admin_tz)`.
+6. **Аудит итог**: 34/34 модулей · 279/279 тестов · 0 кириллицы в callback_data.
 
 ---
 
 ## 7. ТИПИЧНЫЕ ЛОВУШКИ
 
 1. **`clear_state_keep_org` ПОСЛЕ `fsm_edit`** — не до! Иначе anchor_msg_id теряется.
-
 2. **Инициализировать переменные перед try/except** — если используются снаружи блока.
-
 3. **`state.clear()` запрещён** → только `clear_state_keep_org(state)`.
-
-4. **Пользовательские строки в HTML** → всегда `he(var)`. Даже shop_name может содержать `<>&`.
-
+4. **Пользовательские строки в HTML** → всегда `he(var)`. Тексты кнопок — не нужен.
 5. **`get_users_for_notifications()`** → `[0]` = внутренний users.id, `[1]` = telegram_id.
-
-6. **scheduled_notifications.created_by** хранит users.id (не telegram_id). JOIN = `ON sn.created_by = u.id`.
-
+6. **`scheduled_notifications.created_by`** хранит users.id (не telegram_id). JOIN = `ON sn.created_by = u.id`.
 7. **Новый роутер** → зарегистрировать в main.py.
-
 8. **callback_data + кириллица** → `safe_cb(prefix, value)`, не f-строка.
-
-9. **Планировщик** → `_get_scheduler_db_paths()` для итерации всех тенантов. Никогда не хранить глобальный Database.
-
+9. **Планировщик** → `_get_scheduler_db_paths()` для итерации всех тенантов.
 10. **plan_notifications.py** — lazy-импорт (внутри функций), не на уровне модуля.
-
 11. **Database.db_file** (не .db_path!) — атрибут пути к файлу.
-
-12. **Amvera webhook** — force-push может не триггерить rebuild. Используй `--with-amvera` если изменения не доходят.
-
-13. **Тестовые БД не в GitHub** — `*.db`, `*.pkl`, `data/tenants/` исключены из deploy.sh. Не добавлять их обратно.
-
-14. **`get_user_org_scope()`** → `(scope_type, list[str])` НЕ `(str, str)` — scope_values всегда список (пустой = полный доступ).
-
-15. **`clear_state_keep_org(state, extra_keys=[...])`** — передавай ключи для сохранения. Пример: `clear_state_keep_org(state, extra_keys=["excel_start","excel_end","excel_shop"])`.
-
-16. **InlineKeyboardButton.text** — Telegram НЕ парсит HTML в тексте кнопок. `he()` там НЕ нужен, даже если сообщение с `parse_mode="HTML"`.
+12. **`get_user_org_scope()`** → `(scope_type, list[str])` НЕ `(str, str)`.
+13. **`clear_state_keep_org(state, extra_keys=[...])`** — для сохранения доп. ключей.
+14. **InlineKeyboardButton.text** — Telegram НЕ парсит HTML. `he()` не нужен.
+15. **`get_sales_ranking()`** → 8 колонок; 8-я = `u.id`; `row[:7]` для старого 7-кол. unpacking.
+16. **Время на Amvera — UTC.** `datetime.now()` = UTC. Для отображения — `timezone_utils`.
+17. **`shift_templates`**: weekday 0=Пн, 6=Вс. `date.weekday()` — та же нумерация.
+18. **slr_te_/slr_tw_**: пикеры идут напрямую к slr_etw_ и slr_day_ (без промежуточного экрана).
 
 ---
 
 ## 8. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Полный импорт-аудит (все модули):
+# 1. Полный импорт-аудит (34 модуля):
 python3 -c "
 errors=[]
 for m in ['database','db_utils','tenant_manager','env_manager','keyboards','states','utils',
-          'message_utils','handlers','admin_handlers','dashboard_handlers','reports_handlers',
-          'sales_plans_handlers','payment_admin_handlers','subscription_handlers',
+          'message_utils','timezone_utils','handlers','admin_handlers','dashboard_handlers',
+          'reports_handlers','sales_plans_handlers','payment_admin_handlers','subscription_handlers',
           'commission_handlers','contests_handlers','salary_handlers','notifications_handlers',
           'earnings_handlers','sales_handlers','products_handlers','inventory_handlers',
-          'backup_handlers','contacts_handlers','plan_notifications','payment_system_admin','main']:
+          'backup_handlers','contacts_handlers','plan_notifications','payment_system_admin','main',
+          'filter_handlers','filter_utils','hints','notif_utils','pagination_utils']:
     try: __import__(m); print(f'  ✅ {m}')
     except Exception as e: print(f'  ❌ {m}: {e}'); errors.append(m)
-print(f'Итог: {28-len(errors)} OK, {len(errors)} ошибок')
+print(f'Итог: {34-len(errors)} OK, {len(errors)} ошибок')
 "
 
-# 2. Деплой (GitHub + Amvera):
+# 2. Тесты (279 сценариев):
+python test_scenarios.py
+
+# 3. Деплой (GitHub + Amvera):
 bash deploy.sh "commit message"
+
 # Только GitHub:
 bash deploy.sh "commit message" --no-amvera
 ```
