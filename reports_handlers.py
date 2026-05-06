@@ -59,8 +59,10 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
 
     # ── Дашборд-сводка ──────────────────────────────────────────────────────
     from dashboard_handlers import build_admin_dashboard, build_user_dashboard
+    from timezone_utils import get_current_user_time
+    _user_tz = current_db.get_user_timezone(callback.from_user.id)
     today   = date.today().isoformat()
-    now_str = datetime.now().strftime("%d.%m.%Y · %H:%M")
+    now_str = get_current_user_time(_user_tz).strftime("%d.%m.%Y · %H:%M")
     try:
         if is_any_admin(callback.from_user.id) or is_super_admin:
             scope_type, scope_values = get_user_org_scope(callback.from_user.id)

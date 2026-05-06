@@ -265,12 +265,10 @@ async def process_schedule_time(message: Message, state: FSMContext):
     """Обработка времени планирования"""
     import datetime
     import uuid
+    from timezone_utils import get_utc_time, get_current_user_time
     time_text = message.text.strip()
     try:
-        schedule_time = datetime.datetime.strptime(time_text, "%d.%m.%Y %H:%M")
-        if schedule_time <= datetime.datetime.now():
-            await message.answer("❌ Время должно быть в будущем!")
-            return
+        schedule_time_naive = datetime.datetime.strptime(time_text, "%d.%m.%Y %H:%M")
 
         data = await state.get_data()
         text = data.get('admin_notification_text')
@@ -286,6 +284,14 @@ async def process_schedule_time(message: Message, state: FSMContext):
             await clear_state_keep_org(state)
             return
 
+        # Интерпретируем введённое время в timezone администратора → конвертируем в UTC
+        admin_tz = current_db.get_user_timezone(message.from_user.id)
+        schedule_time_utc = get_utc_time(schedule_time_naive, admin_tz)
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        if schedule_time_utc <= now_utc:
+            await message.answer("❌ Время должно быть в будущем!")
+            return
+
         is_super = env_manager.is_super_admin(message.from_user.id)
         recipients_type = 'all' if is_super else 'org'
         job_id = str(uuid.uuid4())
@@ -295,10 +301,10 @@ async def process_schedule_time(message: Message, state: FSMContext):
             notification_text=text,
             recipients_type=recipients_type,
             recipients_list=None,
-            scheduled_datetime=schedule_time.isoformat()
+            scheduled_datetime=schedule_time_utc.strftime('%Y-%m-%dT%H:%M:%S')
         )
         await message.answer(
-            f"✅ <b>Уведомление запланировано!</b>\n\n📅 Время: {time_text}\n💬 Текст: {text}",
+            f"✅ <b>Уведомление запланировано!</b>\n\n📅 Время: {time_text} ({admin_tz})\n💬 Текст: {text}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]]),
             parse_mode="HTML"
         )
@@ -324,12 +330,16 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
         )
         return
 
+    from timezone_utils import format_user_datetime
+    admin_tz = current_db.get_user_timezone(callback.from_user.id)
+
     text = "📅 <b>Запланированные уведомления</b>\n\n"
     buttons = []
     for notif in notifications[:10]:
         notif_id = notif[0]
         notif_text = notif[3] or ""
-        scheduled_dt = notif[6] or ""
+        scheduled_dt_raw = notif[6] or ""
+        scheduled_dt = format_user_datetime(scheduled_dt_raw, admin_tz, '%d.%m.%Y %H:%M') if scheduled_dt_raw else "—"
         creator_name = f"{notif[-2] or ''} {notif[-1] or ''}".strip() or "Администратор"
         preview = notif_text[:50] + ("…" if len(notif_text) > 50 else "")
         text += f"🕐 {scheduled_dt}\n👤 {creator_name}\n💬 {preview}\n\n"

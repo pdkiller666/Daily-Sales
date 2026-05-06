@@ -312,12 +312,16 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     day_total = 0
     day_earning = 0
 
+    from timezone_utils import format_user_datetime
+    user_tz = current_db.get_user_timezone(callback.from_user.id)
+
     for i, earning in enumerate(day_sales, 1):
         commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
 
         try:
-            sale_datetime = datetime.fromisoformat(sale_date.replace('Z', '+00:00'))
-            time_str = sale_datetime.strftime("%H:%M")
+            time_str = format_user_datetime(sale_date, user_tz, '%H:%M')
+            if time_str == 'Неизвестно':
+                time_str = sale_date[:16] if sale_date else '—'
         except Exception:
             time_str = sale_date
 

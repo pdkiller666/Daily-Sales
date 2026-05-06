@@ -858,8 +858,11 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: 
         return
     await callback.answer()
 
+    from timezone_utils import get_current_user_time
+    _user_tz = current_db.get_user_timezone(callback.from_user.id)
+    _now_local = get_current_user_time(_user_tz)
     today   = date.today().isoformat()
-    now_str = datetime.now().strftime("%d.%m.%Y · %H:%M")
+    now_str = _now_local.strftime("%d.%m.%Y · %H:%M")
 
     if is_any_admin(callback.from_user.id) or is_super_admin:
         scope_type, scope_values = get_user_org_scope(callback.from_user.id)
