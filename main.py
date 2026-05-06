@@ -69,6 +69,12 @@ async def global_error_handler(event: ErrorEvent) -> bool:
     """Глобальный перехватчик ошибок — логирует исключение и отвечает пользователю."""
     error = event.exception
     update = event.update
+
+    # Устаревший callback (>10 мин) — нормальное поведение, не засоряем лог
+    if isinstance(error, TelegramBadRequest) and "query is too old" in str(error):
+        logging.debug(f"Игнорируем устаревший callback: {error}")
+        return True
+
     logging.error(f"Необработанное исключение: {type(error).__name__}: {error}", exc_info=True)
     try:
         if update.callback_query:
