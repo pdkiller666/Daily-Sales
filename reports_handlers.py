@@ -217,12 +217,13 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         conn.close()
 
     shops_data = {}
+    products_agg = {}   # user view: {(product_name, category): {qty, total, commission}}
+    admin_lines = []    # admin view: per-transaction strings
     total_sum = 0
     total_quantity = 0
     total_earnings_accumulated = 0
-    detailed_sales_text = "\n📋 <b>Детализация продаж:</b>"
 
-    for i, sale in enumerate(sales, 1):
+    for sale in sales:
         try:
             if len(sale) >= 11:
                 sale_id, product_id, shop_name, quantity, sale_price, s_user_id, sale_date, product_name, category, first_name, last_name = sale[:11]
@@ -232,46 +233,79 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
             else:
                 continue
 
-            quantity = int(quantity) if quantity else 0
-            price = float(sale_price) if sale_price else 0
+            quantity  = int(quantity) if quantity else 0
+            price     = float(sale_price) if sale_price else 0
             sale_total = quantity * price
             total_sum += sale_total
             total_quantity += quantity
 
-            comm_line = ""
-            current_sale_earning = 0.0
+            commission = 0.0
+            comm_label = ""
             if sale_id in earnings_map:
                 e_comm, e_type, e_val = earnings_map[sale_id]
-                current_sale_earning = float(e_comm) if e_comm else 0.0
-                if current_sale_earning:
-                    comm_info = f"{e_val}%" if e_type == 'percentage' else f"{format_currency(e_val)}/шт"
-                    comm_line = f"\n   💰 +{format_currency(current_sale_earning)} ({comm_info})"
-
-            total_earnings_accumulated += current_sale_earning
-            seller_info = f"  ·  {he(first_name)}" if is_admin and first_name else ""
-            detailed_sales_text += (
-                f"\n\n<b>{i}.</b> {he(product_name)}{seller_info}\n"
-                f"   📦 {quantity} шт × {format_currency(price)} = {format_currency(sale_total)}"
-                f"{comm_line}"
-            )
+                commission = float(e_comm) if e_comm else 0.0
+                if commission:
+                    comm_label = f"{e_val}%" if e_type == 'percentage' else f"{format_currency(e_val)}/шт"
+            total_earnings_accumulated += commission
 
             if shop_name not in shops_data:
                 shops_data[shop_name] = {'shop_total': 0, 'shop_quantity': 0}
-            shops_data[shop_name]['shop_total'] += sale_total
+            shops_data[shop_name]['shop_total']    += sale_total
             shops_data[shop_name]['shop_quantity'] += quantity
+
+            if is_admin:
+                seller_part = f"  ·  {he(first_name)}" if first_name else ""
+                comm_part   = f"\n   💰 +{format_currency(commission)} ({comm_label})" if commission else ""
+                admin_lines.append(
+                    f"{he(product_name)}{seller_part}: {quantity} шт. × {format_currency(price)}"
+                    f" = <b>{format_currency(sale_total)}</b>{comm_part}"
+                )
+            else:
+                key = (product_name, category or 'Без категории')
+                if key not in products_agg:
+                    products_agg[key] = {'qty': 0, 'total': 0.0, 'commission': 0.0}
+                products_agg[key]['qty']        += quantity
+                products_agg[key]['total']      += sale_total
+                products_agg[key]['commission'] += commission
         except Exception:
             continue
 
-    message_text = "📅 <b>Отчет за сегодня</b>\n\n"
+    # ── Build detail section ─────────────────────────────────────────────────
+    MAX_ADMIN_LINES = 25
+    if is_admin:
+        detail_text = "\n\n📋 <b>Детализация продаж:</b>\n"
+        for idx, line in enumerate(admin_lines[:MAX_ADMIN_LINES], 1):
+            detail_text += f"\n<b>{idx}.</b> {line}"
+        hidden = len(admin_lines) - MAX_ADMIN_LINES
+        if hidden > 0:
+            detail_text += f"\n\n<i>···  ещё {hidden} записей — скачайте Excel для полной детализации</i>"
+    else:
+        detail_text = "\n\n📋 <b>По товарам:</b>"
+        by_cat: dict = {}
+        for (pname, cat), pdata in products_agg.items():
+            by_cat.setdefault(cat, []).append((pname, pdata))
+        for cat in sorted(by_cat.keys()):
+            items = sorted(by_cat[cat], key=lambda x: x[1]['total'], reverse=True)
+            detail_text += f"\n\n<i>{he(cat)}</i>\n"
+            for pname, pdata in items:
+                comm_part = f" · 💰 <b>+{format_currency(pdata['commission'])}</b>" if pdata['commission'] else ""
+                detail_text += (
+                    f"  • {he(pname)}: <b>{pdata['qty']} шт.</b>"
+                    f" · {format_currency(pdata['total'])}{comm_part}\n"
+                )
+
+    # ── Assemble message ─────────────────────────────────────────────────────
+    message_text  = "📅 <b>Отчет за сегодня</b>\n\n"
     message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано: {total_quantity} шт.\n"
     message_text += f"• Сумма: {format_currency(total_sum)}\n"
     message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n\n"
-
     for sn in sorted(shops_data.keys()):
         message_text += f"🏪 <b>{he(sn)}:</b> {format_currency(shops_data[sn]['shop_total'])}\n"
+    message_text += detail_text
 
-    message_text += detailed_sales_text
+    if len(message_text) > 3800:
+        message_text = message_text[:3750] + "\n<i>···  список обрезан — скачайте Excel для полной детализации</i>"
 
     await callback.message.edit_text(
         message_text,
@@ -604,34 +638,33 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
     
-    message_text = f"📊 *Отчет по всем продажам*\n"
+    message_text  = "📊 <b>Отчет по всем продажам</b>\n"
     if len(shops_names) > 1:
-        message_text += f"🏪 Магазины: {shops_text}\n"
+        message_text += f"🏪 Магазины: {he(shops_text)}\n"
     message_text += "\n"
-    message_text += f"📈 *Общая статистика:*\n"
+    message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано: {total_quantity} шт.\n"
     message_text += f"• Сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: *{format_currency(total_earnings_accumulated)}*\n"
+    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
     message_text += f"• Магазинов: {len(shops_data)}\n\n"
 
-    # Детализация по магазинам
     for shop_name in sorted(shops_data.keys()):
+        if len(message_text) > 3600:
+            message_text += "<i>···  ещё магазины скрыты — скачайте Excel для полной детализации</i>\n"
+            break
         shop_data = shops_data[shop_name]
-        message_text += f"*🏪 {shop_name}*\n"
+        message_text += f"🏪 <b>{he(shop_name)}</b>\n"
         message_text += f"• Продано: {shop_data['shop_quantity']} шт. — {format_currency(shop_data['shop_total'])}\n"
-
-        # Категории в магазине
         categories = shop_data['categories']
         if categories:
             for category, cat_data in sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True):
-                message_text += f"  📂 *{category}:* {format_currency(cat_data['total'])}\n"
-
+                message_text += f"  📂 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
                 sorted_products = sorted(cat_data['products'].items(),
-                                        key=lambda x: x[1]['total'], reverse=True)
+                                         key=lambda x: x[1]['total'], reverse=True)
                 for product_name, product_data in sorted_products[:3]:
-                    message_text += f"     • {product_name}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
+                    message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
-    
+
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_user"))
     builder.add(back_button("reports"))
@@ -640,7 +673,7 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         message_text,
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @reports_router.callback_query(F.data == "report_my_month")
@@ -992,38 +1025,35 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
             pass
 
     # Формируем отчет
-    if is_admin:
-        message_text = f"📅 *Отчет за период*\n📆 {period_text}\n\n"
-    else:
-        shops_count = len(shops_data)
-        shops_text = f" ({shops_count} магазин{'а' if shops_count > 1 else ''})" if shops_count > 1 else ""
-        message_text = f"📅 *Отчет за период{shops_text}*\n📆 {period_text}\n\n"
-
-    # Общая статистика
-    message_text += f"📈 *Общая статистика:*\n"
+    shops_count = len(shops_data)
+    shops_suffix = f" ({shops_count} маг.)" if shops_count > 1 else ""
+    message_text  = f"📅 <b>Отчет за период{shops_suffix}</b>\n"
+    message_text += f"📆 {period_text}\n\n"
+    message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
     message_text += f"• Общая сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: *{format_currency(total_earnings_accumulated)}*\n"
-    message_text += f"• Магазинов: {len(shops_data)}\n\n"
+    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
+    if shops_count > 1:
+        message_text += f"• Магазинов: {shops_count}\n"
+    message_text += "\n"
 
-    # Детализация по магазинам
     for shop_name_key in sorted(shops_data.keys()):
+        if len(message_text) > 3600:
+            message_text += "<i>···  ещё магазины скрыты — скачайте Excel для полной детализации</i>\n"
+            break
         shop_data = shops_data[shop_name_key]
-        message_text += f"*🏪 {shop_name_key}*\n"
+        message_text += f"🏪 <b>{he(shop_name_key)}</b>\n"
         message_text += f"• Продано: {shop_data['shop_quantity']} шт. — {format_currency(shop_data['shop_total'])}\n"
-
-        # Категории в магазине
         categories = shop_data['categories']
         if categories:
             for category, cat_data in sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True):
-                message_text += f"  📂 *{category}:* {format_currency(cat_data['total'])}\n"
-
+                message_text += f"  📂 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
                 sorted_products = sorted(cat_data['products'].items(),
-                                        key=lambda x: x[1]['total'], reverse=True)
+                                         key=lambda x: x[1]['total'], reverse=True)
                 for product_name, product_data in sorted_products[:3]:
-                    message_text += f"     • {product_name}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
+                    message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
-    
+
     await state.update_data(excel_start=start_date, excel_end=end_date, excel_shop=shop_name)
 
     builder = InlineKeyboardBuilder()
@@ -1034,7 +1064,7 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     await callback.message.edit_text(
         message_text,
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
     await clear_state_keep_org(state, extra_keys=['excel_start', 'excel_end', 'excel_shop'])
