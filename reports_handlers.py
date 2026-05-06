@@ -1,6 +1,7 @@
 """
 Обработчики для отчетов и рейтингов
 """
+import logging
 import os
 from datetime import datetime, date, timedelta
 from aiogram import Router, F
@@ -22,6 +23,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_sc
 from keyboards import safe_cb, resolve_cb_name
 from hints import hint_suffix
 
+logger = logging.getLogger(__name__)
 
 @reports_router.callback_query(F.data == "reports")
 async def reports_menu(callback: CallbackQuery, state: FSMContext):
@@ -70,8 +72,11 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
             dashboard_text = build_user_dashboard(
                 current_db, user[0], callback.from_user.id, today, now_str
             )
-    except Exception:
-        dashboard_text = ""
+    except Exception as _dash_err:
+        import traceback as _tb
+        _trace = _tb.format_exc()
+        logger.error("Dashboard build failed:\n%s", _trace)
+        dashboard_text = f"⚠️ <i>Ошибка дашборда ({type(_dash_err).__name__}): {he(str(_dash_err))[:120]}</i>"
 
     # ── Меню отчётов ────────────────────────────────────────────────────────
     is_admin = is_any_admin(callback.from_user.id) or is_super_admin

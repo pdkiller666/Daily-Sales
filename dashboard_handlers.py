@@ -321,9 +321,12 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
-    role = get_user_org_role(telegram_id) or 'admin'
-    custom_title = get_user_custom_title(telegram_id)
-    role_label = get_role_display_label(role, scope_type, scope_values, custom_title)
+    try:
+        role = get_user_org_role(telegram_id) or 'admin'
+        custom_title = get_user_custom_title(telegram_id)
+        role_label = get_role_display_label(role, scope_type, scope_values, custom_title)
+    except Exception:
+        role_label = '🛡️ Администратор'
 
     text  = f"📊 <b>ДАШБОРД</b> · {role_label}\n"
     text += f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -369,7 +372,10 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     text += "📋 <b>Планы продаж</b>\n\n"
     if plans_progress:
         for plan_row, actual, pct in plans_progress:
-            text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+            try:
+                text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+            except Exception:
+                pass
     else:
         text += "• Активных планов нет\n\n"
 
@@ -377,14 +383,17 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         text += f"🏆 <b>Конкурсы</b>: активных <b>{contests_cnt}</b>\n\n"
 
     text += "👥 <b>Команда сегодня</b>\n"
-    if staff_on_shift:
-        text += f"• На смене: <b>{len(staff_on_shift)} чел.</b>\n"
-        for fn, ln, sn in staff_on_shift:
-            name = f"{he(ln)} {he(fn)}".strip()
-            shop_part = f" · {he(sn)}" if sn else ""
-            text += f"  — {name}{shop_part}\n"
-    else:
-        text += "• Никто ещё не отмечен\n"
+    try:
+        if staff_on_shift:
+            text += f"• На смене: <b>{len(staff_on_shift)} чел.</b>\n"
+            for fn, ln, sn in staff_on_shift:
+                name = f"{he(ln)} {he(fn)}".strip()
+                shop_part = f" · {he(sn)}" if sn else ""
+                text += f"  — {name}{shop_part}\n"
+        else:
+            text += "• Никто ещё не отмечен\n"
+    except Exception:
+        text += "• Данные недоступны\n"
     return text
 
 
