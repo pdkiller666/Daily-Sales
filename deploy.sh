@@ -151,14 +151,17 @@ PYEOF
 # ─── Деплой на GitHub ───────────────────────────────────────────────────────
 echo "2. Отправка на GitHub..."
 cd "$GITHUB_DIR"
+# Сначала получаем актуальную историю из GitHub — чтобы новые коммиты
+# строились поверх существующей истории, а не создавали orphan-цепочку.
+git remote set-url origin "https://pdkiller666:${GITHUB_TOKEN}@github.com/pdkiller666/Daily-Sales.git"
+git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
+git reset --soft origin/main 2>/dev/null || git reset --soft origin/master 2>/dev/null || true
 git add -A
 if git diff --cached --quiet; then
   echo "   GitHub: нет изменений."
 else
   git commit -m "$COMMIT_MSG"
-  git remote set-url origin "https://pdkiller666:${GITHUB_TOKEN}@github.com/pdkiller666/Daily-Sales.git"
-  git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
-  git push origin HEAD:main --force 2>/dev/null || git push origin HEAD:master --force
+  git push origin HEAD:main 2>/dev/null || git push origin HEAD:master
   echo "   GitHub: ✅ отправлено!"
 fi
 

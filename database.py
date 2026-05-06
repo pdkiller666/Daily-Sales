@@ -487,6 +487,29 @@ class Database:
             )
         ''')
 
+        # Избранные товары продавца
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(user_id, product_id)
+            )
+        ''')
+
+        # Журнал алертов о достижении milestone планов (50/75/100%)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS plan_milestone_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                plan_id INTEGER NOT NULL,
+                milestone INTEGER NOT NULL,
+                alerted_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(user_id, plan_id, milestone)
+            )
+        ''')
+
         conn.commit()
 
         # Инициализация базовых данных при первом запуске
@@ -587,6 +610,121 @@ class Database:
         sales = cursor.fetchall()
         conn.close()
         return sales
+
+    def get_user_recent_products(self, user_id: int, limit: int = 5) -> list:
+        """Последние N уникальных товаров, проданных данным продавцом."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT p.id, p.name, p.price, p.category
+                FROM sales s
+                JOIN products p ON s.product_id = p.id
+                WHERE s.user_id = ?
+                ORDER BY s.sale_date DESC
+                LIMIT ?
+            ''', (user_id, limit * 4))
+            rows = cursor.fetchall()
+            conn.close()
+            seen = set()
+            result = []
+            for row in rows:
+                if row[0] not in seen:
+                    seen.add(row[0])
+                    result.append(row)
+                    if len(result) >= limit:
+                        break
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка get_user_recent_products: {e}")
+            return []
+
+    def get_favorite_products(self, user_id: int) -> list:
+        """Список product_id из избранного для продавца."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT product_id FROM user_favorites WHERE user_id = ? ORDER BY created_at DESC',
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+
+    def toggle_favorite_product(self, user_id: int, product_id: int) -> bool:
+        """Переключить товар в избранном. True = добавлен, False = убран."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id FROM user_favorites WHERE user_id = ? AND product_id = ?',
+                (user_id, product_id)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute(
+                    'DELETE FROM user_favorites WHERE user_id = ? AND product_id = ?',
+                    (user_id, product_id)
+                )
+                conn.commit()
+                conn.close()
+                return False
+            else:
+                cursor.execute(
+                    'INSERT INTO user_favorites (user_id, product_id) VALUES (?, ?)',
+                    (user_id, product_id)
+                )
+                conn.commit()
+                conn.close()
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка toggle_favorite_product: {e}")
+            return False
+
+    def check_and_mark_plan_milestones(self, telegram_id: int) -> list:
+        """Проверяет, какие milestone (50/75/100%) только что достигнуты.
+        Возвращает [(plan, actual, pct, milestone)] — только новые вехи.
+        Сохраняет их в plan_milestone_alerts (UNIQUE → без дублей).
+        """
+        milestones = (50, 75, 100)
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                return []
+            user_id = row[0]
+
+            plans_progress = self.get_user_plans_progress(telegram_id)
+            newly_hit = []
+            for plan, actual, pct in plans_progress:
+                plan_id = plan[0]
+                for milestone in sorted(milestones):
+                    if pct >= milestone:
+                        try:
+                            conn2 = self.get_connection()
+                            c2 = conn2.cursor()
+                            c2.execute(
+                                'INSERT OR IGNORE INTO plan_milestone_alerts '
+                                '(user_id, plan_id, milestone) VALUES (?, ?, ?)',
+                                (user_id, plan_id, milestone)
+                            )
+                            inserted = c2.rowcount > 0
+                            conn2.commit()
+                            conn2.close()
+                            if inserted:
+                                newly_hit.append((plan, actual, pct, milestone))
+                        except Exception:
+                            pass
+            return newly_hit
+        except Exception as e:
+            logger.error(f"Ошибка check_and_mark_plan_milestones: {e}")
+            return []
     def get_payment_settings(self):
         """Получение настроек платежной системы"""
         conn = sqlite3.connect(self.db_file)

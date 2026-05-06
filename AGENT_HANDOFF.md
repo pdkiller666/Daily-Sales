@@ -430,6 +430,18 @@ generate_excel_report(...)      — выгрузка продаж в .xlsx
    - Callback-схема: `rank_sel_month/7d/prev`, `rank_shp_month/7d/prev`, `rank_cty_month/7d/prev`.
 7. **deploy.sh** — `--with-amvera` стал дефолтом; добавлен флаг `--no-amvera`; после каждого Amvera пуша верификация через `git ls-remote`.
 
+**Сессия 36 — быстрый поиск товара + кнопки количества в продаже:**
+
+1. **`QuickSaleStates`** — новый FSM-класс в `states.py` (`searching_product = State()`).
+2. **`_make_qty_keyboard(max_qty)`** в `sales_handlers.py` — возвращает `InlineKeyboardMarkup` с кнопками [1,2,3,5,10,20,50] (только ≤ max_qty) + «✏️ Ввести вручную» + «❌ Отмена». Автоматически фильтрует значения по остатку склада.
+3. **`_show_sale_categories`** — добавлена кнопка «🔍 Найти товар» в первую строку экрана категорий; категории выводятся по 2 в ряд через `builder.row()`.
+4. **`quick_search_start`** — хендлер `sale_quick_search`: переводит в `QuickSaleStates.searching_product`, просит ввести текст.
+5. **`process_quick_search`** — хендлер текста в `QuickSaleStates.searching_product`: ищет case-insensitive по названию среди товаров **с ненулевым остатком** в магазине пользователя, показывает до 15 результатов с кнопками `sale_product_{id}`. При отсутствии — предлагает повтор или возврат к категориям.
+6. **`select_sale_product`** — заменён одиночный «❌ Отмена» на `_make_qty_keyboard(quantity)` + `he()` добавлен к `product[1]`.
+7. **`quick_qty_select`** — хендлер `sq_qty_*` в `SaleStates.entering_quantity`: при нажатии цифры — сразу переходит к выбору цены (минуя ввод текста); при `sq_qty_manual` — убирает кнопки и предлагает ввести число.
+8. **Тесты**: 11 новых сценариев в `test_scenarios.py` для `_make_qty_keyboard` и `QuickSaleStates` → итого **279/279 ✅**.
+9. **Деплой**: GitHub `599f305` · Amvera `9b8fd1f` — хэши совпадают ✅.
+
 **Сессия 35 — полный he() аудит + multi-scope + custom_title:**
 
 1. **he() аудит: все оставшиеся файлы** — добавлен `from utils import he` в `contacts_handlers.py` и `payment_admin_handlers.py`; применён `he()` ко всем user-строкам в HTML-блоках:

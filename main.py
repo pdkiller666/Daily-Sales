@@ -54,7 +54,13 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=SQLiteStorage("data/fsm_storage.db"))
 
-from aiogram.types import ErrorEvent
+from aiogram import F as _F
+from aiogram.types import CallbackQuery as _CQ, ErrorEvent
+
+@dp.callback_query(_F.data == "pg_noop")
+async def pg_noop_handler(callback: _CQ) -> None:
+    """Кнопка пагинации «текущая страница» — ничего не делать."""
+    await callback.answer()
 
 @dp.errors()
 async def global_error_handler(event: ErrorEvent) -> bool:

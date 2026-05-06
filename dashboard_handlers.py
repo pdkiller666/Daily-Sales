@@ -8,9 +8,9 @@ import logging
 import sqlite3
 from datetime import date, datetime, timedelta
 
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, is_any_admin, get_user_org_scope, get_role_display_label, get_user_org_role, get_user_custom_title
@@ -237,12 +237,13 @@ def _today_total_earnings(db_file: str, today: str,
 def build_admin_dashboard(current_db, today: str, now_str: str,
                           user_id: int = 0, telegram_id: int = 0,
                           scope_type: str = None, scope_values: list = None,
-                          scope_value: str = None) -> str:
+                          scope_value: str = None, period: str = 'today') -> str:
     """Дашборд администратора с фильтрацией по зоне ответственности.
 
     scope_type: None/'all' — весь орг; 'shop'/'city'/'network' — конкретная зона.
     scope_values: list[str] — список значений зоны (поддерживает multi-scope).
     scope_value: str — обратная совместимость (одиночное значение).
+    period: 'today'/'week'/'month' — временной период для продаж.
     """
     # Нормализация: старый code может передать scope_value (str)
     if scope_values is None and scope_value:
@@ -253,11 +254,21 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     year        = today_dt.year
     month       = today_dt.month
     month_start = f"{year}-{month:02d}-01"
+    week_start  = (today_dt.date() - timedelta(days=today_dt.weekday())).isoformat()
+
+    _period_labels = {'today': 'Сегодня', 'week': 'Неделя', 'month': 'Месяц'}
+    period_label = _period_labels.get(period, 'Сегодня')
+    if period == 'week':
+        start_date = week_start
+    elif period == 'month':
+        start_date = month_start
+    else:
+        start_date = today
 
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
     try:
-        summary = current_db.get_sales_summary(start_date=today, end_date=today, **scope_kwargs)
+        summary = current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs)
         total_sales   = int(summary[0] or 0) if summary else 0
         total_qty     = int(summary[1] or 0) if summary else 0
         total_revenue = float(summary[2] or 0.0) if summary else 0.0
@@ -340,7 +351,7 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         text += f"• Призы конкурсов: <b>+{contest_rewards:,.0f} ₽</b>\n"
     text += f"• Итого: <b>{salary + motivations + contest_rewards:,.0f} ₽</b>\n\n"
 
-    text += "🛒 <b>Продажи сегодня</b>\n"
+    text += f"🛒 <b>Продажи · {period_label}</b>\n"
     text += f"• Транзакций: <b>{total_sales}</b>\n"
     text += f"• Продано: <b>{total_qty} шт.</b>\n"
     text += f"• Выручка: <b>{total_revenue:,.0f} ₽</b>\n"
@@ -377,12 +388,21 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
 
 def build_user_dashboard(current_db, user_id: int, telegram_id: int,
-                         today: str, now_str: str) -> str:
+                         today: str, now_str: str, period: str = 'today') -> str:
     today_dt  = datetime.strptime(today, '%Y-%m-%d')
     year      = today_dt.year
     month     = today_dt.month
     month_start = f"{year}-{month:02d}-01"
     week_start  = (today_dt.date() - timedelta(days=today_dt.weekday())).isoformat()
+
+    _period_labels = {'today': 'Сегодня', 'week': 'Неделя', 'month': 'Месяц'}
+    period_label = _period_labels.get(period, 'Сегодня')
+    if period == 'week':
+        sales_start = week_start
+    elif period == 'month':
+        sales_start = month_start
+    else:
+        sales_start = today
 
     try:
         daily_rate  = current_db.get_salary_rate(user_id)
@@ -398,6 +418,25 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         motivations = earnings.get('total_earnings', 0.0)
     except Exception:
         motivations = 0.0
+
+    try:
+        period_earnings = current_db.get_seller_total_earnings(
+            user_id, start_date=sales_start, end_date=today
+        )
+        period_motivations = period_earnings.get('total_earnings', 0.0)
+    except Exception:
+        period_motivations = 0.0
+
+    try:
+        period_summary = current_db.get_sales_summary(
+            start_date=sales_start, end_date=today, user_id=user_id
+        )
+        period_sales = int(period_summary[0] or 0) if period_summary else 0
+        period_qty   = int(period_summary[1] or 0) if period_summary else 0
+        period_rev   = float(period_summary[2] or 0.0) if period_summary else 0.0
+    except Exception:
+        period_sales = period_qty = 0
+        period_rev = 0.0
 
     try:
         contest_rewards = current_db.get_user_contest_rewards(telegram_id, month_start, today)
@@ -416,10 +455,18 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
                  f" = <b>{salary:,.0f} ₽</b>\n")
     else:
         text += "• Оклад: не установлен\n"
-    text += f"• Мотивация: <b>+{motivations:,.0f} ₽</b>\n"
+    text += f"• Мотивация (месяц): <b>+{motivations:,.0f} ₽</b>\n"
     if contest_rewards > 0:
         text += f"• Призы конкурсов: <b>+{contest_rewards:,.0f} ₽</b>\n"
     text += f"• Итого: <b>{salary + motivations + contest_rewards:,.0f} ₽</b>\n\n"
+
+    text += f"🛒 <b>Мои продажи · {period_label}</b>\n"
+    text += f"• Транзакций: <b>{period_sales}</b>\n"
+    text += f"• Продано: <b>{period_qty} шт.</b>\n"
+    text += f"• Выручка: <b>{period_rev:,.0f} ₽</b>\n"
+    if period_motivations > 0:
+        text += f"• Мотивация: <b>+{period_motivations:,.0f} ₽</b>\n"
+    text += "\n"
 
     # Планы продавца
     plans_progress = []
@@ -496,8 +543,23 @@ def build_user_daily_text(current_db, user_id: int,
     return msg
 
 
-@router.callback_query(lambda c: c.data == "dashboard")
-async def show_dashboard(callback: CallbackQuery, state: FSMContext):
+def _dashboard_period_kb(period: str) -> InlineKeyboardMarkup:
+    """Клавиатура переключения периода дашборда."""
+    periods = [
+        ('today', '📅 Сегодня'),
+        ('week',  '📆 Неделя'),
+        ('month', '🗓 Месяц'),
+    ]
+    buttons = []
+    for p, label in periods:
+        text_label = f"• {label}" if p == period else label
+        buttons.append(InlineKeyboardButton(text=text_label, callback_data=f"dash_p_{p}"))
+    return InlineKeyboardMarkup(inline_keyboard=[buttons, [
+        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dash_p_{period}")
+    ]])
+
+
+async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: str = 'today'):
     from env_manager import env_manager as _env
     is_super_admin = _env.is_super_admin(callback.from_user.id)
     current_db = await get_db(callback.from_user.id, state)
@@ -514,9 +576,23 @@ async def show_dashboard(callback: CallbackQuery, state: FSMContext):
         scope_type, scope_values = get_user_org_scope(callback.from_user.id)
         text = build_admin_dashboard(
             current_db, today, now_str, user[0], callback.from_user.id,
-            scope_type=scope_type, scope_values=scope_values
+            scope_type=scope_type, scope_values=scope_values, period=period
         )
     else:
-        text = build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str)
+        text = build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str, period=period)
 
-    await safe_edit_message(callback.message, text, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, parse_mode="HTML",
+                            reply_markup=_dashboard_period_kb(period))
+
+
+@router.callback_query(lambda c: c.data == "dashboard")
+async def show_dashboard(callback: CallbackQuery, state: FSMContext):
+    await _render_dashboard(callback, state, period='today')
+
+
+@router.callback_query(F.data.startswith("dash_p_"))
+async def show_dashboard_period(callback: CallbackQuery, state: FSMContext):
+    period = callback.data.replace("dash_p_", "")
+    if period not in ('today', 'week', 'month'):
+        period = 'today'
+    await _render_dashboard(callback, state, period=period)

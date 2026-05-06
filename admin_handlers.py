@@ -15,6 +15,7 @@ from utils import he
 from database import Database
 from keyboards import main_menu, back_button, create_selection_keyboard
 from states import AdminUserStates, UserProfileStates, AdminManagementStates, AdminNotificationStates
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_USERS, PAGE_SIZE_ORGS
 from env_manager import env_manager
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 
@@ -30,13 +31,8 @@ from tenant_manager import tenant_manager
 # Получаем ID администратора
 ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0').split(',')[0].strip() or 0)
 
-@admin_router.callback_query(F.data == "list_all_orgs")
-async def list_all_orgs_handler(callback: CallbackQuery, state: FSMContext):
-    """Список всех организаций для супер-администратора"""
-    if not env_manager.is_super_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен!", show_alert=True)
-        return
-
+async def _render_orgs_page(callback: CallbackQuery, page: int = 0):
+    """Показывает страницу N списка организаций."""
     orgs = tenant_manager.get_all_organizations()
     await callback.answer()
 
@@ -48,27 +44,53 @@ async def list_all_orgs_handler(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    builder = InlineKeyboardBuilder()
-    text = "🏢 <b>Список всех организаций:</b>\n\n"
+    page_items, has_prev, has_next, total_pages, page = paginate(orgs, page, PAGE_SIZE_ORGS)
 
-    for org_id, name, db_path, owner_id, invite_code, plan, is_active, created in orgs:
+    text = f"🏢 <b>Список всех организаций:</b> {len(orgs)} шт."
+    if total_pages > 1:
+        text += f" · стр. {page + 1}/{total_pages}"
+    text += "\n\n"
+
+    builder = InlineKeyboardBuilder()
+    for org in page_items:
+        org_id, name, db_path, owner_id, invite_code, plan, is_active, created = org
         status = "✅" if is_active else "❌"
         users = tenant_manager.get_org_users(org_id)
         text += f"{status} <b>{he(name)}</b> (ID: {org_id})\n"
-        text += f"👥 Сотрудников: {len(users)} | 💳 Тариф: {plan or 'Бесплатный'}\n"
-        text += f"📅 Создана: {created[:10] if created else '—'}\n\n"
+        text += f"👥 {len(users)} | 💳 {plan or 'Бесплатный'} | 📅 {created[:10] if created else '—'}\n\n"
         builder.row(
-            InlineKeyboardButton(text=f"⚙️ {name}", callback_data=f"select_org_{org_id}"),
+            InlineKeyboardButton(text=f"⚙️ {name[:30]}", callback_data=f"select_org_{org_id}"),
             InlineKeyboardButton(text="🗑", callback_data=f"delete_org_{org_id}")
         )
 
+    nav = page_nav_row("orgs_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
     builder.row(back_button("system_admin_panel"))
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
-    )
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data == "list_all_orgs")
+async def list_all_orgs_handler(callback: CallbackQuery, state: FSMContext):
+    """Список всех организаций для супер-администратора"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    await _render_orgs_page(callback, page=0)
+
+
+@admin_router.callback_query(F.data.startswith("orgs_pg_"))
+async def orgs_list_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка организаций"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    try:
+        page = int(callback.data.replace("orgs_pg_", ""))
+    except ValueError:
+        page = 0
+    await _render_orgs_page(callback, page=page)
 
 
 @admin_router.callback_query(F.data.startswith("delete_org_"))
@@ -226,9 +248,8 @@ async def run_system_tests_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
-@admin_router.callback_query(F.data == "admin_users")
-async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
-    """Меню управления пользователями"""
+async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Рендерит страницу N списка пользователей с пагинацией."""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен!", show_alert=True)
         return
@@ -261,7 +282,6 @@ async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
 
     if is_super_user:
         if selected_org_id is None:
-            # Системный режим — видим ВСЕХ пользователей из всех БД
             users = _read_users('data/main.db')
             _merge_unique(users, _read_users('data/shop_bot.db'))
             tenants_dir = 'data/tenants'
@@ -273,20 +293,17 @@ async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
             show_admin_management = True
             title = "👥 <b>Все пользователи системы</b>"
         elif selected_org_id == 0:
-            # Личный кабинет суп-адмна
             users = [u for u in _read_users('data/shop_bot.db') if u[1] == callback.from_user.id]
             back_target = "admin_management"
             show_admin_management = False
             title = "👤 <b>Личный кабинет</b>"
         else:
-            # Конкретная org — только её пользователи
             users = tenant_manager.get_org_users(selected_org_id)
             back_target = "admin_management"
             show_admin_management = True
             org_name = data.get("selected_org_name", "Организация")
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
     else:
-        # Обычный admin
         current_db = await get_db(callback.from_user.id, state)
         all_users = current_db.get_all_users()
         is_personal_mode = (selected_org_db == "data/shop_bot.db") if selected_org_db else False
@@ -300,7 +317,7 @@ async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
             show_admin_management = True
             title = "👥 <b>Управление сотрудниками</b>"
         back_target = "admin_management"
-    
+
     if not users:
         await callback.message.edit_text(
             f"{title}\n\n❌ Пользователи отсутствуют.",
@@ -309,31 +326,46 @@ async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    page_items, has_prev, has_next, total_pages, page = paginate(users, page, PAGE_SIZE_USERS)
+
     builder = InlineKeyboardBuilder()
-    for user in users[:50]:
+    for user in page_items:
         u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
         display_name = f"{f_name or '?'}"
         if l_name: display_name += f" {l_name}"
         if s_name: display_name += f" ({s_name})"
-
-        builder.add(InlineKeyboardButton(
-            text=display_name,
-            callback_data=f"admin_user_{t_id}"
-        ))
-
-    if show_admin_management:
-        builder.add(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
-    builder.add(back_button(back_target))
+        builder.add(InlineKeyboardButton(text=display_name, callback_data=f"admin_user_{t_id}"))
     builder.adjust(1)
 
-    total_users = len(users)
-    message_text = f"{title}\n\nВсего: {total_users}\n\nВыберите пользователя:"
+    nav = page_nav_row("au_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
 
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
-    )
+    if show_admin_management:
+        builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
+    builder.row(back_button(back_target))
+
+    total_users = len(users)
+    pg_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
+    message_text = f"{title}\n\nВсего: {total_users}{pg_info}\n\nВыберите пользователя:"
+
+    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data == "admin_users")
+async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню управления пользователями"""
+    await _render_admin_users_page(callback, state, page=0)
+
+
+@admin_router.callback_query(F.data.startswith("au_pg_"))
+async def admin_users_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка пользователей"""
+    try:
+        page = int(callback.data.replace("au_pg_", ""))
+    except ValueError:
+        page = 0
+    await _render_admin_users_page(callback, state, page=page)
 
 @admin_router.callback_query(F.data == "admin_confirm_delete")
 async def admin_confirm_delete_handler(callback: CallbackQuery, state: FSMContext):

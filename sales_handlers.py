@@ -7,7 +7,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import Database
 from env_manager import env_manager
 from keyboards import main_menu, inventory_menu, back_button, create_selection_keyboard
-from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates
+from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates, ExcelImportStates
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_SALES
 from utils import format_currency, get_stock_color_indicator, format_date_display, he
 
 # Создаем роутер для продаж
@@ -48,8 +49,36 @@ async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, curr
         return
 
     builder = InlineKeyboardBuilder()
-    # Кнопка быстрого поиска — во всю ширину первой строкой
     builder.row(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_quick_search"))
+
+    # Блок избранных товаров
+    try:
+        user_row = current_db.get_user(callback.from_user.id)
+        if user_row:
+            u_db_id = user_row[0]
+            fav_ids = current_db.get_favorite_products(u_db_id)
+            if fav_ids:
+                fav_products = [current_db.get_product(pid) for pid in fav_ids[:5]]
+                fav_products = [p for p in fav_products if p]
+                if fav_products:
+                    builder.row(InlineKeyboardButton(text="⭐ Избранное", callback_data="pg_noop"))
+                    for p in fav_products:
+                        builder.row(InlineKeyboardButton(
+                            text=f"⭐ {p[1]}",
+                            callback_data=f"sale_product_{p[0]}"
+                        ))
+
+            # Блок недавних продаж
+            recent = current_db.get_user_recent_products(u_db_id, limit=5)
+            if recent:
+                builder.row(InlineKeyboardButton(text="🔄 Недавние", callback_data="pg_noop"))
+                for pid, pname, pprice, pcat in recent:
+                    builder.row(InlineKeyboardButton(
+                        text=f"🔄 {pname}",
+                        callback_data=f"sale_product_{pid}"
+                    ))
+    except Exception:
+        pass
 
     # Категории по 2 в строку
     products = current_db.get_all_products()
@@ -527,7 +556,10 @@ async def use_default_price(callback: CallbackQuery, state: FSMContext):
     await state.update_data(sale_cart=sale_cart)
 
     # Показываем опции: добавить еще или завершить
+    first_item = len(sale_cart) == 1
     builder = InlineKeyboardBuilder()
+    if first_item:
+        builder.add(InlineKeyboardButton(text="⚡ Продать сейчас", callback_data="complete_sale"))
     builder.add(
         InlineKeyboardButton(text="➕ Добавить еще товар", callback_data="add_more_items"),
         InlineKeyboardButton(text="🛒 Просмотр корзины", callback_data="view_cart"),
@@ -623,7 +655,10 @@ async def process_custom_price(message: Message, state: FSMContext):
         await state.update_data(sale_cart=sale_cart)
 
         # Показываем опции: добавить еще или завершить
+        first_item = len(sale_cart) == 1
         builder = InlineKeyboardBuilder()
+        if first_item:
+            builder.add(InlineKeyboardButton(text="⚡ Продать сейчас", callback_data="complete_sale"))
         builder.add(
             InlineKeyboardButton(text="➕ Добавить еще товар", callback_data="add_more_items"),
             InlineKeyboardButton(text="🛒 Просмотр корзины", callback_data="view_cart"),
@@ -921,6 +956,18 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                     _target_str = f"{int(_plan[3])} шт."
                 message_text += f"✅ {_label}: {_actual_str} из {_target_str}\n"
 
+        # Проверяем milestone 50%/75% (100% уже отражён выше)
+        try:
+            newly_hit = current_db.check_and_mark_plan_milestones(callback.from_user.id)
+            _PERIOD2 = {'monthly': 'Месяц', 'weekly': 'Неделя', 'daily': 'День', 'quarter': 'Квартал'}
+            for _plan, _actual, _pct, _ms in newly_hit:
+                if _ms < 100:
+                    _label = _PERIOD2.get(_plan[1], _plan[1])
+                    _icon = "🟡" if _ms == 50 else "🟠"
+                    message_text += f"\n{_icon} Выполнено {_ms}% плана ({_label})!"
+        except Exception:
+            pass
+
         user = current_db.get_user(callback.from_user.id)
         user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
 
@@ -1102,52 +1149,64 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
     period_title = f"Магазин {shop_name}"
     await show_sales_for_edit(callback, sales, state, period_title)
 
-async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext, period_title: str):
-    """Показывает список продаж для редактирования"""
+async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
+                              period_title: str, page: int = 0):
+    """Показывает список продаж для редактирования (с пагинацией)."""
+    # Сохраняем полный список в FSM для навигации по страницам
+    await state.update_data(edit_sales_cache=sales, edit_sales_title=period_title)
+
     builder = InlineKeyboardBuilder()
-    
-    message_text = f"📝 Редактирование продаж - {period_title}\n\n"
-    
+    message_text = f"📝 Редактирование продаж — {period_title}\n\n"
+
     if not sales:
         message_text += "❌ Продажи не найдены."
         builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
     else:
-        message_text += "Выберите продажу для редактирования:\n\n"
-        
-        for i, sale in enumerate(sales, 1):
-            # Структура продажи из get_user_sales_by_date: 
-            # sale_id, product_id, shop_name, quantity, sale_price, user_id, sale_date, product_name, category
-            sale_id = sale[0]
-            product_id = sale[1]
-            shop_name = sale[2]
-            quantity = sale[3]
-            sale_price = sale[4]  # Цена продажи из таблицы sales
-            user_id = sale[5]
-            sale_date = sale[6]
+        page_items, has_prev, has_next, total_pages, page = paginate(sales, page, PAGE_SIZE_SALES)
+        pg_info = f"· стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
+        message_text += f"Продаж: {len(sales)} {pg_info}\nВыберите для редактирования:\n\n"
+
+        from utils import format_date_for_user
+        offset = page * PAGE_SIZE_SALES
+        for i, sale in enumerate(page_items, offset + 1):
+            sale_id      = sale[0]
+            quantity     = sale[3]
+            sale_price   = sale[4]
+            sale_date    = sale[6]
             product_name = sale[7] if len(sale) > 7 else "Неизвестный товар"
-            
-            total = quantity * sale_price
-            
-            message_text += f"{i}. 🏷 {product_name}\n"
-            message_text += f"   📦 {quantity} шт. × {format_currency(sale_price)} = {format_currency(total)}\n"
-            # Используем timezone пользователя для отображения времени
-            from utils import format_date_for_user
+            total        = quantity * sale_price
             formatted_date = format_date_for_user(sale_date, callback.from_user.id)
+
+            message_text += f"{i}. 🏷 {product_name}\n"
+            message_text += f"   📦 {quantity} × {format_currency(sale_price)} = {format_currency(total)}\n"
             message_text += f"   📅 {formatted_date}\n\n"
-            
             builder.add(InlineKeyboardButton(
-                text=f"✏️ {i}. {product_name}",
+                text=f"✏️ {i}. {product_name[:30]}",
                 callback_data=f"edit_sale_{sale_id}"
             ))
-        
+
+        nav = page_nav_row("esl_pg_", page, has_prev, has_next, total_pages)
+        if nav:
+            builder.row(*nav)
         builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
         builder.adjust(1)
-    
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=builder.as_markup()
-    )
+
+    await callback.message.edit_text(message_text, reply_markup=builder.as_markup())
     await state.set_state(EditSaleStates.choosing_sale)
+
+
+@sales_router.callback_query(F.data.startswith("esl_pg_"))
+async def edit_sales_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка продаж для редактирования."""
+    await callback.answer()
+    try:
+        page = int(callback.data.replace("esl_pg_", ""))
+    except ValueError:
+        page = 0
+    data = await state.get_data()
+    sales = data.get("edit_sales_cache", [])
+    title = data.get("edit_sales_title", "Продажи")
+    await show_sales_for_edit(callback, sales, state, title, page=page)
 
 async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegram_id: int = None):
     """Вспомогательная функция для отображения меню редактирования продажи"""

@@ -90,13 +90,14 @@ def products_menu():
     builder.add(
         InlineKeyboardButton(text="➕ Добавить товар", callback_data="add_product"),
         InlineKeyboardButton(text="📥 Добавить списком", callback_data="bulk_import_products"),
+        InlineKeyboardButton(text="📊 Импорт из Excel", callback_data="excel_import_products"),
         InlineKeyboardButton(text="📋 Список товаров", callback_data="list_products"),
         InlineKeyboardButton(text="📂 Категории", callback_data="categories_menu"),
         InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_product"),
         InlineKeyboardButton(text="🗑 Удалить товар", callback_data="delete_product"),
         back_button("admin_management")
     )
-    builder.adjust(2, 1, 1, 2, 1)
+    builder.adjust(2, 1, 1, 1, 2, 1)
     return builder.as_markup()
 
 def inventory_menu():

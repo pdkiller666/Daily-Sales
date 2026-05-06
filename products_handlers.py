@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database import Database
 from keyboards import products_menu, back_button, create_selection_keyboard, create_confirm_keyboard
-from states import ProductStates
+from states import ProductStates, ExcelImportStates
 from utils import format_currency, he
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from env_manager import env_manager
@@ -370,44 +370,64 @@ async def process_product_price(message: Message, state: FSMContext):
         )
         await clear_state_keep_org(state)
 
-@products_router.callback_query(F.data == "list_products")
-async def list_products(callback: CallbackQuery, state: FSMContext):
-    """Список всех товаров"""
-    if not callback.message:
-        await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
-        return
-
-    await callback.answer()
+async def _render_product_list(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Рендер страницы N списка товаров по категориям."""
     current_db = await get_db(callback.from_user.id, state)
     products = current_db.get_all_products()
-    
+    await callback.answer()
+
     if not products:
         await callback.message.edit_text(
             "📋 Список товаров пуст.\n\nДобавьте товары для начала работы.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
         )
         return
-    
-    # Группируем товары по категориям
-    categories = {}
-    for product in products:
-        category = product[2] or "Без категории"
-        if category not in categories:
-            categories[category] = []
-        categories[category].append(product)
-    
-    message_text = "📋 Список товаров:\n\n"
-    
-    for category, category_products in categories.items():
-        message_text += f"📂 {category}:\n"
-        for product in category_products:
-            message_text += f"   • {product[1]} - {format_currency(product[3])}\n"
+
+    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row, PAGE_SIZE_DEFAULT
+
+    # Группируем по категориям
+    cat_dict: dict[str, list] = {}
+    for p in products:
+        cat = p[2] or "Без категории"
+        cat_dict.setdefault(cat, []).append(p)
+
+    cat_list = list(cat_dict.items())
+    page_cats, has_prev, has_next, total_pages, page = _paginate(cat_list, page, PAGE_SIZE_DEFAULT)
+
+    pg_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
+    message_text = f"📋 Список товаров ({len(products)} шт.){pg_info}:\n\n"
+    for cat_name, cat_products in page_cats:
+        message_text += f"📂 <b>{he(cat_name)}</b>:\n"
+        for p in cat_products:
+            message_text += f"   • {he(p[1])} — {format_currency(p[3])}\n"
         message_text += "\n"
-    
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
-    )
+
+    builder = InlineKeyboardBuilder()
+    nav = _nav_row("prodl_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("products"))
+
+    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@products_router.callback_query(F.data == "list_products")
+async def list_products(callback: CallbackQuery, state: FSMContext):
+    """Список всех товаров"""
+    if not callback.message:
+        await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
+        return
+    await _render_product_list(callback, state, page=0)
+
+
+@products_router.callback_query(F.data.startswith("prodl_pg_"))
+async def product_list_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка товаров."""
+    try:
+        page = int(callback.data.replace("prodl_pg_", ""))
+    except ValueError:
+        page = 0
+    await _render_product_list(callback, state, page=page)
 
 @products_router.callback_query(F.data == "categories_menu")
 async def categories_menu(callback: CallbackQuery, state: FSMContext):
@@ -1322,6 +1342,181 @@ async def confirm_bulk_import(callback: CallbackQuery, state: FSMContext):
         f"✅ Добавлено {added} товаров!" if added else "⚠️ Ни один товар не был добавлен.",
         show_alert=True
     )
+    await callback.message.edit_text(
+        result_text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Список товаров", callback_data="list_products")],
+            [back_button("products")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+#  ИМПОРТ ТОВАРОВ ИЗ EXCEL (.xlsx)
+# ─────────────────────────────────────────────────────────────
+
+@products_router.callback_query(F.data == "excel_import_products")
+async def excel_import_start(callback: CallbackQuery, state: FSMContext):
+    """Начало импорта товаров из Excel-файла."""
+    if not callback.message:
+        await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
+        return
+
+    is_super = env_manager.is_super_admin(callback.from_user.id)
+    is_admin = is_any_admin(callback.from_user.id)
+    if not is_super and not is_admin:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.answer()
+    await callback.message.edit_text(
+        "📊 <b>Импорт товаров из Excel</b>\n\n"
+        "Пришлите файл <b>.xlsx</b> со следующими столбцами:\n"
+        "<code>A: Название товара\n"
+        "B: Категория\n"
+        "C: Цена (число)</code>\n\n"
+        "📌 Первую строку (шапку) можно пропустить — "
+        "строки, где цена не число, игнорируются.\n\n"
+        "⬆️ Отправьте файл прямо в чат:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(ExcelImportStates.waiting_file)
+
+
+@products_router.message(ExcelImportStates.waiting_file)
+async def excel_import_receive_file(message: Message, state: FSMContext):
+    """Принимает xlsx-файл и показывает превью для подтверждения."""
+    is_super = env_manager.is_super_admin(message.from_user.id)
+    is_admin = is_any_admin(message.from_user.id)
+    if not is_super and not is_admin:
+        return
+
+    if not message.document:
+        await fsm_edit(
+            state, message,
+            "📊 Пожалуйста, отправьте файл <b>.xlsx</b> (Excel).",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
+            parse_mode="HTML"
+        )
+        return
+
+    if not message.document.file_name or not message.document.file_name.lower().endswith('.xlsx'):
+        await fsm_edit(
+            state, message,
+            "❌ Принимаются только файлы <b>.xlsx</b>. Отправьте корректный файл.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        import io
+        import openpyxl
+
+        file = await message.bot.get_file(message.document.file_id)
+        file_bytes = await message.bot.download_file(file.file_path)
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes.read()), read_only=True, data_only=True)
+        ws = wb.active
+
+        valid = []
+        skipped_rows = 0
+        for row in ws.iter_rows(values_only=True):
+            if not row or len(row) < 3:
+                skipped_rows += 1
+                continue
+            name = str(row[0]).strip() if row[0] is not None else ""
+            category = str(row[1]).strip() if row[1] is not None else "Без категории"
+            try:
+                price = float(str(row[2]).replace(',', '.').strip())
+            except (ValueError, TypeError):
+                skipped_rows += 1
+                continue
+
+            if not name or len(name) < 2 or price <= 0:
+                skipped_rows += 1
+                continue
+
+            valid.append({'name': name[:50], 'category': category[:30] or "Без категории", 'price': price})
+            if len(valid) >= BULK_IMPORT_MAX:
+                break
+
+        wb.close()
+
+        if not valid:
+            await fsm_edit(
+                state, message,
+                "❌ <b>Файл не содержит валидных данных.</b>\n\n"
+                "Убедитесь, что столбцы: A=Название, B=Категория, C=Цена.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
+                parse_mode="HTML"
+            )
+            return
+
+        # Показываем превью (первые 10 строк)
+        preview_lines = [f"{i+1}. <b>{he(p['name'])}</b> | {he(p['category'])} | {format_currency(p['price'])}"
+                         for i, p in enumerate(valid[:10])]
+        extra = f"\n<i>...и ещё {len(valid) - 10}</i>" if len(valid) > 10 else ""
+        preview = "\n".join(preview_lines)
+
+        skip_msg = f"\n\n⚠️ Пропущено строк: {skipped_rows}" if skipped_rows else ""
+        await state.update_data(excel_import_data=valid)
+
+        await fsm_edit(
+            state, message,
+            f"📊 <b>Превью импорта</b> — {len(valid)} товаров{skip_msg}\n\n"
+            f"{preview}{extra}\n\n"
+            f"Подтвердите импорт:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"✅ Импортировать {len(valid)} товаров", callback_data="excel_import_confirm")],
+                [back_button("products")]
+            ]),
+            parse_mode="HTML"
+        )
+        await state.set_state(ExcelImportStates.confirming_import)
+
+    except Exception as e:
+        await fsm_edit(
+            state, message,
+            f"❌ Ошибка при чтении файла: {he(str(e)[:100])}\n\nПопробуйте ещё раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
+            parse_mode="HTML"
+        )
+
+
+@products_router.callback_query(ExcelImportStates.confirming_import, F.data == "excel_import_confirm")
+async def excel_import_confirm(callback: CallbackQuery, state: FSMContext):
+    """Выполняет массовый импорт товаров из Excel."""
+    is_super = env_manager.is_super_admin(callback.from_user.id)
+    is_admin = is_any_admin(callback.from_user.id)
+    if not is_super and not is_admin:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+
+    data = await state.get_data()
+    excel_data = data.get("excel_import_data", [])
+
+    if not excel_data:
+        await callback.answer("❌ Данные устарели. Начните заново.", show_alert=True)
+        await clear_state_keep_org(state)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    bulk_products = [(p['name'], p['category'], p['price']) for p in excel_data]
+    added, skipped = current_db.add_products_bulk(bulk_products)
+
+    await clear_state_keep_org(state)
+    await callback.answer(
+        f"✅ Добавлено {added} товаров!" if added else "⚠️ Нет новых товаров.",
+        show_alert=True
+    )
+
+    result_text = f"✅ <b>Excel-импорт завершён!</b>\n\n📦 Добавлено: <b>{added}</b>"
+    if skipped:
+        result_text += f"\n⚠️ Пропущено (уже есть): <b>{len(skipped)}</b>"
+
     await callback.message.edit_text(
         result_text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[

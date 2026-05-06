@@ -142,6 +142,10 @@ class PaymentSystemStates(StatesGroup):
 class QuickSaleStates(StatesGroup):
     searching_product = State()
 
+class ExcelImportStates(StatesGroup):
+    waiting_file       = State()
+    confirming_import  = State()
+
 class RankingStates(StatesGroup):
     choosing_start_date = State()
     choosing_end_date   = State()

@@ -16,6 +16,7 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit, safe_edit_message
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_DEFAULT
 
 contests_router = Router()
 logger = logging.getLogger(__name__)
@@ -949,14 +950,10 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
 
 # ── Список конкурсов ───────────────────────────────────────────────────────────
 
-@contests_router.callback_query(F.data == "contest_list_active")
-async def contest_list_active(callback: CallbackQuery, state: FSMContext):
-    if not is_any_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
+async def _render_active_contests(callback: CallbackQuery, state: FSMContext, page: int = 0):
     current_db = await get_db(callback.from_user.id, state)
     contests = current_db.get_contests(status='active')
+    await callback.answer()
 
     builder = InlineKeyboardBuilder()
     if not contests:
@@ -969,8 +966,14 @@ async def contest_list_active(callback: CallbackQuery, state: FSMContext):
                                 builder.as_markup())
         return
 
-    text = "🏆 <b>Активные конкурсы</b>\n\n"
-    for c in contests:
+    page_items, has_prev, has_next, total_pages, page = paginate(contests, page, PAGE_SIZE_DEFAULT)
+
+    text = "🏆 <b>Активные конкурсы</b>"
+    if total_pages > 1:
+        text += f" · стр. {page + 1}/{total_pages}"
+    text += f"\n\n"
+
+    for c in page_items:
         cid = c[0]
         title = c[1]
         metric = c[4]
@@ -985,8 +988,74 @@ async def contest_list_active(callback: CallbackQuery, state: FSMContext):
                  f"📅 {_fmt_date(start)} — {_fmt_date(end)}\n"
                  f"🎯 {format_price(target)}{metric_unit} · 🏅 {reward_str}\n\n")
         builder.button(text=f"📊 {title[:35]}", callback_data=f"ct_view_{cid}")
+
+    nav = page_nav_row("cal_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
     builder.button(text="🔄 Обновить", callback_data="contest_list_active")
     builder.button(text="➕ Создать", callback_data="contest_create")
+    builder.button(text="⬅️ Назад", callback_data="contests_menu")
+    builder.adjust(1)
+
+    await safe_edit_message(callback, text, builder.as_markup())
+
+
+@contests_router.callback_query(F.data == "contest_list_active")
+async def contest_list_active(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await _render_active_contests(callback, state, page=0)
+
+
+@contests_router.callback_query(F.data.startswith("cal_pg_"))
+async def contest_active_page(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    try:
+        page = int(callback.data.replace("cal_pg_", ""))
+    except ValueError:
+        page = 0
+    await _render_active_contests(callback, state, page=page)
+
+
+async def _render_archive_contests(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    current_db = await get_db(callback.from_user.id, state)
+    finished = current_db.get_contests(status='finished')
+    cancelled = current_db.get_contests(status='cancelled')
+    contests = finished + cancelled
+    await callback.answer()
+
+    builder = InlineKeyboardBuilder()
+    if not contests:
+        builder.button(text="⬅️ Назад", callback_data="contests_menu")
+        await safe_edit_message(callback,
+                                "📋 <b>Архив конкурсов</b>\n\n❌ Архив пуст",
+                                builder.as_markup())
+        return
+
+    page_items, has_prev, has_next, total_pages, page = paginate(contests, page, PAGE_SIZE_DEFAULT)
+
+    text = "📋 <b>Архив конкурсов</b>"
+    if total_pages > 1:
+        text += f" · стр. {page + 1}/{total_pages}"
+    text += f"\n\n"
+
+    for c in page_items:
+        cid = c[0]
+        title = c[1]
+        start = c[8]
+        end = c[9]
+        status = c[16]
+        icon = "✅" if status == 'finished' else "❌"
+        text += f"{icon} <b>{he(title)}</b> ({_fmt_date(start)}–{_fmt_date(end)})\n"
+        builder.button(text=f"📊 {title[:35]}", callback_data=f"ct_view_{cid}")
+
+    nav = page_nav_row("car_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.button(text="🗑️ Очистить архив", callback_data="contest_archive_clear_confirm")
     builder.button(text="⬅️ Назад", callback_data="contests_menu")
     builder.adjust(1)
 
@@ -998,35 +1067,19 @@ async def contest_list_archive(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
+    await _render_archive_contests(callback, state, page=0)
 
-    current_db = await get_db(callback.from_user.id, state)
-    finished = current_db.get_contests(status='finished')
-    cancelled = current_db.get_contests(status='cancelled')
-    contests = finished + cancelled
 
-    builder = InlineKeyboardBuilder()
-    if not contests:
-        builder.button(text="⬅️ Назад", callback_data="contests_menu")
-        await safe_edit_message(callback,
-                                "📋 <b>Архив конкурсов</b>\n\n❌ Архив пуст",
-                                builder.as_markup())
+@contests_router.callback_query(F.data.startswith("car_pg_"))
+async def contest_archive_page(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
-
-    text = "📋 <b>Архив конкурсов</b>\n\n"
-    for c in contests:
-        cid = c[0]
-        title = c[1]
-        start = c[8]
-        end = c[9]
-        status = c[16]
-        icon = "✅" if status == 'finished' else "❌"
-        text += f"{icon} <b>{he(title)}</b> ({_fmt_date(start)}–{_fmt_date(end)})\n"
-        builder.button(text=f"📊 {title[:35]}", callback_data=f"ct_view_{cid}")
-    builder.button(text="🗑️ Очистить архив", callback_data="contest_archive_clear_confirm")
-    builder.button(text="⬅️ Назад", callback_data="contests_menu")
-    builder.adjust(1)
-
-    await safe_edit_message(callback, text, builder.as_markup())
+    try:
+        page = int(callback.data.replace("car_pg_", ""))
+    except ValueError:
+        page = 0
+    await _render_archive_contests(callback, state, page=page)
 
 
 @contests_router.callback_query(F.data == "contest_archive_clear_confirm")
