@@ -1,0 +1,9 @@
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: "3.11"
+
+run:
+  persistenceMount: /app/data
+  command: python main.py

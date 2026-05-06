@@ -1,0 +1,742 @@
+"""
+Обработчики для системы подписок
+"""
+
+import os
+import sqlite3
+from datetime import datetime, timedelta
+from aiogram import types
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
+from database import Database
+from keyboards import back_button, create_confirm_keyboard
+from states import SubscriptionStates
+from env_manager import env_manager
+from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
+from db_utils import get_user_org_role, clear_state_keep_org
+
+
+
+def _get_db():
+    """Локальная БД для платёжного/подписочного функционала"""
+    return Database('data/shop_bot.db')
+
+async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
+    """Уведомление супер-администратора о новой заявке на оплату"""
+    db = _get_db()
+    try:
+        super_admin_id = env_manager.get_main_admin_id()  # Только супер-админ
+        
+        if not super_admin_id:
+            return
+        
+        # Получаем данные пользователя
+        user = db.get_user_by_id(user_id)
+        if not user:
+            return
+        
+        from utils import he
+        user_name = he(f"{user[1]} {user[2]}")  # first_name + last_name (экранируем HTML)
+        user_telegram_id = user[0]
+        
+        notification_text = (
+            "🔔 <b>Новая заявка на оплату!</b>\n\n"
+            f"👤 <b>Пользователь:</b> {user_name}\n"
+            f"🆔 <b>Telegram ID:</b> {user_telegram_id}\n"
+            f"📋 <b>Тарифный план:</b> {plan_type}\n"
+            f"💰 <b>Сумма:</b> {amount}₽\n\n"
+            "⏰ Заявка ожидает рассмотрения в административной панели."
+        )
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Рассмотреть заявки", callback_data="pending_payments")]
+        ])
+        
+        # Отправляем уведомление только супер-администратору
+        try:
+            await bot.send_message(
+                chat_id=super_admin_id,
+                text=notification_text,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+def get_current_subscription_plans():
+    """Получение актуальных тарифных планов из базы данных"""
+    db = _get_db()
+    plans = db.get_subscription_plans()
+    plans_dict = {}
+    for plan in plans:
+        plan_id = plan[0]
+        name = plan[1]
+        duration_days = plan[2]
+        price = plan[3]
+        description = plan[4]
+        is_active = plan[5]
+        if is_active and price > 0:  # Только активные платные планы
+            plans_dict[f"plan_{plan_id}"] = {
+                'id': plan_id,
+                'name': name,
+                'price': price,
+                'duration': duration_days,
+                'description': description
+            }
+    return plans_dict
+
+async def subscription_menu(callback: CallbackQuery, state: FSMContext):
+    """Главное меню подписок"""
+    await callback.answer()
+    from subscription_utils import get_plan_limits, _get_org_plan_for_user, _get_personal_plan
+    await clear_state_keep_org(state)
+
+    telegram_id = callback.from_user.id
+    is_super_admin = env_manager.is_super_admin(telegram_id)
+
+    text = "💎 <b>Управление подпиской</b>\n\n"
+
+    if is_super_admin:
+        text += "<i>✨ Вы супер-администратор — доступ ко всем функциям без ограничений.</i>"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Мой статус", callback_data="subscription_limits")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
+        ])
+    else:
+        # Определяем: org-пользователь или личный
+        org_plan = _get_org_plan_for_user(telegram_id)
+        is_org_user = org_plan is not None
+
+        if is_org_user:
+            plan_type = org_plan
+            end_date = None
+            text += f"🏢 <b>Тариф вашей организации:</b> {plan_type}\n"
+            text += "<i>Тариф управляется администратором организации.</i>\n\n"
+        else:
+            # Личный пользователь — ищем подписку в shop_bot.db
+            db = _get_db()
+            user_id = db.get_user_id(telegram_id)
+            subscription = db.get_user_subscription(user_id) if user_id else None
+            if subscription:
+                plan_type = subscription[2]
+                end_date = subscription[4]
+            else:
+                plan_type = 'Бесплатный'
+                end_date = None
+            text += f"📦 <b>Текущий план:</b> {plan_type}\n"
+
+        limits = get_plan_limits(telegram_id)
+
+        if plan_type in ('Бесплатный', 'free'):
+            text += "⚠️ <b>Ограничения плана:</b>\n"
+        else:
+            text += "✅ <b>Возможности плана:</b>\n"
+
+        text += ("• Товары: ∞ Безлимит\n" if limits['max_products'] == -1
+                 else f"• Товары: до {limits['max_products']}\n")
+        text += ("• Магазины: ∞ Безлимит\n" if limits['max_shops'] == -1
+                 else f"• Магазины: до {limits['max_shops']}\n")
+        text += ("• Продажи/мес: ∞ Безлимит\n" if limits['max_sales_per_month'] == -1
+                 else f"• Продажи/мес: до {limits['max_sales_per_month']}\n")
+        text += f"• Экспорт отчётов: {'✅' if limits['can_export_reports'] else '❌'}\n"
+        text += f"• Аналитика: {'✅' if limits['can_view_analytics'] else '❌'}\n"
+        text += f"• Уведомления: {'✅' if limits['can_use_notifications'] else '❌'}\n"
+
+        if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
+            try:
+                end_dt = datetime.fromisoformat(end_date)
+                days_left = (end_dt - datetime.now()).days
+                if days_left > 0:
+                    text += f"\n📅 <b>Действует до:</b> {end_dt.strftime('%d.%m.%Y')} ({days_left} дн.)\n"
+                else:
+                    text += "\n⚠️ <b>Подписка истекла</b>\n"
+            except Exception:
+                pass
+
+        if plan_type in ('Бесплатный', 'free'):
+            text += "\n💎 <b>Обновите план для получения больших возможностей!</b>"
+
+        if is_org_user:
+            org_role = get_user_org_role(telegram_id)
+            is_org_admin = org_role in ('owner', 'admin')
+            org_buttons = [[InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")]]
+            if is_org_admin:
+                org_buttons.append([InlineKeyboardButton(text="💳 Купить подписку для организации", callback_data="subscription_plans")])
+            org_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=org_buttons)
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Купить подписку", callback_data="subscription_plans")],
+                [InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")],
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
+            ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def subscription_plans(callback: CallbackQuery):
+    """Выбор тарифного плана"""
+    await callback.answer()
+    db = _get_db()
+    text = "💳 <b>Выберите тарифный план:</b>\n\n"
+    
+    keyboard_buttons = []
+    plans = get_current_subscription_plans()
+    
+    if not plans:
+        text += "❌ Нет доступных тарифных планов"
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")])
+    else:
+        for plan_id, plan_info in plans.items():
+            price_per_month = plan_info['price'] / (plan_info['duration'] / 30)
+            text += f"💎 <b>{plan_info['name']}</b>\n"
+            text += f"💰 {plan_info['price']:.0f}₽ (≈{price_per_month:.0f}₽/мес)\n"
+            if plan_info['description']:
+                text += f"📝 {plan_info['description']}\n"
+            text += "\n"
+            
+            callback_data = f"subscribe_{plan_id}"
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=f"{plan_info['name']} - {plan_info['price']:.0f}₽",
+                    callback_data=callback_data
+                )
+            ])
+        
+        # Динамическое отображение лимитов планов из базы данных
+        all_plans = db.get_subscription_plans()
+        
+        if all_plans:
+            text += "📋 <b>Сравнение планов:</b>\n\n"
+            
+            for plan in all_plans:
+                plan_details = db.get_subscription_plan_details(plan[0])
+                if plan_details:
+                    text += f"💎 <b>{plan_details['name']}</b>\n"
+                    
+                    # Лимиты товаров
+                    if plan_details['max_products'] == -1:
+                        text += "📦 Товары: ∞ Безлимит\n"
+                    else:
+                        text += f"📦 Товары: до {plan_details['max_products']}\n"
+                    
+                    # Лимиты магазинов
+                    if plan_details['max_shops'] == -1:
+                        text += "🏪 Магазины: ∞ Безлимит\n"
+                    else:
+                        text += f"🏪 Магазины: до {plan_details['max_shops']}\n"
+                    
+                    # Лимиты продаж
+                    if plan_details['max_sales_per_month'] == -1:
+                        text += "💰 Продажи/месяц: ∞ Безлимит\n"
+                    else:
+                        text += f"💰 Продажи/месяц: до {plan_details['max_sales_per_month']}\n"
+                    
+                    # Доступные функции
+                    text += f"📋 Экспорт: {'✅' if plan_details['can_export_reports'] else '❌'}\n"
+                    text += f"📈 Аналитика: {'✅' if plan_details['can_view_analytics'] else '❌'}\n"
+                    text += f"🔔 Уведомления: {'✅' if plan_details['can_use_notifications'] else '❌'}\n"
+                    text += "\n"
+        
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def start_subscription_purchase(callback: CallbackQuery, state: FSMContext):
+    """Начало покупки подписки"""
+    db = _get_db()
+    # Callback data имеет формат "subscribe_plan_ID"
+    # Извлекаем "plan_ID" из "subscribe_plan_ID"
+    if not callback.data.startswith("subscribe_"):
+        await callback.answer("Ошибка: неверный формат данных")
+        return
+    
+    plan_key = callback.data[10:]  # Убираем "subscribe_" в начале
+    plans = get_current_subscription_plans()
+    
+    if plan_key not in plans:
+        await callback.answer("Ошибка: план не найден")
+        return
+    
+    await callback.answer()
+    plan_info = plans[plan_key]
+    user_id = db.get_user_id(callback.from_user.id)
+    
+    # Проверяем на понижение тарифа
+    is_downgrade, downgrade_info = db.check_subscription_downgrade(user_id, plan_info['name'])
+    
+    if is_downgrade:
+        from datetime import datetime
+        end_date = downgrade_info['end_datetime'].strftime('%d.%m.%Y')
+        days_left = (downgrade_info['end_datetime'] - datetime.now()).days
+        
+        text = f"⚠️ <b>ВНИМАНИЕ: Понижение тарифа</b>\n\n"
+        text += f"У вас активна подписка <b>{downgrade_info['current_plan']}</b>\n"
+        text += f"📅 Действует до: {end_date} ({days_left} дн.)\n\n"
+        text += f"Вы выбрали план <b>{plan_info['name']}</b>, который предоставляет меньше возможностей.\n\n"
+        text += "🔄 <b>Варианты действий:</b>\n"
+        text += "• <b>Отложенная активация</b> - новый план активируется после окончания текущего\n"
+        text += "• <b>Немедленная замена</b> - текущий план будет заменен сразу (остаток сгорит)\n\n"
+        text += f"💰 <b>Сумма к оплате:</b> {plan_info['price']:.0f}₽\n"
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏰ Отложенная активация", callback_data=f"schedule_{plan_key}")],
+            [InlineKeyboardButton(text="⚡ Немедленная замена", callback_data=f"immediate_{plan_key}")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+        ])
+        
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        return
+    
+    # Обычный процесс покупки (улучшение или первая покупка)
+    await proceed_with_purchase(callback, state, plan_info)
+
+async def proceed_with_purchase(callback: CallbackQuery, state: FSMContext, plan_info, plan_key: str = None, is_scheduled=False, schedule_date=None):
+    """Продолжение процесса покупки подписки"""
+    db = _get_db()
+    original_price = plan_info['price']
+
+    # Если plan_key не передан явно — пробуем извлечь из callback.data (формат "subscribe_plan_X")
+    if plan_key is None:
+        plan_key = callback.data[10:]  # Убираем "subscribe_"
+
+    text = f"💳 <b>Оформление подписки: {plan_info['name']}</b>\n\n"
+    
+    if is_scheduled and schedule_date:
+        text += f"⏰ <b>Тип активации:</b> Отложенная\n"
+        text += f"📅 <b>Начало действия:</b> {schedule_date}\n\n"
+    
+    text += f"💰 <b>Стоимость:</b> {original_price:.0f}₽\n"
+    text += f"📅 <b>Срок действия:</b> {plan_info['duration']} дней\n\n"
+    
+    text += "🎁 <b>У вас есть промокод?</b>\n"
+    text += "Введите его для получения скидки или продолжите без промокода."
+    
+    await state.update_data(
+        plan_type=plan_info['name'], 
+        original_amount=original_price,
+        final_amount=original_price,
+        is_scheduled=is_scheduled,
+        schedule_date=schedule_date,
+        promocode_applied=None
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Ввести промокод", callback_data=f"enter_promocode_{plan_key}")],
+        [InlineKeyboardButton(text="💳 Продолжить без промокода", callback_data=f"proceed_payment_{plan_key}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def process_payment_proof(message: Message, state: FSMContext):
+    """Обработка скриншота оплаты"""
+    db = _get_db()
+    if not message.photo:
+        await fsm_edit(state, message, "❌ Пожалуйста, отправьте скриншот перевода (фото).",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]]))
+        return
+    
+    data = await state.get_data()
+    plan_type = data.get('plan_type')
+    amount = data.get('amount')
+    is_scheduled = data.get('is_scheduled', False)
+    schedule_date = data.get('schedule_date')
+    promocode_data = data.get('promocode_data')
+    
+    user_id = db.get_user_id(message.from_user.id)
+
+    # Org-пользователь может отсутствовать в shop_bot.db — копируем из tenant DB
+    if user_id is None:
+        try:
+            from tenant_manager import tenant_manager
+            from database import Database as _DB
+            db_path = tenant_manager.get_user_db_path(message.from_user.id)
+            if db_path != 'data/shop_bot.db':
+                org_db = _DB(db_path)
+                u = org_db.get_user(message.from_user.id)
+                if u:
+                    db.add_user(
+                        telegram_id=u[1], first_name=u[2], last_name=u[3],
+                        middle_name=u[4], phone=u[5], email=u[6],
+                        trade_network=u[7], shop_name=u[8], city=u[9]
+                    )
+                    user_id = db.get_user_id(message.from_user.id)
+        except Exception:
+            pass
+
+    if not user_id:
+        await fsm_edit(state, message, "❌ Ошибка: профиль не найден. Обратитесь в поддержку.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]]))
+        return
+
+    file_id = message.photo[-1].file_id
+
+    # Сохраняем ID промокода для применения только при одобрении заявки
+    promo_id = promocode_data.get('id') if promocode_data else None
+
+    # Создаем заявку на оплату (промокод применится в confirm_payment_request)
+    try:
+        success = db.create_payment_request(user_id, plan_type, amount, file_id, promo_id)
+    except Exception as e:
+        import logging
+        logging.error(f"process_payment_proof: create_payment_request failed: {e}")
+        from keyboards import main_menu
+        user = db.get_user(message.from_user.id)
+        keyboard = main_menu(message.chat.id, user[8] if user else None)
+        await fsm_edit(state, message,
+                       "❌ Ошибка при создании заявки. Попробуйте позже.\n\n🏠 Возврат в главное меню:",
+                       reply_markup=keyboard)
+        await clear_state_keep_org(state)
+        return
+
+    if success:
+        
+        # Формируем текст уведомления
+        if is_scheduled:
+            notification_text = "✅ <b>Заявка на отложенную подписку отправлена!</b>\n\n" \
+                               f"Ваша заявка на план <b>{plan_type}</b> поступила на рассмотрение администратору.\n" \
+                               f"📅 <b>Активация:</b> {schedule_date}\n"
+        else:
+            notification_text = "✅ <b>Заявка на оплату отправлена!</b>\n\n" \
+                               "Ваша заявка поступила на рассмотрение администратору.\n"
+        
+        if promocode_data:
+            original_price = data.get('original_amount', amount)
+            discount_amount = original_price - amount
+            notification_text += f"🎁 <b>Промокод:</b> {promocode_data['code']}\n" \
+                               f"💰 <b>Скидка:</b> {promocode_data['discount_percent']}% (-{discount_amount:.0f}₽)\n" \
+                               f"💸 <b>Было:</b> {original_price:.0f}₽\n"
+        
+        notification_text += f"💳 <b>К оплате:</b> {amount:.0f}₽\n\n"
+        
+        if is_scheduled:
+            notification_text += "Подписка будет активирована в указанную дату после подтверждения оплаты.\n\n"
+        else:
+            notification_text += "Подписка будет активирована после подтверждения оплаты.\n\n"
+        
+        notification_text += "⏰ Обычно проверка занимает до 24 часов."
+        
+        # Импортируем функцию главного меню
+        from keyboards import main_menu
+        
+        # Отправляем финальное сообщение с главным меню
+        user = db.get_user(message.from_user.id)
+        keyboard = main_menu(message.chat.id, user[8] if user else None)
+        
+        final_text = notification_text + "\n\n🏠 Возврат в главное меню:"
+        
+        await fsm_edit(state, message, final_text, reply_markup=keyboard)
+        
+        # Уведомляем администраторов о новой заявке
+        await notify_admins_about_payment_request(message.bot, user_id, plan_type, amount)
+    else:
+        from keyboards import main_menu
+        user = db.get_user(message.from_user.id)
+        keyboard = main_menu(message.chat.id, user[8] if user else None)
+        
+        await fsm_edit(state, message,
+                       "❌ Ошибка при создании заявки. Попробуйте позже.\n\n🏠 Возврат в главное меню:",
+                       reply_markup=keyboard)
+    
+    await clear_state_keep_org(state)
+
+async def subscription_limits(callback: CallbackQuery):
+    """Отображение лимитов пользователя"""
+    await callback.answer()
+    from subscription_utils import get_plan_limits, _get_org_plan_for_user
+    from database import Database as _DB
+    from tenant_manager import tenant_manager
+
+    telegram_id = callback.from_user.id
+    is_super_admin = env_manager.is_super_admin(telegram_id)
+
+    if is_super_admin:
+        text = "👑 <b>Супер-администратор</b>\n\n"
+        text += "✨ У вас неограниченный доступ ко всем функциям системы.\n\n"
+        text += "📦 <b>Товары:</b> Безлимит\n"
+        text += "🏪 <b>Магазины:</b> Безлимит\n"
+        text += "💰 <b>Продажи:</b> Безлимит\n"
+        text += "📋 <b>Экспорт отчетов:</b> ✅ Доступен\n"
+        text += "📈 <b>Расширенная аналитика:</b> ✅ Доступна\n"
+        text += "🔔 <b>Уведомления:</b> ✅ Доступны\n"
+    else:
+        # Определяем тип пользователя и его план
+        org_plan = _get_org_plan_for_user(telegram_id)
+        is_org_user = org_plan is not None
+
+        if is_org_user:
+            plan_type = org_plan
+            end_date = None
+        else:
+            db = _get_db()
+            user_id_shop = db.get_user_id(telegram_id)
+            subscription = db.get_user_subscription(user_id_shop) if user_id_shop else None
+            plan_type = subscription[2] if subscription else 'Бесплатный'
+            end_date = subscription[4] if subscription else None
+
+        # Лимиты через subscription_utils — единственный правильный источник для всех типов
+        limits = get_plan_limits(telegram_id)
+
+        text = f"📊 <b>Текущий план:</b> {plan_type}\n"
+        if is_org_user:
+            text += "<i>(тариф организации)</i>\n"
+        text += "\n"
+
+        # Дата окончания только для личных платных планов
+        if not is_org_user and end_date and end_date != '9999-12-31 23:59:59':
+            try:
+                end_datetime = datetime.fromisoformat(end_date)
+                days_left = (end_datetime - datetime.now()).days
+                if days_left > 0:
+                    text += f"📅 <b>Действует до:</b> {end_datetime.strftime('%d.%m.%Y')} ({days_left} дн.)\n\n"
+                else:
+                    text += f"⚠️ <b>Подписка истекла:</b> {end_datetime.strftime('%d.%m.%Y')}\n\n"
+            except Exception:
+                pass
+
+        # Счётчики из правильной БД пользователя
+        try:
+            user_db_path = tenant_manager.get_user_db_path(telegram_id)
+            user_db = _DB(user_db_path)
+            db_user_id = user_db.get_user_id(telegram_id)
+        except Exception:
+            user_db = _get_db()
+            db_user_id = user_db.get_user_id(telegram_id)
+
+        text += "<b>📋 Ваши лимиты:</b>\n"
+
+        if limits['max_products'] == -1:
+            text += "📦 <b>Товары:</b> ∞ Безлимит\n"
+        else:
+            try:
+                current_products = len(user_db.get_all_products())
+            except Exception:
+                current_products = 0
+            text += f"📦 <b>Товары:</b> {current_products}/{limits['max_products']}\n"
+
+        if limits['max_shops'] == -1:
+            text += "🏪 <b>Магазины:</b> ∞ Безлимит\n"
+        else:
+            try:
+                current_shops = len(user_db.get_all_shops())
+            except Exception:
+                current_shops = 0
+            text += f"🏪 <b>Магазины:</b> {current_shops}/{limits['max_shops']}\n"
+
+        if limits['max_sales_per_month'] == -1:
+            text += "💰 <b>Продажи/месяц:</b> ∞ Безлимит\n"
+        else:
+            try:
+                now = datetime.now()
+                month_start = f"{now.strftime('%Y-%m')}-01"
+                month_end = now.strftime('%Y-%m-%d')
+                user_sales = user_db.get_user_sales_by_date(db_user_id, month_start, month_end)
+                current_sales = len(user_sales)
+            except Exception:
+                current_sales = 0
+            text += f"💰 <b>Продажи/месяц:</b> {current_sales}/{limits['max_sales_per_month']}\n"
+
+        text += f"\n<b>🔧 Доступные функции:</b>\n"
+        text += f"📋 <b>Экспорт отчетов:</b> {'✅ Да' if limits['can_export_reports'] else '❌ Нет'}\n"
+        text += f"📈 <b>Расширенная аналитика:</b> {'✅ Да' if limits['can_view_analytics'] else '❌ Нет'}\n"
+        text += f"🔔 <b>Уведомления:</b> {'✅ Да' if limits['can_use_notifications'] else '❌ Нет'}\n"
+
+        if plan_type in ('Бесплатный', 'free'):
+            text += "\n💡 <b>Совет:</b> Обновите план для получения больших лимитов и дополнительных функций."
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")]
+    ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def handle_scheduled_purchase(callback: CallbackQuery, state: FSMContext):
+    """Обработка отложенной покупки подписки"""
+    db = _get_db()
+    plan_key = callback.data[9:]  # Убираем "schedule_" (9 символов)
+    plans = get_current_subscription_plans()
+    
+    if plan_key not in plans:
+        await callback.answer("Ошибка: план не найден")
+        return
+    
+    await callback.answer()
+    plan_info = plans[plan_key]
+    user_id = db.get_user_id(callback.from_user.id)
+    
+    # Получаем информацию о текущей подписке
+    current_subscription = db.get_user_subscription(user_id)
+    end_date = current_subscription[4]
+    
+    from datetime import datetime
+    end_datetime = datetime.fromisoformat(end_date)
+    schedule_date = end_datetime.strftime('%d.%m.%Y')
+    
+    await proceed_with_purchase(callback, state, plan_info, plan_key=plan_key, is_scheduled=True, schedule_date=schedule_date)
+
+async def handle_immediate_purchase(callback: CallbackQuery, state: FSMContext):
+    """Обработка немедленной покупки подписки"""
+    db = _get_db()
+    plan_key = callback.data[10:]  # Убираем "immediate_" (10 символов)
+    plans = get_current_subscription_plans()
+    
+    if plan_key not in plans:
+        await callback.answer("Ошибка: план не найден")
+        return
+    
+    await callback.answer()
+    plan_info = plans[plan_key]
+    await proceed_with_purchase(callback, state, plan_info, plan_key=plan_key)
+
+async def upload_payment_proof(callback: CallbackQuery, state: FSMContext):
+    """Загрузка скриншота оплаты - совместимость"""
+    db = _get_db()
+    await start_subscription_purchase(callback, state)
+
+async def enter_promocode(callback: CallbackQuery, state: FSMContext):
+    """Начало ввода промокода"""
+    await callback.answer()
+    db = _get_db()
+    plan_key = callback.data[16:]  # Убираем "enter_promocode_" (16 символов)
+    
+    text = "🎁 <b>Введите промокод</b>\n\n" \
+           "Отправьте текст с кодом промокода для получения скидки.\n" \
+           "Промокод должен состоять из букв и цифр."
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"proceed_payment_{plan_key}")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await state.update_data(plan_key=plan_key, anchor_msg_id=callback.message.message_id)
+    await state.set_state(SubscriptionStates.waiting_for_promocode)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def process_promocode(message: Message, state: FSMContext):
+    """Обработка введенного промокода"""
+    db = _get_db()
+    promocode = message.text.strip().upper()
+    data = await state.get_data()
+    plan_key = data.get('plan_key')
+    
+    _promo_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+    ])
+    if not plan_key:
+        await fsm_edit(state, message, "❌ Ошибка: данные о плане потеряны. Начните заново.", reply_markup=_promo_kb)
+        return
+    
+    plans = get_current_subscription_plans()
+    
+    if plan_key not in plans:
+        await fsm_edit(state, message, "❌ Ошибка: план не найден. Начните заново.", reply_markup=_promo_kb)
+        return
+    
+    plan_info = plans[plan_key]
+    original_amount = plan_info['price']
+    
+    validation_result = db.validate_promocode(promocode)
+    
+    if not validation_result['valid']:
+        await fsm_edit(state, message,
+                       f"❌ {validation_result['error']}\n\nПопробуйте ещё раз или продолжите без промокода.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text="💳 Продолжить без промокода", callback_data=f"proceed_payment_{plan_key}")],
+                           [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+                       ]))
+        return
+    
+    # Рассчитываем скидку
+    discount_percent = validation_result['discount_percent']
+    final_amount = db.calculate_discounted_price(original_amount, discount_percent)
+    discount_amount = original_amount - final_amount
+    
+    # Обновляем данные состояния с полной информацией
+    await state.update_data(
+        plan_key=plan_key,
+        plan_type=plan_info['name'],
+        original_amount=original_amount,
+        final_amount=final_amount,
+        promocode_applied=validation_result,
+        discount_amount=discount_amount
+    )
+    
+    text = f"✅ <b>Промокод применен!</b>\n\n" \
+           f"🎁 <b>Промокод:</b> {promocode}\n" \
+           f"💰 <b>Скидка:</b> {discount_percent}% (-{discount_amount:.0f}₽)\n\n" \
+           f"💸 <b>Было:</b> {original_amount:.0f}₽\n" \
+           f"💳 <b>К оплате:</b> {final_amount:.0f}₽\n\n" \
+           f"Продолжить оформление?"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Продолжить к оплате", callback_data=f"proceed_payment_{plan_key}")],
+        [InlineKeyboardButton(text="🎁 Ввести другой промокод", callback_data=f"enter_promocode_{plan_key}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+    
+    await fsm_edit(state, message, text, reply_markup=keyboard)
+
+async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
+    """Переход к оплате с учетом промокода"""
+    db = _get_db()
+    plan_key = callback.data[16:]  # Убираем "proceed_payment_" (16 символов)
+    plans = get_current_subscription_plans()
+    
+    if plan_key not in plans:
+        await callback.answer("Ошибка: план не найден")
+        return
+    
+    await callback.answer()
+    
+    plan_info = plans[plan_key]
+    data = await state.get_data()
+    
+    # Получаем финальную сумму (с учетом промокода если был применен)
+    final_amount = data.get('final_amount', plan_info['price'])
+    promocode_applied = data.get('promocode_applied')
+    discount_amount = data.get('discount_amount', 0)
+    
+    # Получаем настройки платежной системы
+    payment_settings = db.get_payment_settings()
+    
+    text = f"💳 <b>Оплата подписки: {plan_info['name']}</b>\n\n"
+    
+    if data.get('is_scheduled') and data.get('schedule_date'):
+        text += f"⏰ <b>Тип активации:</b> Отложенная\n"
+        text += f"📅 <b>Начало действия:</b> {data.get('schedule_date')}\n\n"
+    
+    if promocode_applied:
+        text += f"🎁 <b>Промокод:</b> {promocode_applied['code']}\n"
+        text += f"💰 <b>Скидка:</b> {promocode_applied['discount_percent']}% (-{discount_amount:.0f}₽)\n"
+        text += f"💸 <b>Было:</b> {plan_info['price']:.0f}₽\n"
+    
+    text += f"💳 <b>К оплате:</b> {final_amount:.0f}₽\n"
+    text += f"📅 <b>Срок действия:</b> {plan_info['duration']} дней\n\n"
+    
+    text += "📋 <b>Реквизиты для оплаты:</b>\n"
+    text += f"💳 Карта: {payment_settings.get('card_number', 'Не указана')}\n"
+    text += f"👤 Получатель: {payment_settings.get('recipient_name', 'Не указан')}\n"
+    text += f"🏦 Банк: {payment_settings.get('bank_name', 'Не указан')}\n\n"
+    
+    text += payment_settings.get('payment_instruction', 
+                                "📝 Переведите указанную сумму и отправьте скриншот перевода.")
+    
+    await state.update_data(
+        plan_type=plan_info['name'], 
+        amount=final_amount,
+        promocode_data=promocode_applied,
+        anchor_msg_id=callback.message.message_id,
+    )
+    await state.set_state(SubscriptionStates.waiting_payment_proof)
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

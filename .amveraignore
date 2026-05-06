@@ -1,0 +1,14 @@
+AGENT_HANDOFF.md
+replit.md
+PROJECT_MAP.md
+.local/
+.replit
+replit.nix
+deploy.sh
+attached_assets/
+screenshots/
+data/
+*.log
+*.pyc
+*.pyo
+__pycache__/

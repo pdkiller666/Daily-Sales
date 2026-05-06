@@ -1,0 +1,1281 @@
+"""
+Обработчики для системы планов продаж
+"""
+import json as _json
+from datetime import datetime, timedelta
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button
+from env_manager import env_manager
+from utils import format_price, he
+from db_utils import get_db, clear_state_keep_org, is_any_admin
+from message_utils import fsm_edit, safe_edit_message
+
+sales_plans_router = Router()
+
+
+class SalesPlanStates(StatesGroup):
+    entering_target_value = State()
+    selecting_products = State()
+    selecting_categories = State()
+    editing_target = State()
+
+
+# ── Вспомогательные функции ───────────────────────────────────────────────────
+
+_PERIOD_LABELS = {'weekly': 'Неделя', 'monthly': 'Месяц'}
+_METRIC_LABELS = {'turnover': 'Оборот (₽)', 'quantity': 'Количество (шт)'}
+_TARGET_LABELS = {'seller': 'Продавец', 'shop': 'Магазин'}
+_FILTER_LABELS = {'all': 'Все товары', 'category': 'По категории', 'product': 'По товарам'}
+
+
+def _progress_bar(percent: float, width: int = 8) -> str:
+    percent = max(0.0, min(float(percent), 100.0))
+    filled = round(percent / 100 * width)
+    if percent < 30:
+        fill_char = '🟥'
+    elif percent < 50:
+        fill_char = '🟧'
+    elif percent < 70:
+        fill_char = '🟨'
+    else:
+        fill_char = '🟩'
+    return fill_char * filled + '⬜' * (width - filled)
+
+
+def _plan_summary_line(plan, actual, percent) -> str:
+    """Краткое описание плана с прогрессом для списков"""
+    period = _PERIOD_LABELS.get(plan[1], plan[1])
+    metric = _METRIC_LABELS.get(plan[2], plan[2])
+    target = plan[3]
+    target_type = plan[4]
+    filter_type = plan[7]
+    filter_val = plan[8]
+
+    if target_type == 'seller':
+        fn = plan[12] or ""
+        ln = plan[13] or ""
+        who = f"{fn} {ln}".strip() or f"id={plan[5]}"
+    else:
+        who = plan[6] or "Все"
+
+    if filter_type == 'category':
+        try:
+            _cats = _json.loads(filter_val) if filter_val else []
+            if isinstance(_cats, list) and _cats:
+                scope = " · кат. «" + he(", ".join(_cats[:2])) + ("…" if len(_cats) > 2 else "") + "»"
+            else:
+                scope = f" · кат. «{he(str(filter_val))}»"
+        except (ValueError, TypeError):
+            scope = f" · кат. «{he(str(filter_val))}»"
+    elif filter_type == 'product':
+        scope = " · отд. товары"
+    else:
+        scope = ""
+
+    if plan[2] == 'turnover':
+        actual_str = f"{format_price(actual)}₽"
+        target_str = f"{format_price(target)}₽"
+    else:
+        actual_str = f"{int(actual)} шт"
+        target_str = f"{int(target)} шт"
+
+    bar = _progress_bar(percent)
+    return (
+        f"📋 <b>{he(who)}</b> · {period} · {metric}{scope}\n"
+        f"{bar} {percent}%\n"
+        f"Факт: {actual_str} / Цель: {target_str}"
+    )
+
+
+def _plan_label_short(plan) -> str:
+    """Короткий лейбл для кнопок (удаление)"""
+    period = _PERIOD_LABELS.get(plan[1], plan[1])
+    metric = _METRIC_LABELS.get(plan[2], plan[2])
+    target_type = plan[4]
+    if target_type == 'seller':
+        fn = plan[12] or ""
+        ln = plan[13] or ""
+        who = f"{fn} {ln}".strip() or f"id={plan[5]}"
+    else:
+        who = plan[6] or "Все"
+    return f"{who} · {period} · {metric}"
+
+
+# ── Главное меню планов ───────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "admin_sales_plans")
+async def sales_plans_menu(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="➕ Создать план", callback_data="plnwiz_start")
+    builder.button(text="📊 Прогресс планов", callback_data="plans_progress")
+    builder.button(text="✏️ Редактировать план", callback_data="editpln_start")
+    builder.button(text="🗑 Удалить план", callback_data="delpln_start")
+    builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "📋 <b>Планы продаж</b>\n\n"
+        "Задавайте цели по обороту или количеству — на неделю или месяц, "
+        "для конкретного продавца или магазина, по всем или только по выбранным товарам.\n\n"
+        "Выполнение планов отображается в реальном времени.",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ── Визард создания плана — Шаг 1: цель (продавец / магазин) ─────────────────
+
+@sales_plans_router.callback_query(F.data == "plnwiz_start")
+async def plnwiz_step1(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    await state.update_data(
+        pln_target_type=None, pln_user_id=None, pln_user_name=None,
+        pln_shop_name=None, pln_period=None, pln_metric=None,
+        pln_filter_type=None, pln_filter_value=None, pln_filter_label=None,
+        pln_products=[], anchor_msg_id=callback.message.message_id
+    )
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Конкретный продавец", callback_data="plntgt_seller")
+    builder.button(text="🏪 Магазин", callback_data="plntgt_shop")
+    builder.button(text="❌ Отмена", callback_data="admin_sales_plans")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "📋 <b>Новый план — шаг 1/5</b>\n\n"
+        "Для кого устанавливается план?",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ── Визард Шаг 2: выбор конкретного продавца или магазина ────────────────────
+
+@sales_plans_router.callback_query(F.data.startswith("plntgt_"))
+async def plnwiz_step2(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    target_type = callback.data[len("plntgt_"):]
+    await state.update_data(pln_target_type=target_type)
+
+    current_db = await get_db(callback.from_user.id, state)
+    builder = InlineKeyboardBuilder()
+
+    if target_type == 'seller':
+        all_users = current_db.get_all_users()
+        sellers = [u for u in all_users
+                   if not env_manager.is_super_admin(u[1])]
+        if not sellers:
+            await callback.answer("❌ Нет продавцов в системе", show_alert=True)
+            return
+        for u in sellers:
+            uid, tg_id, fname, lname = u[0], u[1], u[2], u[3]
+            shop = u[8] or ""
+            label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
+            builder.button(text=label, callback_data=f"plnusr_{uid}")
+        prompt = "📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:"
+    else:
+        shops = current_db.get_all_shops()
+        if not shops:
+            await callback.answer("❌ Нет магазинов в системе", show_alert=True)
+            return
+        for shop in shops:
+            builder.button(text=f"🏪 {shop}", callback_data=safe_cb("plnshp_", shop))
+        prompt = "📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:"
+
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+
+    await callback.message.edit_text(prompt, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.startswith("plnusr_"))
+async def plnwiz_seller_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data[len("plnusr_"):])
+    current_db = await get_db(callback.from_user.id, state)
+    all_users = current_db.get_all_users()
+    row = next((u for u in all_users if u[0] == user_id), None)
+    if not row:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    uname = f"{row[2]} {row[3]}"
+    await state.update_data(pln_user_id=user_id, pln_user_name=uname)
+    await _show_period_step(callback)
+
+
+@sales_plans_router.callback_query(F.data.startswith("plnshp_"))
+async def plnwiz_shop_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    raw = callback.data[len("plnshp_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    shops = current_db.get_all_shops()
+    shop_name = resolve_cb_name(raw, shops)
+    await state.update_data(pln_shop_name=shop_name)
+    await _show_period_step(callback)
+
+
+async def _show_period_step(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Неделя (пн–вс)", callback_data="plnper_weekly")
+    builder.button(text="🗓 Месяц", callback_data="plnper_monthly")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "📋 <b>Новый план — шаг 3/5</b>\n\nВыберите период:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ── Визард Шаг 3: период ──────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.startswith("plnper_"))
+async def plnwiz_period_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    period = callback.data[len("plnper_"):]
+    await state.update_data(pln_period=period)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Оборот (сумма продаж, ₽)", callback_data="plnmet_turnover")
+    builder.button(text="📦 Количество (штуки)", callback_data="plnmet_quantity")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "📋 <b>Новый план — шаг 4/5</b>\n\nВыберите метрику:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ── Визард Шаг 4: метрика ─────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.startswith("plnmet_"))
+async def plnwiz_metric_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    metric = callback.data[len("plnmet_"):]
+    await state.update_data(pln_metric=metric)
+
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    products = current_db.get_all_products()
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌐 Все товары", callback_data="plnflt_all")
+    if categories:
+        builder.button(text="📂 По категории", callback_data="plnflt_cat")
+    if products:
+        builder.button(text="📦 По конкретным товарам", callback_data="plnflt_prod")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "📋 <b>Новый план — шаг 5/5</b>\n\nФильтр по товарам:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ── Визард Шаг 5a: все товары — сразу к вводу цели ───────────────────────────
+
+@sales_plans_router.callback_query(F.data == "plnflt_all")
+async def plnwiz_filter_all(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    await state.update_data(pln_filter_type='all', pln_filter_value=None,
+                             pln_filter_label='Все товары')
+    await _show_target_input(callback, state)
+
+
+# ── Визард Шаг 5b: по категориям (мультивыбор) ───────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "plnflt_cat")
+async def plnwiz_filter_cat(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    await state.update_data(pln_categories=[], pln_filter_type='category')
+    await state.set_state(SalesPlanStates.selecting_categories)
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    await _render_category_selection(callback.message, categories, [])
+    await callback.answer()
+
+
+async def _render_category_selection(message: Message, categories: list, selected: list,
+                                      back_cb: str = "plnwiz_start"):
+    builder = InlineKeyboardBuilder()
+    for cat in categories:
+        icon = "✅" if cat in selected else "◻️"
+        builder.button(text=f"{icon} {cat}", callback_data=safe_cb("plncat_", cat))
+    builder.button(text="💾 Подтвердить выбор", callback_data="plncatok")
+    builder.button(text="⬅️ Назад", callback_data=back_cb)
+    builder.adjust(1)
+    sel_text = f"Выбрано: {len(selected)}" if selected else "Ничего не выбрано"
+    await message.edit_text(
+        f"📋 <b>Выбор категорий</b>\n\n{sel_text}\n\nОтметьте нужные категории:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(SalesPlanStates.selecting_categories, F.data.startswith("plncat_"))
+async def plnwiz_toggle_category(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data[len("plncat_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    cat = resolve_cb_name(raw, categories)
+    if not cat:
+        await callback.answer()
+        return
+    data = await state.get_data()
+    selected = list(data.get('pln_categories', []))
+    if cat in selected:
+        selected.remove(cat)
+    else:
+        selected.append(cat)
+    await state.update_data(pln_categories=selected)
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    await _render_category_selection(callback.message, categories, selected, back_cb=back_cb)
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(SalesPlanStates.selecting_categories, F.data == "plncatok")
+async def plnwiz_categories_confirmed(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    data = await state.get_data()
+    selected = data.get('pln_categories', [])
+    if not selected:
+        await callback.answer("⚠️ Выберите хотя бы одну категорию", show_alert=True)
+        return
+    edit_id = data.get('editpln_id')
+    if edit_id:
+        current_db = await get_db(callback.from_user.id, state)
+        current_db.update_sales_plan(
+            edit_id,
+            filter_type='category',
+            filter_value=_json.dumps(selected, ensure_ascii=False)
+        )
+        await state.set_state(None)
+        await state.update_data(pln_categories=[])
+        await callback.answer("✅ Фильтр обновлён")
+        callback.data = f"editpln_{edit_id}"
+        await editpln_plan_selected(callback, state)
+        return
+    label = ", ".join(selected[:3]) + ("..." if len(selected) > 3 else "")
+    await state.update_data(
+        pln_filter_value=_json.dumps(selected, ensure_ascii=False),
+        pln_filter_label=f"Категории: {label}"
+    )
+    await state.set_state(None)
+    await _show_target_input(callback, state)
+
+
+# ── Визард Шаг 5c: по конкретным товарам (мультивыбор) ───────────────────────
+
+@sales_plans_router.callback_query(F.data == "plnflt_prod")
+async def plnwiz_filter_prod(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    await state.update_data(pln_products=[], pln_filter_type='product')
+    await state.set_state(SalesPlanStates.selecting_products)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    await _render_product_selection(callback.message, products, [])
+    await callback.answer()
+
+
+async def _render_product_selection(message: Message, products, selected_ids: list,
+                                     back_cb: str = "plnwiz_start"):
+    builder = InlineKeyboardBuilder()
+    for p in products:
+        icon = "✅" if p[0] in selected_ids else "◻️"
+        builder.button(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}")
+    builder.button(text="💾 Подтвердить выбор", callback_data="plnprdok")
+    builder.button(text="⬅️ Назад", callback_data=back_cb)
+    builder.adjust(1)
+
+    sel_text = f"Выбрано: {len(selected_ids)} тов." if selected_ids else "Ничего не выбрано"
+    await message.edit_text(
+        f"📋 <b>Выбор товаров</b>\n\n{sel_text}\n\nОтметьте нужные товары:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_"))
+async def plnwiz_toggle_product(callback: CallbackQuery, state: FSMContext):
+    prod_id = int(callback.data[len("plnprd_"):])
+    data = await state.get_data()
+    selected = list(data.get('pln_products', []))
+
+    if prod_id in selected:
+        selected.remove(prod_id)
+    else:
+        selected.append(prod_id)
+
+    await state.update_data(pln_products=selected)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    await _render_product_selection(callback.message, products, selected, back_cb=back_cb)
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data == "plnprdok")
+async def plnwiz_products_confirmed(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    data = await state.get_data()
+    selected = data.get('pln_products', [])
+    if not selected:
+        await callback.answer("⚠️ Выберите хотя бы один товар", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    edit_id = data.get('editpln_id')
+    if edit_id:
+        current_db.update_sales_plan(
+            edit_id,
+            filter_type='product',
+            filter_value=_json.dumps(selected)
+        )
+        await state.set_state(None)
+        await state.update_data(pln_products=[])
+        await callback.answer("✅ Фильтр обновлён")
+        callback.data = f"editpln_{edit_id}"
+        await editpln_plan_selected(callback, state)
+        return
+
+    names = [p[1] for p in products if p[0] in selected]
+    label = ", ".join(names[:3]) + ("..." if len(names) > 3 else "")
+
+    await state.update_data(
+        pln_filter_value=_json.dumps(selected),
+        pln_filter_label=f"Товары: {label}"
+    )
+    await state.set_state(None)
+    await _show_target_input(callback, state)
+
+
+# ── Ввод целевого значения ────────────────────────────────────────────────────
+
+async def _show_target_input(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    metric = data.get('pln_metric', 'turnover')
+    period = _PERIOD_LABELS.get(data.get('pln_period', 'monthly'), '?')
+    filter_label = data.get('pln_filter_label', 'Все товары')
+    target_type = data.get('pln_target_type', '?')
+
+    if target_type == 'seller':
+        who = data.get('pln_user_name', '?')
+    else:
+        who = data.get('pln_shop_name', '?')
+
+    if metric == 'turnover':
+        unit = "₽ (рублей)"
+        example = "500000"
+    else:
+        unit = "шт (штук)"
+        example = "100"
+
+    await state.set_state(SalesPlanStates.entering_target_value)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="admin_sales_plans")
+
+    await callback.message.edit_text(
+        f"📋 <b>Новый план — введите цель</b>\n\n"
+        f"👤/🏪 Кому: <b>{he(who)}</b>\n"
+        f"📅 Период: {period}\n"
+        f"📊 Метрика: {_METRIC_LABELS.get(metric, metric)}\n"
+        f"🔍 Фильтр: {filter_label}\n\n"
+        f"Введите целевое значение в {unit}:\n"
+        f"Пример: <code>{example}</code>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.message(SalesPlanStates.entering_target_value)
+async def plnwiz_target_entered(message: Message, state: FSMContext):
+    cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="admin_sales_plans"
+    ).as_markup()
+
+    try:
+        value = float(message.text.replace(',', '.').replace(' ', ''))
+        if value <= 0:
+            await fsm_edit(state, message,
+                           "❌ <b>Значение должно быть больше 0</b>",
+                           reply_markup=cancel_kb)
+            return
+    except ValueError:
+        await fsm_edit(state, message,
+                       "❌ <b>Неверный формат</b>\n\nВведите число (например: <code>500000</code>)",
+                       reply_markup=cancel_kb)
+        return
+
+    data = await state.get_data()
+    current_db = await get_db(message.from_user.id, state)
+
+    plan_id = current_db.add_sales_plan(
+        plan_type=data.get('pln_period', 'monthly'),
+        metric_type=data.get('pln_metric', 'turnover'),
+        target_value=value,
+        target_type=data.get('pln_target_type', 'shop'),
+        user_id=data.get('pln_user_id'),
+        shop_name=data.get('pln_shop_name'),
+        filter_type=data.get('pln_filter_type', 'all'),
+        filter_value=data.get('pln_filter_value'),
+        created_by=data.get('pln_user_id') or 0
+    )
+
+    metric = data.get('pln_metric', 'turnover')
+    period = _PERIOD_LABELS.get(data.get('pln_period', 'monthly'), '?')
+    filter_label = data.get('pln_filter_label', 'Все товары')
+    target_type = data.get('pln_target_type', 'shop')
+    who = data.get('pln_user_name') if target_type == 'seller' else data.get('pln_shop_name', '?')
+
+    if metric == 'turnover':
+        value_str = f"{format_price(value)}₽"
+    else:
+        value_str = f"{int(value)} шт"
+
+    if plan_id:
+        await fsm_edit(
+            state, message,
+            f"✅ <b>План создан!</b>\n\n"
+            f"👤/🏪 Кому: <b>{he(who)}</b>\n"
+            f"📅 Период: {period}\n"
+            f"📊 Метрика: {_METRIC_LABELS.get(metric, metric)}\n"
+            f"🔍 Фильтр: {filter_label}\n"
+            f"🎯 Цель: <b>{value_str}</b>",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="📊 Прогресс планов", callback_data="plans_progress"
+            ).button(
+                text="⬅️ К планам", callback_data="admin_sales_plans"
+            ).adjust(1).as_markup()
+        )
+    else:
+        await fsm_edit(state, message, "❌ Ошибка при сохранении плана",
+                       reply_markup=cancel_kb)
+    await clear_state_keep_org(state)
+
+
+# ── Редактирование: получатель ────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epwho_\d+$'))
+async def editpln_who_menu(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    plan_id = int(callback.data[len("epwho_"):])
+    await state.update_data(editpln_id=plan_id)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Конкретный продавец", callback_data="epwhotgt_seller")
+    builder.button(text="🏪 Магазин", callback_data="epwhotgt_shop")
+    builder.button(text="⬅️ Назад", callback_data=f"editpln_{plan_id}")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "✏️ <b>Изменить получателя</b>\n\nДля кого устанавливается план?",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.in_({"epwhotgt_seller", "epwhotgt_shop"}))
+async def editpln_who_target(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    target_type = "seller" if callback.data == "epwhotgt_seller" else "shop"
+    current_db = await get_db(callback.from_user.id, state)
+    builder = InlineKeyboardBuilder()
+    if target_type == 'seller':
+        all_users = current_db.get_all_users()
+        sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
+        if not sellers:
+            await callback.answer("❌ Нет продавцов в системе", show_alert=True)
+            return
+        for u in sellers:
+            uid, fname, lname = u[0], u[2], u[3]
+            shop = u[8] or ""
+            label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
+            builder.button(text=label, callback_data=f"epwhousr_{uid}")
+        prompt = "✏️ <b>Выберите продавца:</b>"
+    else:
+        shops = current_db.get_all_shops()
+        if not shops:
+            await callback.answer("❌ Нет магазинов в системе", show_alert=True)
+            return
+        for shop in shops:
+            builder.button(text=f"🏪 {shop}", callback_data=safe_cb("epwhoshp_", shop))
+        prompt = "✏️ <b>Выберите магазин:</b>"
+    builder.button(text="⬅️ Назад", callback_data=f"epwho_{plan_id}")
+    builder.adjust(1)
+    await callback.message.edit_text(prompt, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epwhousr_\d+$'))
+async def editpln_who_user_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    user_id = int(callback.data[len("epwhousr_"):])
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    current_db = await get_db(callback.from_user.id, state)
+    current_db.update_sales_plan(plan_id, target_type='seller', user_id=user_id, shop_name=None)
+    await callback.answer("✅ Получатель обновлён")
+    callback.data = f"editpln_{plan_id}"
+    await editpln_plan_selected(callback, state)
+
+
+@sales_plans_router.callback_query(F.data.startswith("epwhoshp_"))
+async def editpln_who_shop_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    raw = callback.data[len("epwhoshp_"):]
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    current_db = await get_db(callback.from_user.id, state)
+    shops = current_db.get_all_shops()
+    shop_name = resolve_cb_name(raw, shops)
+    current_db.update_sales_plan(plan_id, target_type='shop', user_id=None, shop_name=shop_name)
+    await callback.answer("✅ Получатель обновлён")
+    callback.data = f"editpln_{plan_id}"
+    await editpln_plan_selected(callback, state)
+
+
+# ── Редактирование: период ────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epperiod_\d+$'))
+async def editpln_period_menu(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    plan_id = int(callback.data[len("epperiod_"):])
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📅 Неделя (пн–вс)", callback_data=f"epperset_w_{plan_id}")
+    builder.button(text="🗓 Месяц", callback_data=f"epperset_m_{plan_id}")
+    builder.button(text="⬅️ Назад", callback_data=f"editpln_{plan_id}")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "📅 <b>Выберите новый период:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epperset_(w|m)_\d+$'))
+async def editpln_period_set(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    parts = callback.data.split('_')
+    period_val = 'weekly' if parts[1] == 'w' else 'monthly'
+    plan_id = int(parts[2])
+    current_db = await get_db(callback.from_user.id, state)
+    current_db.update_sales_plan(plan_id, plan_type=period_val)
+    await callback.answer("✅ Период обновлён")
+    callback.data = f"editpln_{plan_id}"
+    await editpln_plan_selected(callback, state)
+
+
+# ── Редактирование: метрика ───────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epmetric_\d+$'))
+async def editpln_metric_menu(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    plan_id = int(callback.data[len("epmetric_"):])
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Оборот (₽)", callback_data=f"epmset_t_{plan_id}")
+    builder.button(text="📦 Количество (шт)", callback_data=f"epmset_q_{plan_id}")
+    builder.button(text="⬅️ Назад", callback_data=f"editpln_{plan_id}")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "📊 <b>Выберите новую метрику:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epmset_(t|q)_\d+$'))
+async def editpln_metric_set(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    parts = callback.data.split('_')
+    metric_val = 'turnover' if parts[1] == 't' else 'quantity'
+    plan_id = int(parts[2])
+    current_db = await get_db(callback.from_user.id, state)
+    current_db.update_sales_plan(plan_id, metric_type=metric_val)
+    await callback.answer("✅ Метрика обновлена")
+    callback.data = f"editpln_{plan_id}"
+    await editpln_plan_selected(callback, state)
+
+
+# ── Редактирование: фильтр ────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data.regexp(r'^epfilter_\d+$'))
+async def editpln_filter_menu(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    plan_id = int(callback.data[len("epfilter_"):])
+    await state.update_data(editpln_id=plan_id)
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    products = current_db.get_all_products()
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌐 Все товары", callback_data="epflt_all")
+    if categories:
+        builder.button(text="📂 По категории", callback_data="epflt_cat")
+    if products:
+        builder.button(text="📦 По конкретным товарам", callback_data="epflt_prod")
+    builder.button(text="⬅️ Назад", callback_data=f"editpln_{plan_id}")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "🔍 <b>Выберите новый фильтр по товарам:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data == "epflt_all")
+async def editpln_filter_all(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    current_db = await get_db(callback.from_user.id, state)
+    current_db.update_sales_plan(plan_id, filter_type='all', filter_value=None)
+    await callback.answer("✅ Фильтр обновлён")
+    callback.data = f"editpln_{plan_id}"
+    await editpln_plan_selected(callback, state)
+
+
+@sales_plans_router.callback_query(F.data == "epflt_cat")
+async def editpln_filter_cat(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+    plan = next((p for p in plans if p[0] == plan_id), None)
+    pre_selected = []
+    if plan and plan[7] == 'category' and plan[8]:
+        try:
+            pre_selected = _json.loads(plan[8])
+        except (ValueError, TypeError):
+            pre_selected = []
+    await state.update_data(pln_categories=pre_selected)
+    await state.set_state(SalesPlanStates.selecting_categories)
+    categories = current_db.get_all_categories()
+    await _render_category_selection(
+        callback.message, categories, pre_selected, back_cb=f"editpln_{plan_id}"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data == "epflt_prod")
+async def editpln_filter_prod(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+    plan = next((p for p in plans if p[0] == plan_id), None)
+    pre_selected = []
+    if plan and plan[7] == 'product' and plan[8]:
+        try:
+            pre_selected = _json.loads(plan[8])
+        except (ValueError, TypeError):
+            pre_selected = []
+    await state.update_data(pln_products=pre_selected)
+    await state.set_state(SalesPlanStates.selecting_products)
+    products = current_db.get_all_products()
+    await _render_product_selection(
+        callback.message, products, pre_selected, back_cb=f"editpln_{plan_id}"
+    )
+    await callback.answer()
+
+
+# ── Просмотр прогресса (admin) ────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "plans_progress")
+async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    plans_data = current_db.get_plans_progress()
+
+    if not plans_data:
+        await callback.message.edit_text(
+            "📊 <b>Прогресс планов</b>\n\n❌ Нет активных планов",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="➕ Создать план", callback_data="plnwiz_start"
+            ).button(
+                text="⬅️ Назад", callback_data="admin_sales_plans"
+            ).adjust(1).as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    text = "📊 <b>Прогресс планов продаж</b>\n\n"
+
+    now = datetime.now()
+    weekly_start = (now - timedelta(days=now.weekday())).strftime('%d.%m')
+    monthly_start = now.replace(day=1).strftime('%d.%m')
+
+    weekly = [(p, a, pct) for p, a, pct in plans_data if p[1] == 'weekly']
+    monthly = [(p, a, pct) for p, a, pct in plans_data if p[1] == 'monthly']
+
+    if weekly:
+        text += f"📅 <b>Неделя</b> (с {weekly_start}):\n\n"
+        for plan, actual, percent in weekly:
+            text += _plan_summary_line(plan, actual, percent) + "\n\n"
+
+    if monthly:
+        text += f"🗓 <b>Месяц</b> (с {monthly_start}):\n\n"
+        for plan, actual, percent in monthly:
+            text += _plan_summary_line(plan, actual, percent) + "\n\n"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔄 Обновить", callback_data="plans_progress")
+    builder.button(text="⬅️ Назад", callback_data="admin_sales_plans")
+    builder.adjust(1)
+
+    await safe_edit_message(callback, text, builder.as_markup())
+
+
+# ── Удаление плана ────────────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "delpln_start")
+async def delpln_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+
+    if not plans:
+        await callback.message.edit_text(
+            "🗑 <b>Удаление плана</b>\n\n❌ Нет активных планов",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ Назад", callback_data="admin_sales_plans"
+            ).as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    builder = InlineKeyboardBuilder()
+    for plan in plans:
+        label = _plan_label_short(plan)
+        builder.button(text=f"🗑 {label}", callback_data=f"delpln_{plan[0]}")
+    builder.button(text="⬅️ Назад", callback_data="admin_sales_plans")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "🗑 <b>Выберите план для удаления:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.regexp(r'^delpln_\d+$'))
+async def delpln_confirm(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    plan_id = int(callback.data[len("delpln_"):])
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+    plan = next((p for p in plans if p[0] == plan_id), None)
+
+    if not plan:
+        await callback.answer("❌ План не найден", show_alert=True)
+        return
+
+    label = _plan_label_short(plan)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да, удалить", callback_data=f"delpln_ok_{plan_id}")
+    builder.button(text="❌ Отмена", callback_data="delpln_start")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"🗑 <b>Удаление плана</b>\n\n{label}\n\n⚠️ Это действие необратимо.",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.startswith("delpln_ok_"))
+async def delpln_execute(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    plan_id = int(callback.data[len("delpln_ok_"):])
+    current_db = await get_db(callback.from_user.id, state)
+    success = current_db.delete_sales_plan(plan_id)
+
+    if success:
+        await callback.message.edit_text(
+            "✅ <b>План удалён</b>",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ К планам", callback_data="admin_sales_plans"
+            ).as_markup(), parse_mode="HTML"
+        )
+    else:
+        await callback.message.edit_text(
+            "❌ Ошибка при удалении",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ Назад", callback_data="admin_sales_plans"
+            ).as_markup(), parse_mode="HTML"
+        )
+    await callback.answer()
+
+
+# ── Мои планы (для всех пользователей) ───────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "my_plans")
+async def my_plans(callback: CallbackQuery, state: FSMContext):
+    current_db = await get_db(callback.from_user.id, state)
+    plans_data = current_db.get_user_plans_progress(callback.from_user.id)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔄 Обновить", callback_data="my_plans")
+    builder.button(text="⬅️ Назад", callback_data="reports")
+    builder.adjust(1)
+
+    if not plans_data:
+        await callback.message.edit_text(
+            "📋 <b>Мои планы продаж</b>\n\n"
+            "Планы не назначены. Обратитесь к администратору.",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    now = datetime.now()
+    weekly_start = (now - timedelta(days=now.weekday())).strftime('%d.%m')
+    monthly_start = now.replace(day=1).strftime('%d.%m')
+
+    weekly = [(p, a, pct) for p, a, pct in plans_data if p[1] == 'weekly']
+    monthly = [(p, a, pct) for p, a, pct in plans_data if p[1] == 'monthly']
+
+    text = "📋 <b>Мои планы продаж</b>\n\n"
+
+    if weekly:
+        text += f"📅 <b>Неделя</b> (с {weekly_start}):\n\n"
+        for plan, actual, percent in weekly:
+            metric = plan[2]
+            target = plan[3]
+            filter_type = plan[7]
+            filter_val = plan[8]
+
+            if filter_type == 'category':
+                try:
+                    _cats = _json.loads(filter_val) if filter_val else []
+                    if isinstance(_cats, list) and _cats:
+                        scope = "Категории: «" + he(", ".join(_cats[:2])) + ("…" if len(_cats) > 2 else "") + "»"
+                    else:
+                        scope = f"Категория: «{he(str(filter_val))}»"
+                except (ValueError, TypeError):
+                    scope = f"Категория: «{he(str(filter_val))}»"
+            elif filter_type == 'product':
+                scope = "Отдельные товары"
+            else:
+                scope = "Все товары"
+
+            if metric == 'turnover':
+                actual_str = f"{format_price(actual)}₽"
+                target_str = f"{format_price(target)}₽"
+            else:
+                actual_str = f"{int(actual)} шт"
+                target_str = f"{int(target)} шт"
+
+            bar = _progress_bar(percent)
+            status = "🎉 Выполнен!" if percent >= 100 else ("⚡ Почти!" if percent >= 80 else "")
+            text += (
+                f"🔹 {scope}\n"
+                f"{bar} {percent}% {status}\n"
+                f"Факт: {actual_str} / Цель: {target_str}\n\n"
+            )
+
+    if monthly:
+        text += f"🗓 <b>Месяц</b> (с {monthly_start}):\n\n"
+        for plan, actual, percent in monthly:
+            metric = plan[2]
+            target = plan[3]
+            filter_type = plan[7]
+            filter_val = plan[8]
+
+            if filter_type == 'category':
+                try:
+                    _cats = _json.loads(filter_val) if filter_val else []
+                    if isinstance(_cats, list) and _cats:
+                        scope = "Категории: «" + he(", ".join(_cats[:2])) + ("…" if len(_cats) > 2 else "") + "»"
+                    else:
+                        scope = f"Категория: «{he(str(filter_val))}»"
+                except (ValueError, TypeError):
+                    scope = f"Категория: «{he(str(filter_val))}»"
+            elif filter_type == 'product':
+                scope = "Отдельные товары"
+            else:
+                scope = "Все товары"
+
+            if metric == 'turnover':
+                actual_str = f"{format_price(actual)}₽"
+                target_str = f"{format_price(target)}₽"
+            else:
+                actual_str = f"{int(actual)} шт"
+                target_str = f"{int(target)} шт"
+
+            bar = _progress_bar(percent)
+            status = "🎉 Выполнен!" if percent >= 100 else ("⚡ Почти!" if percent >= 80 else "")
+            text += (
+                f"🔹 {scope}\n"
+                f"{bar} {percent}% {status}\n"
+                f"Факт: {actual_str} / Цель: {target_str}\n\n"
+            )
+
+    await safe_edit_message(callback, text, builder.as_markup())
+
+
+# ── Редактирование плана ──────────────────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "editpln_start")
+async def editpln_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+
+    if not plans:
+        await callback.message.edit_text(
+            "✏️ <b>Редактирование плана</b>\n\n❌ Нет активных планов",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ Назад", callback_data="admin_sales_plans"
+            ).as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    builder = InlineKeyboardBuilder()
+    for plan in plans:
+        label = _plan_label_short(plan)
+        builder.button(text=f"✏️ {label}", callback_data=f"editpln_{plan[0]}")
+    builder.button(text="⬅️ Назад", callback_data="admin_sales_plans")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "✏️ <b>Выберите план для редактирования:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.regexp(r'^editpln_\d+$'))
+async def editpln_plan_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    plan_id = int(callback.data[len("editpln_"):])
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+    plan = next((p for p in plans if p[0] == plan_id), None)
+
+    if not plan:
+        await callback.answer("❌ План не найден", show_alert=True)
+        return
+
+    period = _PERIOD_LABELS.get(plan[1], plan[1])
+    metric = _METRIC_LABELS.get(plan[2], plan[2])
+    target = plan[3]
+    target_type = plan[4]
+    filter_type = plan[7]
+    filter_val = plan[8]
+
+    if target_type == 'seller':
+        fn = plan[12] or ""
+        ln = plan[13] or ""
+        who = f"{fn} {ln}".strip() or f"id={plan[5]}"
+    else:
+        who = plan[6] or "Все"
+
+    if filter_type == 'category':
+        try:
+            cats = _json.loads(filter_val) if filter_val else []
+            scope = ", ".join(cats) if isinstance(cats, list) and cats else str(filter_val)
+        except (ValueError, TypeError):
+            scope = str(filter_val)
+    elif filter_type == 'product':
+        scope = "Отдельные товары"
+    else:
+        scope = "Все товары"
+
+    target_str = f"{format_price(target)}₽" if plan[2] == 'turnover' else f"{int(target)} шт"
+
+    await state.update_data(editpln_id=plan_id, anchor_msg_id=callback.message.message_id)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Изменить получателя", callback_data=f"epwho_{plan_id}")
+    builder.button(text="📅 Изменить период", callback_data=f"epperiod_{plan_id}")
+    builder.button(text="📊 Изменить метрику", callback_data=f"epmetric_{plan_id}")
+    builder.button(text="🔍 Изменить фильтр", callback_data=f"epfilter_{plan_id}")
+    builder.button(text="🎯 Изменить цель", callback_data=f"editpln_target_{plan_id}")
+    builder.button(text="⬅️ Назад", callback_data="editpln_start")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"✏️ <b>Редактирование плана</b>\n\n"
+        f"👤/🏪 Кому: <b>{he(who)}</b>\n"
+        f"📅 Период: {period}\n"
+        f"📊 Метрика: {metric}\n"
+        f"🔍 Фильтр: {he(scope)}\n"
+        f"🎯 Цель: <b>{target_str}</b>\n\n"
+        f"Что изменить?",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data.startswith("editpln_target_"))
+async def editpln_field_target(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    plan_id = int(callback.data[len("editpln_target_"):])
+    current_db = await get_db(callback.from_user.id, state)
+    plans = current_db.get_sales_plans()
+    plan = next((p for p in plans if p[0] == plan_id), None)
+
+    if not plan:
+        await callback.answer("❌ План не найден", show_alert=True)
+        return
+
+    metric = plan[2]
+    unit = "₽ (рублей)" if metric == 'turnover' else "шт (штук)"
+    example = "500000" if metric == 'turnover' else "100"
+
+    await state.update_data(editpln_id=plan_id, editpln_metric=metric)
+    await state.set_state(SalesPlanStates.editing_target)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="editpln_start")
+
+    await callback.message.edit_text(
+        f"✏️ <b>Новое целевое значение</b>\n\n"
+        f"Введите новое значение в {unit}:\n"
+        f"Пример: <code>{example}</code>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_plans_router.message(SalesPlanStates.editing_target)
+async def editpln_target_entered(message: Message, state: FSMContext):
+    cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="editpln_start"
+    ).as_markup()
+
+    try:
+        value = float(message.text.replace(',', '.').replace(' ', ''))
+        if value <= 0:
+            await fsm_edit(state, message,
+                           "❌ <b>Значение должно быть больше 0</b>",
+                           reply_markup=cancel_kb)
+            return
+    except ValueError:
+        await fsm_edit(state, message,
+                       "❌ <b>Неверный формат</b>\n\nВведите число (например: <code>500000</code>)",
+                       reply_markup=cancel_kb)
+        return
+
+    data = await state.get_data()
+    plan_id = data.get('editpln_id')
+    metric = data.get('editpln_metric', 'turnover')
+
+    if not plan_id:
+        await fsm_edit(state, message, "❌ Ошибка: план не найден", reply_markup=cancel_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    ok = current_db.update_sales_plan(plan_id, target_value=value)
+
+    value_str = f"{format_price(value)}₽" if metric == 'turnover' else f"{int(value)} шт"
+
+    if ok:
+        await fsm_edit(
+            state, message,
+            f"✅ <b>План обновлён!</b>\n\nНовая цель: <b>{value_str}</b>",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="📊 Прогресс планов", callback_data="plans_progress"
+            ).button(
+                text="⬅️ К планам", callback_data="admin_sales_plans"
+            ).adjust(1).as_markup()
+        )
+    else:
+        await fsm_edit(state, message, "❌ Ошибка при обновлении плана",
+                       reply_markup=cancel_kb)
+    await clear_state_keep_org(state)
