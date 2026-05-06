@@ -470,10 +470,31 @@ class Database:
                     user_id INTEGER NOT NULL,
                     work_date TEXT NOT NULL,
                     marked_by INTEGER,
+                    start_time TEXT,
+                    end_time TEXT,
                     created_at TEXT DEFAULT (datetime('now')),
                     UNIQUE(user_id, work_date)
                 )
             ''')
+
+        # Миграция: добавляем time-колонки в work_schedule (для старых БД)
+        for _col in ('start_time', 'end_time'):
+            try:
+                cursor.execute(f'ALTER TABLE work_schedule ADD COLUMN {_col} TEXT')
+            except Exception:
+                pass  # колонка уже существует
+
+        # Шаблоны смен по дням недели
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS shift_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                weekday INTEGER NOT NULL,
+                start_time TEXT,
+                end_time TEXT,
+                UNIQUE(user_id, weekday)
+            )
+        ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS contests (
@@ -4502,6 +4523,120 @@ class Database:
             if 'conn' in locals():
                 conn.close()
             return 0
+
+    # ── Шаблоны смен и время работы ──────────────────────────────────────────
+
+    def set_shift_template(self, user_id: int, weekday: int,
+                           start_time, end_time) -> None:
+        """Сохранить шаблон смены для дня недели (0=Пн … 6=Вс).
+        start_time/end_time — строки "10:00" или None (выходной)."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO shift_templates (user_id, weekday, start_time, end_time)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, weekday) DO UPDATE SET
+                    start_time = excluded.start_time,
+                    end_time   = excluded.end_time
+            ''', (user_id, weekday, start_time, end_time))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка set_shift_template: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def get_shift_templates(self, user_id: int) -> dict:
+        """Вернуть шаблоны смен: {weekday: (start_time, end_time) | None}."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT weekday, start_time, end_time FROM shift_templates WHERE user_id = ?',
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            result = {}
+            for wd, st, et in rows:
+                result[wd] = (st, et) if (st and et) else None
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка get_shift_templates: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return {}
+
+    def get_work_day_time(self, user_id: int, work_date: str):
+        """Вернуть (start_time, end_time) для конкретного дня или (None, None)."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT start_time, end_time FROM work_schedule WHERE user_id = ? AND work_date = ?',
+                (user_id, work_date)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return (row[0], row[1]) if row else (None, None)
+        except Exception as e:
+            logger.error(f"Ошибка get_work_day_time: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return (None, None)
+
+    def add_work_day(self, user_id: int, work_date: str,
+                     start_time=None, end_time=None, marked_by=None) -> None:
+        """Добавить рабочий день (INSERT OR IGNORE) с временем смены."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO work_schedule
+                    (user_id, work_date, start_time, end_time, marked_by)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (user_id, work_date, start_time, end_time, marked_by))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка add_work_day: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def remove_work_day(self, user_id: int, work_date: str) -> None:
+        """Удалить рабочий день."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                'DELETE FROM work_schedule WHERE user_id = ? AND work_date = ?',
+                (user_id, work_date)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка remove_work_day: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def set_work_day_time(self, user_id: int, work_date: str,
+                          start_time, end_time) -> None:
+        """Обновить время смены для уже существующего рабочего дня."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE work_schedule
+                SET start_time = ?, end_time = ?
+                WHERE user_id = ? AND work_date = ?
+            ''', (start_time, end_time, user_id, work_date))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка set_work_day_time: {e}")
+            if 'conn' in locals():
+                conn.close()
 
     def calculate_monthly_salary(self, user_id, year, month):
         """Рассчитать зарплату за месяц: смены × ставка"""

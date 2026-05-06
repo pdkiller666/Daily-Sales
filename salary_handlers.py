@@ -1,5 +1,6 @@
 """
-Обработчики системы окладов и графиков работы
+Обработчики системы окладов и графиков работы.
+Поддерживает шаблоны смен по дням недели + ручную корректировку времени на конкретный день.
 """
 import calendar as _cal
 from datetime import datetime
@@ -20,15 +21,59 @@ _MONTH_NAMES = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
     "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
 ]
+_WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
 class SalaryStates(StatesGroup):
     entering_rate = State()
 
 
+# ── Вспомогательные функции для времени ──────────────────────────────────────
+
+def _fmt_h(h) -> str:
+    """Час → строка "10:00"."""
+    return f"{int(h)}:00"
+
+
+def _time_range_str(start_t, end_t) -> str:
+    """Диапазон времени → "10:00–19:00" или "—"."""
+    if start_t and end_t:
+        return f"{start_t}–{end_t}"
+    return "—"
+
+
+def _hour_picker_kb(prefix: str, back_cb: str,
+                    min_h: int = 6, max_h: int = 23,
+                    day_off_cb: str = None) -> InlineKeyboardMarkup:
+    """Клавиатура выбора часа (4 кнопки в строке)."""
+    rows = []
+    btns = [
+        InlineKeyboardButton(text=_fmt_h(h), callback_data=f"{prefix}_{h}")
+        for h in range(min_h, max_h + 1)
+    ]
+    for i in range(0, len(btns), 4):
+        rows.append(btns[i:i + 4])
+    footer = []
+    if day_off_cb:
+        footer.append(InlineKeyboardButton(text="🚫 Выходной", callback_data=day_off_cb))
+    footer.append(back_button(back_cb))
+    rows.append(footer)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ── Календарная клавиатура ────────────────────────────────────────────────────
+
 def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
-                 editable: bool = False, back_cb: str = "admin_salary_menu") -> InlineKeyboardMarkup:
-    """Строит инлайн-клавиатуру-календарь."""
+                 editable: bool = False, back_cb: str = "admin_salary_menu",
+                 tmpl_uid: int = None, tmpl_yr: int = None,
+                 tmpl_mo: int = None) -> InlineKeyboardMarkup:
+    """Строит инлайн-клавиатуру-календарь.
+
+    editable=True  (admin): ⬜ → slr_tog (добавить смену),
+                             ✅ → slr_day (под-экран управления)
+    editable=False (user):  ✅ → my_d (показать время всплывашкой)
+    tmpl_uid/yr/mo: если заданы — добавляет кнопку '⏰ Расписание смен'.
+    """
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
     next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
 
@@ -46,7 +91,7 @@ def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
         InlineKeyboardButton(text="▶️", callback_data=next_nav),
     ])
     rows.append([InlineKeyboardButton(text=d, callback_data="ignore")
-                 for d in ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]])
+                 for d in _WEEKDAY_NAMES])
 
     first_wd = _cal.weekday(year, month, 1)
     days_in_month = _cal.monthrange(year, month)[1]
@@ -56,7 +101,10 @@ def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
         date_str = f"{year}-{month:02d}-{d:02d}"
         is_w = date_str in worked
         emoji = "✅" if is_w else "⬜"
-        cb = f"slr_tog_{uid}_{date_str}" if (editable and uid is not None) else "ignore"
+        if editable and uid is not None:
+            cb = f"slr_day_{uid}_{date_str}" if is_w else f"slr_tog_{uid}_{date_str}"
+        else:
+            cb = f"my_d_{date_str}" if is_w else "ignore"
         row.append(InlineKeyboardButton(text=f"{emoji}{d}", callback_data=cb))
         if len(row) == 7:
             rows.append(row)
@@ -66,9 +114,46 @@ def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
         row += [InlineKeyboardButton(text=" ", callback_data="ignore")] * (7 - len(row))
         rows.append(row)
 
-    rows.append([InlineKeyboardButton(text=f"📊 Смен в месяце: {len(worked)}", callback_data="ignore")])
+    rows.append([InlineKeyboardButton(
+        text=f"📊 Смен в месяце: {len(worked)}", callback_data="ignore"
+    )])
+
+    if tmpl_uid and tmpl_yr and tmpl_mo:
+        rows.append([InlineKeyboardButton(
+            text="⏰ Расписание смен",
+            callback_data=f"slr_tmpl_{tmpl_uid}_{tmpl_yr}_{tmpl_mo}"
+        )])
+
     rows.append([back_button(back_cb)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ── Вспомогательный рендер календаря для admin ───────────────────────────────
+
+async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
+                                  admin_uid: int, target_uid: int,
+                                  year: int, month: int, current_db) -> None:
+    """Перерисовать административный календарь после изменения."""
+    user = current_db.get_user_by_id(target_uid)
+    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+    daily_rate = current_db.get_salary_rate(target_uid)
+    worked = current_db.get_work_schedule(target_uid, year, month)
+    worked_count = len(worked)
+    salary = worked_count * daily_rate
+    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+    text = (
+        f"📅 *График работы: {name}*\n"
+        f"{_MONTH_NAMES[month - 1]} {year}\n\n"
+        f"⬜ — нажмите чтобы добавить смену\n"
+        f"✅ — нажмите для управления сменой\n\n"
+        f"💼 Ставка: {rate_str}\n"
+        f"📊 Смен отмечено: {worked_count}\n"
+        f"💰 Оклад: {format_price(salary)}₽"
+    )
+    kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True,
+                      back_cb="slr_scheds",
+                      tmpl_uid=target_uid, tmpl_yr=year, tmpl_mo=month)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
 
 
 # ── Нажатие на пустые/нефункциональные кнопки ────────────────────────────────
@@ -233,7 +318,7 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# ── Календарь сотрудника (admin, с тогглом) ───────────────────────────────────
+# ── Календарь сотрудника (admin) ───────────────────────────────────────────────
 
 @salary_router.callback_query(F.data.startswith("slr_cal_"))
 async def salary_calendar_admin(callback: CallbackQuery, state: FSMContext):
@@ -246,62 +331,333 @@ async def salary_calendar_admin(callback: CallbackQuery, state: FSMContext):
     year = int(parts[3])
     month = int(parts[4])
     current_db = await get_db(uid, state)
-    user = current_db.get_user_by_id(target_uid)
-    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
-    daily_rate = current_db.get_salary_rate(target_uid)
-    worked = current_db.get_work_schedule(target_uid, year, month)
-    worked_count = len(worked)
-    salary = worked_count * daily_rate
-    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    text = (
-        f"📅 *График работы: {name}*\n"
-        f"{_MONTH_NAMES[month - 1]} {year}\n\n"
-        f"✅ = рабочая смена  ⬜ = выходной\n"
-        f"Нажмите на день для отметки / снятия\n\n"
-        f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отмечено: {worked_count}\n"
-        f"💰 Оклад: {format_price(salary)}₽"
-    )
-    kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True, back_cb="slr_scheds")
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
+    await _refresh_admin_calendar(callback, state, uid, target_uid, year, month, current_db)
 
 
-# ── Тоггл рабочего дня (admin) ────────────────────────────────────────────────
+# ── Добавить рабочий день (только для НЕОТМЕЧЕННЫХ дней) ─────────────────────
 
 @salary_router.callback_query(F.data.startswith("slr_tog_"))
 async def salary_toggle_day(callback: CallbackQuery, state: FSMContext):
+    """Отметить НЕотмеченный день как рабочий — с временем из шаблона дня недели."""
     uid = callback.from_user.id
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    parts = callback.data.split("_", 3)
+    parts = callback.data.split("_")
+    # slr_tog_{uid}_{YYYY-MM-DD}
     target_uid = int(parts[2])
     date_str = parts[3]
     current_db = await get_db(uid, state)
-    now_working = current_db.toggle_work_day(target_uid, date_str, uid)
-    status = "✅ рабочая" if now_working else "⬜ выходной"
-    await callback.answer(f"{date_str}: {status}")
-    year = int(date_str[:4])
-    month = int(date_str[5:7])
+
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    weekday = date_dt.weekday()  # 0=Пн
+    templates = current_db.get_shift_templates(target_uid)
+    tmpl = templates.get(weekday)
+    start_t = tmpl[0] if tmpl else None
+    end_t   = tmpl[1] if tmpl else None
+
+    current_db.add_work_day(target_uid, date_str, start_t, end_t, uid)
+
+    if start_t and end_t:
+        await callback.answer(f"✅ {date_str}: {start_t}–{end_t}")
+    else:
+        await callback.answer(f"✅ {date_str}: рабочая смена")
+
+    year, month = date_dt.year, date_dt.month
+    await _refresh_admin_calendar(callback, state, uid, target_uid, year, month, current_db)
+
+
+# ── Под-экран управления отмеченным днём ─────────────────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_day_"))
+async def salary_day_subscreen(callback: CallbackQuery, state: FSMContext):
+    """Показывает время смены и кнопки: Снять / Изменить время / Назад."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_day_{uid}_{YYYY-MM-DD}
+    target_uid = int(parts[2])
+    date_str   = parts[3]
+    current_db = await get_db(uid, state)
+
+    start_t, end_t = current_db.get_work_day_time(target_uid, date_str)
+    time_info = _time_range_str(start_t, end_t)
+
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    day_name = _WEEKDAY_NAMES[date_dt.weekday()]
+    date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
+
     user = current_db.get_user_by_id(target_uid)
     name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
-    daily_rate = current_db.get_salary_rate(target_uid)
-    worked = current_db.get_work_schedule(target_uid, year, month)
-    worked_count = len(worked)
-    salary = worked_count * daily_rate
-    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    text = (
-        f"📅 *График работы: {name}*\n"
-        f"{_MONTH_NAMES[month - 1]} {year}\n\n"
-        f"✅ = рабочая смена  ⬜ = выходной\n"
-        f"Нажмите на день для отметки / снятия\n\n"
-        f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отмечено: {worked_count}\n"
-        f"💰 Оклад: {format_price(salary)}₽"
+
+    cal_cb = f"slr_cal_{target_uid}_{date_dt.year}_{date_dt.month}"
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="⬜ Снять смену",     callback_data=f"slr_rm_{target_uid}_{date_str}"),
+        InlineKeyboardButton(text="✏️ Изменить время", callback_data=f"slr_ets_{target_uid}_{date_str}"),
     )
-    kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True, back_cb="slr_scheds")
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    builder.row(back_button(cal_cb))
+
+    await callback.message.edit_text(
+        f"📅 *{name}* · {date_ru}\n"
+        f"⏰ Время смены: *{time_info}*\n\n"
+        "Выберите действие:",
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
+
+
+# ── Снять рабочий день ────────────────────────────────────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_rm_"))
+async def salary_remove_day(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_rm_{uid}_{YYYY-MM-DD}
+    target_uid = int(parts[2])
+    date_str   = parts[3]
+    current_db = await get_db(uid, state)
+    current_db.remove_work_day(target_uid, date_str)
+    await callback.answer(f"⬜ {date_str}: выходной")
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    await _refresh_admin_calendar(callback, state, uid, target_uid,
+                                  date_dt.year, date_dt.month, current_db)
+
+
+# ── Изменить время конкретного дня: выбор начала ─────────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_ets_"))
+async def salary_edit_date_start(callback: CallbackQuery, state: FSMContext):
+    """Выбор времени начала для конкретной даты."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_ets_{uid}_{YYYY-MM-DD}
+    target_uid = int(parts[2])
+    date_str   = parts[3]
+
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    day_name = _WEEKDAY_NAMES[date_dt.weekday()]
+    date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
+
+    back_cb = f"slr_day_{target_uid}_{date_str}"
+    prefix  = f"slr_ete_{target_uid}_{date_str}"
+    kb = _hour_picker_kb(prefix, back_cb, min_h=6, max_h=22)
+
+    await callback.message.edit_text(
+        f"⏰ *Начало смены*\n{date_ru}\n\nВыберите час начала:",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_ete_"))
+async def salary_edit_date_end(callback: CallbackQuery, state: FSMContext):
+    """Выбор времени конца для конкретной даты."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_ete_{uid}_{YYYY-MM-DD}_{sh}
+    target_uid = int(parts[2])
+    date_str   = parts[3]
+    start_h    = int(parts[4])
+
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    day_name = _WEEKDAY_NAMES[date_dt.weekday()]
+    date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
+
+    back_cb = f"slr_ets_{target_uid}_{date_str}"
+    prefix  = f"slr_etx_{target_uid}_{date_str}_{start_h}"
+    kb = _hour_picker_kb(prefix, back_cb, min_h=start_h + 1, max_h=23)
+
+    await callback.message.edit_text(
+        f"⏰ *Конец смены*\n{date_ru} · начало {_fmt_h(start_h)}\n\nВыберите час конца:",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_etx_"))
+async def salary_edit_date_save(callback: CallbackQuery, state: FSMContext):
+    """Сохранить изменённое время для конкретной даты."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_etx_{uid}_{YYYY-MM-DD}_{sh}_{eh}
+    target_uid = int(parts[2])
+    date_str   = parts[3]
+    start_h    = int(parts[4])
+    end_h      = int(parts[5])
+    current_db = await get_db(uid, state)
+
+    start_t = _fmt_h(start_h)
+    end_t   = _fmt_h(end_h)
+    current_db.set_work_day_time(target_uid, date_str, start_t, end_t)
+    await callback.answer(f"✅ {date_str}: {start_t}–{end_t}")
+
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    await _refresh_admin_calendar(callback, state, uid, target_uid,
+                                  date_dt.year, date_dt.month, current_db)
+
+
+# ── Шаблон смен по дням недели ───────────────────────────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_tmpl_"))
+async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
+    """Экран шаблона: таблица пн-вс с текущими временами."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_tmpl_{uid}_{yr}_{mo}
+    target_uid = int(parts[2])
+    yr  = int(parts[3])
+    mo  = int(parts[4])
+    current_db = await get_db(uid, state)
+
+    templates = current_db.get_shift_templates(target_uid)
+    user = current_db.get_user_by_id(target_uid)
+    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+
+    lines = [f"⏰ *Шаблон смен: {name}*\n",
+             "Нажмите на день, чтобы изменить время:\n"]
+    builder = InlineKeyboardBuilder()
+    for wd, wd_name in enumerate(_WEEKDAY_NAMES):
+        tmpl = templates.get(wd)
+        if tmpl:
+            t_str = _time_range_str(tmpl[0], tmpl[1])
+        else:
+            t_str = "выходной"
+        lines.append(f"*{wd_name}*: {t_str}")
+        builder.button(
+            text=f"{wd_name} · {t_str}",
+            callback_data=f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
+        )
+    builder.adjust(1)
+    builder.add(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_td_"))
+async def salary_template_day_start(callback: CallbackQuery, state: FSMContext):
+    """Выбор времени начала для дня недели в шаблоне."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_td_{uid}_{wd}_{yr}_{mo}
+    target_uid = int(parts[2])
+    wd  = int(parts[3])
+    yr  = int(parts[4])
+    mo  = int(parts[5])
+
+    wd_name = _WEEKDAY_NAMES[wd]
+    back_cb = f"slr_tmpl_{target_uid}_{yr}_{mo}"
+    prefix  = f"slr_ts_{target_uid}_{wd}_{yr}_{mo}"
+    day_off_cb = f"slr_tw_{target_uid}_{wd}_{yr}_{mo}"
+    kb = _hour_picker_kb(prefix, back_cb, min_h=6, max_h=22, day_off_cb=day_off_cb)
+
+    await callback.message.edit_text(
+        f"⏰ *Начало смены — {wd_name}*\n\nВыберите час начала или установите выходной:",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_tw_"))
+async def salary_template_day_off(callback: CallbackQuery, state: FSMContext):
+    """Пометить день недели в шаблоне как выходной."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_tw_{uid}_{wd}_{yr}_{mo}
+    target_uid = int(parts[2])
+    wd  = int(parts[3])
+    yr  = int(parts[4])
+    mo  = int(parts[5])
+    current_db = await get_db(uid, state)
+    current_db.set_shift_template(target_uid, wd, None, None)
+    await callback.answer(f"🚫 {_WEEKDAY_NAMES[wd]}: выходной сохранён")
+    # Вернуться на экран шаблона
+    callback.data = f"slr_tmpl_{target_uid}_{yr}_{mo}"
+    await salary_template_screen(callback, state)
+
+
+@salary_router.callback_query(F.data.startswith("slr_ts_"))
+async def salary_template_day_end(callback: CallbackQuery, state: FSMContext):
+    """Выбор времени конца для дня недели в шаблоне."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_ts_{uid}_{wd}_{yr}_{mo}_{sh}
+    target_uid = int(parts[2])
+    wd      = int(parts[3])
+    yr      = int(parts[4])
+    mo      = int(parts[5])
+    start_h = int(parts[6])
+
+    wd_name = _WEEKDAY_NAMES[wd]
+    back_cb = f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
+    prefix  = f"slr_te_{target_uid}_{wd}_{yr}_{mo}_{start_h}"
+    kb = _hour_picker_kb(prefix, back_cb, min_h=start_h + 1, max_h=23)
+
+    await callback.message.edit_text(
+        f"⏰ *Конец смены — {wd_name}*\n"
+        f"Начало: {_fmt_h(start_h)}\n\nВыберите час конца:",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_te_"))
+async def salary_template_day_save(callback: CallbackQuery, state: FSMContext):
+    """Сохранить шаблон для дня недели и вернуться на экран шаблона."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_te_{uid}_{wd}_{yr}_{mo}_{sh}_{eh}
+    target_uid = int(parts[2])
+    wd      = int(parts[3])
+    yr      = int(parts[4])
+    mo      = int(parts[5])
+    start_h = int(parts[6])
+    end_h   = int(parts[7])
+    current_db = await get_db(uid, state)
+
+    start_t = _fmt_h(start_h)
+    end_t   = _fmt_h(end_h)
+    current_db.set_shift_template(target_uid, wd, start_t, end_t)
+    await callback.answer(f"✅ {_WEEKDAY_NAMES[wd]}: {start_t}–{end_t} сохранено")
+
+    callback.data = f"slr_tmpl_{target_uid}_{yr}_{mo}"
+    await salary_template_screen(callback, state)
 
 
 # ── Сводка ФОТ за месяц (admin) ───────────────────────────────────────────────
@@ -350,6 +706,20 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
 
 # ── Мой график (продавец) ─────────────────────────────────────────────────────
 
+def _my_schedule_text(month_name: str, year: int, daily_rate: float,
+                      worked_count: int, salary: float) -> str:
+    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+    return (
+        f"📅 *Мой график работы*\n"
+        f"{month_name} {year}\n\n"
+        f"✅ — рабочая смена · нажмите чтобы узнать время\n"
+        f"⬜ — выходной\n\n"
+        f"💼 Ставка: {rate_str}\n"
+        f"📊 Смен отработано: {worked_count}\n"
+        f"💰 Оклад к выплате: {format_price(salary)}₽"
+    )
+
+
 @salary_router.callback_query(F.data == "my_schedule")
 async def my_schedule(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
@@ -364,15 +734,7 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     worked = current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
-    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    text = (
-        f"📅 *Мой график работы*\n"
-        f"{_MONTH_NAMES[month - 1]} {year}\n\n"
-        f"✅ — рабочая смена  ⬜ — выходной\n\n"
-        f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отработано: {worked_count}\n"
-        f"💰 Оклад к выплате: {format_price(salary)}₽"
-    )
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
@@ -392,15 +754,31 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     worked = current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
-    rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-    text = (
-        f"📅 *Мой график работы*\n"
-        f"{_MONTH_NAMES[month - 1]} {year}\n\n"
-        f"✅ — рабочая смена  ⬜ — выходной\n\n"
-        f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отработано: {worked_count}\n"
-        f"💰 Оклад к выплате: {format_price(salary)}₽"
-    )
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
+
+
+@salary_router.callback_query(F.data.startswith("my_d_"))
+async def my_day_detail(callback: CallbackQuery, state: FSMContext):
+    """Сотрудник нажимает на отмеченный день — показывает время смены во всплывашке."""
+    uid = callback.from_user.id
+    current_db = await get_db(uid, state)
+    user_id = current_db.get_user_id(uid)
+    if not user_id:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    # my_d_{YYYY-MM-DD}
+    date_str = callback.data[5:]
+    start_t, end_t = current_db.get_work_day_time(user_id, date_str)
+    date_dt = datetime.strptime(date_str, '%Y-%m-%d')
+    day_name = _WEEKDAY_NAMES[date_dt.weekday()]
+    date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
+
+    if start_t and end_t:
+        msg = f"📅 {date_ru}\n⏰ Смена: {start_t} – {end_t}"
+    else:
+        msg = f"📅 {date_ru}\n✅ Рабочая смена · время не указано"
+
+    await callback.answer(msg, show_alert=True)
