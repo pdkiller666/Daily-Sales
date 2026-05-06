@@ -60,7 +60,8 @@ def system_admin_menu():
         InlineKeyboardButton(text="💰 Платежная система", callback_data="payment_system_admin"),
         InlineKeyboardButton(text="💾 Резервные копии", callback_data="backup_management"),
         InlineKeyboardButton(text="👥 Все пользователи", callback_data="admin_users"),
-        InlineKeyboardButton(text="🏢 Все организации", callback_data="list_all_orgs")
+        InlineKeyboardButton(text="🏢 Все организации", callback_data="list_all_orgs"),
+        InlineKeyboardButton(text="🧪 Запустить тесты", callback_data="run_system_tests"),
     )
     builder.row(back_button("main_menu"))
     builder.adjust(1)

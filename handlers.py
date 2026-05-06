@@ -731,7 +731,9 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
 
     raw_role = get_user_org_role(callback.from_user.id)
-    if raw_role:
+    if env_manager.is_super_admin(callback.from_user.id):
+        role_line = '👑 Супер Администратор'
+    elif raw_role:
         from db_utils import get_user_org_scope, get_role_display_label, get_user_custom_title
         _scope_t, _scope_v = get_user_org_scope(callback.from_user.id)
         _ctitle = get_user_custom_title(callback.from_user.id)

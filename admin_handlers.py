@@ -159,6 +159,73 @@ async def system_admin_menu_back_handler(callback: CallbackQuery, state: FSMCont
     """Обработчик для кнопки 'Назад' к системной панели"""
     await system_admin_panel_handler(callback, state)
 
+
+@admin_router.callback_query(F.data == "run_system_tests")
+async def run_system_tests_handler(callback: CallbackQuery, state: FSMContext):
+    """Запуск всех тестов из системной панели (только супер-админ)"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+
+    await callback.message.edit_text(
+        "🧪 <b>Запуск тестов...</b>\n\n⏳ Выполняется проверка, подождите.",
+        parse_mode="HTML"
+    )
+
+    import asyncio, sys
+
+    TEST_SUITES = [
+        ("📦 Импорты модулей", "test_imports.py"),
+        ("🔁 Callback-хендлеры", "test_callbacks.py"),
+        ("🧩 Сценарии (БД, логика)", "test_scenarios.py"),
+    ]
+
+    def _extract_summary(out: str, returncode: int) -> str:
+        keywords = ["Итог:", "Всего тестов:", "Прошло:", "Провалено:", "🎉", "проблем обнаружено"]
+        lines = [l.strip() for l in out.splitlines() if any(kw in l for kw in keywords)]
+        if lines:
+            return " | ".join(lines[:3])
+        return "OK" if returncode == 0 else "ОШИБКА"
+
+    results = []
+    all_ok = True
+    for label, filename in TEST_SUITES:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, filename,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+            except asyncio.TimeoutError:
+                proc.kill()
+                results.append(f"⏱ {label}: таймаут (>90 сек)")
+                all_ok = False
+                continue
+
+            ok = proc.returncode == 0
+            out = stdout.decode("utf-8", errors="replace")
+            summary = _extract_summary(out, proc.returncode)
+            icon = "✅" if ok else "❌"
+            results.append(f"{icon} <b>{he(label)}</b>\n    {he(summary)}")
+            if not ok:
+                all_ok = False
+        except Exception as e:
+            results.append(f"❌ <b>{he(label)}</b>\n    Ошибка запуска: {he(str(e))}")
+            all_ok = False
+
+    status_line = "🎉 Все тесты прошли успешно!" if all_ok else "⚠️ Есть провалы — требуется проверка."
+    text = f"🧪 <b>Результаты тестирования</b>\n\n" + "\n\n".join(results) + f"\n\n{status_line}"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Запустить снова", callback_data="run_system_tests")],
+        [back_button("system_admin_panel")],
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
 @admin_router.callback_query(F.data == "admin_users")
 async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
     """Меню управления пользователями"""
