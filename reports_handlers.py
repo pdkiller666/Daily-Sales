@@ -98,9 +98,10 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     elif is_admin:
         if limits.get('can_view_analytics', False):
             builder.add(
-                InlineKeyboardButton(text="📅 За период", callback_data="report_period")
+                InlineKeyboardButton(text="📅 За месяц",  callback_data="report_admin_month"),
+                InlineKeyboardButton(text="📅 За период", callback_data="report_period"),
             )
-            builder.adjust(1, 1)
+            builder.adjust(1, 2)
         else:
             builder.add(
                 InlineKeyboardButton(text="🔒 За период", callback_data="blocked_analytics")
@@ -694,6 +695,26 @@ async def report_my_month(callback: CallbackQuery, state: FSMContext):
     end_date = today.isoformat()
     await state.update_data(start_date=start_date, end_date=end_date)
     await generate_period_report(callback, state, user_shop_only=True)
+
+
+@reports_router.callback_query(F.data == "report_admin_month")
+async def report_admin_month(callback: CallbackQuery, state: FSMContext):
+    """Быстрый отчёт за текущий месяц для администраторов — с учётом scope зоны ответственности."""
+    is_super_admin = env_manager.is_super_admin(callback.from_user.id)
+    if not (is_any_admin(callback.from_user.id) or is_super_admin):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    from subscription_utils import get_plan_limits
+    limits = get_plan_limits(callback.from_user.id)
+    if not limits.get('can_view_analytics', False) and not is_super_admin:
+        await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
+        return
+    await callback.answer()
+    today      = date.today()
+    start_date = today.replace(day=1).isoformat()
+    end_date   = today.isoformat()
+    await state.update_data(start_date=start_date, end_date=end_date)
+    await generate_period_report(callback, state, user_shop_only=False)
 
 
 @reports_router.callback_query(F.data == "report_city")

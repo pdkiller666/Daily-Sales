@@ -52,6 +52,72 @@ _SCOPE_NAMES = {
 }
 
 
+_METRIC_SHORT = {'turnover': 'Оборот', 'quantity': 'Кол-во'}
+_CONTEST_TYPE_LABEL = {
+    'top_seller': '🏅 Лучший продавец',
+    'target':     '🎯 Выполни план',
+    'team':       '👥 Командный',
+}
+_REWARD_TYPE_LABEL = {'money': '💵', 'gift': '🎁', 'certificate': '🎟'}
+
+
+def _contest_block(contests: list, today_str: str) -> str:
+    """Развёрнутый блок конкурсов для дашборда.
+
+    contests — список из get_contests(status='active').
+    Колонки: 0:id 1:title 3:contest_type 4:metric_type 5:target_value
+             6:reward_type 7:reward_value 8:start_date 9:end_date
+    """
+    if not contests:
+        return ""
+    today_dt = datetime.strptime(today_str, '%Y-%m-%d').date()
+    text = f"🏆 <b>Конкурсы</b> · активных <b>{len(contests)}</b>\n\n"
+    for c in contests[:4]:          # не больше 4, чтобы не перегружать дашборд
+        try:
+            title        = he(c[1] or "Без названия")
+            ctype_label  = _CONTEST_TYPE_LABEL.get(c[3], '🥊')
+            metric_short = _METRIC_SHORT.get(c[4], c[4] or '?')
+            target       = c[5]
+            reward_icon  = _REWARD_TYPE_LABEL.get(c[6], '🎁')
+            reward_val   = c[7]
+            end_date_str = c[9]
+
+            # цель
+            if c[4] == 'turnover':
+                target_str = f"{float(target):,.0f} ₽" if target else "?"
+            else:
+                target_str = f"{int(float(target))} шт." if target else "?"
+
+            # приз
+            try:
+                reward_str = f"{float(reward_val):,.0f} ₽" if c[6] == 'money' else he(str(reward_val))
+            except (TypeError, ValueError):
+                reward_str = he(str(reward_val)) if reward_val else "?"
+
+            # дедлайн
+            try:
+                end_dt   = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                days_left = (end_dt - today_dt).days
+                if days_left < 0:
+                    deadline_str = "завершён"
+                elif days_left == 0:
+                    deadline_str = "сегодня последний день"
+                else:
+                    deadline_str = f"до {end_dt.strftime('%d.%m')} · {days_left} дн."
+            except Exception:
+                deadline_str = end_date_str or "?"
+
+            text += f"  {ctype_label}: <b>{title}</b>\n"
+            text += f"  📊 {metric_short} · цель: {target_str}\n"
+            text += f"  📅 {deadline_str}\n"
+            text += f"  {reward_icon} Приз: {reward_str}\n\n"
+        except Exception:
+            text += f"  🥊 <b>{he(str(c[1]))}</b>\n\n"
+    if len(contests) > 4:
+        text += f"  ···  ещё {len(contests) - 4} конкурсов\n\n"
+    return text
+
+
 def _plan_summary_line(plan, actual: float, percent: float) -> str:
     """Строка плана в формате как в «Мои планы»"""
     period     = _PERIOD_LABELS.get(plan[1], plan[1] or '?')
@@ -430,10 +496,11 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     except Exception:
         pass
 
+    active_contests = []
     try:
-        contests_cnt = len(current_db.get_contests(status='active'))
+        active_contests = current_db.get_contests(status='active') or []
     except Exception:
-        contests_cnt = 0
+        pass
 
     salary = worked_days = daily_rate = 0.0
     motivations = contest_rewards = 0.0
@@ -564,8 +631,8 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         text += "• Активных планов нет\n\n"
 
     # ── Конкурсы ─────────────────────────────────────────────────────────────
-    if contests_cnt:
-        text += f"🏆 <b>Конкурсы</b>: активных <b>{contests_cnt}</b>\n\n"
+    if active_contests:
+        text += _contest_block(active_contests, today)
 
     # ── Команда сегодня ───────────────────────────────────────────────────────
     text += "👥 <b>Команда сегодня</b>\n"
@@ -693,6 +760,14 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         text += "📋 <b>Мои планы</b>\n\n"
         for plan_row, actual, pct in plans_progress:
             text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+
+    # Конкурсы
+    try:
+        user_contests = current_db.get_contests(status='active') or []
+        if user_contests:
+            text += _contest_block(user_contests, today)
+    except Exception:
+        pass
 
     return text
 
