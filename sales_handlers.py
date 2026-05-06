@@ -35,9 +35,23 @@ def _make_qty_keyboard(max_qty: int) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, current_db, shop_name: str):
-    """Вспомогательная функция: показывает категории для выбора товара в продаже"""
-    await state.update_data(shop_name=shop_name, sale_cart=[])
+async def _show_sale_categories(
+    callback: CallbackQuery,
+    state: FSMContext,
+    current_db,
+    shop_name: str,
+    allow_change: bool = False,
+    reset_cart: bool = True,
+):
+    """Вспомогательная функция: показывает категории для выбора товара в продаже.
+
+    allow_change=True — показывает кнопку «Сменить магазин» (для мультимагазинных сетей).
+    reset_cart=False  — не очищает корзину (используется при добавлении следующего товара).
+    """
+    if reset_cart:
+        await state.update_data(shop_name=shop_name, sale_cart=[])
+    else:
+        await state.update_data(shop_name=shop_name)
 
     categories = current_db.get_all_categories()
 
@@ -48,8 +62,19 @@ async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, curr
         )
         return
 
+    # Получаем данные FSM для отображения контекста
+    fsm_data = await state.get_data()
+    home_shop = fsm_data.get("sale_home_shop", shop_name)
+    is_other_shop = shop_name != home_shop
+
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_quick_search"))
+
+    # Кнопка смены магазина (если торговая сеть с несколькими магазинами)
+    if allow_change:
+        change_label = f"🔄 Сменить магазин {'· ' + he(shop_name) if is_other_shop else ''}"
+        builder.row(InlineKeyboardButton(text=change_label.strip("· ") if not is_other_shop else change_label,
+                                         callback_data="sale_change_shop"))
 
     # Блок избранных товаров
     try:
@@ -92,11 +117,28 @@ async def _show_sale_categories(callback: CallbackQuery, state: FSMContext, curr
     for i in range(0, len(cat_buttons), 2):
         builder.row(*cat_buttons[i:i+2])
 
+    # Кнопки корзины (если уже есть товары — при добавлении следующего)
+    cart = fsm_data.get("sale_cart", []) if not reset_cart else []
+    if cart:
+        builder.row(
+            InlineKeyboardButton(text=f"🛒 Корзина ({len(cart)})", callback_data="view_cart"),
+            InlineKeyboardButton(text="✅ Завершить", callback_data="complete_sale"),
+        )
+
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale"))
 
+    # Заголовок — выделяем если это чужой магазин
+    if is_other_shop:
+        header = (
+            f"🛒 Новая продажа\n"
+            f"🏪 Списание с: <b>{he(shop_name)}</b> <i>(другой магазин)</i>\n"
+            f"👤 Ваш магазин: {he(home_shop)}"
+        )
+    else:
+        header = f"🛒 Новая продажа <b>[{he(shop_name)}]</b>"
+
     await callback.message.edit_text(
-        f"🛒 Новая продажа <b>[{he(shop_name)}]</b>\n\n"
-        f"🔍 Найдите товар по названию или выберите категорию:",
+        f"{header}\n\n🔍 Найдите товар по названию или выберите категорию:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -139,6 +181,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
         return
 
     shop_name = user_data[8]
+    trade_network = user_data[7]
 
     # Для суп-админа: если shop_name пустой или дефолтный "Системный",
     # предлагаем выбрать реальный магазин из организации
@@ -162,7 +205,22 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
                 )
                 return
 
-    await _show_sale_categories(callback, state, current_db, shop_name)
+    # Для обычного пользователя: проверяем наличие других магазинов в той же торговой сети
+    allow_change = False
+    if not is_super and trade_network:
+        try:
+            net_shops = current_db.get_shops_by_network(trade_network)
+            if len(net_shops) > 1:
+                allow_change = True
+                await state.update_data(
+                    sale_network=trade_network,
+                    sale_home_shop=shop_name,
+                    sale_allow_change=True,
+                )
+        except Exception:
+            pass
+
+    await _show_sale_categories(callback, state, current_db, shop_name, allow_change=allow_change)
 
 
 @sales_router.callback_query(F.data.startswith("sale_shop_"))
@@ -173,6 +231,160 @@ async def select_sale_shop(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     shop_name = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
     await _show_sale_categories(callback, state, current_db, shop_name)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ПРОДАЖА / СПИСАНИЕ С ДРУГОГО МАГАЗИНА ТОРГОВОЙ СЕТИ
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, current_db):
+    """Экран выбора магазина из торговой сети: город → магазин."""
+    data = await state.get_data()
+    trade_network = data.get("sale_network", "")
+    current_shop = data.get("shop_name", "")
+
+    if not trade_network:
+        await callback.answer("❌ Торговая сеть не определена.", show_alert=True)
+        return
+
+    net_shops = current_db.get_shops_by_network(trade_network)
+    if not net_shops:
+        await callback.answer("❌ Нет других магазинов в сети.", show_alert=True)
+        return
+
+    cities = current_db.get_cities_by_network(trade_network)
+    builder = InlineKeyboardBuilder()
+
+    if len(cities) > 1:
+        # Показываем список городов — сначала выбираем город
+        builder.row(InlineKeyboardButton(text="🏙 Выберите город:", callback_data="pg_noop"))
+        for city in sorted(cities):
+            builder.row(InlineKeyboardButton(
+                text=f"📍 {he(city)}",
+                callback_data=safe_cb("sale_cty_", city)
+            ))
+    else:
+        # Один город или города без названия → сразу показываем магазины
+        builder.row(InlineKeyboardButton(text="🏪 Выберите магазин:", callback_data="pg_noop"))
+        for shop_name, city in sorted(net_shops, key=lambda x: x[0]):
+            mark = " ✓" if shop_name == current_shop else ""
+            builder.row(InlineKeyboardButton(
+                text=f"🏪 {he(shop_name)}{mark}",
+                callback_data=safe_cb("sale_net_", shop_name)
+            ))
+
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="new_sale"))
+
+    cart = data.get("sale_cart", [])
+    cart_note = f"\n⚠️ Корзина будет сброшена при смене магазина ({len(cart)} поз.)" if cart else ""
+
+    await callback.message.edit_text(
+        f"🔄 <b>Выбор магазина для списания</b>\n"
+        f"🌐 Сеть: {he(trade_network)}{cart_note}\n\n"
+        f"Выберите {'город' if len(cities) > 1 else 'магазин'}:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data == "sale_change_shop")
+async def sale_change_shop(callback: CallbackQuery, state: FSMContext):
+    """Открывает экран выбора другого магазина в торговой сети."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    await _build_cross_shop_screen(callback, state, current_db)
+
+
+@sales_router.callback_query(F.data.startswith("sale_cty_"))
+async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
+    """Выбор города → показывает магазины в этом городе."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    data = await state.get_data()
+    trade_network = data.get("sale_network", "")
+    current_shop = data.get("shop_name", "")
+
+    city_raw = callback.data.replace("sale_cty_", "")
+    all_cities = current_db.get_cities_by_network(trade_network) if trade_network else []
+    city = resolve_cb_name(city_raw, all_cities)
+
+    if not city:
+        await callback.answer("❌ Город не найден.", show_alert=True)
+        return
+
+    net_shops = current_db.get_shops_by_network(trade_network)
+    city_shops = [(s, c) for s, c in net_shops if c == city]
+
+    if not city_shops:
+        await callback.message.edit_text(
+            f"❌ В городе <b>{he(city)}</b> нет магазинов сети {he(trade_network)}.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="sale_change_shop")]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    builder = InlineKeyboardBuilder()
+    for shop_name, _ in sorted(city_shops, key=lambda x: x[0]):
+        mark = " ✓" if shop_name == current_shop else ""
+        builder.row(InlineKeyboardButton(
+            text=f"🏪 {he(shop_name)}{mark}",
+            callback_data=safe_cb("sale_net_", shop_name)
+        ))
+    builder.row(InlineKeyboardButton(text="⬅️ К городам", callback_data="sale_change_shop"))
+
+    cart = data.get("sale_cart", [])
+    cart_note = f"\n⚠️ Корзина будет сброшена ({len(cart)} поз.)" if cart else ""
+
+    await callback.message.edit_text(
+        f"📍 <b>{he(city)}</b> — магазины сети {he(trade_network)}{cart_note}\n\n"
+        f"Выберите магазин:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data.startswith("sale_net_"))
+async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
+    """Выбор конкретного магазина из сети — переходит к категориям."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    data = await state.get_data()
+    trade_network = data.get("sale_network", "")
+
+    shop_raw = callback.data.replace("sale_net_", "")
+    net_shops = current_db.get_shops_by_network(trade_network)
+    all_shop_names = [s for s, _ in net_shops]
+    shop_name = resolve_cb_name(shop_raw, all_shop_names)
+
+    if not shop_name:
+        await callback.answer("❌ Магазин не найден. Попробуйте снова.", show_alert=True)
+        return
+
+    # Проверяем: есть ли вообще товары с остатком в выбранном магазине
+    inv_shops_with_stock = current_db.get_inventory_shops()
+    if shop_name not in inv_shops_with_stock:
+        # Магазин зарегистрирован, но остатков нет вообще
+        home_shop = data.get("sale_home_shop", shop_name)
+        await callback.message.edit_text(
+            f"⚠️ <b>Магазин «{he(shop_name)}» пуст</b>\n\n"
+            f"В этом магазине нет ни одного товара в наличии.\n"
+            f"Обратитесь к администратору для пополнения остатков.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Другой магазин", callback_data="sale_change_shop")],
+                [InlineKeyboardButton(text=f"🏪 Вернуться в «{he(home_shop)[:30]}»", callback_data="new_sale")],
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    # Всё ок — показываем категории для выбранного магазина
+    await _show_sale_categories(
+        callback, state, current_db, shop_name,
+        allow_change=True,
+        reset_cart=True,
+    )
 
 
 @sales_router.callback_query(F.data == "sale_quick_search")
@@ -294,20 +506,41 @@ async def select_sale_category(callback: CallbackQuery, state: FSMContext):
             available_products.append(product)
 
     if not available_products:
+        data2 = await state.get_data()
+        allow_change2 = data2.get("sale_allow_change", False)
+        home_shop2 = data2.get("sale_home_shop", shop_name)
+        is_other2 = shop_name != home_shop2
+
+        extra_buttons = []
+        if allow_change2:
+            extra_buttons.append([InlineKeyboardButton(text="🔄 Выбрать другой магазин", callback_data="sale_change_shop")])
+            if is_other2:
+                extra_buttons.append([InlineKeyboardButton(
+                    text=f"🏪 Вернуться в «{he(home_shop2)[:28]}»", callback_data="new_sale"
+                )])
+
+        extra_buttons.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")])
+
+        shop_label = f"«{he(shop_name)}»" if is_other2 else "вашем магазине"
         await callback.message.edit_text(
-            f"📂 {category}\n\n❌ Нет товаров в наличии в вашем магазине.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")]
-            ])
+            f"📂 {he(category)}\n\n❌ Нет товаров в наличии в {shop_label}.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=extra_buttons),
+            parse_mode="HTML"
         )
         return
 
     builder.add(InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale"))
     builder.adjust(1)
 
+    data3 = await state.get_data()
+    home_shop3 = data3.get("sale_home_shop", shop_name)
+    is_other3 = shop_name != home_shop3
+    shop_note = f" <i>(из «{he(shop_name)}»)</i>" if is_other3 else ""
+
     await callback.message.edit_text(
-        f"📂 {category}\n\nВыберите товар для продажи:",
-        reply_markup=builder.as_markup()
+        f"📂 {he(category)}{shop_note}\n\nВыберите товар для продажи:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
     )
 
 @sales_router.callback_query(F.data.startswith("sale_product_"))
@@ -327,7 +560,13 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
     quantity = current_db.get_inventory(shop_name, product_id)
 
     if quantity <= 0:
-        await callback.answer("❌ Товар отсутствует в наличии!", show_alert=True)
+        # Уточняем сообщение: если выбран другой магазин — говорим какой именно
+        fsm_d = await state.get_data()
+        home_shop = fsm_d.get("sale_home_shop", shop_name)
+        if shop_name != home_shop:
+            await callback.answer(f"❌ Нет в наличии в «{shop_name}»!", show_alert=True)
+        else:
+            await callback.answer("❌ Товар отсутствует в наличии!", show_alert=True)
         return
 
     await callback.answer()
@@ -344,9 +583,17 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
     else:
         motivation_text = "\n🎯 Мотивация: не установлена"
 
+    # Показываем из какого магазина идёт списание
+    fsm_d2 = await state.get_data()
+    home_shop2 = fsm_d2.get("sale_home_shop", shop_name)
+    shop_line = (
+        f"\n🏪 Списание с: <b>{he(shop_name)}</b> <i>(другой магазин)</i>"
+        if shop_name != home_shop2 else f"\n🏪 Магазин: {he(shop_name)}"
+    )
+
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
-        f"💰 Продажа товара:\n\n"
+        f"💰 Продажа товара:{shop_line}\n\n"
         f"🏷 {he(product[1])}\n"
         f"💰 Цена: {format_currency(product[3])}\n"
         f"📦 В наличии: {quantity} шт.{motivation_text}\n\n"
@@ -688,34 +935,27 @@ async def process_custom_price(message: Message, state: FSMContext):
 
 @sales_router.callback_query(F.data == "add_more_items")
 async def add_more_items(callback: CallbackQuery, state: FSMContext):
-    """Добавление еще товаров в корзину"""
+    """Добавление ещё товаров в корзину — переиспользует экран категорий без сброса корзины."""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    # Получаем категории товаров
-    categories = current_db.get_all_categories()
+    data = await state.get_data()
+    shop_name = data.get("shop_name", "")
+    allow_change = data.get("sale_allow_change", False)
 
-    if not categories:
+    if not shop_name:
         await callback.message.edit_text(
-            "📋 Товары отсутствуют.\n\nОбратитесь к администратору для добавления товаров.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("main_menu")]])
+            "❌ Сессия устарела. Начните продажу заново.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Новая продажа", callback_data="new_sale")]
+            ])
         )
         return
 
-    builder = InlineKeyboardBuilder()
-    for category in categories:
-        builder.add(InlineKeyboardButton(text=f"📂 {category}", callback_data=safe_cb("sale_category_", category)))
-
-    # Добавляем кнопки для управления корзиной
-    builder.add(
-        InlineKeyboardButton(text="🛒 Просмотр корзины", callback_data="view_cart"),
-        InlineKeyboardButton(text="✅ Завершить продажу", callback_data="complete_sale"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_sale")
-    )
-    builder.adjust(2, 1, 1, 1)
-
-    await callback.message.edit_text(
-        "🛒 Добавить еще товар\n\nВыберите категорию товара:",
-        reply_markup=builder.as_markup()
+    await _show_sale_categories(
+        callback, state, current_db,
+        shop_name=shop_name,
+        allow_change=allow_change,
+        reset_cart=False,
     )
 
 @sales_router.callback_query(F.data == "view_cart")

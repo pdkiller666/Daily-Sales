@@ -995,6 +995,36 @@ class Database:
         conn.close()
         return networks
 
+    def get_shops_by_network(self, trade_network: str) -> list:
+        """Список (shop_name, city) всех магазинов данной торговой сети."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT shop_name, COALESCE(city, '') FROM users "
+            "WHERE trade_network = ? AND shop_name IS NOT NULL AND shop_name != '' "
+            "AND shop_name NOT IN ('Системный', 'System') "
+            "ORDER BY city, shop_name",
+            (trade_network,)
+        )
+        result = cursor.fetchall()
+        conn.close()
+        return result  # [(shop_name, city), ...]
+
+    def get_cities_by_network(self, trade_network: str) -> list:
+        """Список городов торговой сети (только непустые)."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT COALESCE(city, '') FROM users "
+            "WHERE trade_network = ? AND shop_name IS NOT NULL AND shop_name != '' "
+            "AND shop_name NOT IN ('Системный', 'System') "
+            "ORDER BY city",
+            (trade_network,)
+        )
+        result = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return [c for c in result if c]
+
     # Методы для работы с товарами
     def get_all_products(self):
         conn = sqlite3.connect(self.db_file)
