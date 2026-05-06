@@ -20,6 +20,7 @@ reports_router = Router()
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_scope
 from keyboards import safe_cb, resolve_cb_name
+from hints import hint_suffix
 
 
 @reports_router.callback_query(F.data == "reports")
@@ -114,7 +115,10 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
                 InlineKeyboardButton(text="🔒 За период",        callback_data="blocked_analytics"),
             )
             builder.adjust(1, 2)
-    
+        builder.add(
+            InlineKeyboardButton(text="📥 Мои продажи → Excel", callback_data="download_excel_my_sales_free")
+        )
+
     if is_admin or is_super_admin:
         from filter_utils import ADMIN_FILTER_KEY, get_available_filter_values, filter_button_text, has_anything_to_filter, empty_filter
         from db_utils import get_user_org_scope
@@ -141,6 +145,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
         reports_header += "\n⚠️ Расширенные отчеты доступны только в платных тарифах"
 
     message_text = (dashboard_text + "\n\n" + reports_header) if dashboard_text else reports_header
+    message_text += hint_suffix(current_db, user[0], 'first_reports')
 
     await callback.message.edit_text(
         message_text,
@@ -403,6 +408,10 @@ async def view_ratings(callback: CallbackQuery, state: FSMContext):
             text += f"{medal} <b>{he(first_name)} {he(last_name)}</b>\n"
             text += f"   🏪 {he(shop_name)}\n"
             text += f"   📦 {quantity} шт. • 💰 {format_currency(total_sum)} • 📈 {format_currency(earnings)}\n\n"
+
+    _vr_user = current_db.get_user(callback.from_user.id)
+    if _vr_user:
+        text += hint_suffix(current_db, _vr_user[0], 'first_rankings')
 
     await callback.message.edit_text(
         text,
@@ -1836,6 +1845,41 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
             os.unlink(file_path)
         except Exception:
             pass
+
+@reports_router.callback_query(F.data == "download_excel_my_sales_free")
+async def download_excel_my_sales_free(callback: CallbackQuery, state: FSMContext):
+    """Бесплатный Excel-экспорт для продавца — только его собственные продажи, без проверки подписки."""
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    user_id = current_db.get_user_id(callback.from_user.id)
+    if not user_id:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    sales = current_db.get_user_sales(user_id, limit=5000)
+    if not sales:
+        await callback.answer("❌ У вас пока нет продаж для экспорта", show_alert=True)
+        return
+
+    file_path = generate_excel_report(sales, "Мои продажи", "Всё время", None)
+    if not file_path:
+        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        return
+
+    try:
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename="Мои_продажи.xlsx"),
+            caption="📥 Ваши продажи за всё время"
+        )
+        await callback.answer("✅ Excel файл отправлен!")
+    except Exception:
+        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+    finally:
+        try:
+            os.unlink(file_path)
+        except Exception:
+            pass
+
 
 # ОБРАБОТЧИКИ НЕДОСТУПНЫХ ФУНКЦИЙ (ПРЕДЛОЖЕНИЕ ПОДПИСКИ)
 

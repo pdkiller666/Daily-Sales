@@ -25,6 +25,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `sales_plans_handlers.py` — plan wizard + edit + прогресс планов; `_plan_summary_line()` for shared display format
 - `filter_utils.py` — `empty_filter()`, `get_available_filter_values()`, `merge_scope_with_filter()`, `build_filter_keyboard()` — shared filter infra
 - `filter_handlers.py` — `filter_router`: `flt_open_{back_cb}`, `ftog_s/c/n_*`, `flt_reset` handlers
+- `hints.py` — `hint_suffix(db, user_id, key)` inline hints + `maybe_send_welcome(msg, db, uid, is_admin)` onboarding popup; all texts in `HINT_TEXTS`, `WELCOME_USER_TEXT`, `WELCOME_ADMIN_TEXT`
+- `notif_utils.py` — `add_read_btn(existing_markup)` adds «✅ Прочитано» to all push notifications
 - `data/main.db` — organizations, user_org_mapping
 - `data/shop_bot.db` — personal mode + payments/subscriptions (centralized)
 - `data/tenants/org_*.db` — isolated per-org DBs (Amvera: only `org_huawei.db`)
@@ -45,6 +47,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ## Product
 
 - Sales management: products, inventory, sales recording, daily reports
+- Cross-shop sale: сотрудник торговой сети может продавать/списывать с другого магазина той же сети (кнопка «🔄 Сменить магазин»); фильтр город → магазин; остатки из выбранного магазина; все сценарии ошибок (пустой магазин, нет в наличии в конкретном магазине, нет других магазинов в сети)
 - Multi-org: invite codes, role system (super-admin / admin / user), isolated data
 - Sales plans: per-seller or per-shop, weekly/monthly, turnover/quantity, category/product filter
 - Dashboard (Reports): period toggle (Сегодня/Неделя/Месяц); admin sees staff + earnings + plans; user sees salary + period sales + plans
@@ -57,6 +60,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Excel import: 📊 Импорт из Excel в меню Товары; openpyxl-парсинг + превью + подтверждение
 - Pagination everywhere: продукты (prodl_pg_), продажи для редактирования (esl_pg_), пользователи (au_pg_), орги (orgs_pg_), конкурсы (cal_pg_/car_pg_)
 - Manual filters (scope-aware): кнопка 🔍 Фильтр в Отчётах, Рейтингах, Сотрудниках, Прогрессе планов; scope роли — потолок, ручной фильтр — пол; глобальный ключ FSM `admin_filter`; `flt_open_{back_cb}` pattern
+- Push notifications: кнопка «✅ Прочитано» на всех уведомлениях — удаляет сообщение из чата (`notif_read` callback в notifications_handlers); реализовано через `add_read_btn()` в `notif_utils.py`
+- Onboarding & hints: `user_hints_seen` таблица (per-DB); `maybe_send_welcome` показывает popup один раз при первом входе (роль-зависимый текст); `hint_suffix` добавляет inline-подсказку при первом визите раздела (продажи, отчёты, товары, дашборд, планы, конкурсы, рейтинги); кнопка «✅ Понятно!» (hint_dismiss) удаляет попап
 
 ## User Preferences
 

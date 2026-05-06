@@ -17,6 +17,7 @@ from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit, safe_edit_message
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_DEFAULT
+from notif_utils import add_read_btn
 
 contests_router = Router()
 logger = logging.getLogger(__name__)
@@ -97,12 +98,16 @@ async def contests_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="admin_management")
     builder.adjust(1)
 
+    _ct_db = await get_db(callback.from_user.id, state)
+    _ct_user = _ct_db.get_user(callback.from_user.id)
+    _ct_hint = hint_suffix(_ct_db, _ct_user[0], 'first_contests') if _ct_user else ""
+
     await safe_edit_message(
         callback,
         "🏆 <b>Конкурсы</b>\n\n"
         "Создавайте мотивационные конкурсы для продавцов: по товарам, "
         "категориям, магазинам.\n\n"
-        "Победители получают фиксированную надбавку или % от оборота за период.",
+        f"Победители получают фиксированную надбавку или % от оборота за период.{_ct_hint}",
         builder.as_markup()
     )
 
@@ -927,7 +932,7 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
             if shop_filter and shop_name not in shop_filter:
                 continue
             try:
-                await callback.bot.send_message(tg_id, notif_text, parse_mode="HTML")
+                await callback.bot.send_message(tg_id, notif_text, parse_mode="HTML", reply_markup=add_read_btn())
                 sent += 1
             except Exception as e:
                 logger.error(f"Ошибка уведомления о конкурсе {tg_id}: {e}")
@@ -1284,7 +1289,8 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
                 f"📊 Ваш результат: {actual_str}\n"
                 f"🏅 Ваша награда: {format_price(r['reward'])}₽\n\n"
                 f"Отличная работа! 🎉",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=add_read_btn()
             )
             sent += 1
         except Exception as e:

@@ -28,6 +28,7 @@ from states import (
 from utils import format_date_display, generate_excel_report, format_currency, get_stock_color_indicator, he
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from env_manager import env_manager
+from hints import maybe_send_welcome, hint_suffix
 
 # Создаем роутер
 router = Router()
@@ -71,19 +72,26 @@ async def cmd_start(message: Message, state: FSMContext):
     # Сначала ищем пользователя в основной БД (main.db)
     from database import Database as CentralDB
     central_db = CentralDB('data/main.db')
+    _found_db = None
     user = central_db.get_user(message.from_user.id)
-    
+    if user:
+        _found_db = central_db
+
     # Если в основной нет, ищем в shop_bot.db
     if not user:
         shop_db = Database('data/shop_bot.db')
         user = shop_db.get_user(message.from_user.id)
-    
+        if user:
+            _found_db = shop_db
+
     # Если всё еще нет, ищем в тенантах (на всякий случай)
     if not user:
         db_path = tenant_manager.get_user_db_path(message.from_user.id)
         if db_path and db_path != 'data/shop_bot.db':
             tenant_db = Database(db_path)
             user = tenant_db.get_user(message.from_user.id)
+            if user:
+                _found_db = tenant_db
     
     # Если супер-админ, создаем запись в БД если её нет
     if is_super and not user:
@@ -105,12 +113,33 @@ async def cmd_start(message: Message, state: FSMContext):
         
         if is_super:
             welcome_text += "\n\n🔧 Вы вошли как системный администратор."
-        
+
+        try:
+            if _found_db:
+                _today = date.today().isoformat()
+                if is_any_admin(message.from_user.id) or is_super:
+                    _s = _found_db.get_sales_summary(start_date=_today, end_date=_today)
+                    _cnt, _rev = int(_s[0] or 0), float(_s[2] or 0)
+                else:
+                    _us = _found_db.get_user_sales_by_date(user[0], _today, _today)
+                    _cnt = len(_us)
+                    _rev = sum((r[3] or 0) * (r[4] or 0) for r in _us)
+                if _cnt > 0:
+                    welcome_text += f"\n\n📊 <b>Сегодня:</b> {_cnt} прод. · {format_currency(_rev)}"
+        except Exception:
+            pass
+
         await message.answer(
             welcome_text,
             reply_markup=main_menu(message.chat.id, user[8]),
             parse_mode="HTML"
         )
+        if _found_db:
+            _found_db.create_tables()
+            await maybe_send_welcome(
+                message, _found_db, user[0],
+                is_any_admin(message.from_user.id) or is_super
+            )
     else:
         from keyboards import usage_mode_keyboard
         await message.answer(
@@ -500,12 +529,20 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
     if user_data.get('usage_mode') == 'corporate':
         welcome_text += f"🏢 Организация: <b>{he(user_data.get('org_name'))}</b>\n"
 
+    _inv_db = await get_db(callback.from_user.id, state)
+    _inv_user = _inv_db.get_user(callback.from_user.id)
+
     await callback.message.edit_text(
         welcome_text,
         reply_markup=main_menu(callback.from_user.id, user_data['shop_name']),
         parse_mode="HTML"
     )
     await clear_state_keep_org(state)
+    if _inv_user:
+        await maybe_send_welcome(
+            callback, _inv_db, _inv_user[0],
+            is_any_admin(callback.from_user.id)
+        )
 
 @router.callback_query(lambda c: c.data == "create_new_city")
 async def create_new_city(callback: CallbackQuery, state: FSMContext):
@@ -661,12 +698,30 @@ async def process_city(message: Message, state: FSMContext):
 
     welcome_text += trial_days_info
 
+    _reg_db = await get_db(message.from_user.id, state)
+    _reg_user = _reg_db.get_user(message.from_user.id)
+
     await fsm_edit(
         state, message,
         welcome_text,
         reply_markup=main_menu(message.from_user.id, user_data['shop_name']),
     )
     await clear_state_keep_org(state)
+    if _reg_user:
+        await maybe_send_welcome(
+            message, _reg_db, _reg_user[0],
+            is_any_admin(message.from_user.id)
+        )
+
+@router.callback_query(F.data.startswith("hint_dismiss:"))
+async def hint_dismiss_handler(callback: CallbackQuery):
+    """Кнопка «✅ Понятно!» на онбординг-попапах — удаляет сообщение."""
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
 
 @router.callback_query(F.data == "main_menu")
 async def main_menu_callback(callback: CallbackQuery, state: FSMContext):

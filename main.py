@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from database import Database
+from notif_utils import add_read_btn
 from handlers import router as main_router
 from products_handlers import products_router
 from sales_handlers import sales_router
@@ -248,7 +249,7 @@ async def send_payment_alerts(bot: Bot):
                                 "💡 Пожалуйста, продлите подписку вовремя."
                             )
                             try:
-                                await bot.send_message(telegram_id, reminder, parse_mode="HTML")
+                                await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=add_read_btn())
                                 shop_bot_db.mark_reminder_sent(shop_user_id, t, end_date)
                                 current_db.add_notification_to_history(user_id, 'payment', reminder)
                             except Exception as send_err:
@@ -296,7 +297,7 @@ async def send_sales_alerts(bot: Bot):
                             total_amount = sale[3] * (sale[4] or 0)
                             message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
 
-                        await bot.send_message(telegram_id, message, parse_mode="HTML")
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                         current_db.add_notification_to_history(user_id, 'sales', message)
             except Exception: continue
     except Exception as e:
@@ -332,7 +333,7 @@ async def send_personalized_notifications(bot: Bot):
                         for item in low_stock_items[:10]:
                             message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
                         
-                        await bot.send_message(telegram_id, message, parse_mode="HTML")
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                         current_db.add_notification_to_history(user_id, 'low_stock', message)
             except Exception: continue
     except Exception as e:
@@ -391,7 +392,7 @@ async def send_daily_reports(bot: Bot):
                         else:
                             message += "ℹ️ Продаж не было."
 
-                    await bot.send_message(telegram_id, message, parse_mode="HTML")
+                    await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                     current_db.add_notification_to_history(user_id, 'daily_report', message)
             except Exception:
                 continue
@@ -449,7 +450,8 @@ async def check_scheduled_notifications(bot: Bot):
                                 await bot.send_message(
                                     tid_int,
                                     f"🔔 <b>Уведомление от администратора</b>\n\n{notif_text}",
-                                    parse_mode="HTML"
+                                    parse_mode="HTML",
+                                    reply_markup=add_read_btn()
                                 )
                                 send_db.add_notification_to_history(uid_internal, 'admin', notif_text)
                                 send_count += 1
@@ -514,7 +516,7 @@ async def auto_finish_contests(bot: Bot):
                                 f"🎁 Награда: <b>{reward:,.2f} ₽</b>"
                             )
                             try:
-                                await bot.send_message(int(tg_id), text, parse_mode="HTML")
+                                await bot.send_message(int(tg_id), text, parse_mode="HTML", reply_markup=add_read_btn())
                                 await asyncio.sleep(0.05)
                             except Exception as e:
                                 logging.error(
@@ -607,8 +609,14 @@ async def send_post_restart_start(bot):
 async def main():
     """Основная функция запуска бота"""
     # Создаем планировщик для уведомлений
-    scheduler = AsyncIOScheduler()
-    
+    scheduler = AsyncIOScheduler(
+        job_defaults={
+            'misfire_grace_time': 60,  # до 60 с опоздания — всё равно запустить
+            'coalesce': True,          # пропущенные повторы схлопываются в один запуск
+            'max_instances': 1,        # не допускаем параллельного запуска одного задания
+        }
+    )
+
     # Сохраняем scheduler в модуле для доступа из других файлов
     scheduler_module.set_scheduler(scheduler)
     

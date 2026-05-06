@@ -168,6 +168,29 @@ class Database:
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_hints_seen (
+                user_id INTEGER NOT NULL,
+                hint_key TEXT NOT NULL,
+                seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, hint_key),
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sales_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id INTEGER NOT NULL,
+                changed_by_user_id INTEGER,
+                old_quantity INTEGER,
+                new_quantity INTEGER,
+                old_price REAL,
+                new_price REAL,
+                changed_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS scheduled_notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT UNIQUE NOT NULL,
@@ -1667,6 +1690,65 @@ class Database:
         conn.commit()
         conn.close()
 
+    def has_seen_hint(self, user_id: int, hint_key: str) -> bool:
+        """Проверяет, показывалась ли подсказка пользователю ранее."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT 1 FROM user_hints_seen WHERE user_id = ? AND hint_key = ?',
+            (user_id, hint_key)
+        )
+        result = cursor.fetchone() is not None
+        conn.close()
+        return result
+
+    def mark_hint_seen(self, user_id: int, hint_key: str) -> None:
+        """Помечает подсказку как показанную для данного пользователя."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT OR IGNORE INTO user_hints_seen (user_id, hint_key) VALUES (?, ?)',
+            (user_id, hint_key)
+        )
+        conn.commit()
+        conn.close()
+
+    def log_sale_edit(self, sale_id, changed_by_user_id,
+                      old_quantity, new_quantity, old_price, new_price):
+        """Записывает строку в журнал изменений продажи."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn.execute('''
+                INSERT INTO sales_audit_log
+                (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price))
+            conn.commit()
+            conn.close()
+        except Exception as _e:
+            logger.warning(f"log_sale_edit failed: {_e}")
+
+    def get_sale_audit_log(self, sale_id):
+        """Возвращает историю изменений продажи, от новых к старым."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sal.id, sal.changed_by_user_id,
+                       u.first_name || ' ' || u.last_name AS editor_name,
+                       sal.old_quantity, sal.new_quantity,
+                       sal.old_price, sal.new_price, sal.changed_at
+                FROM sales_audit_log sal
+                LEFT JOIN users u ON sal.changed_by_user_id = u.id
+                WHERE sal.sale_id = ?
+                ORDER BY sal.changed_at DESC
+            ''', (sale_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception:
+            return []
+
     def get_notification_history(self, user_id, limit=20):
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -2339,7 +2421,7 @@ class Database:
         conn.close()
         return sale
 
-    def update_sale(self, sale_id, quantity_sold, sale_price=None):
+    def update_sale(self, sale_id, quantity_sold, sale_price=None, changed_by=None):
         """Обновить количество и цену в продаже"""
         import time
 
@@ -2402,6 +2484,17 @@ class Database:
                                 motivation_value = excluded.motivation_value
                         ''', (sale_id, sale_id, product_id, new_commission,
                               commission_info['motivation_type'], commission_info['motivation_value']))
+
+                    try:
+                        cursor.execute('''
+                            INSERT INTO sales_audit_log
+                            (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (sale_id, changed_by, old_quantity, quantity_sold,
+                              current_sale[4],
+                              sale_price if sale_price is not None else current_sale[4]))
+                    except Exception:
+                        pass
 
                     conn.commit()
                     conn.close()

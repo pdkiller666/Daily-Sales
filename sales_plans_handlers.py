@@ -13,6 +13,7 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit, safe_edit_message
+from hints import hint_suffix
 
 sales_plans_router = Router()
 
@@ -121,11 +122,15 @@ async def sales_plans_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="admin_management")
     builder.adjust(1)
 
+    _sp_db = await get_db(callback.from_user.id, state)
+    _sp_user = _sp_db.get_user(callback.from_user.id)
+    _sp_hint = hint_suffix(_sp_db, _sp_user[0], 'first_plans') if _sp_user else ""
+
     await callback.message.edit_text(
         "📋 <b>Планы продаж</b>\n\n"
         "Задавайте цели по обороту или количеству — на неделю или месяц, "
         "для конкретного продавца или магазина, по всем или только по выбранным товарам.\n\n"
-        "Выполнение планов отображается в реальном времени.",
+        f"Выполнение планов отображается в реальном времени.{_sp_hint}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()

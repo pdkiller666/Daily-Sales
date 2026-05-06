@@ -12,6 +12,7 @@ from database import Database
 from keyboards import back_button, create_confirm_keyboard
 from states import SubscriptionStates
 from env_manager import env_manager
+from notif_utils import add_read_btn
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from db_utils import get_user_org_role, clear_state_keep_org
 
@@ -48,9 +49,9 @@ async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
             "⏰ Заявка ожидает рассмотрения в административной панели."
         )
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        keyboard = add_read_btn(InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Рассмотреть заявки", callback_data="pending_payments")]
-        ])
+        ]))
         
         # Отправляем уведомление только супер-администратору
         try:

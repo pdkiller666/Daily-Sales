@@ -25,6 +25,7 @@ products_router = Router()
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from keyboards import safe_cb, resolve_cb_name
+from hints import hint_suffix
 
 
 def _parse_bulk_products(text: str):
@@ -122,8 +123,10 @@ async def products_callback(callback: CallbackQuery, state: FSMContext):
         return
     
     await callback.answer()
+    _prod_user = current_db.get_user(callback.from_user.id)
+    _prod_hint = hint_suffix(current_db, _prod_user[0], 'first_products') if _prod_user else ""
     await callback.message.edit_text(
-        "🛍 <b>Управление товарами</b>\n\nВыберите действие:",
+        f"🛍 <b>Управление товарами</b>\n\nВыберите действие:{_prod_hint}",
         reply_markup=products_menu(),
         parse_mode="HTML"
     )

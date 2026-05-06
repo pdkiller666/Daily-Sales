@@ -7,6 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 from env_manager import env_manager
 from utils import he
+from notif_utils import add_read_btn
 
 async def send_plan_deletion_notifications(bot: Bot, affected_users, plan_name):
     """Отправка уведомлений о удалении тарифного плана"""
@@ -37,10 +38,10 @@ async def send_plan_deletion_notifications(bot: Bot, affected_users, plan_name):
             text += f"• Обратиться в поддержку при вопросах\n\n"
             text += f"Приносим извинения за неудобства."
             
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            keyboard = add_read_btn(InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💎 Посмотреть тарифы", callback_data="subscription_plans")],
                 [InlineKeyboardButton(text="📞 Поддержка", callback_data="support_contact")]
-            ])
+            ]))
             
             await bot.send_message(
                 chat_id=telegram_id,
@@ -85,10 +86,10 @@ async def send_plan_deactivation_notifications(bot: Bot, affected_users, plan_na
             text += f"• Обратиться в поддержку для получения информации\n\n"
             text += f"Мы постараемся решить вопрос в кратчайшие сроки."
             
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            keyboard = add_read_btn(InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💎 Посмотреть тарифы", callback_data="subscription_plans")],
                 [InlineKeyboardButton(text="📞 Поддержка", callback_data="support_contact")]
-            ])
+            ]))
             
             await bot.send_message(
                 chat_id=telegram_id,
@@ -122,10 +123,10 @@ async def send_plan_reactivation_notifications(bot: Bot, affected_users, plan_na
             text += f"• Все функции плана полностью активны\n\n"
             text += f"💎 Теперь вы снова можете продлевать подписку на этот тариф!"
             
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            keyboard = add_read_btn(InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💎 Продлить подписку", callback_data="subscription_plans")],
                 [InlineKeyboardButton(text="ℹ️ Подробнее о тарифе", callback_data=f"plan_details_{plan_name}")]
-            ])
+            ]))
             
             await bot.send_message(
                 chat_id=telegram_id,

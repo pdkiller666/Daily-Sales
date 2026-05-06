@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from database import Database
 from subscription_handlers import get_current_subscription_plans
 from env_manager import env_manager
+from notif_utils import add_read_btn
 from utils import he
 
 payment_admin_router = Router()
@@ -274,7 +275,8 @@ async def confirm_payment_request(callback: CallbackQuery):
                              f"💎 <b>План:</b> {plan_name}\n"
                              f"🎉 Теперь вам доступны все функции бота!\n\n"
                              f"Спасибо за покупку!",
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        reply_markup=add_read_btn()
                     )
                 except Exception:
                     pass
@@ -345,7 +347,8 @@ async def reject_payment_request(callback: CallbackQuery):
                      f"• Нечитаемый чек\n"
                      f"• Другие проблемы с документами\n\n"
                      f"Свяжитесь с поддержкой для уточнения.",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=add_read_btn()
             )
         except Exception:
             pass

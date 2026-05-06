@@ -17,6 +17,7 @@ sales_router = Router()
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from keyboards import safe_cb, resolve_cb_name
 from message_utils import fsm_edit, delete_message_safe
+from hints import hint_suffix
 
 # ПРОДАЖИ
 
@@ -137,8 +138,10 @@ async def _show_sale_categories(
     else:
         header = f"🛒 Новая продажа <b>[{he(shop_name)}]</b>"
 
+    _sale_user = current_db.get_user(callback.from_user.id)
+    _sale_hint = hint_suffix(current_db, _sale_user[0], 'first_sale') if _sale_user else ""
     await callback.message.edit_text(
-        f"{header}\n\n🔍 Найдите товар по названию или выберите категорию:",
+        f"{header}\n\n🔍 Найдите товар по названию или выберите категорию:{_sale_hint}",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -1543,7 +1546,8 @@ async def process_quantity_edit(message: Message, state: FSMContext):
         
         # Обновляем количество в базе данных
         current_db = await get_db(message.from_user.id, state)
-        if current_db.update_sale(sale_id, new_quantity):
+        _editor_id = current_db.get_user_id(message.from_user.id)
+        if current_db.update_sale(sale_id, new_quantity, changed_by=_editor_id):
             await fsm_edit(
                 state, message,
                 f"✅ Количество успешно изменено!\n\n"
@@ -1592,7 +1596,8 @@ async def process_price_edit(message: Message, state: FSMContext):
         
         # Обновляем только цену в продаже, не меняя цену товара глобально
         current_db = await get_db(message.from_user.id, state)
-        if current_db.update_sale(sale_id, quantity, sale_price=new_price):
+        _editor_id = current_db.get_user_id(message.from_user.id)
+        if current_db.update_sale(sale_id, quantity, sale_price=new_price, changed_by=_editor_id):
             await fsm_edit(
                 state, message,
                 f"✅ Цена продажи успешно изменена!\n\n"

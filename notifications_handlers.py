@@ -16,6 +16,7 @@ from keyboards import back_button
 from states import NotificationStates
 from env_manager import env_manager
 from reports_access_control import get_subscription_offer_message
+from notif_utils import add_read_btn
 
 # Создаем роутер
 notifications_router = Router()
@@ -231,7 +232,7 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
                     continue
                 seen_tids.add(tid_int)
                 try:
-                    await bot.send_message(tid_int, f"🔔 <b>Уведомление от администратора</b>\n\n{text}", parse_mode="HTML")
+                    await bot.send_message(tid_int, f"🔔 <b>Уведомление от администратора</b>\n\n{text}", parse_mode="HTML", reply_markup=add_read_btn())
                     count += 1
                     path_db.add_notification_to_history(uid_internal, 'admin', text)
                     await asyncio.sleep(0.05)
@@ -593,3 +594,15 @@ async def cleanup_notifications_execute(callback: CallbackQuery, state: FSMConte
         count = current_db.delete_old_notifications(user[0], period)
         await callback.answer(f"✅ Удалено: {count}")
     await show_notification_history(callback, state, period_type='week', offset=0)
+
+
+@notifications_router.callback_query(F.data == "notif_read")
+async def notif_read_handler(callback: CallbackQuery):
+    """Кнопка «✅ Прочитано»: удаляет сообщение уведомления из чата.
+    Уведомление уже сохранено в notification_history — дополнительных действий не нужно.
+    """
+    await callback.answer("✅ Прочитано")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass

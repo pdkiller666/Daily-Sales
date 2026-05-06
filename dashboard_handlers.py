@@ -15,6 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, is_any_admin, get_user_org_scope, get_role_display_label, get_user_org_role, get_user_custom_title
 from message_utils import safe_edit_message
+from hints import hint_suffix, maybe_send_welcome
 from utils import he, format_price
 
 logger = logging.getLogger(__name__)
@@ -581,6 +582,7 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: 
     else:
         text = build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str, period=period)
 
+    text += hint_suffix(current_db, user[0], 'first_dashboard')
     await safe_edit_message(callback.message, text, parse_mode="HTML",
                             reply_markup=_dashboard_period_kb(period))
 
