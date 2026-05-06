@@ -1660,6 +1660,20 @@ async def adm_shop_new(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён.", show_alert=True)
         return
     await callback.answer()
+    from subscription_utils import check_shop_limit
+    from env_manager import env_manager as _em
+    if not _em.is_super_admin(callback.from_user.id):
+        ok, msg = check_shop_limit(callback.from_user.id)
+        if not ok:
+            await callback.message.edit_text(
+                f"🚫 <b>Лимит магазинов исчерпан</b>\n\n{msg}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 Подписка", callback_data="subscription_menu")],
+                    [back_button("admin_edit_user")],
+                ]),
+                parse_mode="HTML",
+            )
+            return
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         "🏪 Введите название нового магазина (2–30 символов):",

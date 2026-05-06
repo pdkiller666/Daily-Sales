@@ -19,7 +19,10 @@ class Database:
 
     def get_connection(self):
         """Получить объект соединения с БД"""
-        return sqlite3.connect(self.db_file)
+        conn = sqlite3.connect(self.db_file, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+        return conn
 
     def create_tables(self):
         """Создание таблиц в базе данных"""
@@ -1280,20 +1283,6 @@ class Database:
             conn.close()
             return True
 
-        except sqlite3.OperationalError as e:
-            if "database is locked" in str(e):
-                import time
-                time.sleep(1)
-                # Рекурсивная попытка с уменьшенным количеством попыток (для простоты здесь одна)
-                try:
-                    conn = sqlite3.connect(self.db_file, timeout=30.0)
-                    cursor = conn.cursor()
-                    cursor.execute("PRAGMA busy_timeout = 5000")
-                    # ... (логика повтора может быть сложнее, но пока добавим обработку)
-                except Exception:
-                    pass
-            logger.error(f"Ошибка в create_subscription: {e}")
-            return False
         except Exception as e:
             logger.error(f"Ошибка в create_subscription: {e}")
             return False
@@ -1555,8 +1544,23 @@ class Database:
         conn.close()
         return result
 
+    def has_pending_payment_request(self, user_id):
+        """Проверяет наличие уже активной pending-заявки у пользователя."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM payment_requests WHERE user_id = ? AND status = 'pending'",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception:
+            return False
+
     def create_payment_request(self, user_id, plan_type, amount, payment_proof_file_id, promocode_id=None):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO payment_requests 
@@ -2888,13 +2892,13 @@ class Database:
         }
 
     def apply_promocode(self, promocode_id):
-        """Применение промокода (увеличение счетчика использований)"""
-        conn = sqlite3.connect(self.db_file)
+        """Применение промокода — атомарный инкремент с проверкой лимита."""
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            UPDATE promocodes 
-            SET usage_count = usage_count + 1 
-            WHERE id = ?
+            UPDATE promocodes
+            SET usage_count = usage_count + 1
+            WHERE id = ? AND usage_count < max_usage
         ''', (promocode_id,))
         success = cursor.rowcount > 0
         conn.commit()

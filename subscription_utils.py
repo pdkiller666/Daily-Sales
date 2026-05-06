@@ -61,12 +61,13 @@ def _plan_limits_from_shop_bot(plan_name):
 
 
 def _get_org_plan_for_user(telegram_id):
-    """Возвращает название тарифного плана организации пользователя или None если не в org."""
+    """Возвращает название тарифного плана организации пользователя или None если не в org.
+    Возвращает 'Бесплатный' если срок подписки истёк."""
     try:
         conn = sqlite3.connect(MAIN_DB)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT o.subscription_plan FROM organizations o "
+            "SELECT o.subscription_plan, o.subscription_end FROM organizations o "
             "JOIN user_org_mapping m ON o.id = m.org_id "
             "WHERE m.telegram_id = ?",
             (telegram_id,)
@@ -74,7 +75,16 @@ def _get_org_plan_for_user(telegram_id):
         row = cursor.fetchone()
         conn.close()
         if row:
-            return row[0] or 'Бесплатный'
+            plan_name = row[0] or 'Бесплатный'
+            subscription_end = row[1]
+            if subscription_end and plan_name not in ('Бесплатный', 'free', None):
+                try:
+                    end_dt = datetime.fromisoformat(subscription_end)
+                    if datetime.now() > end_dt:
+                        return 'Бесплатный'
+                except Exception:
+                    pass
+            return plan_name
     except Exception:
         pass
     return None
@@ -155,25 +165,52 @@ def check_sales_limit(telegram_id):
 
     from tenant_manager import tenant_manager
     from database import Database
-    from datetime import timedelta
     db_path = tenant_manager.get_user_db_path(telegram_id)
     db = Database(db_path)
 
-    now = datetime.now()
-    month_start = now.strftime('%Y-%m-01')
-    next_m = now.replace(day=28) + timedelta(days=4)
-    month_end = (next_m - timedelta(days=next_m.day)).strftime('%Y-%m-%d')
-
-    # Ищем внутренний user_id по telegram_id
     user = db.get_user(telegram_id)
     if not user:
         return True, None
     user_id = user[0]
 
-    sales = db.get_user_sales_by_date(user_id, month_start, month_end)
-    if len(sales) >= limits['max_sales_per_month']:
+    month_start = datetime.now().strftime('%Y-%m-01')
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM sales WHERE user_id = ? AND sale_date >= ?",
+            (user_id, month_start)
+        )
+        count = cursor.fetchone()[0]
+        conn.close()
+    except Exception:
+        return True, None
+
+    if count >= limits['max_sales_per_month']:
         return False, (
             f"❌ Достигнут лимит продаж в месяц по вашему тарифу: {limits['max_sales_per_month']}.\n"
+            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа."
+        )
+    return True, None
+
+
+def check_shop_limit(telegram_id):
+    """Проверка лимита на количество магазинов. Возвращает (ok: bool, message: str|None)."""
+    if env_manager.is_super_admin(telegram_id):
+        return True, None
+
+    limits = get_plan_limits(telegram_id)
+    if limits['max_shops'] == -1:
+        return True, None
+
+    from tenant_manager import tenant_manager
+    from database import Database
+    db_path = tenant_manager.get_user_db_path(telegram_id)
+    db = Database(db_path)
+    shops = db.get_all_shops()
+    if len(shops) >= limits['max_shops']:
+        return False, (
+            f"❌ Достигнут лимит магазинов по вашему тарифу: {limits['max_shops']}.\n"
             f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа."
         )
     return True, None

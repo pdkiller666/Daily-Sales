@@ -247,9 +247,26 @@ async def confirm_payment_request(callback: CallbackQuery):
                 user_id, plan_type, user_telegram_id, first_name, last_name = result
                 plan_name = plan_type
 
-                # Если пользователь — org-admin, обновляем тариф организации
+                # Если пользователь — org-admin, обновляем тариф организации + срок
                 try:
-                    main_conn = sqlite3.connect('data/main.db')
+                    import sqlite3 as _sql3
+                    from datetime import datetime as _dt, timedelta as _td
+                    # Получаем длительность плана из shop_bot.db
+                    _sb = _sql3.connect('data/shop_bot.db')
+                    _sb_cur = _sb.cursor()
+                    _sb_cur.execute(
+                        "SELECT duration_days FROM subscription_plans WHERE name = ?",
+                        (plan_type,)
+                    )
+                    _plan_row = _sb_cur.fetchone()
+                    _sb.close()
+                    _duration = _plan_row[0] if _plan_row and _plan_row[0] else 0
+                    _org_expires = (
+                        (_dt.now() + _td(days=_duration)).isoformat()
+                        if _duration > 0 else None
+                    )
+
+                    main_conn = _sql3.connect('data/main.db')
                     main_cursor = main_conn.cursor()
                     main_cursor.execute(
                         "SELECT o.id FROM organizations o "
@@ -260,8 +277,8 @@ async def confirm_payment_request(callback: CallbackQuery):
                     org_row = main_cursor.fetchone()
                     if org_row:
                         main_cursor.execute(
-                            "UPDATE organizations SET subscription_plan = ? WHERE id = ?",
-                            (plan_type, org_row[0])
+                            "UPDATE organizations SET subscription_plan = ?, subscription_end = ? WHERE id = ?",
+                            (plan_type, _org_expires, org_row[0])
                         )
                         main_conn.commit()
                     main_conn.close()

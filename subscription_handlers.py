@@ -375,6 +375,18 @@ async def process_payment_proof(message: Message, state: FSMContext):
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]]))
         return
 
+    # Дедупликация: не создавать вторую заявку если уже есть активная
+    if db.has_pending_payment_request(user_id):
+        await fsm_edit(state, message,
+                       "⏳ <b>У вас уже есть активная заявка на оплату</b>\n\n"
+                       "Дождитесь рассмотрения текущей заявки администратором.\n"
+                       "Как правило, это занимает до 24 часов.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text="🔙 К подписке", callback_data="subscription_menu")]
+                       ]))
+        await clear_state_keep_org(state)
+        return
+
     file_id = message.photo[-1].file_id
 
     # Сохраняем ID промокода для применения только при одобрении заявки
