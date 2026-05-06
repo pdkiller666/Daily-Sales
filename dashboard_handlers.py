@@ -125,6 +125,143 @@ def _scope_filter_kwargs(scope_type: str, scope_values: list) -> dict:
     return {}
 
 
+def _get_dashboard_scale(scope_type: str, scope_values: list) -> str:
+    """Определяет масштаб дашборда по scope.
+
+    'single' — один магазин: максимум деталей (имена, товары, каждый план).
+    'wide'   — город/сеть/несколько магазинов: сводный вид + таблица по магазинам.
+    'org'    — весь орг без фильтра: только агрегаты + топ-3 магазина.
+    """
+    if scope_type == 'shop':
+        return 'single' if len(scope_values) == 1 else 'wide'
+    if scope_type in ('city', 'network'):
+        return 'wide'
+    return 'org'
+
+
+def _per_shop_breakdown(db_file: str, start_date: str, end_date: str,
+                        scope_type: str, scope_values: list, limit: int = 7) -> list:
+    """Разбивка по магазинам: [(shop_name, txn, qty, revenue), ...] по убыванию выручки."""
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        base = '''
+            SELECT u.shop_name,
+                   COUNT(DISTINCT s.id),
+                   COALESCE(SUM(s.quantity), 0),
+                   COALESCE(SUM(s.total_price), 0.0)
+            FROM sales s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.sale_date BETWEEN ? AND ?
+              AND u.shop_name IS NOT NULL AND u.shop_name != ""
+        '''
+        params = [start_date, end_date]
+        vals = scope_values or []
+        if scope_type == 'shop' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.shop_name IN ({ph})'
+            params += vals
+        elif scope_type == 'city' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.city IN ({ph})'
+            params += vals
+        elif scope_type == 'network' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.trade_network IN ({ph})'
+            params += vals
+        base += ' GROUP BY u.shop_name ORDER BY 4 DESC'
+        cursor.execute(base, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def _staff_by_shop(db_file: str, today: str,
+                   scope_type: str, scope_values: list) -> list:
+    """Количество сотрудников на смене по каждому магазину: [(shop_name, count), ...]."""
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        base = '''
+            SELECT u.shop_name, COUNT(DISTINCT ws.user_id)
+            FROM work_schedule ws
+            JOIN users u ON u.id = ws.user_id
+            WHERE ws.work_date = ?
+              AND u.shop_name IS NOT NULL AND u.shop_name != ""
+        '''
+        params = [today]
+        vals = scope_values or []
+        if scope_type == 'shop' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.shop_name IN ({ph})'
+            params += vals
+        elif scope_type == 'city' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.city IN ({ph})'
+            params += vals
+        elif scope_type == 'network' and vals:
+            ph = ','.join('?' * len(vals))
+            base += f' AND u.trade_network IN ({ph})'
+            params += vals
+        base += ' GROUP BY u.shop_name ORDER BY 2 DESC'
+        cursor.execute(base, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def _low_stock_items(db_file: str, scope_type: str, scope_values: list,
+                     threshold: int = 5, limit: int = 5) -> list:
+    """Конкретные товары с низким остатком (для single-масштаба): [(name, qty), ...]."""
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        vals = scope_values or []
+        if scope_type == 'shop' and vals:
+            ph = ','.join('?' * len(vals))
+            cursor.execute(f'''
+                SELECT p.name, i.quantity
+                FROM inventory i
+                JOIN products p ON i.product_id = p.id
+                WHERE i.quantity <= ? AND i.shop_name IN ({ph})
+                ORDER BY i.quantity ASC
+                LIMIT {limit}
+            ''', [threshold] + vals)
+        else:
+            cursor.execute(f'''
+                SELECT p.name, i.quantity
+                FROM inventory i
+                JOIN products p ON i.product_id = p.id
+                WHERE i.quantity <= ?
+                ORDER BY i.quantity ASC
+                LIMIT {limit}
+            ''', (threshold,))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def _plans_summary_text(plans_progress: list) -> str:
+    """Краткая строка статуса планов: «5 активных · ✅ 4 в графике · ⚠️ 1 отстаёт»."""
+    total = len(plans_progress)
+    if total == 0:
+        return "• Активных планов нет\n"
+    on_track = sum(1 for _, _, pct in plans_progress if pct >= 75)
+    behind   = total - on_track
+    line = f"• Активных: <b>{total}</b>"
+    if on_track:
+        line += f" · ✅ в графике: <b>{on_track}</b>"
+    if behind:
+        line += f" · ⚠️ отстаёт: <b>{behind}</b>"
+    return line + "\n"
+
+
 def _low_stock_count(db_file: str, threshold: int = 5,
                      scope_type: str = None, scope_values: list = None) -> int:
     """Количество позиций с низким остатком с учётом scope (поддерживает multi-scope)."""
@@ -266,6 +403,7 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     else:
         start_date = today
 
+    scale        = _get_dashboard_scale(scope_type, scope_values)
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
     try:
@@ -278,7 +416,6 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         total_revenue = 0.0
 
     low_stock      = _low_stock_count(current_db.db_file, scope_type=scope_type, scope_values=scope_values)
-    staff_on_shift = _on_shift_details(current_db.db_file, today, scope_type=scope_type, scope_values=scope_values)
     today_earnings = _today_total_earnings(current_db.db_file, today, scope_type=scope_type, scope_values=scope_values)
 
     plans_progress = []
@@ -328,20 +465,22 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     except Exception:
         role_label = '🛡️ Администратор'
 
+    # ── Заголовок ────────────────────────────────────────────────────────────
     text  = f"📊 <b>ДАШБОРД</b> · {role_label}\n"
     text += f"━━━━━━━━━━━━━━━━━━━━\n"
     text += f"📅 {now_str}\n"
 
     if scope_type and scope_type != 'all' and scope_values:
         icon = _SCOPE_ICONS.get(scope_type, '📍')
-        name = _SCOPE_NAMES.get(scope_type, 'Зона')
+        sname = _SCOPE_NAMES.get(scope_type, 'Зона')
         vals_str = ', '.join(he(v) for v in scope_values[:3])
         if len(scope_values) > 3:
             vals_str += f' +{len(scope_values) - 3}'
-        text += f"{icon} <b>{name}:</b> {vals_str}\n"
+        text += f"{icon} <b>{sname}:</b> {vals_str}\n"
 
     text += "\n"
 
+    # ── Зарплата (общая для всех масштабов) ──────────────────────────────────
     text += f"💰 <b>Моя зарплата — {month_ru} {year}</b>\n"
     if user_id and daily_rate > 0:
         text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
@@ -355,7 +494,14 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         text += f"• Призы конкурсов: <b>+{contest_rewards:,.0f} ₽</b>\n"
     text += f"• Итого: <b>{salary + motivations + contest_rewards:,.0f} ₽</b>\n\n"
 
-    text += f"🛒 <b>Продажи · {period_label}</b>\n"
+    # ── Продажи ──────────────────────────────────────────────────────────────
+    sales_scope_label = {
+        'single': f'Магазин · {period_label}',
+        'wide':   f'Зона · {period_label}',
+        'org':    f'Организация · {period_label}',
+    }.get(scale, period_label)
+
+    text += f"🛒 <b>Продажи · {sales_scope_label}</b>\n"
     text += f"• Транзакций: <b>{total_sales}</b>\n"
     text += f"• Продано: <b>{total_qty} шт.</b>\n"
     text += f"• Выручка: <b>{total_revenue:,.0f} ₽</b>\n"
@@ -363,37 +509,94 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         text += f"• Мотивация (выплачено): <b>{today_earnings:,.0f} ₽</b>\n"
     text += "\n"
 
+    # ── Разбивка по магазинам (wide / org) ───────────────────────────────────
+    if scale in ('wide', 'org'):
+        shop_rows = _per_shop_breakdown(
+            current_db.db_file, start_date, today, scope_type, scope_values, limit=7
+        )
+        if shop_rows:
+            if scale == 'org':
+                text += "🏆 <b>Топ-3 магазина</b>\n"
+                medals = ['🥇', '🥈', '🥉']
+                for i, (sn, txn, qty, rev) in enumerate(shop_rows[:3]):
+                    text += f"  {medals[i]} {he(sn)}: <b>{rev:,.0f} ₽</b> · {txn} тр.\n"
+                if len(shop_rows) > 3:
+                    text += f"  ···  всего магазинов: {len(shop_rows)}\n"
+            else:
+                text += "🏪 <b>По магазинам</b>\n"
+                for sn, txn, qty, rev in shop_rows[:7]:
+                    text += f"  • {he(sn)}: {txn} тр. · <b>{rev:,.0f} ₽</b>\n"
+                if len(shop_rows) > 7:
+                    text += f"  ···  ещё {len(shop_rows) - 7} магазинов\n"
+            text += "\n"
+
+    # ── Остатки ───────────────────────────────────────────────────────────────
     text += "⚠️ <b>Остатки</b>\n"
-    if low_stock:
-        text += f"• Заканчивается товаров: <b>{low_stock}</b>\n\n"
+    if scale == 'single' and low_stock:
+        items = _low_stock_items(current_db.db_file, scope_type, scope_values, limit=5)
+        if items:
+            for iname, iqty in items:
+                text += f"  • {he(iname)}: <b>{iqty} шт.</b>\n"
+            if low_stock > len(items):
+                text += f"  ···  ещё {low_stock - len(items)} позиций\n"
+        else:
+            text += f"• Заканчивается товаров: <b>{low_stock}</b>\n"
+    elif low_stock:
+        text += f"• Заканчивается товаров: <b>{low_stock}</b>\n"
     else:
-        text += "• Всё в норме ✅\n\n"
+        text += "• Всё в норме ✅\n"
+    text += "\n"
 
-    text += "📋 <b>Планы продаж</b>\n\n"
-    if plans_progress:
-        for plan_row, actual, pct in plans_progress:
-            try:
-                text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
-            except Exception:
-                pass
+    # ── Планы продаж ─────────────────────────────────────────────────────────
+    text += "📋 <b>Планы продаж</b>\n"
+    if scale == 'single':
+        text += "\n"
+        if plans_progress:
+            for plan_row, actual, pct in plans_progress:
+                try:
+                    text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+                except Exception:
+                    pass
+        else:
+            text += "• Активных планов нет\n\n"
     else:
-        text += "• Активных планов нет\n\n"
+        text += _plans_summary_text(plans_progress) + "\n"
 
+    # ── Конкурсы ─────────────────────────────────────────────────────────────
     if contests_cnt:
         text += f"🏆 <b>Конкурсы</b>: активных <b>{contests_cnt}</b>\n\n"
 
+    # ── Команда сегодня ───────────────────────────────────────────────────────
     text += "👥 <b>Команда сегодня</b>\n"
-    try:
+    if scale == 'single':
+        staff_on_shift = _on_shift_details(
+            current_db.db_file, today, scope_type=scope_type, scope_values=scope_values
+        )
         if staff_on_shift:
             text += f"• На смене: <b>{len(staff_on_shift)} чел.</b>\n"
             for fn, ln, sn in staff_on_shift:
-                name = f"{he(ln)} {he(fn)}".strip()
-                shop_part = f" · {he(sn)}" if sn else ""
-                text += f"  — {name}{shop_part}\n"
+                pname = f"{he(ln)} {he(fn)}".strip()
+                text += f"  — {pname}\n"
         else:
             text += "• Никто ещё не отмечен\n"
-    except Exception:
-        text += "• Данные недоступны\n"
+    elif scale == 'wide':
+        by_shop = _staff_by_shop(current_db.db_file, today, scope_type, scope_values)
+        total_staff = sum(cnt for _, cnt in by_shop)
+        if total_staff:
+            text += f"• На смене: <b>{total_staff} чел.</b>\n"
+            for sn, cnt in by_shop[:6]:
+                text += f"  {he(sn)}: {cnt}\n"
+            if len(by_shop) > 6:
+                text += f"  ···  ещё {len(by_shop) - 6} магазинов\n"
+        else:
+            text += "• Никто ещё не отмечен\n"
+    else:
+        staff_total = len(_on_shift_details(current_db.db_file, today))
+        if staff_total:
+            text += f"• На смене: <b>{staff_total} чел.</b>\n"
+        else:
+            text += "• Никто ещё не отмечен\n"
+
     return text
 
 
