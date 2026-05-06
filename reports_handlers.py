@@ -650,7 +650,8 @@ async def report_my_month(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступен только для сотрудников", show_alert=True)
         return
     current_db = await get_db(callback.from_user.id, state)
-    limits = current_db.get_subscription_limits()
+    from subscription_utils import get_plan_limits
+    limits = get_plan_limits(callback.from_user.id)
     if not limits.get('can_view_analytics', False):
         await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
         return
