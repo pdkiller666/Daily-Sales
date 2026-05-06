@@ -42,6 +42,7 @@ def main_menu(chat_id: int, user_shop: str = None):
 
     if not (is_org_admin or is_main_admin):
         buttons.append([InlineKeyboardButton(text="📦 ОСТАТКИ", callback_data="user_inventory_menu")])
+        buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 
     buttons.extend([
         [InlineKeyboardButton(text="📊 Отчеты", callback_data="reports")],
