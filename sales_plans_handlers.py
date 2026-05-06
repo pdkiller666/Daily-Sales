@@ -869,10 +869,42 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
     _sc_p, _sv_p = get_user_org_scope(callback.from_user.id)
 
     plans_data_all = current_db.get_plans_progress()
+
     # Фильтруем планы по магазину/городу/сети
     if _af_p.get("shops"):
-        plans_data = [(p, a, pct) for p, a, pct in plans_data_all
-                      if p[6] in _af_p["shops"] or p[4] == 'seller']
+        # Внутренние user_id пользователей в выбранных магазинах
+        shop_user_ids = set()
+        for sh in _af_p["shops"]:
+            for u in current_db.get_users_by_shop(sh):
+                shop_user_ids.add(u[0])  # u[0] = users.id (internal)
+        plans_data = [
+            (p, a, pct) for p, a, pct in plans_data_all
+            if (p[4] == 'shop' and p[6] in _af_p["shops"])
+            or (p[4] == 'seller' and p[5] in shop_user_ids)
+        ]
+    elif _af_p.get("cities"):
+        # Внутренние user_id пользователей в выбранных городах
+        city_user_ids = set()
+        for u in current_db.get_users_by_city(_af_p["cities"][0]):
+            city_user_ids.add(u[0])
+        if len(_af_p["cities"]) > 1:
+            for city in _af_p["cities"][1:]:
+                for u in current_db.get_users_by_city(city):
+                    city_user_ids.add(u[0])
+        plans_data = [
+            (p, a, pct) for p, a, pct in plans_data_all
+            if p[4] == 'seller' and p[5] in city_user_ids
+            or p[4] == 'shop'
+        ]
+    elif _af_p.get("networks"):
+        # Для сети: фильтруем только seller-планы по пользователям сети
+        all_u = current_db.get_all_users(trade_networks=_af_p["networks"])
+        net_user_ids = {u[0] for u in all_u}
+        plans_data = [
+            (p, a, pct) for p, a, pct in plans_data_all
+            if p[4] == 'seller' and p[5] in net_user_ids
+            or p[4] == 'shop'
+        ]
     else:
         plans_data = plans_data_all
 

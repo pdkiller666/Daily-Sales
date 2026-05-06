@@ -499,16 +499,36 @@ class Database:
         ''')
 
         # Журнал алертов о достижении milestone планов (50/75/100%)
+        # UNIQUE по (user_id, plan_id, milestone, period_start) — алерт может повторяться каждый период
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS plan_milestone_alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 plan_id INTEGER NOT NULL,
                 milestone INTEGER NOT NULL,
+                period_start TEXT NOT NULL DEFAULT '',
                 alerted_at TEXT DEFAULT (datetime('now')),
-                UNIQUE(user_id, plan_id, milestone)
+                UNIQUE(user_id, plan_id, milestone, period_start)
             )
         ''')
+
+        # Миграция: добавляем period_start если его нет (старая схема без него)
+        cursor.execute("PRAGMA table_info(plan_milestone_alerts)")
+        _pma_cols = {row[1] for row in cursor.fetchall()}
+        if 'period_start' not in _pma_cols:
+            # Пересоздаём таблицу — данные алертов не критичны
+            cursor.execute('DROP TABLE plan_milestone_alerts')
+            cursor.execute('''
+                CREATE TABLE plan_milestone_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    plan_id INTEGER NOT NULL,
+                    milestone INTEGER NOT NULL,
+                    period_start TEXT NOT NULL DEFAULT '',
+                    alerted_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(user_id, plan_id, milestone, period_start)
+                )
+            ''')
 
         conn.commit()
 
@@ -687,7 +707,8 @@ class Database:
     def check_and_mark_plan_milestones(self, telegram_id: int) -> list:
         """Проверяет, какие milestone (50/75/100%) только что достигнуты.
         Возвращает [(plan, actual, pct, milestone)] — только новые вехи.
-        Сохраняет их в plan_milestone_alerts (UNIQUE → без дублей).
+        Сохраняет их в plan_milestone_alerts (UNIQUE по user+plan+milestone+period_start).
+        period_start гарантирует, что milestone может сработать заново в каждом периоде.
         """
         milestones = (50, 75, 100)
         try:
@@ -702,8 +723,16 @@ class Database:
 
             plans_progress = self.get_user_plans_progress(telegram_id)
             newly_hit = []
+            now = datetime.now()
             for plan, actual, pct in plans_progress:
                 plan_id = plan[0]
+                plan_type = plan[1]  # 'weekly' or 'monthly'
+                # Вычисляем начало текущего периода плана
+                if plan_type == 'weekly':
+                    period_start = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
+                else:
+                    period_start = now.replace(day=1).strftime('%Y-%m-%d')
+
                 for milestone in sorted(milestones):
                     if pct >= milestone:
                         try:
@@ -711,8 +740,8 @@ class Database:
                             c2 = conn2.cursor()
                             c2.execute(
                                 'INSERT OR IGNORE INTO plan_milestone_alerts '
-                                '(user_id, plan_id, milestone) VALUES (?, ?, ?)',
-                                (user_id, plan_id, milestone)
+                                '(user_id, plan_id, milestone, period_start) VALUES (?, ?, ?, ?)',
+                                (user_id, plan_id, milestone, period_start)
                             )
                             inserted = c2.rowcount > 0
                             conn2.commit()

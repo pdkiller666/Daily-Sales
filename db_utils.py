@@ -146,6 +146,7 @@ async def clear_state_keep_org(state, extra_keys: list | None = None):
             'selected_org_id':   data.get('selected_org_id'),
             'selected_org_name': data.get('selected_org_name'),
             'selected_org_db':   data.get('selected_org_db'),
+            'admin_filter':      data.get('admin_filter'),
         }
         if extra_keys:
             for k in extra_keys:

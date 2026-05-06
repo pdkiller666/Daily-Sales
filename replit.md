@@ -22,7 +22,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `dashboard_handlers.py` — `build_admin_dashboard(..., period='today'/'week'/'month')`, `build_user_dashboard(..., period=...)`; helpers: `_on_shift_details()`, `_today_total_earnings()`
 - `pagination_utils.py` — `paginate()`, `page_nav_row()`, `PAGE_SIZE_DEFAULT/SALES/USERS/ORGS`
 - `reports_handlers.py` — all reports + rankings; helpers: `_ranking_period()`, `_period_kb()`
-- `sales_plans_handlers.py` — plan wizard + edit + Мои планы; `_plan_summary_line()` for shared display format
+- `sales_plans_handlers.py` — plan wizard + edit + прогресс планов; `_plan_summary_line()` for shared display format
+- `filter_utils.py` — `empty_filter()`, `get_available_filter_values()`, `merge_scope_with_filter()`, `build_filter_keyboard()` — shared filter infra
+- `filter_handlers.py` — `filter_router`: `flt_open_{back_cb}`, `ftog_s/c/n_*`, `flt_reset` handlers
 - `data/main.db` — organizations, user_org_mapping
 - `data/shop_bot.db` — personal mode + payments/subscriptions (centralized)
 - `data/tenants/org_*.db` — isolated per-org DBs (Amvera: only `org_huawei.db`)
@@ -32,7 +34,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Multi-tenancy**: each org gets its own SQLite DB; `get_db()` routes automatically
 - **Anchor message pattern**: all FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` MUST be called AFTER `fsm_edit()`, never before
 - **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — this auto-creates missing tables on first access, including super-admin org context
-- **deploy.sh always pushes to both GitHub + Amvera** (default); use `--no-amvera` to skip Amvera; hash verification runs after every Amvera push; `clean_dst()` wipes dst before sync — no stale files
+- **deploy.sh always pushes to both GitHub + Amvera** (default); use `--no-amvera` to skip Amvera; hash verification runs after every Amvera push; `clean_dst()` wipes dst before sync — no stale files; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
+- **Filter system**: `ADMIN_FILTER_KEY="admin_filter"` in FSM data; `flt_open_{back_cb}` opens panel; toggles `ftog_s/c/n_*` update state immediately; "✅ Применить" = back_cb button; `flt_reset` clears; scope is ceiling — filter is floor (merge_scope_with_filter)
 - **is_any_admin() priority**: org role in `user_org_mapping` takes precedence over `env_manager` — prevents join-mode users from getting admin rights
 - **Role hierarchy** (org-level): `owner` (Директор) → `admin`+scope (Зам/Магазин/Город/Сеть) → `user` (Сотрудник); global super_admin (env_manager) is separate. `scope_type`/`scope_value`/`custom_title` columns in `user_org_mapping`. Migration: `super_admin` → `owner` on every startup. Dashboard/reports/rankings filter by scope automatically.
 - **Multi-scope**: `scope_value` stores JSON array `["val1","val2"]`; `get_user_org_scope()` returns `(scope_type, list[str])`; DB methods accept `shop_names/cities/trade_networks` list params with IN clause. UI: toggle multi-select (`adm_t_s_*`, `adm_t_c_*`, `adm_t_n_*`) + `adm_scope_submit`.
@@ -52,6 +55,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Plan milestones: 50%/75%/100% уведомления; таблица `plan_milestone_alerts` исключает дубли
 - Excel import: 📊 Импорт из Excel в меню Товары; openpyxl-парсинг + превью + подтверждение
 - Pagination everywhere: продукты (prodl_pg_), продажи для редактирования (esl_pg_), пользователи (au_pg_), орги (orgs_pg_), конкурсы (cal_pg_/car_pg_)
+- Manual filters (scope-aware): кнопка 🔍 Фильтр в Отчётах, Рейтингах, Сотрудниках, Прогрессе планов; scope роли — потолок, ручной фильтр — пол; глобальный ключ FSM `admin_filter`; `flt_open_{back_cb}` pattern
 
 ## User Preferences
 
