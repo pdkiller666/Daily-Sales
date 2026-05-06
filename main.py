@@ -34,6 +34,7 @@ from sales_plans_handlers import sales_plans_router
 from salary_handlers import salary_router
 from contests_handlers import contests_router
 from dashboard_handlers import router as dashboard_router
+from filter_handlers import filter_router
 import scheduler_module
 from utils import he
 
@@ -107,6 +108,7 @@ dp.include_router(sales_plans_router)
 dp.include_router(salary_router)
 dp.include_router(contests_router)
 dp.include_router(dashboard_router)
+dp.include_router(filter_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):

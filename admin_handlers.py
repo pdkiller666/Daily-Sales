@@ -316,6 +316,17 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
             users = [u for u in all_users if not env_manager.is_super_admin(u[1])]
             show_admin_management = True
             title = "👥 <b>Управление сотрудниками</b>"
+
+            # Применяем ручной фильтр (по магазину/городу/сети)
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter, is_filter_active
+            _af = data.get(ADMIN_FILTER_KEY, empty_filter())
+            if _af.get("shops"):
+                users = [u for u in users if u[8] in _af["shops"]]
+            elif _af.get("cities"):
+                users = [u for u in users if u[9] in _af["cities"]]
+            elif _af.get("networks"):
+                users = [u for u in users if u[7] in _af["networks"]]
+
         back_target = "admin_management"
 
     if not users:
@@ -342,6 +353,21 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
         builder.row(*nav)
 
     if show_admin_management:
+        # Кнопка фильтра (если есть что фильтровать)
+        try:
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
+            from db_utils import get_user_org_scope
+            if not is_super_user:
+                _sc, _sv = get_user_org_scope(callback.from_user.id)
+                _avail = get_available_filter_values(current_db, _sc, _sv)
+                if has_anything_to_filter(_avail):
+                    _af = data.get(ADMIN_FILTER_KEY, empty_filter())
+                    builder.row(InlineKeyboardButton(
+                        text=filter_button_text(_af),
+                        callback_data="flt_open_admin_users"
+                    ))
+        except Exception:
+            pass
         builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
     builder.row(back_button(back_target))
 

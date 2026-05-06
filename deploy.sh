@@ -74,6 +74,8 @@ EXCLUDE_FILES = {
 AMVERA_ONLY_EXCLUDE_FILES = {
     'AGENT_HANDOFF.md',
     'replit.md',
+    'PROJECT_MAP.md',
+    'README.md',
 }
 
 EXCLUDE_SUBPATHS = {'data/.env'}

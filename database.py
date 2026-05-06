@@ -1079,10 +1079,34 @@ class Database:
         conn.close()
         return categories
 
-    def get_all_users(self):
+    def get_all_users(self, shop_name=None, city=None, trade_network=None,
+                      shop_names=None, cities=None, trade_networks=None):
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users')
+        query = 'SELECT * FROM users WHERE 1=1'
+        params = []
+        if shop_name:
+            query += ' AND shop_name = ?'
+            params.append(shop_name)
+        elif shop_names:
+            ph = ','.join('?' * len(shop_names))
+            query += f' AND shop_name IN ({ph})'
+            params.extend(shop_names)
+        elif city:
+            query += ' AND city = ?'
+            params.append(city)
+        elif cities:
+            ph = ','.join('?' * len(cities))
+            query += f' AND city IN ({ph})'
+            params.extend(cities)
+        elif trade_network:
+            query += ' AND trade_network = ?'
+            params.append(trade_network)
+        elif trade_networks:
+            ph = ','.join('?' * len(trade_networks))
+            query += f' AND trade_network IN ({ph})'
+            params.extend(trade_networks)
+        cursor.execute(query, params)
         users = cursor.fetchall()
         conn.close()
         return users

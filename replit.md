@@ -19,7 +19,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `main.py` — bot entry, router registration, 7 APScheduler jobs
 - `database.py` — Database class, 133+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
-- `dashboard_handlers.py` — `build_admin_dashboard(db, today, now_str, user_id, telegram_id)`, `build_user_dashboard()`; helpers: `_on_shift_details()`, `_today_total_earnings()`
+- `dashboard_handlers.py` — `build_admin_dashboard(..., period='today'/'week'/'month')`, `build_user_dashboard(..., period=...)`; helpers: `_on_shift_details()`, `_today_total_earnings()`
+- `pagination_utils.py` — `paginate()`, `page_nav_row()`, `PAGE_SIZE_DEFAULT/SALES/USERS/ORGS`
 - `reports_handlers.py` — all reports + rankings; helpers: `_ranking_period()`, `_period_kb()`
 - `sales_plans_handlers.py` — plan wizard + edit + Мои планы; `_plan_summary_line()` for shared display format
 - `data/main.db` — organizations, user_org_mapping
@@ -42,10 +43,15 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Sales management: products, inventory, sales recording, daily reports
 - Multi-org: invite codes, role system (super-admin / admin / user), isolated data
 - Sales plans: per-seller or per-shop, weekly/monthly, turnover/quantity, category/product filter
-- Dashboard (Reports): admin sees staff list + today earnings + all active plans; user sees salary + plans + contests
+- Dashboard (Reports): period toggle (Сегодня/Неделя/Месяц); admin sees staff + earnings + plans; user sees salary + period sales + plans
 - Contests: create, auto-finish, winner calculation via APScheduler; archive clear with confirmation
 - Subscriptions/payments: tariff plans, promocodes, Excel export
 - Rankings: sellers / shops / cities; period toggle (7д / месяц / прошлый); user's own position if outside top-10
+- Favorites & Recent: ⭐ Избранное + 🔄 Недавние блоки в начале экрана выбора товара (sale_product_{id})
+- Quick confirm: ⚡ Продать сейчас — кнопка при первом товаре в корзине
+- Plan milestones: 50%/75%/100% уведомления; таблица `plan_milestone_alerts` исключает дубли
+- Excel import: 📊 Импорт из Excel в меню Товары; openpyxl-парсинг + превью + подтверждение
+- Pagination everywhere: продукты (prodl_pg_), продажи для редактирования (esl_pg_), пользователи (au_pg_), орги (orgs_pg_), конкурсы (cal_pg_/car_pg_)
 
 ## User Preferences
 

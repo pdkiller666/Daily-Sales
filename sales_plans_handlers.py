@@ -860,7 +860,21 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    plans_data = current_db.get_plans_progress()
+
+    # Применяем фильтр по магазину если установлен
+    from filter_utils import ADMIN_FILTER_KEY, empty_filter, is_filter_active, filter_active_text, get_available_filter_values, has_anything_to_filter
+    from db_utils import get_user_org_scope
+    _data_p = await state.get_data()
+    _af_p = _data_p.get(ADMIN_FILTER_KEY, empty_filter())
+    _sc_p, _sv_p = get_user_org_scope(callback.from_user.id)
+
+    plans_data_all = current_db.get_plans_progress()
+    # Фильтруем планы по магазину/городу/сети
+    if _af_p.get("shops"):
+        plans_data = [(p, a, pct) for p, a, pct in plans_data_all
+                      if p[6] in _af_p["shops"] or p[4] == 'seller']
+    else:
+        plans_data = plans_data_all
 
     if not plans_data:
         await callback.message.edit_text(
@@ -895,6 +909,16 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Обновить", callback_data="plans_progress")
+
+    # Кнопка фильтра если доступен
+    try:
+        _avail_p = get_available_filter_values(current_db, _sc_p, _sv_p)
+        if has_anything_to_filter(_avail_p):
+            from filter_utils import filter_button_text
+            builder.button(text=filter_button_text(_af_p), callback_data="flt_open_plans_progress")
+    except Exception:
+        pass
+
     builder.button(text="⬅️ Назад", callback_data="admin_sales_plans")
     builder.adjust(1)
 

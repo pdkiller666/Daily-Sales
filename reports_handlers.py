@@ -115,7 +115,21 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
             )
             builder.adjust(1, 2)
     
-    builder.add(InlineKeyboardButton(text="📋 Мои планы продаж", callback_data="my_plans"))
+    if is_admin or is_super_admin:
+        from filter_utils import ADMIN_FILTER_KEY, get_available_filter_values, filter_button_text, has_anything_to_filter, empty_filter
+        from db_utils import get_user_org_scope
+        try:
+            _scope_type, _scope_values = get_user_org_scope(callback.from_user.id)
+            _avail = get_available_filter_values(current_db, _scope_type, _scope_values)
+            if has_anything_to_filter(_avail):
+                data_f = await state.get_data()
+                _af = data_f.get(ADMIN_FILTER_KEY, empty_filter())
+                builder.add(InlineKeyboardButton(
+                    text=filter_button_text(_af),
+                    callback_data="flt_open_reports"
+                ))
+        except Exception:
+            pass
     builder.add(back_button("main_menu"))
 
     reports_header = "━━━━━━━━━━━━━━━━\n📊 <b>Отчеты по продажам</b>"
@@ -158,7 +172,12 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         # get_sales_report: id[0], product_id[1], shop_name[2], quantity_sold[3],
         #                   sale_price[4], user_id[5], sale_date[6],
         #                   product_name[7], category[8], first_name[9], last_name[10]
-        sales = current_db.get_sales_report(start_date=today, end_date=today)
+        from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
+        _data_f = await state.get_data()
+        _af = _data_f.get(ADMIN_FILTER_KEY, empty_filter())
+        _scope_type, _scope_values = get_user_org_scope(callback.from_user.id)
+        _fkw = merge_scope_with_filter(_scope_type, _scope_values, _af)
+        sales = current_db.get_sales_report(start_date=today, end_date=today, **_fkw)
     else:
         # get_user_sales_by_date: id[0], product_id[1], shop_name[2], quantity_sold[3],
         #                         sale_price[4], user_id[5], sale_date[6],
@@ -862,7 +881,19 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         # Сотрудник: только его продажи (по user_id, а не по магазину)
         sales = current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
     else:
-        sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
+        # Применяем ручной фильтр если установлен (только для полного admin-отчёта без shop_name/city_filter)
+        if not shop_name and not city_filter:
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
+            from db_utils import get_user_org_scope
+            try:
+                _af = data.get(ADMIN_FILTER_KEY, empty_filter())
+                _sc, _sv = get_user_org_scope(callback.from_user.id)
+                _fkw = merge_scope_with_filter(_sc, _sv, _af)
+                sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, **_fkw)
+            except Exception:
+                sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
+        else:
+            sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
     
     period_text = f"{format_date_display(start_date)} - {format_date_display(end_date)}"
     
@@ -1143,21 +1174,40 @@ def _period_kb(active: str, rtype: str, back_cb: str) -> InlineKeyboardMarkup:
 # ─── Меню рейтингов ────────────────────────────────────────────────────────
 
 @reports_router.callback_query(F.data == "rankings_menu")
-async def rankings_menu_admin(callback: CallbackQuery):
+async def rankings_menu_admin(callback: CallbackQuery, state: FSMContext):
     """Меню рейтингов для администратора"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен!", show_alert=True)
         return
     await callback.answer()
+
+    from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
+    from db_utils import get_user_org_scope
+    data_r = await state.get_data()
+    _af = data_r.get(ADMIN_FILTER_KEY, empty_filter())
+    filter_row = []
+    try:
+        current_db = await get_db(callback.from_user.id, state)
+        _sc, _sv = get_user_org_scope(callback.from_user.id)
+        _avail = get_available_filter_values(current_db, _sc, _sv)
+        if has_anything_to_filter(_avail):
+            filter_row = [InlineKeyboardButton(text=filter_button_text(_af), callback_data="flt_open_rankings_menu")]
+    except Exception:
+        pass
+
+    kb_rows = [
+        [InlineKeyboardButton(text="👤 Продавцы", callback_data="rank_sel_month"),
+         InlineKeyboardButton(text="🏪 Магазины",  callback_data="rank_shp_month")],
+        [InlineKeyboardButton(text="🏙️ Города",   callback_data="rank_cty_month")],
+    ]
+    if filter_row:
+        kb_rows.append(filter_row)
+    kb_rows.append([InlineKeyboardButton(text="🗑️ Очистить рейтинги", callback_data="clear_rankings_confirm")])
+    kb_rows.append([back_button("main_menu")])
+
     await callback.message.edit_text(
         "🏆 <b>Рейтинги</b>\n\nВыберите тип:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="👤 Продавцы", callback_data="rank_sel_month"),
-             InlineKeyboardButton(text="🏪 Магазины",  callback_data="rank_shp_month")],
-            [InlineKeyboardButton(text="🏙️ Города",   callback_data="rank_cty_month")],
-            [InlineKeyboardButton(text="🗑️ Очистить рейтинги", callback_data="clear_rankings_confirm")],
-            [back_button("main_menu")],
-        ]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
         parse_mode="HTML"
     )
 
@@ -1190,7 +1240,12 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
     current_db  = await get_db(callback.from_user.id, state)
     is_admin    = is_any_admin(callback.from_user.id)
     back_cb     = "rankings_menu" if is_admin else "user_rankings_menu"
-    ranking     = current_db.get_sales_ranking(start, end)
+    from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
+    _data_r = await state.get_data()
+    _af_r = _data_r.get(ADMIN_FILTER_KEY, empty_filter())
+    _sc_r, _sv_r = get_user_org_scope(callback.from_user.id)
+    _fkw_r = merge_scope_with_filter(_sc_r, _sv_r, _af_r)
+    ranking = current_db.get_sales_ranking(start, end, **_fkw_r)
     medals      = ["🥇", "🥈", "🥉"]
 
     if not ranking:
