@@ -1,10 +1,14 @@
 AGENT_HANDOFF.md
 replit.md
 PROJECT_MAP.md
+README.md
+.gitignore
+.env.example
+deploy.sh
+test_imports.py
 .local/
 .replit
 replit.nix
-deploy.sh
 attached_assets/
 screenshots/
 data/
