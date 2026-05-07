@@ -50,13 +50,17 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     if not callback.message:
         await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
         return
-        
+
+    # Отвечаем на callback сразу — кнопка перестаёт «грузиться» мгновенно,
+    # пока в фоне выполняется построение дашборда и отчёта.
+    await callback.answer()
+
     current_db = await get_db(callback.from_user.id, state)
 
     is_super_admin = env_manager.is_super_admin(callback.from_user.id)
-    
+
     user = current_db.get_user(callback.from_user.id)
-    
+
     # Если супер-админ, создаем запись в БД если её нет
     if is_super_admin and not user:
         current_db.add_user(
@@ -71,10 +75,12 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
         user = current_db.get_user(callback.from_user.id)
 
     if not user:
-        await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
+        await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
         return
-    
-    await callback.answer()
+
+    # Вычисляем роль и scope один раз — используем далее во всех местах
+    is_admin = is_any_admin(callback.from_user.id) or is_super_admin
+    scope_type, scope_values = get_user_org_scope(callback.from_user.id)
 
     # ── Дашборд-сводка ──────────────────────────────────────────────────────
     from dashboard_handlers import build_admin_dashboard, build_user_dashboard
@@ -83,8 +89,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     today   = date.today().isoformat()
     now_str = get_current_user_time(_user_tz).strftime("%d.%m.%Y · %H:%M")
     try:
-        if is_any_admin(callback.from_user.id) or is_super_admin:
-            scope_type, scope_values = get_user_org_scope(callback.from_user.id)
+        if is_admin:
             dashboard_text = build_admin_dashboard(
                 current_db, today, now_str, user[0], callback.from_user.id,
                 scope_type=scope_type, scope_values=scope_values
@@ -100,17 +105,16 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
         dashboard_text = f"⚠️ <i>Ошибка дашборда ({type(_dash_err).__name__}): {he(str(_dash_err))[:120]}</i>"
 
     # ── Меню отчётов ────────────────────────────────────────────────────────
-    is_admin = is_any_admin(callback.from_user.id) or is_super_admin
     from subscription_utils import get_plan_limits
     limits = get_plan_limits(callback.from_user.id)
-    
+
     builder = InlineKeyboardBuilder()
-    
+
     # Базовый отчет за сегодня доступен всем
     builder.add(
         InlineKeyboardButton(text="📅 За сегодня", callback_data="report_today")
     )
-    
+
     if is_super_admin:
         builder.add(
             InlineKeyboardButton(text="📅 За период", callback_data="report_period")
@@ -146,11 +150,10 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
             InlineKeyboardButton(text="📥 Мои продажи → Excel", callback_data="download_excel_my_sales_free")
         )
 
-    if is_admin or is_super_admin:
+    if is_admin:
         from filter_utils import ADMIN_FILTER_KEY, get_available_filter_values, filter_button_text, has_anything_to_filter, empty_filter
         try:
-            _scope_type, _scope_values = get_user_org_scope(callback.from_user.id)
-            _avail = get_available_filter_values(current_db, _scope_type, _scope_values)
+            _avail = get_available_filter_values(current_db, scope_type, scope_values)
             if has_anything_to_filter(_avail):
                 data_f = await state.get_data()
                 _af = data_f.get(ADMIN_FILTER_KEY, empty_filter())

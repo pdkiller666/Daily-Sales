@@ -1,6 +1,13 @@
 import sqlite3
 import os
 import shutil
+import time
+
+# Кеш путей к БД: {telegram_id: (path, timestamp)}
+# Избегает запросов к main.db при каждом get_db()
+_path_cache: dict = {}
+_PATH_CACHE_TTL = 300   # 5 минут
+
 
 class TenantManager:
     def __init__(self, main_db_path='data/main.db', tenants_dir='data/tenants'):
@@ -101,6 +108,7 @@ class TenantManager:
                 VALUES (?, ?, ?)
             ''', (telegram_id, org_id, 'user'))
             conn.commit()
+            self._invalidate_path_cache(telegram_id)
             return True, org_name
         except sqlite3.Error as e:
             return False, str(e)
@@ -108,26 +116,38 @@ class TenantManager:
             conn.close()
 
     def get_user_db_path(self, telegram_id):
-        """Получить путь к БД для конкретного пользователя"""
+        """Получить путь к БД для конкретного пользователя.
+
+        Результат кешируется на _PATH_CACHE_TTL секунд, чтобы не дёргать
+        main.db при каждом нажатии кнопки.
+        """
+        now = time.time()
+        cached = _path_cache.get(telegram_id)
+        if cached and now - cached[1] < _PATH_CACHE_TTL:
+            return cached[0]
+
         conn = sqlite3.connect(self.main_db_path)
         cursor = conn.cursor()
-        
         cursor.execute('''
             SELECT o.db_path FROM organizations o
             JOIN user_org_mapping m ON o.id = m.org_id
             WHERE m.telegram_id = ?
         ''', (telegram_id,))
-        
         result = cursor.fetchone()
         conn.close()
-        
+
         if result:
             db_path = result[0]
-            # Проверяем физическое наличие файла тенанта
             if os.path.exists(db_path):
+                _path_cache[telegram_id] = (db_path, now)
                 return db_path
-        
+
+        _path_cache[telegram_id] = ('data/shop_bot.db', now)
         return 'data/shop_bot.db'
+
+    def _invalidate_path_cache(self, telegram_id: int):
+        """Сбросить кеш пути для пользователя (при смене роли/орга)."""
+        _path_cache.pop(telegram_id, None)
 
     def create_organization(self, name, owner_id):
         """Создать новую организацию с собственной БД"""
@@ -267,6 +287,7 @@ class TenantManager:
                 (new_role, actual_scope_type, actual_scope_value, custom_title, telegram_id)
             )
             conn.commit()
+            self._invalidate_path_cache(telegram_id)
             return True, new_role
         except sqlite3.Error as e:
             return False, str(e)
@@ -302,6 +323,7 @@ class TenantManager:
                 return False, "Пользователь не состоит ни в одной организации"
             cursor.execute("DELETE FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,))
             conn.commit()
+            self._invalidate_path_cache(telegram_id)
             return True, "ok"
         except sqlite3.Error as e:
             return False, str(e)

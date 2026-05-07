@@ -4,9 +4,15 @@
 import json as _json
 import os
 import sqlite3
+import time as _time
 from database import Database
 from tenant_manager import tenant_manager
 from env_manager import env_manager
+
+# Кеш результатов is_any_admin(): {telegram_id: (result: bool, timestamp: float)}
+# Роли меняются редко — TTL 60 секунд не создаёт проблем, но снимает нагрузку.
+_admin_cache: dict = {}
+_ADMIN_CACHE_TTL = 60
 
 # ─── Иконки и метки scope ────────────────────────────────────────────────────
 
@@ -168,8 +174,16 @@ def is_any_admin(telegram_id: int) -> bool:
     0. Глобальный суперадмин — всегда True.
     1. Если в организации — роль из user_org_mapping (owner/admin → True; user → False).
     2. Если НЕ в организации — проверяем env_manager.is_admin() (личный режим).
+
+    Результат кешируется на _ADMIN_CACHE_TTL секунд.
     """
+    now = _time.time()
+    cached = _admin_cache.get(telegram_id)
+    if cached and now - cached[1] < _ADMIN_CACHE_TTL:
+        return cached[0]
+
     if env_manager.is_super_admin(telegram_id):
+        _admin_cache[telegram_id] = (True, now)
         return True
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
@@ -179,10 +193,21 @@ def is_any_admin(telegram_id: int) -> bool:
         ).fetchone()
         conn.close()
         if row is not None:
-            return row[0] in ('owner', 'admin')
+            result = row[0] in ('owner', 'admin')
+            _admin_cache[telegram_id] = (result, now)
+            return result
     except Exception:
         pass
-    return env_manager.is_admin(telegram_id)
+    result = env_manager.is_admin(telegram_id)
+    _admin_cache[telegram_id] = (result, now)
+    return result
+
+
+def invalidate_admin_cache(telegram_id: int) -> None:
+    """Сбросить кеш is_any_admin() для пользователя.
+    Вызывать после изменения роли в admin_handlers.
+    """
+    _admin_cache.pop(telegram_id, None)
 
 
 def get_user_org_role(telegram_id: int) -> str | None:

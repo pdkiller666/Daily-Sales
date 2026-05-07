@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Кеш инициализированных БД: create_tables() выполняется только ОДИН РАЗ
+# на каждый путь БД за время жизни процесса. Перезапуск сбрасывает кеш.
+_INITIALIZED_DBS: set = set()
+
+
 class Database:
     def __init__(self, db_file=None):
         self.db_file = db_file or 'data/shop_bot.db'
@@ -25,7 +30,13 @@ class Database:
         return conn
 
     def create_tables(self):
-        """Создание таблиц в базе данных"""
+        """Создание таблиц в базе данных.
+
+        Выполняется только один раз на каждый путь БД за время жизни процесса
+        (кеш _INITIALIZED_DBS). Повторные вызовы — мгновенный return.
+        """
+        if self.db_file in _INITIALIZED_DBS:
+            return
         conn = sqlite3.connect(self.db_file)
         conn.execute("PRAGMA busy_timeout=10000")
         cursor = conn.cursor()
@@ -610,6 +621,10 @@ class Database:
 
         conn.commit()
         conn.close()
+
+        # Помечаем БД как инициализированную — следующие вызовы create_tables()
+        # для этого пути будут мгновенно возвращать return.
+        _INITIALIZED_DBS.add(self.db_file)
 
     def _initialize_default_data(self, cursor):
         """Инициализация базовых данных при первом создании базы"""
