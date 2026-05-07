@@ -79,7 +79,6 @@ AMVERA_ONLY_EXCLUDE_FILES = {
     '.gitignore',
     '.env.example',
     'deploy.sh',
-    'test_imports.py',
 }
 
 EXCLUDE_SUBPATHS = {'data/.env'}
