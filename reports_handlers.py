@@ -388,25 +388,25 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-    message_text = f"📊 *Полный отчет по продажам*\n\n"
-    message_text += f"📈 *Общая статистика:*\n"
+    message_text  = "📊 <b>Полный отчет по продажам</b>\n\n"
+    message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
     message_text += f"• Общая сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: *{format_currency(total_earnings_accumulated)}*\n"
+    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
     message_text += f"• Категорий: {len(categories)}\n"
     message_text += f"• Магазинов: {len(shops_data)}\n\n"
 
     # Топ категорий
     sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
-    message_text += "*🏆 Топ категорий:*\n"
+    message_text += "🏆 <b>Топ категорий:</b>\n"
     for i, (category, cat_data) in enumerate(sorted_categories[:3], 1):
-        message_text += f"{i}. {category}: {format_currency(cat_data['total'])}\n"
+        message_text += f"{i}. {he(category)}: {format_currency(cat_data['total'])}\n"
 
     # Топ магазинов
     sorted_shops = sorted(shops_data.items(), key=lambda x: x[1], reverse=True)
-    message_text += f"\n*🏪 Топ магазинов:*\n"
+    message_text += "\n🏪 <b>Топ магазинов:</b>\n"
     for i, (shop, total) in enumerate(sorted_shops[:3], 1):
-        message_text += f"{i}. {shop}: {format_currency(total)}\n"
+        message_text += f"{i}. {he(shop)}: {format_currency(total)}\n"
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_full"))
@@ -416,7 +416,7 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         message_text,
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 MONTHS_RU = {
@@ -529,24 +529,24 @@ async def report_shop_generate(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-    message_text = f"📊 *Отчет по магазину*\n🏪 {shop_name}\n\n"
-    message_text += f"📈 *Общая статистика:*\n"
+    message_text  = f"📊 <b>Отчет по магазину</b>\n🏪 {he(shop_name)}\n\n"
+    message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
     message_text += f"• Общая сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: *{format_currency(total_earnings_accumulated)}*\n"
+    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
     message_text += f"• Категорий: {len(categories)}\n\n"
 
     # Детализация по категориям со всеми товарами
     if categories:
         sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
-        message_text += "*📦 Детализация по категориям:*\n"
+        message_text += "📦 <b>Детализация по категориям:</b>\n"
 
         for category, cat_data in sorted_categories:
-            message_text += f"\n🔸 *{category}:* {format_currency(cat_data['total'])}\n"
+            message_text += f"\n🔸 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
 
             sorted_products = sorted(cat_data['products'].items(), key=lambda x: x[1]['total'], reverse=True)
             for product_name, product_data in sorted_products:
-                message_text += f"   • {product_name}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
+                message_text += f"   • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data=safe_cb("download_excel_shop_", shop_name)))
@@ -556,7 +556,7 @@ async def report_shop_generate(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         message_text,
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @reports_router.callback_query(F.data == "report_my_shop")
@@ -831,25 +831,25 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-    message_text = f"🏙️ *Отчет по городу*\n📍 {city_name}\n\n"
-    message_text += f"📈 *Общая статистика:*\n"
+    message_text  = f"🏙️ <b>Отчет по городу</b>\n📍 {he(city_name)}\n\n"
+    message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
     message_text += f"• Общая сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: *{format_currency(total_earnings_accumulated)}*\n"
+    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n"
     message_text += f"• Категорий: {len(categories)}\n"
     message_text += f"• Магазинов: {len(shops_data)}\n\n"
 
-    message_text += "*🏪 По магазинам:*\n"
+    message_text += "🏪 <b>По магазинам:</b>\n"
     for shop_name, shop_data in sorted(shops_data.items(), key=lambda x: x[1]['total'], reverse=True):
-        message_text += f"• {shop_name}: {format_currency(shop_data['total'])} ({shop_data['quantity']} шт.)\n"
+        message_text += f"• {he(shop_name)}: {format_currency(shop_data['total'])} ({shop_data['quantity']} шт.)\n"
 
     if categories:
         sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
-        message_text += "\n*📦 Детализация по категориям:*\n"
+        message_text += "\n📦 <b>Детализация по категориям:</b>\n"
         for category, cat_data in sorted_categories:
-            message_text += f"\n🔸 *{category}:* {format_currency(cat_data['total'])}\n"
+            message_text += f"\n🔸 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
             for product_name, product_data in sorted(cat_data['products'].items(), key=lambda x: x[1]['total'], reverse=True):
-                message_text += f"   • {product_name}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
+                message_text += f"   • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data=safe_cb("download_excel_city_", city_name)))
@@ -859,7 +859,7 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         message_text,
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 @reports_router.callback_query(F.data == "report_period")
