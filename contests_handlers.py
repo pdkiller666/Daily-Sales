@@ -5,7 +5,7 @@ import json as _json
 import logging
 from datetime import datetime, timedelta
 import calendar as _calendar
-
+from hints import hint_suffix, maybe_send_welcome
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
