@@ -1,4 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
+> Последнее обновление: 2026-05-07 (сессия 43) · 36 модулей · 559 тестов · GitHub `077ce67` · Amvera `790cabe`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -8,7 +9,7 @@ Telegram API
    main.py  ──── запускает polling, регистрирует роутеры, инициализирует планировщик
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
-   │                    РОУТЕРЫ (handlers)                          │
+   │                    РОУТЕРЫ (19 штук)                           │
    │  router              ← handlers.py         (старт, профиль)   │
    │  admin_router        ← admin_handlers.py   (орг, юзеры)       │
    │  sales_router        ← sales_handlers.py   (продажи)          │
@@ -33,7 +34,7 @@ Telegram API
    ┌─┴──────────────────────────────────────────────────────────────┐
    │                  СЛОЙ ДАННЫХ                                   │
    │  db_utils.py   ← get_db(id, state), is_any_admin()            │
-   │  database.py   ← класс Database (156+ методов)                │
+   │  database.py   ← класс Database (163 метода)                  │
    │  tenant_manager.py ← маршрутизация БД по org                  │
    │  env_manager.py    ← ADMIN_CHAT_ID, BOT_TOKEN                 │
    └────────────────────────────────────────────────────────────────┘
@@ -90,11 +91,19 @@ Telegram API
 |---|---|
 | `subscriptions` | id, user_id, plan_type, start_date, end_date, is_trial |
 | `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
-| `payment_requests` | id, user_id, plan_type, amount, payment_proof_file_id, status, created_at |
-| `payment_settings` | key, value — карта, реквизиты, trial_days, trial_plan, **payment_provider**, **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
-| `subscription_plans` | id, name, price, duration_days, max_products, max_shops, ... |
+| `payment_requests` | id, user_id, plan_type, amount, payment_proof_file_id, status, created_at, promocode_id |
+| `payment_settings` | key, value — карта, реквизиты, trial_days, trial_plan, **payment_provider** ('sbp'/'yookassa'), **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
+| `subscription_plans` | id, name, price, duration_days, max_products, max_shops, features (JSON) |
 | `promocodes` | id, code, discount_percent, max_usage, current_usage, is_active |
 | `yookassa_payments` | id, yookassa_payment_id UNIQUE, user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
+
+### Индексы (create_tables, все IF NOT EXISTS)
+
+```
+idx_sales_user_date, idx_sales_shop_date, idx_inventory_shop_prod,
+idx_work_schedule_date, idx_seller_earnings_sale,
+idx_users_shop_name, idx_users_telegram_id
+```
 
 ---
 
@@ -137,6 +146,22 @@ format_user_datetime(raw_str, tz, fmt)   → str       — ISO UTC строка 
 get_utc_time(naive_local_dt, tz_name)    → datetime  — local naive → UTC
 
 # ВАЖНО: datetime.now() на Amvera = UTC. Для отображения всегда используй timezone_utils.
+# raw_str может быть ISO datetime или "HH:MM" — оба обрабатываются.
+```
+
+### utils.py — вспомогательные функции
+
+```python
+he(text)                      → str   — html.escape для user-строк в HTML-сообщениях
+escape_md(text)               → str   — экранирование для MarkdownV2 (устаревший, использовать he())
+format_currency(amount)       → str   — форматирование суммы (1 234,56 ₽)
+format_price(price)           → str   — форматирование цены
+generate_excel_report(sales, title, start_date, end_date) → Workbook
+  # 4 листа:
+  # 1. «Детальный отчёт» — все строки (до 50000), колонка «Продавец», ИТОГО
+  # 2. «По категориям» — сводка + BarChart
+  # 3. «По продавцам» — если len(row) >= 11 (get_sales_report, 11 cols)
+  # 4. «По дням» — если >1 дата, с BarChart
 ```
 
 ### tenant_manager.py — мультиарендность
@@ -156,14 +181,25 @@ set_user_title(telegram_id, org_id, custom_title)  ← None → сброс
 ### keyboards.py — клавиатуры
 
 ```
-main_menu(chat_id, user_shop)       ← главное меню (адаптируется под роль; включает «📝 Мои продажи» для продавцов)
+main_menu(chat_id, user_shop)       ← главное меню (адаптируется под роль)
 system_admin_menu()                 ← меню супер-адмна
 admin_management_menu(chat_id)      ← меню управления
 products_menu(), inventory_menu()
 back_button(callback_data)
 generate_calendar(year, month, prefix)
-safe_cb(prefix, value)              ← безопасный callback_data (SHA256 при > лимита)
+safe_cb(prefix, value)              ← безопасный callback_data ≤64 байта (SHA256 при превышении)
 resolve_cb_name(raw, candidates)    ← обратный поиск по safe_cb хэшу
+```
+
+### payment_provider.py — фабрика провайдеров оплаты
+
+```python
+get_active_provider(db)             → str   — 'sbp' или 'yookassa'
+provider_label(provider)            → str   — «СБП» / «ЮKassa»
+create_yookassa_payment(db, user_id, amount, plan_type, promocode_id=None, return_url=None)
+                                    → dict | None  — {'payment_id', 'confirmation_url'} или None
+check_yookassa_payment_status(db, payment_id) → str | None  — 'pending'/'succeeded'/'canceled'/None
+# lazy import yookassa — не ломает бота при отсутствии библиотеки
 ```
 
 ### filter_utils.py + filter_handlers.py — общий фильтр
@@ -175,12 +211,12 @@ empty_filter()                     → dict {shops:[], cities:[], networks:[]}
 get_available_filter_values(db, scope_type, scope_values) → dict
 merge_scope_with_filter(scope_type, scope_values, active_filter) → dict  — scope=потолок, filter=пол
 build_filter_keyboard(available, active, back_cb) → InlineKeyboardMarkup
-filter_button_text(active_filter)  → str  — текст кнопки «🔍 Фильтр» / «🔍 Фильтр ✅»
+filter_button_text(active_filter)  → str  — «🔍 Фильтр» / «🔍 Фильтр ✅»
 is_filter_active(active_filter)    → bool
 
 Callbacks (filter_router):
   flt_open_{back_cb}  — открыть панель (back_cb = callback «✅ Применить»)
-  ftog_s_{val}        — переключить магазин
+  ftog_s_{val}        — переключить магазин (через safe_cb/resolve_cb_name)
   ftog_c_{val}        — переключить город
   ftog_n_{val}        — переключить торговую сеть
   flt_reset           — сбросить
@@ -237,6 +273,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `SalesPlanStates` | sales_plans_handlers.py | Мастер создания плана |
 | `ContestStates` | contests_handlers.py | Мастер создания конкурса |
 | `BackupStates` | backup_handlers.py | Восстановление из бэкапа |
+| `PaymentSystemStates` | payment_system_admin.py | Настройка ЮKassa (shop_id, secret_key, return_url) |
 
 ---
 
@@ -292,10 +329,11 @@ cross_shop_switch       — «🔄 Сменить магазин» (торгов
 
 ```
 reports_menu            "reports_menu"
-report_today            "report_today"
-report_full             "report_full" / "report_full_{page}"
-period_report_*         выбор периода через календарь
-report_my_month         "report_my_month"  — сотрудник: с 1-го по сегодня
+report_today            "report_today"                — все транзакции (admin) / все товары (user)
+report_full             "report_full"                  — все категории и магазины (guard > 3500/3700)
+report_my_shop          "report_my_shop"               — все товары в магазинах пользователя (guard > 3700)
+period_report_*         — выбор периода через календарь → generate_period_report (guard > 3700)
+report_my_month         "report_my_month"              — сотрудник: с 1-го по сегодня
 
 ranking_sellers         "ranking_sellers"
 ranking_shops           "ranking_shops"
@@ -305,8 +343,20 @@ rank_sel/shp/cty_7d     — 7 дней
 rank_sel/shp/cty_prev   — прошлый месяц
 rkcal_{y}_{m}_{d}       — «📆 Свой период» через rk-календарь
 
-download_excel_period   "download_excel_period"  — из FSM (excel_start/excel_end/excel_shop)
+download_excel_full     "download_excel_full"          — полный; scope-фильтр, лимит 50000
+download_excel_period   "download_excel_period"        — из FSM (excel_start/excel_end/excel_shop)
+download_excel_user     "download_excel_user"          — отчёт пользователя
+download_excel_shop     "download_excel_shop"          — по магазину (из FSM shop_name)
+download_excel_city     "download_excel_city"          — по городу (один SQL-запрос)
+download_excel_my       "download_excel_my"            — «Мои продажи» (текущий месяц)
+
+_translit_filename(text) → str                         — транслитерация имён файлов .xlsx
 ```
+
+**Принцип guard'ов в сообщениях:**
+- `> 3600` уровень магазинов → `<i>··· ещё магазины скрыты — скачайте Excel</i>`
+- `> 3700` уровень товаров → `<i>··· остальные товары в Excel</i>`
+- `> 3800` сплошная обрезка + `<i>··· список обрезан</i>`
 
 ### dashboard_handlers.py (dashboard_router)
 
@@ -365,19 +415,22 @@ _plan_summary_line(plan, actual, percent) → str  — канонический 
 ```
 notifications_menu          — меню
 notification_settings_menu  — настройки
-admin_send_notification     — создание рассылки
-view_scheduled_notifications — список (время отображается в TZ admin через format_user_datetime)
+admin_send_notification     — создание рассылки (asyncio.sleep(0.05) = 20 msg/sec)
+view_scheduled_notifications — список (время в TZ admin через format_user_datetime)
 del_sched_notif_{id}        — удалить запланированное
 
-# UTC fix: ввод time → get_utc_time(naive, admin_tz) → хранить в scheduled_datetime
+# UTC fix: ввод time → get_utc_time(naive, admin_tz) → scheduled_datetime (UTC)
 # check_scheduled_notifications: now = datetime.now().isoformat() (UTC) vs scheduled_datetime (UTC)
+# ⚠️ Techdebt: 3 строки "BROADCAST DEBUG" logging.info() — minor, стоит убрать
 ```
 
-### salary_handlers.py — работа с timezone
+### subscription_handlers.py (subscription_router)
 
-```python
-# ❌ БЫЛО: now_str = datetime.now().strftime(...)  — UTC на Amvera
-# ✅ СТАЛО: get_current_user_time(user_tz).strftime(...)
+```
+pay_{plan}              — начало оплаты; маршрутизация по провайдеру
+proceed_to_payment      — СБП: экран с реквизитами; ЮKassa: создать платёж + URL
+check_yookassa_payment  "yk_check_{payment_id}" — проверить статус → auto-confirm при 'succeeded'
+upload_payment_proof    — загрузка скриншота (СБП)
 ```
 
 ---
@@ -385,19 +438,24 @@ del_sched_notif_{id}        — удалить запланированное
 ## 5. ПЛАНИРОВЩИК (main.py + scheduler_module.py)
 
 ```
-APScheduler → запускается в main() → schedule: cron[minute='*']
+APScheduler (AsyncIOScheduler)
+  misfire_grace_time=60  — до 60с опоздания — всё равно запустить
+  coalesce=True          — пропущенные повторы схлопываются в один
+  max_instances=1        — никакого параллельного запуска одного задания
 
-send_payment_alerts()            ← напоминания об истечении подписки (14/7/3/1 день)
-                                    дедупликация: subscription_reminder_log
-send_sales_alerts()              ← проверяет дневные цели → уведомляет продавцов
-send_daily_reports()             ← ежедневные отчёты пользователям
-send_personalized_notifications() ← персонализированные уведомления
-check_scheduled_notifications()  ← запланированные рассылки (UTC vs UTC)
-daily_backup_task()              ← авто-бэкап в 03:00 (cron[hour=3, minute=0])
-auto_finish_contests()           ← завершение конкурсов (cron[minute='*/30'])
+Задачи:
+  send_sales_alerts()             cron(minute='*', second=0)   — дневные цели продаж
+  send_payment_alerts()           cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день)
+  send_daily_reports()            cron(minute='*', second=24)  — ежедневные отчёты
+  send_personalized_notifications() cron(minute='*', second=36) — персонализированные
+  check_scheduled_notifications() cron(minute='*', second=48)  — запланированные рассылки
+  auto_finish_contests()          cron(minute='*/30')           — завершение конкурсов
+  daily_backup_task()             cron(hour=3, minute=0)        — авто-бэкап (retention 30 дней)
+
+_get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
 
-**Timezone:** все задачи сравнивают `datetime.now()` (UTC на Amvera) с настроенным временем пользователя через `.astimezone(user_tz)`. Scheduled notifications: хранятся в UTC, сравниваются UTC vs UTC.
+**Timezone:** все задачи сравнивают `datetime.now()` (UTC на Amvera) с настроенным временем через `.astimezone(user_tz)`.
 
 ---
 
@@ -429,9 +487,11 @@ data = current_db.get_something()
 # ПРАВИЛЬНО — payment/subscription (всегда централизованно):
 db = Database('data/shop_bot.db')
 
-# НЕПРАВИЛЬНО — устаревший паттерн:
-db = Database('data/shop_bot.db')  # без get_db() — нарушает multi-tenancy
+# НЕПРАВИЛЬНО — устаревший паттерн (нарушает multi-tenancy):
+db = Database('data/shop_bot.db')  # без get_db() — в обычном handler
 ```
+
+**SQLite concurrency:** `get_connection()` устанавливает `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout=10000`. `create_tables()` также устанавливает `busy_timeout=10000`. WAL позволяет параллельные читатели.
 
 ---
 
@@ -451,6 +511,8 @@ db = Database('data/shop_bot.db')  # без get_db() — нарушает multi-
 12. `datetime.now()` на Amvera = UTC → для отображения всегда `timezone_utils`
 13. `shift_templates` weekday: 0=Пн, 6=Вс (стандарт Python `date.weekday()`)
 14. `scheduled_notifications.scheduled_datetime` хранится в UTC — `get_utc_time()` при записи
+15. Excel: `generate_excel_report(sales, ...)` — seller detection: `len(row) >= 11`; лимит 50000 строк
+16. Telegram лимит сообщения 4096 символов: guard'ы на уровне магазинов (`>3600`) и товаров (`>3700`)
 
 ---
 
@@ -458,9 +520,40 @@ db = Database('data/shop_bot.db')  # без get_db() — нарушает multi-
 
 ```
 Тарифы (subscription_plans): Бесплатный / Базовый / Стандарт / Премиум / Бизнес
-Пробный период: настраивается в payment_system_admin → "Пробный период"
-  → trial_days (по умолчанию 14), trial_plan (по умолчанию Бизнес)
-  → выдаётся при регистрации (personal/corporate режимы)
-Оплата: ручное подтверждение скриншота → confirm_payment_request → clear_reminders
+Пробный период: trial_days (default 14), trial_plan (default Бизнес) в payment_settings
+
+Провайдеры оплаты (payment_provider в payment_settings):
+  'sbp'      — ручное подтверждение скриншота чека
+  'yookassa' — автоматическая оплата через API ЮKassa (shop_id + secret_key + return_url)
+
 Промокоды: discount_percent, max_usage, current_usage
+Лимиты по тарифу: max_products, max_shops (-1 = безлимит)
 ```
+
+---
+
+## 10. ДЕПЛОЙ
+
+```bash
+# GitHub + Amvera (по умолчанию):
+bash deploy.sh "commit message"
+
+# Только GitHub:
+bash deploy.sh "commit message" --no-amvera
+
+# Верификация после деплоя:
+# deploy.sh автоматически: git ls-remote amvera refs/heads/master
+# Выводит: "Amvera verify: ✅ remote hash совпадает (hash)"
+```
+
+**Amvera config (`amvera.yml`):**
+```yaml
+meta:
+  environment: python
+  toolchain: {name: pip, version: "3.11"}
+run:
+  persistenceMount: /app/data
+  command: python main.py
+```
+
+**Исключения из деплоя на Amvera:** `AGENT_HANDOFF.md`, `replit.md`, `PROJECT_MAP.md`, `README.md`, `*.db`, `*.pkl`, `data/tenants/`, `data/backup/`.

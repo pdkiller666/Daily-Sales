@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-07 (сессия 41)
+> Последнее обновление: 2026-05-07 (сессия 43)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,8 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub — сессия 42 tests (2026-05-07), commit `84576fb` (Amvera: требует ручного force-push через проект-таск — "invalid old id" из-за сброса tmp-директории)
-**Предыдущий стабильный деплой:** GitHub + Amvera, commit `1c53b06`
+**Последний деплой:** GitHub `077ce67` · Amvera `790cabe` (2026-05-07, сессия 43). Оба хэша верифицированы через `git ls-remote`.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -67,7 +66,7 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 ┌──────────────────────────────────────────────────────────────────┐
 │  СЛОЙ ДАННЫХ                                                     │
 │  db_utils.py        — get_db(), is_any_admin() [ГЛАВНЫЙ]        │
-│  database.py        — класс Database (156+ методов)             │
+│  database.py        — класс Database (163 метода)               │
 │  tenant_manager.py  — маршрутизация БД по организации           │
 │  env_manager.py     — BOT_TOKEN, ADMIN_CHAT_ID                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -328,6 +327,47 @@ get_utc_time(naive_local_dt, tz_name)    → datetime  — local naive → UTC d
 # raw_str в format_user_datetime может быть ISO datetime или "HH:MM" — оба обрабатываются
 ```
 
+### utils.py — generate_excel_report()
+
+```python
+generate_excel_report(sales, title, start_date, end_date) → openpyxl.Workbook
+
+# 4 листа:
+# 1. «Детальный отчёт» — все строки (до 50000), столбец «Продавец», числовые форматы, ИТОГО
+# 2. «По категориям» — сводка + BarChart
+# 3. «По продавцам» — если данные есть (len(row) >= 11), BarChart
+# 4. «По дням» — если >1 дата, BarChart
+
+# Определение seller data: len(row) >= 11 → get_sales_report (11 col); len(row) == 9 → get_user_sales
+```
+
+### reports_handlers.py — Excel download handlers
+
+```
+_translit_filename(text) → str       — транслитерация для имён файлов
+download_excel_full      — полный отчёт; scope-фильтр, лимит 50000
+download_excel_period    — период из FSM (excel_start/excel_end/excel_shop)
+download_excel_user      — отчёт пользователя
+download_excel_shop      — отчёт по магазину
+download_excel_city      — отчёт по городу (один SQL-запрос для city)
+download_excel_my        — "Мои продажи" (текущий месяц)
+```
+
+### reports_handlers.py — отображение товаров в сообщениях
+
+```
+report_today            — все товары (MAX_ADMIN_LINES=25 для admin; пользователь — все)
+report_full             — все категории и магазины (guard > 3500/3700 символов)
+report_shop_generate    — все товары по категориям (guard > 3600)
+report_my_shop          — все товары (guard > 3700 — УБРАН [:3])
+generate_period_report  — все товары (guard > 3700 — УБРАН [:3])
+```
+
+**Единый принцип guard'ов:**
+- `> 3600` на уровне магазинов → «скачайте Excel для полной детализации»
+- `> 3700` на уровне товаров → «остальные товары в Excel»
+- `> 3800` сплошная обрезка (report_today)
+
 ### dashboard_handlers.py
 
 ```python
@@ -407,17 +447,19 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 | ID задачи | Расписание | Назначение |
 |---|---|---|
-| `send_sales_alerts` | каждую минуту | уведомления о дневных целях продаж |
-| `send_payment_alerts` | каждую минуту | напоминания об окончании подписки |
-| `send_daily_reports` | каждую минуту | ежедневные отчёты |
-| `send_personalized_notifications` | каждую минуту | персонализированные уведомления |
-| `check_scheduled_notifications` | каждую минуту | запланированные рассылки (UTC) |
+| `send_sales_alerts` | каждую минуту (сек 0) | уведомления о дневных целях продаж |
+| `send_payment_alerts` | каждую минуту (сек 12) | напоминания об окончании подписки |
+| `send_daily_reports` | каждую минуту (сек 24) | ежедневные отчёты |
+| `send_personalized_notifications` | каждую минуту (сек 36) | персонализированные уведомления |
+| `check_scheduled_notifications` | каждую минуту (сек 48) | запланированные рассылки (UTC) |
 | `auto_finish_contests` | каждые 30 минут | автозавершение конкурсов |
-| `backup_job` | 03:00 ежедневно | авто-бэкап всех БД |
+| `backup_job` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
+
+**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются.
 
 **Timezone в APScheduler:** все задачи используют `datetime.now()` (UTC на Amvera), конвертируют через `.astimezone(user_tz)` для сравнения с настроенным временем.
 
-**Scheduled notifications:** admin вводит время → `get_utc_time(naive, admin_tz)` → хранится UTC → `check_scheduled_notifications` сравнивает `datetime.now().isoformat()` (UTC) с UTC → корректно. Список показывается через `format_user_datetime(raw_utc, admin_tz)`.
+**Scheduled notifications:** admin вводит время → `get_utc_time(naive, admin_tz)` → хранится UTC → `check_scheduled_notifications` сравнивает `datetime.now().isoformat()` (UTC) с UTC → корректно.
 
 ---
 
@@ -473,7 +515,6 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 2. **`_make_qty_keyboard(max_qty)`** — кнопки [1,2,3,5,10,20,50] + «✏️ Ввести вручную».
 3. **Быстрый поиск** — «🔍 Найти товар» в экране категорий; поиск по ненулевому остатку.
 4. **`sq_qty_*`** — выбор количества без ввода текста.
-5. Тесты: 11 новых → итого **279/279 ✅**.
 
 **Сессия 37:**
 1. **`shift_templates`** таблица — UNIQUE(user_id, weekday), weekday 0=Пн..6=Вс.
@@ -492,36 +533,39 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 6. **Аудит итог**: 34/34 модулей · 279/279 тестов · 0 кириллицы в callback_data.
 
 **Сессия 39:**
-1. **«Команда сегодня»** дашборд: добавлен `_staff_by_shop_with_names()` — для 'wide'/'org' scale показывает сгруппированный вид «ТЦ Лето: 3 (Иванов, Петров, Сидоров)». Commit `52d4d2d`.
-2. **Reports Markdown→HTML**: `report_full`, `report_shop_generate`, `report_city_generate` — переведены на HTML + `he()`. Commit `6b77c93`.
-3. **Perf: 7 индексов в `create_tables()`**: `idx_sales_user_date`, `idx_sales_shop_date`, `idx_inventory_shop_prod`, `idx_work_schedule_date`, `idx_seller_earnings_sale`, `idx_users_shop_name`, `idx_users_telegram_id` — все `CREATE INDEX IF NOT EXISTS`, применяются при каждом открытии БД.
+1. **«Команда сегодня»** дашборд: `_staff_by_shop_with_names()` — для 'wide'/'org' scale показывает «ТЦ Лето: 3 (Иванов, Петров, Сидоров)».
+2. **Reports Markdown→HTML**: `report_full`, `report_shop_generate`, `report_city_generate` — HTML + `he()`.
+3. **Perf: 7 индексов в `create_tables()`**: idx_sales_user_date, idx_sales_shop_date, idx_inventory_shop_prod, idx_work_schedule_date, idx_seller_earnings_sale, idx_users_shop_name, idx_users_telegram_id — все `CREATE INDEX IF NOT EXISTS`.
 4. **`busy_timeout=10000`** в `create_tables()` (ранее только в `get_connection()`).
-5. **«message is not modified»** → тихий `answer()` без логирования (аналог «query is too old»). Commit `d13cbb7`.
-6. **Filter/dashboard investigation (read-only)**: дашборд и ручной фильтр (🔍 Фильтр) полностью независимы — дашборд читает только `get_user_org_scope()`, никогда не читает `ADMIN_FILTER_KEY` из FSM. Ручной фильтр влияет только на отчёты/рейтинги. Потенциальный gap: `get_plans_progress()` в дашборде (строка 529) не фильтрует по scope для 'wide'/'org' — показывает ВСЕ планы орга. Для single-shop scope фильтрация есть (строки 530-535). Поведение, видимо, намеренное (owner/org-level обзор планов).
+5. **«message is not modified»** → тихий `answer()` без логирования.
 
-**Сессия 41 (2026-05-07) — ФУНДАМЕНТ ЮKASSA:**
-1. **`payment_provider.py`** (новый модуль): `get_active_provider(db)`, `create_yookassa_payment(...)`, `check_yookassa_payment_status(...)`, `provider_label(provider)` — lazy import yookassa; при ошибке API возвращает None/error, не ломает бота.
-2. **`database.py`** — новая таблица `yookassa_payments`; 7 новых методов: `get_payment_provider`, `set_payment_provider`, `get_yookassa_config`, `set_yookassa_config`, `create_yookassa_payment_record`, `get_yookassa_payment_by_payment_id`, `update_yookassa_payment_status`. Ключи в `payment_settings`: `payment_provider`, `yookassa_shop_id`, `yookassa_secret_key`, `yookassa_return_url`.
-3. **`payment_system_admin.py`** — в «💳 Настройки оплаты» добавлена кнопка «🔀 Провайдер оплаты»; экран выбора СБП/ЮKassa; экран настройки ЮKassa (Shop ID, секретный ключ с маскированием, Return URL); переключение на ЮKassa требует заполненных Shop ID и Secret Key; все строки через `he()`.
-4. **`subscription_handlers.py`** — `proceed_to_payment` маршрутизируется по провайдеру: СБП = старый поток (скриншот), ЮKassa = создаёт платёж → кнопка «💳 Перейти к оплате» (URL) + «✅ Я оплатил — проверить»; новый хэндлер `check_yookassa_payment` — проверяет статус в API → auto-confirm при 'succeeded' (create_payment_request + confirm_payment_request), уведомляет супер-администратора.
-5. **`states.py`** — `PaymentSystemStates`: `waiting_yookassa_shop_id`, `waiting_yookassa_secret_key`, `waiting_yookassa_return_url`.
-6. **`subscription_router.py`** — зарегистрирован `check_yookassa_payment` (`yk_check_*`).
-7. **`test_imports.py`** — добавлен `payment_provider` в список модулей.
-8. Тесты: **279/279 ✅**. Бот запущен чисто.
+**Сессия 40 (2026-05-07):**
+1. **`earnings_handlers.py` — Markdown→HTML** (10 мест): все `parse_mode="Markdown"` → HTML.
+2. **`earnings_handlers.py` — Русские названия месяцев**: `_MONTHS_RU[]` вместо `calendar.month_name[]`.
+3. **`salary_handlers.py` — Markdown→HTML** (24 места): `escape_md()` → `he()`.
+4. **`keyboards.py` — утечка соединения SQLite** в `main_menu()`: добавлен `try/finally` вокруг `conn.close()`.
 
-**Сессия 40 (2026-05-07) — ПОЛНЫЙ ОБЗОР ПРОЕКТА + ИСПРАВЛЕНИЯ:**
-1. **`earnings_handlers.py` — Markdown→HTML** (10 мест): все `parse_mode="Markdown"` → `parse_mode="HTML"`, `*жирный*` → `<b>жирный</b>`. Commit `f3fa6ec`.
-2. **`earnings_handlers.py` — Английские названия месяцев**: `calendar.month_name[x]` (возвращал "May", "January") → `_MONTHS_RU[x]` (локальный список, "Май", "Январь"). Был баг на всех экранах истории заработка.
-3. **`earnings_handlers.py` — Неэкранированный `shop_name`**: в детальном виде дня (`earnings_day_details`) `shop_name` попадал в Markdown без `escape_md()` — при имени магазина с `_` или `*` рендеринг ломался. Теперь `he(shop_name)` в HTML.
-4. **`salary_handlers.py` — Markdown→HTML** (24 места): все `parse_mode="Markdown"` → `parse_mode="HTML"`, все `escape_md(name)` → `he(name)`, имена магазинов (`shop_str`) тоже через `he()`. Включая `_my_schedule_text()`, `_refresh_admin_calendar()`, `salary_summary()` и все hour-picker экраны.
-5. **`keyboards.py` — утечка соединения SQLite**: в `main_menu()` `conn.close()` стоял без `try/finally` — при исключении между `connect()` и `close()` соединение утекало. Исправлено добавлением `try/finally`.
-6. **Полный аудит архитектуры** (read-only): прочитаны все 25+ модулей. Найдены и задокументированы ниже.
+**Сессия 41 (2026-05-07) — ЮKASSA:**
+1. **`payment_provider.py`** (новый): `get_active_provider(db)`, `create_yookassa_payment(...)`, `check_yookassa_payment_status(...)`.
+2. **`database.py`** — таблица `yookassa_payments`; 7 методов: `get/set_payment_provider`, `get/set_yookassa_config`, `create/get/update_yookassa_payment_*`.
+3. **`payment_system_admin.py`** — «🔀 Провайдер оплаты»; экраны выбора/настройки ЮKassa.
+4. **`subscription_handlers.py`** — маршрутизация по провайдеру: СБП = скриншот; ЮKassa = URL-оплата + «✅ Я оплатил — проверить» → auto-confirm.
+5. **`states.py`** — `PaymentSystemStates`: waiting_yookassa_shop_id/secret_key/return_url.
+6. **559 тестов ✅** (добавлены новые сценарии).
 
-**Архитектурные наблюдения (не баги, но важно знать):**
-- `handlers.py` line 37: `db = Database('data/shop_bot.db')` — module-level instance. Не стале (bot перезапускается), но создаёт соединение при импорте.
-- `subscription_handlers.py` `_get_db()` создаёт новый `Database` на каждый вызов (намеренно — для изоляции).
-- Dashboard `get_plans_progress()` без scope-фильтра для org/wide — намеренно (owner видит все планы орга).
-- `create_tables()` вызывается при каждом `get_db()` — 7 CREATE INDEX IF NOT EXISTS на каждый запрос. На практике быстро (SQLite проверяет наличие), но есть overhead.
+**Сессия 42 (2026-05-07) — EXCEL ОТЧЁТЫ:**
+1. **`generate_excel_report()`** в `utils.py` переписан — 4 листа: «Детальный отчёт» (с колонкой «Продавец», числовые форматы, ИТОГО), «По категориям» (BarChart), «По продавцам» (если есть данные), «По дням» (если >1 день, BarChart). Определение продавца: `len(row) >= 11`.
+2. **6 Excel-хендлеров** в `reports_handlers.py` обновлены: scope-фильтр, лимит 50000, `_translit_filename()`, `⏳ Формирую файл...`, подписи с числом строк.
+3. **`_translit_filename(text)`** — хелпер транслитерации для имён .xlsx файлов.
+4. GitHub `7a7f1a3` · Amvera `e5913d1`. 559 тестов ✅.
+
+**Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
+1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.
+2. **`report_my_shop`** — убран `[:3]` у товаров; guard `> 3700` с сообщением «остальные товары в Excel».
+3. **`generate_period_report`** — убран `[:3]` у товаров; аналогичный guard.
+4. **Комплексный аудит** — 36 модулей, 559 тестов, 0 bare except, 0 print(), 0 hardcoded secrets, WAL+busy_timeout, APScheduler misfire/coalesce/max_instances=1, все соединения закрываются.
+5. **Нераздражающий techdebt**: 3 строки `BROADCAST DEBUG` в `notifications_handlers.py` (logging.info) — не баги, но стоит убрать перед масштабированием.
+6. GitHub `077ce67` · Amvera `790cabe`. 559 тестов ✅.
 
 ---
 
@@ -533,7 +577,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 4. **Пользовательские строки в HTML** → всегда `he(var)`. Тексты кнопок — не нужен.
 5. **`get_users_for_notifications()`** → `[0]` = внутренний users.id, `[1]` = telegram_id.
 6. **`scheduled_notifications.created_by`** хранит users.id (не telegram_id). JOIN = `ON sn.created_by = u.id`.
-7. **Новый роутер** → зарегистрировать в main.py.
+7. **Новый роутер** → зарегистрировать в main.py; новый модуль → добавить в test_imports.py.
 8. **callback_data + кириллица** → `safe_cb(prefix, value)`, не f-строка.
 9. **Планировщик** → `_get_scheduler_db_paths()` для итерации всех тенантов.
 10. **plan_notifications.py** — lazy-импорт (внутри функций), не на уровне модуля.
@@ -545,31 +589,35 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 16. **Время на Amvera — UTC.** `datetime.now()` = UTC. Для отображения — `timezone_utils`.
 17. **`shift_templates`**: weekday 0=Пн, 6=Вс. `date.weekday()` — та же нумерация.
 18. **slr_te_/slr_tw_**: пикеры идут напрямую к slr_etw_ и slr_day_ (без промежуточного экрана).
+19. **Excel лимит 50000 строк**: `get_sales_report(limit=50000)` во всех download-хендлерах.
+20. **`generate_excel_report` seller detection**: `len(row) >= 11` = admin report (11 cols); `== 9` = user report.
+21. **Telegram лимит сообщения 4096 символов**: guard'ы на уровне магазинов (`> 3600`) и товаров (`> 3700`), сообщение с подсказкой «скачайте Excel».
 
 ---
 
 ## 8. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Полный импорт-аудит (34 модуля):
-python3 -c "
-errors=[]
-for m in ['database','db_utils','tenant_manager','env_manager','keyboards','states','utils',
-          'message_utils','timezone_utils','handlers','admin_handlers','dashboard_handlers',
-          'reports_handlers','sales_plans_handlers','payment_admin_handlers','subscription_handlers',
-          'commission_handlers','contests_handlers','salary_handlers','notifications_handlers',
-          'earnings_handlers','sales_handlers','products_handlers','inventory_handlers',
-          'backup_handlers','contacts_handlers','plan_notifications','payment_system_admin','main',
-          'filter_handlers','filter_utils','hints','notif_utils','pagination_utils']:
-    try: __import__(m); print(f'  ✅ {m}')
-    except Exception as e: print(f'  ❌ {m}: {e}'); errors.append(m)
-print(f'Итог: {34-len(errors)} OK, {len(errors)} ошибок')
-"
+# 1. Импорт-аудит (36 модулей):
+python test_imports.py
 
-# 2. Тесты (279 сценариев):
+# 2. Тесты (559 сценариев):
 python test_scenarios.py
 
-# 3. Деплой (GitHub + Amvera):
+# 3. Синтаксис:
+python -c "
+import ast, os
+errors = []
+for fn in os.listdir('.'):
+    if fn.endswith('.py') and not fn.startswith('test_'):
+        try:
+            with open(fn) as f: ast.parse(f.read())
+        except SyntaxError as e:
+            errors.append(f'{fn}: {e}')
+print('✅ OK' if not errors else '\n'.join(errors))
+"
+
+# 4. Деплой (GitHub + Amvera):
 bash deploy.sh "commit message"
 
 # Только GitHub:
