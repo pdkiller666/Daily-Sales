@@ -91,9 +91,10 @@ Telegram API
 | `subscriptions` | id, user_id, plan_type, start_date, end_date, is_trial |
 | `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
 | `payment_requests` | id, user_id, plan_type, amount, payment_proof_file_id, status, created_at |
-| `payment_settings` | key, value — карта, реквизиты + trial_days, trial_plan |
+| `payment_settings` | key, value — карта, реквизиты, trial_days, trial_plan, **payment_provider**, **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
 | `subscription_plans` | id, name, price, duration_days, max_products, max_shops, ... |
 | `promocodes` | id, code, discount_percent, max_usage, current_usage, is_active |
+| `yookassa_payments` | id, yookassa_payment_id UNIQUE, user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
 
 ---
 

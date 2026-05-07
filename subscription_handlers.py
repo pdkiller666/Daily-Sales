@@ -715,9 +715,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
     promocode_applied = data.get('promocode_applied')
     discount_amount = data.get('discount_amount', 0)
     
-    # Получаем настройки платежной системы
-    payment_settings = db.get_payment_settings()
-    
+    # Общий заголовок
     text = f"💳 <b>Оплата подписки: {plan_info['name']}</b>\n\n"
     
     if data.get('is_scheduled') and data.get('schedule_date'):
@@ -731,15 +729,101 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
     
     text += f"💳 <b>К оплате:</b> {final_amount:.0f}₽\n"
     text += f"📅 <b>Срок действия:</b> {plan_info['duration']} дней\n\n"
-    
+
+    # ---------------------------------------------------------------
+    # Маршрутизация по провайдеру
+    # ---------------------------------------------------------------
+    from payment_provider import get_active_provider, create_yookassa_payment
+
+    provider = get_active_provider(db)
+
+    if provider == 'yookassa':
+        # --- ЮKassa: создаём платёж и даём ссылку ---
+        cfg = db.get_yookassa_config()
+        return_url = cfg.get('return_url') or "https://t.me/"
+
+        user_id = db.get_user_id(callback.from_user.id)
+        promocode_data = promocode_applied or {}
+        promo_id = promocode_data.get('id')
+
+        payment_result = create_yookassa_payment(
+            amount=final_amount,
+            description=f"Подписка {plan_info['name']} ({plan_info['duration']} дней)",
+            metadata={
+                "user_id": str(callback.from_user.id),
+                "plan_type": plan_info['name'],
+                "plan_key": plan_key,
+            },
+            return_url=return_url,
+            shop_id=cfg.get('shop_id', ''),
+            secret_key=cfg.get('secret_key', ''),
+        )
+
+        if payment_result is None:
+            # Ошибка создания платежа — информируем, не ломаем бота
+            text += (
+                "❌ <b>Не удалось создать платёж через ЮKassa.</b>\n"
+                "Обратитесь к администратору или попробуйте позже."
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+            ])
+            await state.update_data(
+                plan_type=plan_info['name'],
+                amount=final_amount,
+                promocode_data=promocode_applied,
+                anchor_msg_id=callback.message.message_id,
+            )
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            return
+
+        yk_payment_id = payment_result['payment_id']
+        confirmation_url = payment_result['confirmation_url']
+
+        # Сохраняем запись в БД
+        if user_id:
+            db.create_yookassa_payment_record(
+                yookassa_payment_id=yk_payment_id,
+                user_id=user_id,
+                plan_type=plan_info['name'],
+                amount=final_amount,
+                promocode_id=promo_id,
+                is_scheduled=bool(data.get('is_scheduled')),
+                schedule_date=data.get('schedule_date'),
+            )
+
+        text += (
+            "🏦 <b>Оплата через ЮKassa</b>\n\n"
+            "Нажмите кнопку ниже для перехода на страницу оплаты.\n"
+            "После оплаты вернитесь в бот и нажмите «✅ Я оплатил — проверить»."
+        )
+
+        await state.update_data(
+            plan_type=plan_info['name'],
+            amount=final_amount,
+            promocode_data=promocode_applied,
+            anchor_msg_id=callback.message.message_id,
+            yk_payment_id=yk_payment_id,
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
+            [InlineKeyboardButton(text="✅ Я оплатил — проверить", callback_data=f"yk_check_{yk_payment_id}")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+        ])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        return
+
+    # --- СБП: классический поток (скриншот) ---
+    payment_settings = db.get_payment_settings()
+
     text += "📋 <b>Реквизиты для оплаты:</b>\n"
     text += f"💳 Карта: {payment_settings.get('card_number', 'Не указана')}\n"
     text += f"👤 Получатель: {payment_settings.get('recipient_name', 'Не указан')}\n"
     text += f"🏦 Банк: {payment_settings.get('bank_name', 'Не указан')}\n\n"
-    
-    text += payment_settings.get('payment_instruction', 
-                                "📝 Переведите указанную сумму и отправьте скриншот перевода.")
-    
+    text += payment_settings.get('payment_instruction',
+                                 "📝 Переведите указанную сумму и отправьте скриншот перевода.")
+
     await state.update_data(
         plan_type=plan_info['name'], 
         amount=final_amount,
@@ -753,3 +837,141 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
+    """
+    Пользователь нажал «✅ Я оплатил — проверить».
+    Запрашиваем статус платежа в ЮKassa и обрабатываем результат.
+    """
+    await callback.answer()
+    db = _get_db()
+
+    # Формат callback: yk_check_<payment_id>
+    yk_payment_id = callback.data[9:]  # убираем "yk_check_"
+
+    cfg = db.get_yookassa_config()
+    from payment_provider import check_yookassa_payment_status
+
+    status = check_yookassa_payment_status(
+        payment_id=yk_payment_id,
+        shop_id=cfg.get('shop_id', ''),
+        secret_key=cfg.get('secret_key', ''),
+    )
+
+    if status == 'succeeded':
+        # --- Автоактивация подписки ---
+        row = db.get_yookassa_payment_by_payment_id(yk_payment_id)
+        if row is None:
+            await callback.message.edit_text(
+                "❌ Запись о платеже не найдена. Обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 Главное меню", callback_data="main_menu")]
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        # row: (id, yookassa_payment_id, user_id, plan_type, amount, status,
+        #        promocode_id, is_scheduled, schedule_date, created_at, updated_at)
+        user_id = row[2]
+        plan_type = row[3]
+        amount = row[4]
+        promo_id = row[6]
+
+        # Обновляем статус в нашей таблице
+        db.update_yookassa_payment_status(yk_payment_id, 'succeeded')
+
+        # Активируем подписку: create_payment_request → confirm_payment_request
+        try:
+            success = db.create_payment_request(
+                user_id, plan_type, amount,
+                file_id=f"yookassa:{yk_payment_id}",
+                promocode_id=promo_id,
+            )
+            if success:
+                import sqlite3 as _sqlite3
+                conn = _sqlite3.connect('data/shop_bot.db')
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id FROM payment_requests WHERE user_id=? "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (user_id,),
+                )
+                req_row = cur.fetchone()
+                conn.close()
+                if req_row:
+                    db.confirm_payment_request(req_row[0])
+        except Exception as e:
+            import logging
+            logging.error(f"check_yookassa_payment: auto-confirm error: {e}")
+
+        # Уведомляем супер-администратора
+        try:
+            super_admin_id = env_manager.get_main_admin_id()
+            if super_admin_id:
+                user = db.get_user_by_id(user_id)
+                user_name = f"{user[1]} {user[2]}" if user else "—"
+                await callback.bot.send_message(
+                    chat_id=super_admin_id,
+                    text=(
+                        "✅ <b>Автоплатёж ЮKassa подтверждён</b>\n\n"
+                        f"👤 <b>Пользователь:</b> {user_name}\n"
+                        f"📋 <b>Тариф:</b> {plan_type}\n"
+                        f"💰 <b>Сумма:</b> {amount:.0f}₽\n"
+                        f"🆔 <b>Payment ID:</b> {yk_payment_id}"
+                    ),
+                    parse_mode="HTML",
+                )
+        except Exception:
+            pass
+
+        from keyboards import main_menu
+        user = db.get_user(callback.from_user.id)
+        kb = main_menu(callback.message.chat.id, user[8] if user else None)
+        await callback.message.edit_text(
+            "🎉 <b>Оплата подтверждена!</b>\n\n"
+            f"✅ Подписка <b>{plan_type}</b> активирована.\n\n"
+            "🏠 Возврат в главное меню:",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+        await clear_state_keep_org(state)
+
+    elif status in ('pending', 'waiting_for_capture'):
+        await callback.message.edit_text(
+            "⏳ <b>Оплата ещё обрабатывается</b>\n\n"
+            "Платёж принят, но ещё не завершён на стороне банка.\n"
+            "Подождите 1–2 минуты и нажмите «Проверить» ещё раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Проверить снова", callback_data=f"yk_check_{yk_payment_id}")],
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+            ]),
+            parse_mode="HTML",
+        )
+
+    elif status == 'canceled':
+        db.update_yookassa_payment_status(yk_payment_id, 'canceled')
+        await callback.message.edit_text(
+            "❌ <b>Платёж отменён</b>\n\n"
+            "Оплата не прошла или была отменена.\n"
+            "Вы можете попробовать оформить подписку заново.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Выбрать тариф", callback_data="subscription_plans")],
+                [InlineKeyboardButton(text="🔙 Главное меню", callback_data="main_menu")],
+            ]),
+            parse_mode="HTML",
+        )
+
+    else:
+        # 'error' или неизвестный статус
+        await callback.message.edit_text(
+            "⚠️ <b>Не удалось проверить статус платежа</b>\n\n"
+            "Возможно, ЮKassa временно недоступна. Попробуйте через минуту.\n"
+            "Если проблема сохраняется — обратитесь к администратору.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data=f"yk_check_{yk_payment_id}")],
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+            ]),
+            parse_mode="HTML",
+        )

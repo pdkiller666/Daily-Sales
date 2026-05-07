@@ -11,7 +11,8 @@ from subscription_handlers import (
     subscription_menu, subscription_plans, start_subscription_purchase,
     upload_payment_proof, process_payment_proof, subscription_limits,
     handle_scheduled_purchase, handle_immediate_purchase,
-    enter_promocode, process_promocode, proceed_to_payment
+    enter_promocode, process_promocode, proceed_to_payment,
+    check_yookassa_payment,
 )
 from payment_admin_handlers import (
     pending_payments_menu, view_payment_request, show_payment_proof,
@@ -44,6 +45,9 @@ subscription_router.message.register(
     process_promocode,
     StateFilter(SubscriptionStates.waiting_for_promocode)
 )
+
+# ЮKassa: проверка статуса платежа пользователем
+subscription_router.callback_query.register(check_yookassa_payment, lambda c: c.data.startswith("yk_check_"))
 
 # Административные обработчики
 subscription_router.callback_query.register(pending_payments_menu, lambda c: c.data == "pending_payments")

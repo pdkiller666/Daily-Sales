@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-06 (сессия 38)
+> Последнее обновление: 2026-05-07 (сессия 41)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub + Amvera — сессия 39 (2026-05-07), commit `d13cbb7`
+**Последний деплой:** GitHub + Amvera — сессия 41 (2026-05-07), commit `(см. deploy.sh output)`
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -84,6 +84,7 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 
 | Файл | Назначение |
 |---|---|
+| `payment_provider.py` | Фабрика провайдеров: `get_active_provider(db)`, `create_yookassa_payment(...)`, `check_yookassa_payment_status(...)`, `provider_label(provider)` |
 | `plan_notifications.py` | Уведомления об изменениях тарифов (lazy-импорт из payment_system_admin.py) |
 | `scheduler_module.py` | Синглтон APScheduler — set_scheduler() / get_scheduler() |
 | `timezone_utils.py` | get_user_time(), get_current_user_time(), format_user_datetime(), get_utc_time() |
@@ -293,9 +294,10 @@ Amvera статически сканирует `sqlite3.connect('data/...')` →
 | `subscriptions` | user_id, plan_type, start_date, end_date, is_active |
 | `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
 | `payment_requests` | заявки на оплату + file_id чека + promocode_id |
-| `payment_settings` | card_number, recipient_name, bank_name, trial_days, trial_plan |
+| `payment_settings` | card_number, recipient_name, bank_name, trial_days, trial_plan, **payment_provider** ('sbp'/'yookassa'), **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
 | `subscription_plans` | name, price, duration_days, max_products, max_shops, features |
 | `promocodes` | code, discount_percent, max_usage, current_usage, is_active |
+| `yookassa_payments` | yookassa_payment_id (UNIQUE), user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
 
 ---
 
@@ -495,6 +497,30 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 4. **`busy_timeout=10000`** в `create_tables()` (ранее только в `get_connection()`).
 5. **«message is not modified»** → тихий `answer()` без логирования (аналог «query is too old»). Commit `d13cbb7`.
 6. **Filter/dashboard investigation (read-only)**: дашборд и ручной фильтр (🔍 Фильтр) полностью независимы — дашборд читает только `get_user_org_scope()`, никогда не читает `ADMIN_FILTER_KEY` из FSM. Ручной фильтр влияет только на отчёты/рейтинги. Потенциальный gap: `get_plans_progress()` в дашборде (строка 529) не фильтрует по scope для 'wide'/'org' — показывает ВСЕ планы орга. Для single-shop scope фильтрация есть (строки 530-535). Поведение, видимо, намеренное (owner/org-level обзор планов).
+
+**Сессия 41 (2026-05-07) — ФУНДАМЕНТ ЮKASSA:**
+1. **`payment_provider.py`** (новый модуль): `get_active_provider(db)`, `create_yookassa_payment(...)`, `check_yookassa_payment_status(...)`, `provider_label(provider)` — lazy import yookassa; при ошибке API возвращает None/error, не ломает бота.
+2. **`database.py`** — новая таблица `yookassa_payments`; 7 новых методов: `get_payment_provider`, `set_payment_provider`, `get_yookassa_config`, `set_yookassa_config`, `create_yookassa_payment_record`, `get_yookassa_payment_by_payment_id`, `update_yookassa_payment_status`. Ключи в `payment_settings`: `payment_provider`, `yookassa_shop_id`, `yookassa_secret_key`, `yookassa_return_url`.
+3. **`payment_system_admin.py`** — в «💳 Настройки оплаты» добавлена кнопка «🔀 Провайдер оплаты»; экран выбора СБП/ЮKassa; экран настройки ЮKassa (Shop ID, секретный ключ с маскированием, Return URL); переключение на ЮKassa требует заполненных Shop ID и Secret Key; все строки через `he()`.
+4. **`subscription_handlers.py`** — `proceed_to_payment` маршрутизируется по провайдеру: СБП = старый поток (скриншот), ЮKassa = создаёт платёж → кнопка «💳 Перейти к оплате» (URL) + «✅ Я оплатил — проверить»; новый хэндлер `check_yookassa_payment` — проверяет статус в API → auto-confirm при 'succeeded' (create_payment_request + confirm_payment_request), уведомляет супер-администратора.
+5. **`states.py`** — `PaymentSystemStates`: `waiting_yookassa_shop_id`, `waiting_yookassa_secret_key`, `waiting_yookassa_return_url`.
+6. **`subscription_router.py`** — зарегистрирован `check_yookassa_payment` (`yk_check_*`).
+7. **`test_imports.py`** — добавлен `payment_provider` в список модулей.
+8. Тесты: **279/279 ✅**. Бот запущен чисто.
+
+**Сессия 40 (2026-05-07) — ПОЛНЫЙ ОБЗОР ПРОЕКТА + ИСПРАВЛЕНИЯ:**
+1. **`earnings_handlers.py` — Markdown→HTML** (10 мест): все `parse_mode="Markdown"` → `parse_mode="HTML"`, `*жирный*` → `<b>жирный</b>`. Commit `f3fa6ec`.
+2. **`earnings_handlers.py` — Английские названия месяцев**: `calendar.month_name[x]` (возвращал "May", "January") → `_MONTHS_RU[x]` (локальный список, "Май", "Январь"). Был баг на всех экранах истории заработка.
+3. **`earnings_handlers.py` — Неэкранированный `shop_name`**: в детальном виде дня (`earnings_day_details`) `shop_name` попадал в Markdown без `escape_md()` — при имени магазина с `_` или `*` рендеринг ломался. Теперь `he(shop_name)` в HTML.
+4. **`salary_handlers.py` — Markdown→HTML** (24 места): все `parse_mode="Markdown"` → `parse_mode="HTML"`, все `escape_md(name)` → `he(name)`, имена магазинов (`shop_str`) тоже через `he()`. Включая `_my_schedule_text()`, `_refresh_admin_calendar()`, `salary_summary()` и все hour-picker экраны.
+5. **`keyboards.py` — утечка соединения SQLite**: в `main_menu()` `conn.close()` стоял без `try/finally` — при исключении между `connect()` и `close()` соединение утекало. Исправлено добавлением `try/finally`.
+6. **Полный аудит архитектуры** (read-only): прочитаны все 25+ модулей. Найдены и задокументированы ниже.
+
+**Архитектурные наблюдения (не баги, но важно знать):**
+- `handlers.py` line 37: `db = Database('data/shop_bot.db')` — module-level instance. Не стале (bot перезапускается), но создаёт соединение при импорте.
+- `subscription_handlers.py` `_get_db()` создаёт новый `Database` на каждый вызов (намеренно — для изоляции).
+- Dashboard `get_plans_progress()` без scope-фильтра для org/wide — намеренно (owner видит все планы орга).
+- `create_tables()` вызывается при каждом `get_db()` — 7 CREATE INDEX IF NOT EXISTS на каждый запрос. На практике быстро (SQLite проверяет наличие), но есть overhead.
 
 ---
 

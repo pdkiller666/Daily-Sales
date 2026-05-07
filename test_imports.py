@@ -32,6 +32,7 @@ MODULES = [
     'reports_handlers',
     'inventory_handlers',
     'contacts_handlers',
+    'payment_provider',
     'subscription_router',
     'subscription_handlers',
     'notifications_handlers',

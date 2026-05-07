@@ -85,11 +85,16 @@ async def payment_settings_menu(callback: CallbackQuery):
     
     await callback.answer()
     payment_settings = db.get_payment_settings()
-    
+    provider = db.get_payment_provider()
+    from payment_provider import provider_label
+    provider_display = provider_label(provider)
+
     text = "💳 <b>Настройки платежной системы</b>\n\n"
+    text += f"🔀 <b>Активный провайдер:</b> {provider_display}\n\n"
     text += "Настройте реквизиты для получения платежей:\n\n"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🔀 Провайдер оплаты: {provider_display}", callback_data="payment_provider_select")],
         [InlineKeyboardButton(text=f"💳 Номер карты: {payment_settings.get('card_number', 'Не установлен')}", callback_data="set_card_number")],
         [InlineKeyboardButton(text=f"👤 Получатель: {payment_settings.get('recipient_name', 'Не установлен')}", callback_data="set_recipient_name")],
         [InlineKeyboardButton(text=f"🏦 Банк: {payment_settings.get('bank_name', 'Не установлен')}", callback_data="set_bank_name")],
@@ -2358,3 +2363,258 @@ async def trial_plan_selected(callback: CallbackQuery):
 
     await callback.answer(f"✅ Тариф пробного периода: {plan_name}")
     await trial_settings_menu(callback)
+
+
+# ===========================================================================
+# Выбор провайдера оплаты (СБП / ЮKassa)
+# ===========================================================================
+
+@payment_system_router.callback_query(F.data == "payment_provider_select")
+async def payment_provider_select(callback: CallbackQuery):
+    """Экран выбора провайдера оплаты"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    db = _get_db()
+    current = db.get_payment_provider()
+
+    sbp_mark = "✅ " if current == "sbp" else ""
+    yk_mark = "✅ " if current == "yookassa" else ""
+
+    text = (
+        "🔀 <b>Провайдер оплаты</b>\n\n"
+        "Выберите, как пользователи будут оплачивать подписку:\n\n"
+        "💳 <b>СБП</b> — пользователь переводит деньги вручную и присылает скриншот.\n"
+        "   Вы проверяете и подтверждаете оплату вручную.\n\n"
+        "🏦 <b>ЮKassa</b> — пользователь получает ссылку на оплату, подписка\n"
+        "   активируется автоматически после успешного платежа.\n\n"
+        "⚠️ <i>Для ЮKassa необходимо: ИП/ООО, договор с ЮKassa, Shop ID и секретный ключ.</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{sbp_mark}💳 СБП (ручная проверка)", callback_data="set_provider_sbp")],
+        [InlineKeyboardButton(text=f"{yk_mark}🏦 ЮKassa (автоматически)", callback_data="set_provider_yookassa")],
+        [InlineKeyboardButton(text="⚙️ Настройки ЮKassa", callback_data="yookassa_config_menu")],
+        [back_button("payment_settings")],
+    ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@payment_system_router.callback_query(F.data == "set_provider_sbp")
+async def set_provider_sbp(callback: CallbackQuery):
+    """Переключить на СБП"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    db = _get_db()
+    db.set_payment_provider("sbp")
+    await callback.answer("✅ Провайдер переключён на СБП")
+    await payment_provider_select(callback)
+
+
+@payment_system_router.callback_query(F.data == "set_provider_yookassa")
+async def set_provider_yookassa(callback: CallbackQuery):
+    """Переключить на ЮKassa"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    db = _get_db()
+    cfg = db.get_yookassa_config()
+    if not cfg['shop_id'] or not cfg['secret_key']:
+        await callback.answer(
+            "⚠️ Сначала заполните Shop ID и секретный ключ в настройках ЮKassa",
+            show_alert=True,
+        )
+        await yookassa_config_menu(callback)
+        return
+
+    db.set_payment_provider("yookassa")
+    await callback.answer("✅ Провайдер переключён на ЮKassa")
+    await payment_provider_select(callback)
+
+
+# ---------------------------------------------------------------------------
+# Настройки ЮKassa
+# ---------------------------------------------------------------------------
+
+@payment_system_router.callback_query(F.data == "yookassa_config_menu")
+async def yookassa_config_menu(callback: CallbackQuery):
+    """Экран настройки ЮKassa"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    db = _get_db()
+    cfg = db.get_yookassa_config()
+
+    shop_id_display = cfg['shop_id'] or "Не установлен"
+    # Маскируем секретный ключ — показываем только первые 8 и последние 4 символа
+    sk = cfg['secret_key']
+    if sk and len(sk) > 12:
+        secret_display = sk[:8] + "…" + sk[-4:]
+    elif sk:
+        secret_display = "••••••••"
+    else:
+        secret_display = "Не установлен"
+
+    return_url_display = cfg['return_url'] or "Не установлен"
+
+    text = (
+        "⚙️ <b>Настройки ЮKassa</b>\n\n"
+        f"🏪 <b>Shop ID:</b> {he(shop_id_display)}\n"
+        f"🔑 <b>Секретный ключ:</b> {he(secret_display)}\n"
+        f"🔗 <b>Return URL:</b> {he(return_url_display)}\n\n"
+        "<i>Данные берутся из личного кабинета ЮKassa.\n"
+        "Секретный ключ хранится в БД — не передавайте его третьим лицам.</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏪 Изменить Shop ID", callback_data="yk_set_shop_id")],
+        [InlineKeyboardButton(text="🔑 Изменить секретный ключ", callback_data="yk_set_secret_key")],
+        [InlineKeyboardButton(text="🔗 Изменить Return URL", callback_data="yk_set_return_url")],
+        [back_button("payment_provider_select")],
+    ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@payment_system_router.callback_query(F.data == "yk_set_shop_id")
+async def yk_set_shop_id_start(callback: CallbackQuery, state: FSMContext):
+    """Начать ввод Shop ID"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.set_state(PaymentSystemStates.waiting_yookassa_shop_id)
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="yookassa_config_menu")]
+    ])
+    await callback.message.edit_text(
+        "🏪 <b>Введите Shop ID ЮKassa</b>\n\n"
+        "Это числовой идентификатор вашего магазина в личном кабинете ЮKassa.\n"
+        "<i>Пример: 123456</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_yookassa_shop_id)
+async def yk_set_shop_id_save(message: Message, state: FSMContext):
+    """Сохранить Shop ID"""
+    from message_utils import fsm_edit
+    db = _get_db()
+    shop_id = message.text.strip() if message.text else ""
+    if not shop_id:
+        await fsm_edit(state, message, "❌ Пустое значение. Попробуйте ещё раз.")
+        return
+
+    db.set_yookassa_config(shop_id=shop_id)
+    await clear_state_keep_org(state)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Настройки ЮKassa", callback_data="yookassa_config_menu")]
+    ])
+    await fsm_edit(state, message,
+                   f"✅ <b>Shop ID сохранён:</b> {he(shop_id)}",
+                   reply_markup=keyboard)
+
+
+@payment_system_router.callback_query(F.data == "yk_set_secret_key")
+async def yk_set_secret_key_start(callback: CallbackQuery, state: FSMContext):
+    """Начать ввод секретного ключа"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.set_state(PaymentSystemStates.waiting_yookassa_secret_key)
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="yookassa_config_menu")]
+    ])
+    await callback.message.edit_text(
+        "🔑 <b>Введите секретный ключ ЮKassa</b>\n\n"
+        "Находится в личном кабинете ЮKassa → Настройки → Ключи API.\n"
+        "<i>Начинается с live_ или test_</i>\n\n"
+        "⚠️ <b>Не передавайте ключ посторонним!</b>",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_yookassa_secret_key)
+async def yk_set_secret_key_save(message: Message, state: FSMContext):
+    """Сохранить секретный ключ"""
+    from message_utils import fsm_edit
+    db = _get_db()
+    secret_key = message.text.strip() if message.text else ""
+    if not secret_key:
+        await fsm_edit(state, message, "❌ Пустое значение. Попробуйте ещё раз.")
+        return
+
+    db.set_yookassa_config(secret_key=secret_key)
+    await clear_state_keep_org(state)
+
+    sk = secret_key
+    masked = (sk[:8] + "…" + sk[-4:]) if len(sk) > 12 else "••••••••"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Настройки ЮKassa", callback_data="yookassa_config_menu")]
+    ])
+    await fsm_edit(state, message,
+                   f"✅ <b>Секретный ключ сохранён:</b> {he(masked)}",
+                   reply_markup=keyboard)
+
+
+@payment_system_router.callback_query(F.data == "yk_set_return_url")
+async def yk_set_return_url_start(callback: CallbackQuery, state: FSMContext):
+    """Начать ввод Return URL"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.set_state(PaymentSystemStates.waiting_yookassa_return_url)
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="yookassa_config_menu")]
+    ])
+    await callback.message.edit_text(
+        "🔗 <b>Введите Return URL</b>\n\n"
+        "Страница, на которую ЮKassa перенаправит пользователя после оплаты.\n"
+        "Если бота открывают через t.me — можно указать ссылку на бот.\n"
+        "<i>Пример: https://t.me/YourBotName</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_yookassa_return_url)
+async def yk_set_return_url_save(message: Message, state: FSMContext):
+    """Сохранить Return URL"""
+    from message_utils import fsm_edit
+    db = _get_db()
+    return_url = message.text.strip() if message.text else ""
+    if not return_url:
+        await fsm_edit(state, message, "❌ Пустое значение. Попробуйте ещё раз.")
+        return
+
+    db.set_yookassa_config(return_url=return_url)
+    await clear_state_keep_org(state)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Настройки ЮKassa", callback_data="yookassa_config_menu")]
+    ])
+    await fsm_edit(state, message,
+                   f"✅ <b>Return URL сохранён:</b> {he(return_url)}",
+                   reply_markup=keyboard)

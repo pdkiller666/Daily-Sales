@@ -219,6 +219,22 @@ class Database:
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS yookassa_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                yookassa_payment_id TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL,
+                plan_type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT DEFAULT 'pending',
+                promocode_id INTEGER,
+                is_scheduled INTEGER DEFAULT 0,
+                schedule_date TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS subscription_plans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -842,6 +858,117 @@ class Database:
         ''', (key, value))
         conn.commit()
         conn.close()
+
+    # ------------------------------------------------------------------
+    # Провайдер платежей
+    # ------------------------------------------------------------------
+
+    def get_payment_provider(self) -> str:
+        """Получить активного провайдера оплаты ('sbp' или 'yookassa')."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM payment_settings WHERE key = 'payment_provider'")
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 'sbp'
+
+    def set_payment_provider(self, provider: str) -> None:
+        """Установить активного провайдера оплаты."""
+        self.update_payment_setting('payment_provider', provider)
+
+    def get_yookassa_config(self) -> dict:
+        """Получить настройки ЮKassa (shop_id, secret_key, return_url)."""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT key, value FROM payment_settings WHERE key IN "
+            "('yookassa_shop_id','yookassa_secret_key','yookassa_return_url')"
+        )
+        result = dict(cursor.fetchall())
+        conn.close()
+        return {
+            'shop_id': result.get('yookassa_shop_id', ''),
+            'secret_key': result.get('yookassa_secret_key', ''),
+            'return_url': result.get('yookassa_return_url', ''),
+        }
+
+    def set_yookassa_config(self, shop_id: str = None, secret_key: str = None,
+                            return_url: str = None) -> None:
+        """Сохранить одно или несколько полей конфига ЮKassa."""
+        if shop_id is not None:
+            self.update_payment_setting('yookassa_shop_id', shop_id)
+        if secret_key is not None:
+            self.update_payment_setting('yookassa_secret_key', secret_key)
+        if return_url is not None:
+            self.update_payment_setting('yookassa_return_url', return_url)
+
+    # ------------------------------------------------------------------
+    # Таблица yookassa_payments
+    # ------------------------------------------------------------------
+
+    def create_yookassa_payment_record(
+        self,
+        yookassa_payment_id: str,
+        user_id: int,
+        plan_type: str,
+        amount: float,
+        promocode_id: int = None,
+        is_scheduled: bool = False,
+        schedule_date: str = None,
+    ) -> bool:
+        """Сохранить запись о созданном платеже ЮKassa."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                INSERT INTO yookassa_payments
+                    (yookassa_payment_id, user_id, plan_type, amount,
+                     promocode_id, is_scheduled, schedule_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    yookassa_payment_id, user_id, plan_type, amount,
+                    promocode_id, 1 if is_scheduled else 0, schedule_date,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"create_yookassa_payment_record: {e}")
+            return False
+
+    def get_yookassa_payment_by_payment_id(self, yookassa_payment_id: str):
+        """Найти запись платежа ЮKassa по его ID."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM yookassa_payments WHERE yookassa_payment_id = ?",
+                (yookassa_payment_id,),
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row
+        except Exception as e:
+            logger.error(f"get_yookassa_payment_by_payment_id: {e}")
+            return None
+
+    def update_yookassa_payment_status(self, yookassa_payment_id: str, status: str) -> None:
+        """Обновить статус платежа ЮKassa."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE yookassa_payments SET status=?, updated_at=CURRENT_TIMESTAMP "
+                "WHERE yookassa_payment_id=?",
+                (status, yookassa_payment_id),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"update_yookassa_payment_status: {e}")
 
     def get_subscriptions_statistics(self):
         """Статистика подписок"""

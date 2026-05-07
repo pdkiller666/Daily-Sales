@@ -139,6 +139,9 @@ class PaymentSystemStates(StatesGroup):
     waiting_cancel_user_id = State()
     waiting_trial_days = State()
     waiting_trial_plan = State()
+    waiting_yookassa_shop_id = State()
+    waiting_yookassa_secret_key = State()
+    waiting_yookassa_return_url = State()
 
 class QuickSaleStates(StatesGroup):
     searching_product = State()
