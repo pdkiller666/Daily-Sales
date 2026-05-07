@@ -25,6 +25,25 @@ from hints import hint_suffix
 
 logger = logging.getLogger(__name__)
 
+
+def _translit_filename(text: str) -> str:
+    """Транслитерация строки для безопасного имени файла (только ASCII + цифры + _-)."""
+    MAP = {
+        'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'Yo','Ж':'Zh',
+        'З':'Z','И':'I','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O',
+        'П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts',
+        'Ч':'Ch','Ш':'Sh','Щ':'Sch','Ъ':'','Ы':'Y','Ь':'','Э':'E','Ю':'Yu','Я':'Ya',
+        'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh',
+        'з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o',
+        'п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts',
+        'ч':'ch','ш':'sh','щ':'sch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+    }
+    result = ''.join(MAP.get(ch, ch) for ch in str(text))
+    import re
+    result = re.sub(r'[^\w\-.]', '_', result)
+    result = re.sub(r'_+', '_', result).strip('_')
+    return result or 'report'
+
 @reports_router.callback_query(F.data == "reports")
 async def reports_menu(callback: CallbackQuery, state: FSMContext):
     """Меню отчетов с дашбордом и проверкой ограничений подписки"""
@@ -1695,7 +1714,7 @@ async def calendar_navigation(callback: CallbackQuery, state: FSMContext):
 
 @reports_router.callback_query(F.data == "download_excel_full")
 async def download_excel_full(callback: CallbackQuery, state: FSMContext):
-    """Скачивание полного отчета в Excel"""
+    """Скачивание полного отчета в Excel (с учётом scope-зоны ответственности admin)"""
     current_db = await get_db(callback.from_user.id, state)
     user_id = current_db.get_user_id(callback.from_user.id)
     if not user_id:
@@ -1707,21 +1726,34 @@ async def download_excel_full(callback: CallbackQuery, state: FSMContext):
         await callback.answer(error_message, show_alert=True)
         return
 
-    sales = current_db.get_sales_report()
+    await callback.answer("⏳ Формирую файл...")
+
+    from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
+    try:
+        fsm_data = await state.get_data()
+        _af = fsm_data.get(ADMIN_FILTER_KEY, empty_filter())
+        _sc, _sv = get_user_org_scope(callback.from_user.id)
+        _fkw = merge_scope_with_filter(_sc, _sv, _af)
+        sales = current_db.get_sales_report(**_fkw)
+    except Exception:
+        sales = current_db.get_sales_report()
+
     if not sales:
-        await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+        await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    file_path = generate_excel_report(sales, "Полный отчет по продажам", "Все периоды")
+    file_path = generate_excel_report(sales, "Полный отчёт по продажам", "Все периоды")
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
     try:
-        await callback.message.answer_document(FSInputFile(file_path, filename="Полный_отчет.xlsx"))
-        await callback.answer("✅ Excel файл отправлен!")
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename="Polnyy_otchet.xlsx"),
+            caption=f"📊 Полный отчёт · {len(sales)} строк"
+        )
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
@@ -1742,24 +1774,29 @@ async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
         await callback.answer(error_message, show_alert=True)
         return
 
+    await callback.answer("⏳ Формирую файл...")
+
     shop_raw = callback.data.replace("download_excel_shop_", "")
     shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
 
     sales = current_db.get_sales_report(shop_name=shop_name)
     if not sales:
-        await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+        await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    file_path = generate_excel_report(sales, f"Отчет по магазину '{shop_name}'", "Все периоды", shop_name)
+    file_path = generate_excel_report(sales, f"Отчёт по магазину «{shop_name}»", "Все периоды", shop_name)
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
+    safe_name = _translit_filename(shop_name)
     try:
-        await callback.message.answer_document(FSInputFile(file_path, filename=f"Отчет_{shop_name}.xlsx"))
-        await callback.answer("✅ Excel файл отправлен!")
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename=f"Otchet_{safe_name}.xlsx"),
+            caption=f"🏪 {shop_name} · {len(sales)} строк"
+        )
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
@@ -1768,7 +1805,7 @@ async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
 
 @reports_router.callback_query(F.data == "download_excel_user")
 async def download_excel_user(callback: CallbackQuery, state: FSMContext):
-    """Скачивание отчета пользователя в Excel"""
+    """Скачивание отчёта пользователя в Excel (все его продажи без лимита)"""
     current_db = await get_db(callback.from_user.id, state)
     user_id = current_db.get_user_id(callback.from_user.id)
     if not user_id:
@@ -1780,21 +1817,28 @@ async def download_excel_user(callback: CallbackQuery, state: FSMContext):
         await callback.answer(error_message, show_alert=True)
         return
 
-    sales = current_db.get_user_sales(user_id, limit=1000)
+    await callback.answer("⏳ Формирую файл...")
+
+    sales = current_db.get_user_sales(user_id, limit=50000)
     if not sales:
-        await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+        await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    file_path = generate_excel_report(sales, "Отчет по продажам пользователя", "Все периоды", None)
+    user = current_db.get_user(callback.from_user.id)
+    seller_label = f"{user[1]} {user[2]}".strip() if user else "Пользователь"
+
+    file_path = generate_excel_report(sales, f"Продажи: {seller_label}", "Все периоды", None)
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
     try:
-        await callback.message.answer_document(FSInputFile(file_path, filename="Отчет_пользователя.xlsx"))
-        await callback.answer("✅ Excel файл отправлен!")
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename="Otchet_polzovatelya.xlsx"),
+            caption=f"👤 {seller_label} · {len(sales)} строк"
+        )
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
@@ -1824,31 +1868,33 @@ async def download_excel_period(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Сессия устарела, откройте отчёт заново.", show_alert=True)
         return
 
+    await callback.answer("⏳ Формирую файл...")
+
     sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
     if not sales:
-        await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+        await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    period_text = f"{format_date_display(start_date)} - {format_date_display(end_date)}"
-    report_title = "Отчет за период"
+    period_text = f"{format_date_display(start_date)} – {format_date_display(end_date)}"
+    report_title = "Отчёт за период"
     if shop_name:
-        report_title += f" - {shop_name}"
+        report_title += f" · {shop_name}"
 
     file_path = generate_excel_report(sales, report_title, period_text, shop_name)
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
-    filename = f"Отчет_{start_date}_{end_date}"
-    if shop_name:
-        filename += f"_{shop_name}"
-    filename += ".xlsx"
+    safe_shop = f"_{_translit_filename(shop_name)}" if shop_name else ""
+    filename = f"Otchet_{start_date}_{end_date}{safe_shop}.xlsx"
 
     try:
-        await callback.message.answer_document(FSInputFile(file_path, filename=filename))
-        await callback.answer("✅ Excel файл отправлен!")
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename=filename),
+            caption=f"📅 {period_text}{(' · ' + shop_name) if shop_name else ''} · {len(sales)} строк"
+        )
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
@@ -1857,7 +1903,7 @@ async def download_excel_period(callback: CallbackQuery, state: FSMContext):
 
 @reports_router.callback_query(F.data.startswith("download_excel_city_"))
 async def download_excel_city(callback: CallbackQuery, state: FSMContext):
-    """Скачивание отчета по городу в Excel"""
+    """Скачивание отчёта по городу в Excel (один SQL-запрос через shop_names)"""
     current_db = await get_db(callback.from_user.id, state)
     user_id = current_db.get_user_id(callback.from_user.id)
     if not user_id:
@@ -1869,33 +1915,40 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
         await callback.answer(error_message, show_alert=True)
         return
 
+    await callback.answer("⏳ Формирую файл...")
+
     city_raw = callback.data.replace("download_excel_city_", "")
     city_name = resolve_cb_name(city_raw, current_db.get_all_cities() or [])
 
     users_in_city = current_db.get_users_by_city(city_name)
     if not users_in_city:
-        await callback.answer("❌ Нет пользователей в этом городе", show_alert=True)
+        await callback.message.answer("❌ Нет пользователей в этом городе")
         return
 
-    shops_in_city = list(set(user[8] for user in users_in_city if user[8]))
-    all_sales = []
-    for shop in shops_in_city:
-        all_sales.extend(current_db.get_sales_report(shop_name=shop))
+    shops_in_city = list(set(u[8] for u in users_in_city if u[8]))
+    if not shops_in_city:
+        await callback.message.answer("❌ Нет магазинов в этом городе")
+        return
+
+    all_sales = current_db.get_sales_report(shop_names=shops_in_city)
 
     if not all_sales:
-        await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+        await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    file_path = generate_excel_report(all_sales, f"Отчет по городу '{city_name}'", "Все периоды")
+    file_path = generate_excel_report(all_sales, f"Отчёт по городу «{city_name}»", "Все периоды")
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
+    safe_city = _translit_filename(city_name)
     try:
-        await callback.message.answer_document(FSInputFile(file_path, filename=f"Отчет_{city_name}.xlsx"))
-        await callback.answer("✅ Excel файл отправлен!")
+        await callback.message.answer_document(
+            FSInputFile(file_path, filename=f"Otchet_{safe_city}.xlsx"),
+            caption=f"🏙️ {city_name} · {len(shops_in_city)} маг. · {len(all_sales)} строк"
+        )
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
@@ -1905,31 +1958,34 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
 @reports_router.callback_query(F.data == "download_excel_my_sales_free")
 async def download_excel_my_sales_free(callback: CallbackQuery, state: FSMContext):
     """Бесплатный Excel-экспорт для продавца — только его собственные продажи, без проверки подписки."""
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user_id = current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    sales = current_db.get_user_sales(user_id, limit=5000)
+    sales = current_db.get_user_sales(user_id, limit=50000)
     if not sales:
         await callback.answer("❌ У вас пока нет продаж для экспорта", show_alert=True)
         return
 
-    file_path = generate_excel_report(sales, "Мои продажи", "Всё время", None)
+    await callback.answer("⏳ Формирую файл...")
+
+    user = current_db.get_user(callback.from_user.id)
+    seller_label = f"{user[1]} {user[2]}".strip() if user else "Продавец"
+
+    file_path = generate_excel_report(sales, f"Мои продажи: {seller_label}", "Всё время", None)
     if not file_path:
-        await callback.answer("❌ Ошибка при создании файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при создании файла")
         return
 
     try:
         await callback.message.answer_document(
-            FSInputFile(file_path, filename="Мои_продажи.xlsx"),
-            caption="📥 Ваши продажи за всё время"
+            FSInputFile(file_path, filename="Moi_prodazhi.xlsx"),
+            caption=f"📥 Ваши продажи за всё время · {len(sales)} строк"
         )
-        await callback.answer("✅ Excel файл отправлен!")
     except Exception:
-        await callback.answer("❌ Ошибка при отправке файла", show_alert=True)
+        await callback.message.answer("❌ Ошибка при отправке файла")
     finally:
         try:
             os.unlink(file_path)
