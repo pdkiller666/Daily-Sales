@@ -917,8 +917,10 @@ class Database:
         schedule_date: str = None,
     ) -> bool:
         """Сохранить запись о созданном платеже ЮKassa."""
+        conn = None
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             cursor.execute(
                 '''
@@ -935,8 +937,22 @@ class Database:
             conn.commit()
             conn.close()
             return True
+        except sqlite3.IntegrityError:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                conn.close()
+            return False
         except Exception as e:
             logger.error(f"create_yookassa_payment_record: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                conn.close()
             return False
 
     def get_yookassa_payment_by_payment_id(self, yookassa_payment_id: str):
@@ -1903,7 +1919,7 @@ class Database:
                 FROM sales_audit_log sal
                 LEFT JOIN users u ON sal.changed_by_user_id = u.id
                 WHERE sal.sale_id = ?
-                ORDER BY sal.changed_at DESC
+                ORDER BY sal.changed_at DESC, sal.id DESC
             ''', (sale_id,))
             rows = cursor.fetchall()
             conn.close()
@@ -3573,8 +3589,10 @@ class Database:
                        extra_conditions=None, notify_on_start=0, notify_on_end=0,
                        created_by=None):
         """Создать конкурс"""
+        conn = None
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             cursor.execute('''
@@ -3594,7 +3612,11 @@ class Database:
             return new_id
         except Exception as e:
             logger.error(f"Ошибка create_contest: {e}")
-            if 'conn' in locals():
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 conn.close()
             return None
 
@@ -3679,7 +3701,11 @@ class Database:
             return updated
         except Exception as e:
             logger.error(f"Ошибка update_contest: {e}")
-            if 'conn' in locals():
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 conn.close()
             return False
 

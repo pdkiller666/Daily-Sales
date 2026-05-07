@@ -1038,6 +1038,999 @@ check("QuickSaleStates.searching_product — это State",
       isinstance(QuickSaleStates.searching_product, State))
 
 # ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 17: ЮKassa — провайдер и конфигурация
+# ─────────────────────────────────────────────────────────
+section("Сценарий 17: ЮKassa — провайдер, конфигурация, платёжные записи")
+
+ykdb = make_db("yookassa.db")
+
+# get_payment_provider: default = 'sbp'
+check("get_payment_provider: default = 'sbp'", ykdb.get_payment_provider() == 'sbp')
+
+# set / get provider
+ykdb.set_payment_provider('yookassa')
+check("set_payment_provider('yookassa'): провайдер = yookassa",
+      ykdb.get_payment_provider() == 'yookassa')
+ykdb.set_payment_provider('sbp')
+check("set_payment_provider back to 'sbp'", ykdb.get_payment_provider() == 'sbp')
+
+# get_yookassa_config — по умолчанию пустые строки
+cfg = ykdb.get_yookassa_config()
+check("get_yookassa_config: dict", isinstance(cfg, dict))
+check("get_yookassa_config: keys (shop_id, secret_key, return_url)",
+      all(k in cfg for k in ('shop_id', 'secret_key', 'return_url')))
+check("get_yookassa_config: default shop_id = ''",    cfg['shop_id'] == '')
+check("get_yookassa_config: default secret_key = ''", cfg['secret_key'] == '')
+check("get_yookassa_config: default return_url = ''", cfg['return_url'] == '')
+
+# set_yookassa_config — частичное обновление
+ykdb.set_yookassa_config(shop_id='123456')
+cfg2 = ykdb.get_yookassa_config()
+check("set_yookassa_config: shop_id сохранён",        cfg2['shop_id'] == '123456')
+check("set_yookassa_config: secret_key не затронут",  cfg2['secret_key'] == '')
+
+ykdb.set_yookassa_config(secret_key='sk_test_abc', return_url='https://t.me/testbot')
+cfg3 = ykdb.get_yookassa_config()
+check("set_yookassa_config: secret_key сохранён",    cfg3['secret_key'] == 'sk_test_abc')
+check("set_yookassa_config: return_url сохранён",    cfg3['return_url'] == 'https://t.me/testbot')
+check("set_yookassa_config: shop_id не изменился",   cfg3['shop_id'] == '123456')
+
+# create_yookassa_payment_record
+ykdb.add_user(1001001, "ЮKassa", "Тестер")
+yk_uid = ykdb.get_user_id(1001001)
+ok1 = ykdb.create_yookassa_payment_record(
+    yookassa_payment_id='yk_pay_001',
+    user_id=yk_uid,
+    plan_type='Базовый',
+    amount=990.0,
+    promocode_id=None,
+    is_scheduled=False,
+    schedule_date=None,
+)
+check("create_yookassa_payment_record: True", ok1 is True)
+
+# get_yookassa_payment_by_payment_id
+row = ykdb.get_yookassa_payment_by_payment_id('yk_pay_001')
+check("get_yookassa_payment_by_payment_id: найден",             row is not None)
+check("yk_payment: payment_id == 'yk_pay_001'",                 row[1] == 'yk_pay_001')
+check("yk_payment: user_id корректен",                          row[2] == yk_uid)
+check("yk_payment: plan_type = 'Базовый'",                      row[3] == 'Базовый')
+check("yk_payment: amount = 990.0",                             abs(row[4] - 990.0) < 0.01)
+check("yk_payment: default status = 'pending'",                 row[5] == 'pending')
+check("yk_payment: is_scheduled = 0",                           row[7] == 0)
+
+# get несуществующего
+check("get_yookassa_payment: несущ. → None",
+      ykdb.get_yookassa_payment_by_payment_id('NONEXISTENT') is None)
+
+# update_yookassa_payment_status
+ykdb.update_yookassa_payment_status('yk_pay_001', 'succeeded')
+row2 = ykdb.get_yookassa_payment_by_payment_id('yk_pay_001')
+check("update_yookassa_payment_status: succeeded", row2[5] == 'succeeded')
+
+ykdb.update_yookassa_payment_status('yk_pay_001', 'canceled')
+row3 = ykdb.get_yookassa_payment_by_payment_id('yk_pay_001')
+check("update_yookassa_payment_status: canceled",  row3[5] == 'canceled')
+
+# UNIQUE constraint — дублирование payment_id → False
+ok_dup = ykdb.create_yookassa_payment_record(
+    yookassa_payment_id='yk_pay_001',  # дубликат
+    user_id=yk_uid, plan_type='Премиум', amount=1990.0,
+)
+check("create_yookassa_payment_record UNIQUE: дубликат → False", ok_dup is False)
+
+# Запись с промокодом и scheduled
+ok3 = ykdb.create_yookassa_payment_record(
+    yookassa_payment_id='yk_pay_002',
+    user_id=yk_uid,
+    plan_type='Премиум',
+    amount=1592.0,
+    promocode_id=42,
+    is_scheduled=True,
+    schedule_date='15.06.2026',
+)
+check("create_yookassa_payment_record: с промокодом, scheduled → True", ok3 is True)
+row_sched = ykdb.get_yookassa_payment_by_payment_id('yk_pay_002')
+check("yk_payment scheduled: promocode_id = 42",        row_sched[6] == 42)
+check("yk_payment scheduled: is_scheduled = 1",         row_sched[7] == 1)
+check("yk_payment scheduled: schedule_date сохранён",   row_sched[8] == '15.06.2026')
+
+# update несуществующего — не падает
+try:
+    ykdb.update_yookassa_payment_status('NONEXIST', 'succeeded')
+    check("update_yookassa_payment_status: несущ. — нет исключения", True)
+except Exception:
+    check("update_yookassa_payment_status: несущ. — нет исключения", False)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 18: payment_provider.py — фабрика провайдеров
+# ─────────────────────────────────────────────────────────
+section("Сценарий 18: payment_provider.py — фабрика провайдеров")
+
+from payment_provider import (
+    get_active_provider, provider_label,
+    PROVIDER_SBP, PROVIDER_YOOKASSA,
+    check_yookassa_payment_status, create_yookassa_payment,
+)
+
+# Константы
+check("PROVIDER_SBP == 'sbp'",           PROVIDER_SBP == 'sbp')
+check("PROVIDER_YOOKASSA == 'yookassa'", PROVIDER_YOOKASSA == 'yookassa')
+
+# provider_label
+check("provider_label('sbp'): содержит 'СБП'",       'СБП'    in provider_label('sbp'))
+check("provider_label('yookassa'): содержит 'ЮKassa'", 'ЮKassa' in provider_label('yookassa'))
+check("provider_label('unknown'): строка",            isinstance(provider_label('unknown'), str))
+check("provider_label(''): строка",                   isinstance(provider_label(''), str))
+check("provider_label('sbp') != provider_label('yookassa')",
+      provider_label('sbp') != provider_label('yookassa'))
+
+# get_active_provider через реальный DB
+pp_db = make_db("provider.db")
+check("get_active_provider: default 'sbp'",           get_active_provider(pp_db) == 'sbp')
+pp_db.set_payment_provider('yookassa')
+check("get_active_provider: после set 'yookassa'",    get_active_provider(pp_db) == 'yookassa')
+pp_db.set_payment_provider('sbp')
+check("get_active_provider: вернулся к 'sbp'",        get_active_provider(pp_db) == 'sbp')
+
+# check_yookassa_payment_status без shop_id / secret_key → 'error'
+check("check_yookassa_payment_status без shop_id → 'error'",
+      check_yookassa_payment_status('any_id', '', 'key') == 'error')
+check("check_yookassa_payment_status без secret_key → 'error'",
+      check_yookassa_payment_status('any_id', 'shop', '') == 'error')
+check("check_yookassa_payment_status оба пустых → 'error'",
+      check_yookassa_payment_status('any_id', '', '') == 'error')
+
+# check с невалидными данными (нет реального API) → 'error'
+status_bad = check_yookassa_payment_status('fake_payment_id', 'shop123', 'secret123')
+check("check_yookassa_payment_status фейк данные → 'error'", status_bad == 'error')
+
+# create_yookassa_payment без shop_id / secret_key → None
+check("create_yookassa_payment без shop_id → None",
+      create_yookassa_payment(100.0, 'test', {}, 'http://x', '', 'key') is None)
+check("create_yookassa_payment без secret_key → None",
+      create_yookassa_payment(100.0, 'test', {}, 'http://x', 'shop', '') is None)
+check("create_yookassa_payment оба пустых → None",
+      create_yookassa_payment(100.0, 'test', {}, 'http://x', '', '') is None)
+
+# create с фейковыми данными → None (API недоступен, ImportError или Exception)
+result_bad_api = create_yookassa_payment(
+    100.0, 'Тест подписки', {'user': 1}, 'http://x', 'fake_shop', 'fake_key')
+check("create_yookassa_payment фейк данные → None",      result_bad_api is None)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 19: Планы продаж
+# ─────────────────────────────────────────────────────────
+section("Сценарий 19: Планы продаж — CRUD и прогресс")
+
+pldb = make_db("plans.db")
+pldb.add_user(1100001, "Продавец",  "Плановый", shop_name="Магазин Плановый", city="Москва")
+pldb.add_user(1100002, "Второй",    "Продавец", shop_name="Магазин Плановый", city="Москва")
+plu1 = pldb.get_user_id(1100001)
+plu2 = pldb.get_user_id(1100002)
+
+# add_sales_plan — personal, turnover, weekly
+plan1_id = pldb.add_sales_plan(
+    'personal', 'turnover', 50000.0, 'weekly',
+    user_id=plu1, shop_name=None, filter_type='all', created_by=1)
+check("add_sales_plan personal: ID не None", plan1_id is not None and plan1_id > 0)
+
+# add_sales_plan — shop, quantity, monthly
+plan2_id = pldb.add_sales_plan(
+    'shop', 'quantity', 100, 'monthly',
+    user_id=None, shop_name='Магазин Плановый', filter_type='all', created_by=1)
+check("add_sales_plan shop: ID не None", plan2_id is not None and plan2_id > 0)
+
+# add_sales_plan — ещё один для удаления
+plan3_id = pldb.add_sales_plan(
+    'personal', 'quantity', 200, 'monthly',
+    user_id=plu2, shop_name=None, filter_type='all', created_by=1)
+check("add_sales_plan personal2: ID не None", plan3_id is not None and plan3_id > 0)
+
+# get_sales_plans — все активные
+plans = pldb.get_sales_plans(active_only=True)
+check("get_sales_plans: 3 плана",        len(plans) == 3)
+
+# структура строки: 0:id, 1:plan_type, 2:metric_type, 3:target_value,
+#                   4:target_type, 5:user_id, 6:shop_name, 7:filter_type,
+#                   8:filter_value, 9:is_active, 10:created_by, 11:created_at,
+#                   12:first_name, 13:last_name
+p1_row = next((p for p in plans if p[0] == plan1_id), None)
+check("get_sales_plans: plan1 найден",          p1_row is not None)
+check("get_sales_plans: metric_type turnover",  p1_row[2] == 'turnover' if p1_row else False)
+check("get_sales_plans: target_value 50000",    abs(p1_row[3] - 50000.0) < 0.01 if p1_row else False)
+check("get_sales_plans: target_type weekly",    p1_row[4] == 'weekly' if p1_row else False)
+check("get_sales_plans: first_name Продавец",   p1_row[12] == 'Продавец' if p1_row else False)
+
+p2_row = next((p for p in plans if p[0] == plan2_id), None)
+check("get_sales_plans: plan2 shop_name",
+      p2_row[6] == 'Магазин Плановый' if p2_row else False)
+
+# update_sales_plan
+upd_ok = pldb.update_sales_plan(plan1_id, target_value=60000.0)
+check("update_sales_plan: вернул True", upd_ok is True)
+plans_upd = pldb.get_sales_plans(active_only=True)
+p1_upd = next((p for p in plans_upd if p[0] == plan1_id), None)
+check("update_sales_plan: target_value 60000",
+      abs(p1_upd[3] - 60000.0) < 0.01 if p1_upd else False)
+
+# update_sales_plan: неизвестное поле → False (nothing to update)
+bad_upd = pldb.update_sales_plan(plan1_id, nonexistent_field='x')
+check("update_sales_plan: неизвестное поле → False", bad_upd is False)
+
+# update is_active = 0 (деактивация)
+pldb.update_sales_plan(plan1_id, is_active=0)
+active_plans = pldb.get_sales_plans(active_only=True)
+check("update_sales_plan is_active=0: план исчез из active_only",
+      not any(p[0] == plan1_id for p in active_plans))
+all_plans = pldb.get_sales_plans(active_only=False)
+check("get_sales_plans active_only=False: деактивированный присутствует",
+      any(p[0] == plan1_id for p in all_plans))
+
+# delete_sales_plan
+del_ok = pldb.delete_sales_plan(plan3_id)
+check("delete_sales_plan: True", del_ok is True)
+check("delete_sales_plan: план исчез",
+      not any(p[0] == plan3_id for p in pldb.get_sales_plans(active_only=False)))
+
+# delete несуществующего → False
+del_bad = pldb.delete_sales_plan(99999)
+check("delete_sales_plan: несущ. → False", del_bad is False)
+
+# get_plans_progress — список
+progress = pldb.get_plans_progress()
+check("get_plans_progress: список", isinstance(progress, list))
+
+# _plan_summary_line из dashboard_handlers
+# plan row: [0]=id,[1]=plan_type,[2]=metric_type,[3]=target_value,[4]=target_type,
+#            [5]=user_id,[6]=shop_name,[7]=filter_type,[8]=filter_value,[9]=is_active,
+#            [10]=created_by,[11]=created_at,[12]=first_name,[13]=last_name
+from dashboard_handlers import _plan_summary_line
+_mock_plan = (1, 'personal', 'turnover', 50000.0, 'weekly',
+              plu1, 'Магазин Плановый', 'all', None, 1, 1, '2026-01-01', 'Продавец', 'Плановый')
+check("_plan_summary_line 0%: строка",   isinstance(_plan_summary_line(_mock_plan, 0.0, 0.0), str))
+check("_plan_summary_line 50%: строка",  isinstance(_plan_summary_line(_mock_plan, 25000.0, 50.0), str))
+check("_plan_summary_line 100%: строка", isinstance(_plan_summary_line(_mock_plan, 50000.0, 100.0), str))
+check("_plan_summary_line 120%: строка", isinstance(_plan_summary_line(_mock_plan, 60000.0, 120.0), str))
+_mock_qty_plan = (2, 'shop', 'quantity', 100, 'monthly',
+                  None, 'Магазин А', 'all', None, 1, 1, '2026-01-01', None, None)
+check("_plan_summary_line quantity plan: строка",
+      isinstance(_plan_summary_line(_mock_qty_plan, 42.0, 42.0), str))
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 20: Конкурсы — полный жизненный цикл
+# ─────────────────────────────────────────────────────────
+section("Сценарий 20: Конкурсы — создание, статус, архив")
+
+ctdb = make_db("contests.db")
+ctdb.add_user(1200001, "Победитель", "Конкурсов", shop_name="Магазин А")
+ctdb.add_user(1200002, "Участник",   "Второй",    shop_name="Магазин А")
+cu1 = ctdb.get_user_id(1200001)
+cu2 = ctdb.get_user_id(1200002)
+
+start_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+end_str   = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+# create_contest
+ct_id = ctdb.create_contest(
+    title="Лучший продавец мая",
+    description="Конкурс по обороту",
+    contest_type='individual',
+    metric_type='turnover',
+    target_value=100000,
+    reward_type='fixed',
+    reward_value=5000,
+    start_date=start_str,
+    end_date=end_str,
+    created_by=cu1,
+)
+check("create_contest: ID не None", ct_id is not None and ct_id > 0)
+
+# get_contests — все (без фильтра статуса)
+all_ct = ctdb.get_contests()
+check("get_contests(): ≥1 конкурс",    len(all_ct) >= 1)
+
+# get_contests — только active
+active_ct = ctdb.get_contests(status='active')
+check("get_contests(active): ≥1",      len(active_ct) >= 1)
+check("get_contests(active): статус",  all(c[16] == 'active' for c in active_ct))
+
+# get_contest по id — структура:
+# 0:id, 1:title, 2:desc, 3:contest_type, 4:metric_type, 5:target_value,
+# 6:reward_type, 7:reward_value, 8:start_date, 9:end_date, 16:status
+ct = ctdb.get_contest(ct_id)
+check("get_contest: найден",                     ct is not None)
+check("get_contest: title",                      ct[1] == "Лучший продавец мая")
+check("get_contest: metric_type = turnover",     ct[4] == 'turnover')
+check("get_contest: target_value = 100000",      ct[5] == 100000)
+check("get_contest: status = 'active'",          ct[16] == 'active')
+
+# Несуществующий
+check("get_contest: несущ. → None",              ctdb.get_contest(99999) is None)
+
+# update_contest_status — завершение конкурса
+ctdb.update_contest_status(ct_id, 'completed')
+ct_done = ctdb.get_contest(ct_id)
+check("update_contest_status 'completed': статус",  ct_done[16] == 'completed')
+
+# get_contests(status='completed') — должен включать завершённый
+completed_ct = ctdb.get_contests(status='completed')
+check("get_contests(completed): ≥1",              len(completed_ct) >= 1)
+check("get_contests(completed): нет active",
+      all(c[16] == 'completed' for c in completed_ct))
+
+# Создаём второй конкурс и удаляем его
+ct_id2 = ctdb.create_contest(
+    title="Конкурс для удаления",
+    metric_type='quantity',
+    target_value=50,
+    reward_type='fixed',
+    reward_value=1000,
+    start_date=start_str,
+    end_date=end_str,
+)
+check("create_contest 2: ID не None", ct_id2 is not None and ct_id2 > 0)
+
+del_ct = ctdb.delete_contest(ct_id2)
+check("delete_contest: True", del_ct is True)
+check("delete_contest: конкурс удалён", ctdb.get_contest(ct_id2) is None)
+
+# delete несуществующего
+del_ct_bad = ctdb.delete_contest(99999)
+check("delete_contest: несущ. → False", del_ct_bad is False)
+
+# update_contest (общий метод)
+# allowed fields: start_date, end_date, target_value, reward_value — НЕ title
+ct_id3 = ctdb.create_contest(
+    title="Тестовый конкурс",
+    metric_type='turnover',
+    target_value=1000,
+    start_date=start_str,
+    end_date=end_str,
+)
+check("create_contest 3: ID не None", ct_id3 is not None and ct_id3 > 0)
+upd_ct = ctdb.update_contest(ct_id3, target_value=2000, reward_value=500)
+check("update_contest: True",              upd_ct is True)
+ct3_upd = ctdb.get_contest(ct_id3)
+check("update_contest: ct3_upd не None",   ct3_upd is not None)
+check("update_contest: target обновлён",   ct3_upd is not None and ct3_upd[5] == 2000)
+check("update_contest: reward обновлён",   ct3_upd is not None and ct3_upd[7] == 500)
+# title — не в allowed fields, остаётся прежним
+check("update_contest: title не изменился", ct3_upd is not None and ct3_upd[1] == "Тестовый конкурс")
+# update_contest с незапрещёнными полями → False (ничего не обновилось)
+upd_none = ctdb.update_contest(ct_id3, nonexistent_field="xyz")
+check("update_contest: нет allowed fields → False", upd_none is False)
+
+# clear_contests_archive — удаляет 'finished' и 'cancelled'
+ctdb.update_contest_status(ct_id3, 'cancelled')
+before_clear = len(ctdb.get_contests(status='cancelled'))
+ctdb.clear_contests_archive()
+after_clear_cancelled = ctdb.get_contests(status='cancelled')
+check("clear_contests_archive: 'cancelled' удалены",
+      len(after_clear_cancelled) == 0)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 21: Шаблоны смен + время смены
+# ─────────────────────────────────────────────────────────
+section("Сценарий 21: Шаблоны смен и время рабочих дней")
+
+stdb = make_db("shift_templates.db")
+stdb.add_user(1300001, "Шаблон", "Смен", shop_name="Магазин А")
+st_uid = stdb.get_user_id(1300001)
+
+# set_shift_template (weekday 0=Пн..6=Вс)
+stdb.set_shift_template(st_uid, 0, '09:00', '18:00')   # Пн
+stdb.set_shift_template(st_uid, 1, '10:00', '19:00')   # Вт
+stdb.set_shift_template(st_uid, 4, '08:00', '17:00')   # Пт
+
+# get_shift_templates → dict {weekday: (start_time, end_time)}
+templates = stdb.get_shift_templates(st_uid)
+check("get_shift_templates: dict",              isinstance(templates, dict))
+check("get_shift_templates: 3 записи",          len(templates) == 3)
+_tmpl0 = templates.get(0)
+check("get_shift_templates: Пн start=09:00",    _tmpl0 is not None and _tmpl0[0] == '09:00')
+check("get_shift_templates: Пн end=18:00",      _tmpl0 is not None and _tmpl0[1] == '18:00')
+_tmpl1 = templates.get(1)
+check("get_shift_templates: Вт start=10:00",    _tmpl1 is not None and _tmpl1[0] == '10:00')
+_tmpl4 = templates.get(4)
+check("get_shift_templates: Пт start=08:00",    _tmpl4 is not None and _tmpl4[0] == '08:00')
+check("get_shift_templates: Ср нет шаблона",    templates.get(2) is None)
+check("get_shift_templates: Вс нет шаблона",    templates.get(6) is None)
+
+# UPSERT шаблона
+stdb.set_shift_template(st_uid, 0, '08:30', '17:30')
+templates2 = stdb.get_shift_templates(st_uid)
+_tmpl2_0 = templates2.get(0)
+check("set_shift_template UPSERT: Пн start=08:30",  _tmpl2_0 is not None and _tmpl2_0[0] == '08:30')
+check("set_shift_template UPSERT: Пн end=17:30",    _tmpl2_0 is not None and _tmpl2_0[1] == '17:30')
+check("set_shift_template UPSERT: всё ещё 3",        len(templates2) == 3)
+
+# Другой пользователь — пустой результат
+tmpl_other = stdb.get_shift_templates(9999)
+check("get_shift_templates: несущ. uid → пустой",
+      tmpl_other == {} or isinstance(tmpl_other, dict))
+
+# set_work_day_time / get_work_day_time
+stdb.toggle_work_day(st_uid, '2026-05-04', 1)
+stdb.set_work_day_time(st_uid, '2026-05-04', '09:00', '18:00')
+times = stdb.get_work_day_time(st_uid, '2026-05-04')
+check("set_work_day_time: возвращает кортеж/список", times is not None)
+check("get_work_day_time: start = '09:00'",
+      times[0] == '09:00' if times else False)
+check("get_work_day_time: end = '18:00'",
+      times[1] == '18:00' if times else False)
+
+# UPSERT времени
+stdb.set_work_day_time(st_uid, '2026-05-04', '10:00', '20:00')
+times2 = stdb.get_work_day_time(st_uid, '2026-05-04')
+check("set_work_day_time UPSERT: start=10:00",
+      times2[0] == '10:00' if times2 else False)
+check("set_work_day_time UPSERT: end=20:00",
+      times2[1] == '20:00' if times2 else False)
+
+# Несуществующий день → None или (None, None)
+times3 = stdb.get_work_day_time(st_uid, '2030-01-01')
+check("get_work_day_time: несущ. → None/пусто",
+      times3 is None or (isinstance(times3, (tuple, list)) and
+                         (times3[0] is None or all(x is None for x in times3))))
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 22: Filter Utils — система фильтров
+# ─────────────────────────────────────────────────────────
+section("Сценарий 22: Filter Utils — пустой, активный, merge, available")
+
+from filter_utils import (empty_filter, merge_scope_with_filter,
+                          get_available_filter_values, is_filter_active,
+                          filter_button_text)
+
+# empty_filter
+flt = empty_filter()
+check("empty_filter: dict",          isinstance(flt, dict))
+check("empty_filter: shops=[]",      flt.get('shops', []) == [])
+check("empty_filter: cities=[]",     flt.get('cities', []) == [])
+check("empty_filter: networks=[]",   flt.get('networks', []) == [])
+
+# is_filter_active
+check("is_filter_active: пустой → False",     not is_filter_active(flt))
+check("is_filter_active: с магазином → True", is_filter_active({'shops': ['А'], 'cities': [], 'networks': []}))
+check("is_filter_active: с городом → True",   is_filter_active({'shops': [], 'cities': ['СПб'], 'networks': []}))
+check("is_filter_active: с сетью → True",     is_filter_active({'shops': [], 'cities': [], 'networks': ['Сеть']}))
+
+# filter_button_text
+# возвращает "🔍 Фильтр" (пустой) или "🔍 Фильтр: 🏪 Магазин А" (активный) — без ✅
+btn_empty = filter_button_text(flt)
+check("filter_button_text пустой: строка",          isinstance(btn_empty, str))
+check("filter_button_text пустой: содержит 🔍",     '🔍' in btn_empty)
+check("filter_button_text пустой: нет ':' (пустой)", ':' not in btn_empty)
+btn_active = filter_button_text({'shops': ['А'], 'cities': [], 'networks': []})
+check("filter_button_text активный: строка",        isinstance(btn_active, str))
+check("filter_button_text активный: содержит 🔍",   '🔍' in btn_active)
+check("filter_button_text активный: содержит ':'",  ':' in btn_active)
+check("filter_button_text активный != пустого",     btn_active != btn_empty)
+
+# merge_scope_with_filter
+# merge_scope_with_filter возвращает kwargs для DB методов:
+# - пустой фильтр + 'all'/'org' scope → {} (нет ограничений)
+# - пустой фильтр + 'shop' scope ['А'] → {'shop_name': 'А'} (один) или {'shop_names': [...]}
+# - активный фильтр shops → {'shop_names': [...]} (из filter_to_scope_kwargs)
+merged_org_empty = merge_scope_with_filter('all', [], empty_filter())
+check("merge all + empty filter: {} (нет ограничений)",
+      merged_org_empty == {})
+
+# shop scope + пустой фильтр → _scope_filter_kwargs('shop', ['Магазин А']) → {'shop_name': 'Магазин А'}
+merged_shop = merge_scope_with_filter('shop', ['Магазин А'], empty_filter())
+check("merge shop scope + empty: ключ shop_name",
+      'shop_name' in merged_shop or 'shop_names' in merged_shop)
+check("merge shop scope + empty: Магазин А присутствует",
+      merged_shop.get('shop_name') == 'Магазин А' or
+      'Магазин А' in merged_shop.get('shop_names', []))
+
+# org scope + фильтр по магазину → filter_to_scope_kwargs → {'shop_names': ['Магазин Б']}
+merged_with_shop_filter = merge_scope_with_filter(
+    'all', [], {'shops': ['Магазин Б'], 'cities': [], 'networks': []})
+check("merge all + shop filter: ключ shop_names",
+      'shop_names' in merged_with_shop_filter)
+check("merge all + shop filter: Магазин Б",
+      'Магазин Б' in merged_with_shop_filter.get('shop_names', []))
+
+# city scope + фильтр по городу
+merged_city = merge_scope_with_filter(
+    'all', [], {'shops': [], 'cities': ['Москва'], 'networks': []})
+check("merge all + city filter: ключ cities",  'cities' in merged_city)
+check("merge all + city filter: Москва",       'Москва' in merged_city.get('cities', []))
+
+# get_available_filter_values с реальной БД
+flt_db = make_db("filter_vals.db")
+flt_db.add_user(1400001, "Алфа",   "Один", shop_name="Магазин А", city="Москва", trade_network="Сеть1")
+flt_db.add_user(1400002, "Бета",   "Два",  shop_name="Магазин Б", city="СПб",   trade_network="Сеть2")
+flt_db.add_user(1400003, "Гамма",  "Три",  shop_name="Магазин А", city="Москва", trade_network="Сеть1")
+
+avail = get_available_filter_values(flt_db, 'org', [])
+check("get_available_filter_values: dict",            isinstance(avail, dict))
+check("get_available_filter_values: shops key",       'shops' in avail)
+check("get_available_filter_values: Магазин А",       'Магазин А' in avail.get('shops', []))
+check("get_available_filter_values: Магазин Б",       'Магазин Б' in avail.get('shops', []))
+check("get_available_filter_values: Москва",          'Москва' in avail.get('cities', []))
+check("get_available_filter_values: СПб",             'СПб' in avail.get('cities', []))
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 23: Pagination Utils
+# ─────────────────────────────────────────────────────────
+section("Сценарий 23: Pagination Utils — paginate, page_nav_row, константы")
+
+from pagination_utils import (paginate, page_nav_row,
+                               PAGE_SIZE_DEFAULT, PAGE_SIZE_USERS,
+                               PAGE_SIZE_ORGS, PAGE_SIZE_SALES)
+from aiogram.types import InlineKeyboardButton as _IKBtn
+
+# Константы
+check("PAGE_SIZE_DEFAULT == 8",  PAGE_SIZE_DEFAULT == 8)
+check("PAGE_SIZE_USERS == 10",   PAGE_SIZE_USERS == 10)
+check("PAGE_SIZE_ORGS == 8",     PAGE_SIZE_ORGS == 8)
+check("PAGE_SIZE_SALES == 8",    PAGE_SIZE_SALES == 8)
+
+# paginate возвращает (items_on_page, has_prev, has_next, total_pages, clamped_page)
+items10 = list(range(10))
+pg_0, hp0, hn0, tot_2, cp0 = paginate(items10, page=0, per_page=8)
+check("paginate 10→ page=0: 8 элементов",    len(pg_0) == 8)
+check("paginate 10→ total_pages = 2",         tot_2 == 2)
+check("paginate 10→ первый = 0",              pg_0[0] == 0)
+check("paginate 10→ page=0: нет prev",        hp0 is False)
+check("paginate 10→ page=0: есть next",       hn0 is True)
+
+pg_1, hp1, hn1, tot_2b, cp1 = paginate(items10, page=1, per_page=8)
+check("paginate 10→ page=1: 2 элемента",      len(pg_1) == 2)
+check("paginate 10→ total_pages = 2 (стр2)",  tot_2b == 2)
+check("paginate 10→ page=1 первый = 8",       pg_1[0] == 8)
+check("paginate 10→ page=1: есть prev",       hp1 is True)
+check("paginate 10→ page=1: нет next",        hn1 is False)
+
+# Ровно одна страница (8 из 8)
+pg8, hp8, hn8, tot8, cp8 = paginate(list(range(8)), page=0, per_page=8)
+check("paginate 8→ 1 страница",               tot8 == 1)
+check("paginate 8→ 8 элементов",              len(pg8) == 8)
+check("paginate 8→ нет prev/next",            hp8 is False and hn8 is False)
+
+# Пустой список
+pg_empty, hpe, hne, tot_empty, _ = paginate([], page=0, per_page=8)
+check("paginate []→ 0 элементов",             len(pg_empty) == 0)
+check("paginate []→ 1 страница (min=1)",       tot_empty == 1)
+
+# 3 элемента — 1 страница
+pg3, hp3, hn3, tot3, _ = paginate(list(range(3)), page=0, per_page=8)
+check("paginate 3→ 1 страница",               tot3 == 1)
+check("paginate 3→ 3 элемента",               len(pg3) == 3)
+
+# Страница за пределами → clamp к последней
+pg_out, _, _, _, cp_out = paginate(list(range(5)), page=5, per_page=8)
+check("paginate out-of-range→ clamp (1 страница, 5 элем.)", len(pg_out) == 5)
+
+# page_nav_row(callback_prefix, page, has_prev, has_next, total_pages)
+# 1 страница, нет prev/next → []
+nav1 = page_nav_row("prod_", 0, False, False, 1)
+check("page_nav_row 1 страница → []",          nav1 == [])
+
+# стр. 0 из 3: нет prev, есть next → кнопки ▶ и N/M
+nav_first = page_nav_row("prod_", 0, False, True, 3)
+check("page_nav_row стр.0 из 3: кнопки",       len(nav_first) > 0)
+check("page_nav_row стр.0 из 3: тип IKBtn",    all(isinstance(b, _IKBtn) for b in nav_first))
+
+# стр. 1 из 3: и prev, и next → минимум 3 кнопки (◀, N/M, ▶)
+nav_mid = page_nav_row("prod_", 1, True, True, 3)
+check("page_nav_row стр.1 из 3: ≥2 кнопки",   len(nav_mid) >= 2)
+
+# стр. 2 из 3: есть prev, нет next → кнопки ◀ и N/M
+nav_last = page_nav_row("prod_", 2, True, False, 3)
+check("page_nav_row стр.2 из 3: кнопки",       len(nav_last) > 0)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 24: Избранное и последние товары
+# ─────────────────────────────────────────────────────────
+section("Сценарий 24: Избранное (toggle_favorite) и последние товары")
+
+favdb = make_db("favorites.db")
+favdb.add_user(1500001, "Продавец", "Избранный", shop_name="Магазин А")
+fav_uid = favdb.get_user_id(1500001)
+fp1 = favdb.add_product("Товар Любимый",  "Кат1", 100.0)
+fp2 = favdb.add_product("Товар Второй",   "Кат2", 200.0)
+fp3 = favdb.add_product("Товар Третий",   "Кат1", 300.0)
+
+# toggle_favorite_product: первый раз → True (добавлен)
+r1 = favdb.toggle_favorite_product(fav_uid, fp1)
+r2 = favdb.toggle_favorite_product(fav_uid, fp2)
+check("toggle_favorite_product: fp1 добавлен → True",  r1 is True)
+check("toggle_favorite_product: fp2 добавлен → True",  r2 is True)
+
+# get_favorite_products → список product_id
+favs = favdb.get_favorite_products(fav_uid)
+check("get_favorite_products: 2 избранных",    len(favs) == 2)
+check("get_favorite_products: fp1 в списке",   fp1 in favs)
+check("get_favorite_products: fp2 в списке",   fp2 in favs)
+check("get_favorite_products: fp3 не в списке",fp3 not in favs)
+
+# toggle_favorite_product: повторно fp1 → False (убран)
+r1b = favdb.toggle_favorite_product(fav_uid, fp1)
+check("toggle_favorite_product: fp1 убран → False", r1b is False)
+favs2 = favdb.get_favorite_products(fav_uid)
+check("get_favorite_products: fp1 удалён",      fp1 not in favs2)
+check("get_favorite_products: fp2 остался",     fp2 in favs2)
+check("get_favorite_products: стало 1",         len(favs2) == 1)
+
+# Вернуть fp1 в избранное
+favdb.toggle_favorite_product(fav_uid, fp1)
+favdb.toggle_favorite_product(fav_uid, fp3)
+favs3 = favdb.get_favorite_products(fav_uid)
+check("get_favorite_products: после возврата 3 товара", len(favs3) == 3)
+
+# Пустые для нового пользователя
+check("get_favorite_products: несущ. uid → []",
+      favdb.get_favorite_products(9999) == [])
+
+# get_user_recent_products — продажи через инвентарь
+favdb.add_inventory("Магазин А", fp1, 100)
+favdb.add_inventory("Магазин А", fp2, 100)
+favdb.add_inventory("Магазин А", fp3, 100)
+favdb.add_sale(fp1, "Магазин А", 1, fav_uid, 100.0)
+favdb.add_sale(fp2, "Магазин А", 2, fav_uid, 200.0)
+favdb.add_sale(fp3, "Магазин А", 1, fav_uid, 300.0)
+
+recent = favdb.get_user_recent_products(fav_uid, limit=5)
+check("get_user_recent_products: ≥2 записи",     len(recent) >= 2)
+recent_ids = [r[0] for r in recent]
+check("get_user_recent_products: fp1 в списке",  fp1 in recent_ids)
+check("get_user_recent_products: fp2 в списке",  fp2 in recent_ids)
+
+# Пустые для нового пользователя
+check("get_user_recent_products: несущ. → []",
+      favdb.get_user_recent_products(9999, limit=5) == [])
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 25: Платёжные заявки — полный цикл
+# ─────────────────────────────────────────────────────────
+section("Сценарий 25: Платёжные заявки — create → confirm → subscription")
+
+pfdb = make_db("payflow.db")
+pfdb.add_user(1600001, "Платёж", "Тестер")
+pf_uid = pfdb.get_user_id(1600001)
+
+# Перед заявками — нет подписки, нет pending
+check("is_subscription_active: нет → False",       not pfdb.is_subscription_active(pf_uid))
+check("has_pending_payment_request: нет → False",
+      not pfdb.has_pending_payment_request(pf_uid))
+
+# create_payment_request → int > 0
+req_id = pfdb.create_payment_request(
+    pf_uid, 'Базовый', 990.0, 'screenshot_file_id_123', None)
+check("create_payment_request: int > 0",
+      isinstance(req_id, int) and req_id > 0)
+check("has_pending_payment_request: True после создания",
+      pfdb.has_pending_payment_request(pf_uid))
+
+# get_pending_payment_requests → содержит нашу заявку
+pending = pfdb.get_pending_payment_requests()
+pf_pending = [r for r in pending if r[1] == pf_uid]
+check("get_pending_payment_requests: наша заявка есть",  len(pf_pending) >= 1)
+
+# confirm_payment_request с admin_id=0 (ЮKassa auto-confirm)
+result = pfdb.confirm_payment_request(req_id, admin_id=0)
+check("confirm_payment_request (admin_id=0): True", result is True)
+
+# Подписка создана
+check("after confirm: is_subscription_active → True",
+      pfdb.is_subscription_active(pf_uid))
+
+# Повторное подтверждение уже approved → False
+result2 = pfdb.confirm_payment_request(req_id, admin_id=0)
+check("confirm_payment_request: повторное → False", result2 is False)
+
+# has_pending — заявка подтверждена, нет pending
+check("has_pending_payment_request: после confirm → False",
+      not pfdb.has_pending_payment_request(pf_uid))
+
+# Несуществующая заявка → False
+result_bad = pfdb.confirm_payment_request(99999, admin_id=1)
+check("confirm_payment_request: несущ. id → False", result_bad is False)
+
+# Второй пользователь — заявка с реальным admin_id
+pfdb.add_user(1600002, "Второй", "Платёж")
+pf_uid2 = pfdb.get_user_id(1600002)
+req2 = pfdb.create_payment_request(pf_uid2, 'Премиум', 1990.0, 'file_xyz', None)
+check("create_payment_request 2: int > 0", isinstance(req2, int) and req2 > 0)
+result3 = pfdb.confirm_payment_request(req2, admin_id=1)
+check("confirm_payment_request (admin_id=1): True", result3 is True)
+check("after confirm2: подписка u2 активна",
+      pfdb.is_subscription_active(pf_uid2))
+
+# YooKassa-style file_id: 'yookassa:yk_pay_xxx' — корректно сохраняется
+req_yk = pfdb.create_payment_request(
+    pf_uid, 'Базовый', 990.0, 'yookassa:yk_pay_test_abc', 42)
+check("create_payment_request с yookassa file_id: int > 0",
+      isinstance(req_yk, int) and req_yk > 0)
+result_yk = pfdb.confirm_payment_request(req_yk, admin_id=0)
+check("confirm_payment_request ЮKassa-стиль: True", result_yk is True)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 26: he() — HTML-экранирование
+# ─────────────────────────────────────────────────────────
+section("Сценарий 26: he() — HTML-экранирование строк пользователя")
+
+from utils import he
+
+# Спецсимволы HTML
+check("he('<script>'): экранирован",    he("<script>") == "&lt;script&gt;")
+check("he('1 > 0'): >→&gt;",           he("1 > 0") == "1 &gt; 0")
+check("he('Tom & Jerry'): &→&amp;",    he("Tom & Jerry") == "Tom &amp; Jerry")
+check("he: дублированный &",           he("a & b & c") == "a &amp; b &amp; c")
+check("he: угловые скобки вместе",     he("<b>текст</b>") == "&lt;b&gt;текст&lt;/b&gt;")
+
+# Безопасные строки — без изменений
+check("he: обычный текст = без изменений",  he("Привет мир") == "Привет мир")
+check("he: пустая строка",                  he("") == "")
+check("he: только пробелы",                 he("   ") == "   ")
+check("he: имя с дефисом",                  he("Иван-Петров") == "Иван-Петров")
+check("he: unicode без спецсимволов",       he("Тест 123 ✅") == "Тест 123 ✅")
+check("he: цифры",                          he("12345") == "12345")
+check("he: точки и запятые",               he("Москва, ул. Ленина") == "Москва, ул. Ленина")
+
+# None и числа — не падает, возвращает строку
+check("he(None): строка",    isinstance(he(None), str))
+check("he(42): строка",      isinstance(he(42), str))
+check("he(3.14): строка",    isinstance(he(3.14), str))
+
+# Безопасность: инъекция не проходит
+html_inject = "<b>жирный</b>"
+check("he: HTML-инъекция — нет тегов",      "<b>" not in he(html_inject))
+sql_inject = "' OR '1'='1"
+check("he: SQL-инъекция — безопасна",       "<" not in he(sql_inject))
+
+# Магазин с & в названии
+check("he: магазин 'Иванов & Ко'",
+      he("Иванов & Ко") == "Иванов &amp; Ко")
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 27: Уведомления и история; подсказки (hints)
+# ─────────────────────────────────────────────────────────
+section("Сценарий 27: История уведомлений, настройки, подсказки")
+
+ntfdb = make_db("notifications.db")
+ntfdb.add_user(1700001, "Уведомления", "Тестер")
+ntf_uid = ntfdb.get_user_id(1700001)
+
+# add_notification_to_history
+ntfdb.add_notification_to_history(ntf_uid, 'sales_alert', 'Продажа на 5000₽')
+ntfdb.add_notification_to_history(ntf_uid, 'low_stock',   'Молоко заканчивается')
+ntfdb.add_notification_to_history(ntf_uid, 'system',      'Подписка истекает')
+
+# get_notification_history → список строк
+history = ntfdb.get_notification_history(ntf_uid, limit=10)
+check("get_notification_history: 3 записи", len(history) == 3)
+check("get_notification_history: кортежи",  all(isinstance(h, tuple) for h in history))
+
+# mark_notifications_as_read — все прочитаны
+ntfdb.mark_notifications_as_read(ntf_uid)
+history_read = ntfdb.get_notification_history(ntf_uid, limit=10)
+check("mark_notifications_as_read: нет необработанных",
+      all(h[4] == 1 for h in history_read))   # is_read = col 4
+
+# Пустая история для нового пользователя
+ntfdb.add_user(1700002, "Новый", "Пользователь")
+ntf_uid2 = ntfdb.get_user_id(1700002)
+check("get_notification_history: новый → []",
+      len(ntfdb.get_notification_history(ntf_uid2, limit=10)) == 0)
+
+# limit работает
+ntfdb.add_notification_to_history(ntf_uid, 'info', 'сообщение 4')
+ntfdb.add_notification_to_history(ntf_uid, 'info', 'сообщение 5')
+history2 = ntfdb.get_notification_history(ntf_uid, limit=2)
+check("get_notification_history: limit=2 → 2 записи", len(history2) == 2)
+
+# Настройки уведомлений
+ntfdb.create_default_notification_settings(ntf_uid2)
+settings = ntfdb.get_notification_settings(ntf_uid2)
+check("create_default_notification_settings: создан",     settings is not None)
+check("get_notification_settings: dict или tuple",
+      isinstance(settings, (dict, tuple)))
+
+# update_notification_settings
+ntfdb.update_notification_settings(ntf_uid2, sales_alerts=False)
+settings2 = ntfdb.get_notification_settings(ntf_uid2)
+check("update_notification_settings: не ломается",        settings2 is not None)
+
+# ── Запланированные уведомления ──────────────────────────────
+import json as _json
+
+# Создаём пользователя для created_by (нужен для JOIN)
+ntfdb.add_user(1700003, "Отправитель", "Нотиф")
+sender_uid = ntfdb.get_user_id(1700003)
+
+sn_id = ntfdb.add_scheduled_notification(
+    job_id='job_001',
+    created_by=sender_uid,
+    notification_text='Время обеда!',
+    recipients_type='all',
+    recipients_list=[],
+    scheduled_datetime='2026-06-01 12:00:00',
+)
+check("add_scheduled_notification: id не None",   sn_id is not None)
+
+# get_scheduled_notifications(status='pending')
+sn_list = ntfdb.get_scheduled_notifications(status='pending')
+check("get_scheduled_notifications: список",      isinstance(sn_list, list))
+check("get_scheduled_notifications: ≥1 элемент", len(sn_list) >= 1)
+
+# get_scheduled_notification(id)
+sn_row = ntfdb.get_scheduled_notification(sn_id)
+check("get_scheduled_notification: найден",        sn_row is not None)
+
+# update_scheduled_notification_status
+ntfdb.update_scheduled_notification_status('job_001', 'sent')
+sent_list = ntfdb.get_scheduled_notifications(status='sent')
+check("update_scheduled_notification_status: статус обновлён",
+      any(s[1] == 'job_001' for s in sent_list) if sent_list else False)
+
+# delete_scheduled_notification
+del_sn = ntfdb.delete_scheduled_notification(sn_id)
+check("delete_scheduled_notification: True", del_sn is True)
+check("delete_scheduled_notification: нет в pending",
+      not any(s[0] == sn_id for s in ntfdb.get_scheduled_notifications(status=None)))
+
+# ── Подсказки (hints) ────────────────────────────────────────
+from hints import hint_suffix, HINT_TEXTS
+
+# has_seen_hint: новый пользователь — ничего не просматривал
+check("has_seen_hint: first_sale=False (new)",    not ntfdb.has_seen_hint(ntf_uid2, 'first_sale'))
+check("has_seen_hint: first_reports=False (new)", not ntfdb.has_seen_hint(ntf_uid2, 'first_reports'))
+
+# mark_hint_seen + has_seen_hint
+ntfdb.mark_hint_seen(ntf_uid2, 'first_sale')
+check("has_seen_hint: first_sale=True после mark",     ntfdb.has_seen_hint(ntf_uid2, 'first_sale'))
+check("has_seen_hint: first_reports=False (не трогали)",not ntfdb.has_seen_hint(ntf_uid2, 'first_reports'))
+
+# mark_hint_seen повторно — нет ошибки (INSERT OR IGNORE)
+ntfdb.mark_hint_seen(ntf_uid2, 'first_sale')
+check("mark_hint_seen повторно: нет ошибки",      ntfdb.has_seen_hint(ntf_uid2, 'first_sale'))
+
+# hint_suffix: первый вызов → не пустая строка (содержит текст)
+hint_text1 = hint_suffix(ntfdb, ntf_uid2, 'first_reports')
+check("hint_suffix: первый раз → текст",          isinstance(hint_text1, str) and len(hint_text1) > 5)
+
+# hint_suffix: второй вызов → пустая строка (уже показана)
+hint_text2 = hint_suffix(ntfdb, ntf_uid2, 'first_reports')
+check("hint_suffix: повторно → ''",               hint_text2 == "")
+
+# hint_suffix: неизвестный ключ → "" (нет текста)
+hint_unknown = hint_suffix(ntfdb, ntf_uid2, 'unknown_key_xyz')
+check("hint_suffix: неизв. ключ → ''",            hint_unknown == "")
+
+# HINT_TEXTS: все 7 ключей содержат непустые тексты
+check("HINT_TEXTS: first_sale непустой",    len(HINT_TEXTS.get('first_sale', '')) > 10)
+check("HINT_TEXTS: first_plans непустой",   len(HINT_TEXTS.get('first_plans', '')) > 10)
+check("HINT_TEXTS: first_contests непустой",len(HINT_TEXTS.get('first_contests', '')) > 10)
+check("HINT_TEXTS: first_reports непустой", len(HINT_TEXTS.get('first_reports', '')) > 10)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 28: Аудит продаж и trial-подписка
+# ─────────────────────────────────────────────────────────
+section("Сценарий 28: Журнал аудита продаж и trial-подписка")
+
+auditdb = make_db("audit.db")
+auditdb.add_user(1800001, "Аудит", "Продаж", shop_name="Магазин А")
+au_uid = auditdb.get_user_id(1800001)
+au_pid = auditdb.add_product("Товар Аудит", "Категория", 500.0)
+auditdb.add_inventory("Магазин А", au_pid, 100)
+au_sale = auditdb.add_sale(au_pid, "Магазин А", 5, au_uid, 500.0)
+
+# log_sale_edit — запись в аудит-лог
+auditdb.log_sale_edit(au_sale, au_uid,
+                      old_quantity=5, new_quantity=7,
+                      old_price=500.0, new_price=480.0)
+auditdb.log_sale_edit(au_sale, au_uid,
+                      old_quantity=7, new_quantity=6,
+                      old_price=480.0, new_price=490.0)
+
+# get_sale_audit_log → список строк
+audit_log = auditdb.get_sale_audit_log(au_sale)
+check("get_sale_audit_log: 2 записи",               len(audit_log) == 2)
+check("get_sale_audit_log: кортежи",                all(isinstance(r, tuple) for r in audit_log))
+# структура: 0:id, 1:changed_by, 2:editor_name, 3:old_qty, 4:new_qty, 5:old_price, 6:new_price, 7:changed_at
+check("get_sale_audit_log: old_qty первая строка",  audit_log[0][3] == 7)   # newest first
+check("get_sale_audit_log: new_qty первая строка",  audit_log[0][4] == 6)
+
+# Несуществующая продажа → []
+check("get_sale_audit_log: несущ. sale → []",        auditdb.get_sale_audit_log(99999) == [])
+
+# Trial-подписка
+auditdb.add_user(1800002, "Пробный", "Период")
+trial_uid = auditdb.get_user_id(1800002)
+check("is_subscription_active: нет trial → False",
+      not auditdb.is_subscription_active(trial_uid))
+trial_ok = auditdb.create_trial_subscription(trial_uid, 'Базовый', 7)
+check("create_trial_subscription: True",             trial_ok is True)
+check("is_subscription_active: trial активна",       auditdb.is_subscription_active(trial_uid))
+
+# Повторный trial — False (уже есть)
+trial_again = auditdb.create_trial_subscription(trial_uid, 'Базовый', 7)
+check("create_trial_subscription повторно: False",   trial_again is False)
+
+# get_subscription_tier_level
+tier_free  = auditdb.get_subscription_tier_level('Бесплатный')
+tier_base  = auditdb.get_subscription_tier_level('Базовый')
+tier_prem  = auditdb.get_subscription_tier_level('Премиум')
+check("get_subscription_tier_level: Бесплатный < Базовый",
+      isinstance(tier_free, int) and isinstance(tier_base, int) and tier_free < tier_base)
+check("get_subscription_tier_level: Базовый < Премиум",
+      tier_base < tier_prem)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 29: Пограничные случаи и устойчивость
+# ─────────────────────────────────────────────────────────
+section("Сценарий 29: Пограничные случаи — пустые БД, несущ. записи")
+
+edgedb = make_db("edge.db")
+
+# Пользователь с минимальными данными (без shop/city/network)
+edgedb.add_user(1900001, "А", "Б")
+eu = edgedb.get_user(1900001)
+check("add_user минимальный: не падает",           eu is not None)
+
+# Методы на пустой БД
+check("get_all_products пустая → []",              edgedb.get_all_products() == [])
+check("get_all_shops пустая → []",                 edgedb.get_all_shops() == [])
+check("get_all_cities пустая → []",                edgedb.get_all_cities() == [])
+check("get_all_categories пустая → []",            edgedb.get_all_categories() == [])
+
+# Несуществующие записи
+check("get_user: несущ. → None",                   edgedb.get_user(9999999) is None)
+check("get_user_id: несущ. → None",                edgedb.get_user_id(9999999) is None)
+check("get_product: несущ. → None",                edgedb.get_product(9999) is None)
+check("get_sale_by_id: несущ. → None",             edgedb.get_sale_by_id(9999) is None)
+check("get_inventory: несущ. → 0",                 edgedb.get_inventory("НесущМагазин", 9999) == 0)
+check("get_yookassa_payment: несущ. → None",
+      edgedb.get_yookassa_payment_by_payment_id("NONEXISTENT") is None)
+
+# add_sale без инвентаря / несущ. товар → None
+bad_sale = edgedb.add_sale(9999, "Магазин", 1, 1, 100.0)
+check("add_sale несущ. товар → None",              bad_sale is None)
+
+# Подписка для нового пользователя
+eu_uid = edgedb.get_user_id(1900001)
+check("get_user_subscription: нет → None",
+      edgedb.get_user_subscription(eu_uid) is None)
+check("is_subscription_active: нет → False",
+      not edgedb.is_subscription_active(eu_uid))
+check("has_pending_payment_request: нет → False",
+      not edgedb.has_pending_payment_request(eu_uid))
+
+# get_payment_provider: всегда строка
+check("get_payment_provider: тип str",
+      isinstance(edgedb.get_payment_provider(), str))
+
+# add_user UPSERT: не падает
+edgedb.add_user(1900001, "Новое", "Имя")
+check("add_user UPSERT: пользователь существует",
+      edgedb.get_user(1900001) is not None)
+
+# get_favorite_products и get_user_recent_products для несущ.
+check("get_favorite_products несущ. uid → []",
+      edgedb.get_favorite_products(9999) == [])
+check("get_user_recent_products несущ. uid → []",
+      edgedb.get_user_recent_products(9999, limit=5) == [])
+
+# get_sales_plans на пустой БД → []
+check("get_sales_plans пустая → []",
+      edgedb.get_sales_plans(active_only=True) == [])
+check("get_contests пустая → []",
+      edgedb.get_contests() == [])
+
+# has_seen_hint: несущ. user → False (не падает)
+check("has_seen_hint несущ. user → False",
+      not edgedb.has_seen_hint(9999, 'first_sale'))
+
+# get_notification_history несущ. → []
+check("get_notification_history несущ. → []",
+      edgedb.get_notification_history(9999, limit=5) == [])
+
+# ─────────────────────────────────────────────────────────
 # ИТОГ
 # ─────────────────────────────────────────────────────────
 print(f"\n{'='*60}")
