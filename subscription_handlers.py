@@ -37,8 +37,9 @@ async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
             return
         
         from utils import he
-        user_name = he(f"{user[1]} {user[2]}")  # first_name + last_name (экранируем HTML)
-        user_telegram_id = user[0]
+        # users table: (0)id, (1)telegram_id, (2)first_name, (3)last_name, ...
+        user_name = he(f"{user[2]} {user[3]}")  # first_name + last_name
+        user_telegram_id = user[1]              # telegram_id
         
         notification_text = (
             "🔔 <b>Новая заявка на оплату!</b>\n\n"
@@ -874,6 +875,22 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
 
         # row: (id, yookassa_payment_id, user_id, plan_type, amount, status,
         #        promocode_id, is_scheduled, schedule_date, created_at, updated_at)
+
+        # Идемпотентность: если уже подтверждён — не дублировать активацию
+        if row[5] == 'succeeded':
+            from keyboards import main_menu as _main_menu
+            _u = db.get_user(callback.from_user.id)
+            _kb = _main_menu(callback.message.chat.id, _u[8] if _u else None)
+            await callback.message.edit_text(
+                "✅ <b>Подписка уже активирована!</b>\n\n"
+                "Этот платёж был подтверждён ранее.\n\n"
+                "🏠 Возврат в главное меню:",
+                reply_markup=_kb,
+                parse_mode="HTML",
+            )
+            await clear_state_keep_org(state)
+            return
+
         user_id = row[2]
         plan_type = row[3]
         amount = row[4]
@@ -883,35 +900,27 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
         db.update_yookassa_payment_status(yk_payment_id, 'succeeded')
 
         # Активируем подписку: create_payment_request → confirm_payment_request
+        # admin_id=0 означает «авто-подтверждено системой»
         try:
-            success = db.create_payment_request(
+            req_id = db.create_payment_request(
                 user_id, plan_type, amount,
-                file_id=f"yookassa:{yk_payment_id}",
-                promocode_id=promo_id,
+                f"yookassa:{yk_payment_id}",
+                promo_id,
             )
-            if success:
-                import sqlite3 as _sqlite3
-                conn = _sqlite3.connect('data/shop_bot.db')
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT id FROM payment_requests WHERE user_id=? "
-                    "ORDER BY created_at DESC LIMIT 1",
-                    (user_id,),
-                )
-                req_row = cur.fetchone()
-                conn.close()
-                if req_row:
-                    db.confirm_payment_request(req_row[0])
+            if req_id:
+                db.confirm_payment_request(req_id, admin_id=0)
         except Exception as e:
             import logging
             logging.error(f"check_yookassa_payment: auto-confirm error: {e}")
 
         # Уведомляем супер-администратора
+        # users table: (0)id, (1)telegram_id, (2)first_name, (3)last_name, ...
         try:
+            from utils import he as _he
             super_admin_id = env_manager.get_main_admin_id()
             if super_admin_id:
                 user = db.get_user_by_id(user_id)
-                user_name = f"{user[1]} {user[2]}" if user else "—"
+                user_name = _he(f"{user[2]} {user[3]}") if user else "—"
                 await callback.bot.send_message(
                     chat_id=super_admin_id,
                     text=(

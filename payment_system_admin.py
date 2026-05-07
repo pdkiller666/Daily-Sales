@@ -2430,8 +2430,7 @@ async def set_provider_yookassa(callback: CallbackQuery):
             "⚠️ Сначала заполните Shop ID и секретный ключ в настройках ЮKassa",
             show_alert=True,
         )
-        await yookassa_config_menu(callback)
-        return
+        return  # пользователь видит предупреждение и может нажать «⚙️ Настройки ЮKassa»
 
     db.set_payment_provider("yookassa")
     await callback.answer("✅ Провайдер переключён на ЮKassa")
