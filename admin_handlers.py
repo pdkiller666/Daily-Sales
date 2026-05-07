@@ -24,7 +24,8 @@ admin_router = Router()
 
 from db_utils import (get_db, clear_state_keep_org, is_any_admin, is_org_owner,
                        get_user_org_scope, get_role_display_label, get_user_org_role,
-                       get_user_full_scope, get_user_custom_title, invalidate_admin_cache)
+                       get_user_full_scope, get_user_custom_title,
+                       invalidate_admin_cache, invalidate_scope_cache)
 from keyboards import safe_cb, resolve_cb_name
 from tenant_manager import tenant_manager
 
@@ -763,7 +764,8 @@ async def select_org_handler(callback: CallbackQuery, state: FSMContext):
 @admin_router.callback_query(F.data.startswith("admin_user_"))
 async def admin_user_details(callback: CallbackQuery, state: FSMContext):
     """Детали пользователя для администратора"""
-    if not is_any_admin(callback.from_user.id):
+    caller_is_admin = is_any_admin(callback.from_user.id)
+    if not caller_is_admin:
         await callback.answer("❌ Доступ запрещен!", show_alert=True)
         return
     
@@ -889,7 +891,7 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
             can_change_role = True
         elif caller_is_owner and not target_is_owner:
             can_change_role = True
-        elif is_any_admin(callback.from_user.id) and not is_org_owner(callback.from_user.id):
+        elif caller_is_admin and not is_org_owner(callback.from_user.id):
             can_change_role = (target_org_role_for_buttons == 'user')
 
     # Может ли вызывающий ставить название должности этому пользователю
@@ -980,6 +982,7 @@ async def adm_role_set_user(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     success, result = tenant_manager.change_user_role(telegram_id, 'user')
     invalidate_admin_cache(telegram_id)
+    invalidate_scope_cache(telegram_id)
     if success:
         await callback.message.edit_text(
             "✅ Роль изменена на: <b>👤 Сотрудник</b>",
@@ -1010,6 +1013,7 @@ async def adm_role_set_owner(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     success, result = tenant_manager.change_user_role(telegram_id, 'owner')
     invalidate_admin_cache(telegram_id)
+    invalidate_scope_cache(telegram_id)
     if success:
         await callback.message.edit_text(
             "✅ Роль изменена на: <b>👑 Директор</b>",
@@ -1067,6 +1071,7 @@ async def adm_scope_all(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     success, result = tenant_manager.change_user_role(telegram_id, 'admin', scope_type='all')
     invalidate_admin_cache(telegram_id)
+    invalidate_scope_cache(telegram_id)
     if success:
         await callback.message.edit_text(
             "✅ Роль изменена на: <b>🛡️ Зам. директора</b> (весь орг)",
@@ -1235,6 +1240,7 @@ async def adm_scope_submit(callback: CallbackQuery, state: FSMContext):
         telegram_id, 'admin', scope_type=scope_type, scope_value=scope_values
     )
     invalidate_admin_cache(telegram_id)
+    invalidate_scope_cache(telegram_id)
 
     if not success:
         await callback.message.edit_text(

@@ -52,10 +52,11 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     user_id = user[0]
+    # Вычисляем роль один раз — используется и в проверке подписки, и в построении меню
+    is_admin = is_any_admin(callback.from_user.id)
     from subscription_utils import check_notifications_permission
-    
+
     if not is_super and not check_notifications_permission(callback.from_user.id):
-        is_admin = is_any_admin(callback.from_user.id)
         message = get_subscription_offer_message("Система уведомлений", is_admin)
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -83,9 +84,7 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
     
     if unread_count > 0:
         text += f"📬 У вас {unread_count} непрочитанных уведомлений\n\n"
-    
-    is_admin = is_any_admin(callback.from_user.id)
-    
+
     keyboard_buttons = [
         [InlineKeyboardButton(text="⚙️ Настройки уведомлений", callback_data="notification_settings")],
         [InlineKeyboardButton(text="📋 История уведомлений", callback_data="notification_history")],

@@ -904,12 +904,13 @@ def _dashboard_period_kb(period: str) -> InlineKeyboardMarkup:
 async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: str = 'today'):
     from env_manager import env_manager as _env
     is_super_admin = _env.is_super_admin(callback.from_user.id)
+    # Отвечаем немедленно — кнопка разблокируется, пока строится дашборд
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
     if not user:
-        await callback.answer("❌ Сначала завершите регистрацию", show_alert=True)
+        await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
         return
-    await callback.answer()
 
     from timezone_utils import get_current_user_time
     _user_tz = current_db.get_user_timezone(callback.from_user.id)

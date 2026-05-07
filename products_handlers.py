@@ -299,8 +299,8 @@ async def process_product_category(message: Message, state: FSMContext):
 async def process_product_price(message: Message, state: FSMContext):
     """Обработка цены товара"""
     is_super = env_manager.is_super_admin(message.from_user.id)
-    is_admin = is_any_admin(message.from_user.id)
-    
+    is_admin = is_any_admin(message.from_user.id)  # computed once, reused below
+
     if not is_super and not is_admin:
         return
         
@@ -332,9 +332,6 @@ async def process_product_price(message: Message, state: FSMContext):
     product_id = current_db.add_product(data['name'], data['category'], price)
     
     if product_id:
-        user_id = message.from_user.id
-        is_admin = is_any_admin(user_id)
-        
         # Сохраняем ID нового товара для следующих шагов
         await state.update_data(new_product_id=product_id, new_product_name=data['name'])
         
@@ -462,11 +459,10 @@ async def edit_category(callback: CallbackQuery, state: FSMContext):
     """Редактирование категории"""
     await callback.answer()
     category_raw = callback.data.replace("edit_category_", "")
-    current_db_temp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_temp.get_all_categories() or [])
-    
-    # Получаем товары в этой категории
     current_db = await get_db(callback.from_user.id, state)
+    category = resolve_cb_name(category_raw, current_db.get_all_categories() or [])
+
+    # Получаем товары в этой категории
     products = current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
     
@@ -555,11 +551,10 @@ async def delete_category_confirm(callback: CallbackQuery, state: FSMContext):
     """Подтверждение удаления категории"""
     await callback.answer()
     category_raw = callback.data.replace("delete_category_", "")
-    current_db_temp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_temp.get_all_categories() or [])
-    
-    # Получаем товары в этой категории
     current_db = await get_db(callback.from_user.id, state)
+    category = resolve_cb_name(category_raw, current_db.get_all_categories() or [])
+
+    # Получаем товары в этой категории
     products = current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
     

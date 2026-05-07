@@ -1448,14 +1448,13 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
     """Список продаж магазина для администратора"""
     await callback.answer()
     shop_raw = callback.data.replace("admin_edit_shop_sales_", "")
-    current_db_temp = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db_temp.get_all_shops() or [])
+    current_db = await get_db(callback.from_user.id, state)
+    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
     data = await state.get_data()
     start_date = data.get('edit_start_date')
     end_date = data.get('edit_end_date')
-    
+
     # Получаем все продажи магазина за период
-    current_db = await get_db(callback.from_user.id, state)
     sales = current_db.get_shop_sales_by_date(shop_name, start_date, end_date)
     
     if not sales:

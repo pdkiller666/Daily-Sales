@@ -4,6 +4,7 @@
 import sqlite3
 import os
 import logging
+import time as _time
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,11 @@ logger = logging.getLogger(__name__)
 # Кеш инициализированных БД: create_tables() выполняется только ОДИН РАЗ
 # на каждый путь БД за время жизни процесса. Перезапуск сбрасывает кеш.
 _INITIALIZED_DBS: set = set()
+
+# Кеш get_user_timezone(): {(db_file, telegram_id): (tz_str, timestamp)}
+# Часовой пояс меняется крайне редко, TTL 300 сек.
+_tz_cache: dict = {}
+_TZ_CACHE_TTL = 300
 
 
 class Database:
@@ -1144,14 +1150,21 @@ class Database:
         return result[0] if result else None
     
     def get_user_timezone(self, telegram_id):
-        """Получение часового пояса пользователя"""
+        """Получение часового пояса пользователя. Результат кешируется на 300 сек."""
+        key = (self.db_file, telegram_id)
+        now = _time.time()
+        cached = _tz_cache.get(key)
+        if cached and now - cached[1] < _TZ_CACHE_TTL:
+            return cached[0]
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         cursor.execute('SELECT timezone FROM users WHERE telegram_id = ?', (telegram_id,))
         result = cursor.fetchone()
         conn.close()
-        return result[0] if result else 'Europe/Moscow'
-    
+        tz = result[0] if result else 'Europe/Moscow'
+        _tz_cache[key] = (tz, now)
+        return tz
+
     def set_user_timezone(self, telegram_id, timezone):
         """Установка часового пояса пользователя"""
         try:
@@ -1161,6 +1174,8 @@ class Database:
             conn.commit()
             success = cursor.rowcount > 0
             conn.close()
+            if success:
+                _tz_cache.pop((self.db_file, telegram_id), None)
             return success
         except Exception as e:
             logger.error(f"Ошибка при установке часового пояса: {e}")

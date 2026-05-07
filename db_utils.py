@@ -14,6 +14,10 @@ from env_manager import env_manager
 _admin_cache: dict = {}
 _ADMIN_CACHE_TTL = 60
 
+# Кеш get_user_org_scope(): {telegram_id: ((scope_type, values), timestamp)}
+_scope_cache: dict = {}
+_SCOPE_CACHE_TTL = 60
+
 # ─── Иконки и метки scope ────────────────────────────────────────────────────
 
 SCOPE_ICONS = {'shop': '🏪', 'city': '🏙️', 'network': '🌐'}
@@ -232,7 +236,14 @@ def get_user_org_scope(telegram_id: int) -> tuple:
 
     scope_value в БД хранится как JSON-массив: '["Магазин 1", "Магазин 2"]'
     Старые строковые значения (без '[') обрабатываются как одноэлементный список.
+
+    Результат кешируется на _SCOPE_CACHE_TTL секунд.
     """
+    now = _time.time()
+    cached = _scope_cache.get(telegram_id)
+    if cached and now - cached[1] < _SCOPE_CACHE_TTL:
+        return cached[0]
+
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
@@ -241,10 +252,12 @@ def get_user_org_scope(telegram_id: int) -> tuple:
         ).fetchone()
         conn.close()
         if not row:
+            _scope_cache[telegram_id] = ((None, []), now)
             return None, []
         role, scope_type, scope_value = row
 
         if role == 'owner' or not scope_type or scope_type == 'all':
+            _scope_cache[telegram_id] = ((None, []), now)
             return None, []
 
         values = []
@@ -258,9 +271,16 @@ def get_user_org_scope(telegram_id: int) -> tuple:
             except Exception:
                 values = [scope_value]
 
-        return scope_type, values
+        result = (scope_type, values)
+        _scope_cache[telegram_id] = (result, now)
+        return result
     except Exception:
         return None, []
+
+
+def invalidate_scope_cache(telegram_id: int) -> None:
+    """Сбросить кеш get_user_org_scope() для пользователя."""
+    _scope_cache.pop(telegram_id, None)
 
 
 def get_user_full_scope(telegram_id: int) -> tuple:
