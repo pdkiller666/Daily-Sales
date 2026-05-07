@@ -75,6 +75,15 @@ async def global_error_handler(event: ErrorEvent) -> bool:
         logging.debug(f"Игнорируем устаревший callback: {error}")
         return True
 
+    # Сообщение не изменилось — нормальное поведение при повторном нажатии
+    if isinstance(error, TelegramBadRequest) and "message is not modified" in str(error).lower():
+        try:
+            if update.callback_query:
+                await update.callback_query.answer()
+        except Exception:
+            pass
+        return True
+
     logging.error(f"Необработанное исключение: {type(error).__name__}: {error}", exc_info=True)
     try:
         if update.callback_query:

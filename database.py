@@ -27,6 +27,7 @@ class Database:
     def create_tables(self):
         """Создание таблиц в базе данных"""
         conn = sqlite3.connect(self.db_file)
+        conn.execute("PRAGMA busy_timeout=10000")
         cursor = conn.cursor()
 
         # Основные таблицы
@@ -578,6 +579,15 @@ class Database:
             ''')
 
         conn.commit()
+
+        # ── Индексы для ускорения тяжёлых запросов ──────────────────────────
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_shop_prod ON inventory(shop_name, product_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_schedule_date  ON work_schedule(work_date, user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_sale ON seller_earnings(sale_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_shop_name     ON users(shop_name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_telegram_id   ON users(telegram_id)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
