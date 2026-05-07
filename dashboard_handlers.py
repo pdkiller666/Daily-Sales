@@ -280,6 +280,46 @@ def _staff_by_shop(db_file: str, today: str,
         return []
 
 
+def _staff_by_shop_with_names(db_file: str, today: str,
+                               scope_type: str = None, scope_values: list = None) -> list:
+    """Сотрудники на смене, сгруппированные по магазинам.
+
+    Возвращает [(shop_name, [(first_name, last_name), ...]), ...]
+    отсортированный по убыванию количества сотрудников.
+    """
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        base = '''
+            SELECT u.shop_name, u.first_name, u.last_name
+            FROM work_schedule ws
+            JOIN users u ON u.id = ws.user_id
+            WHERE ws.work_date = ?
+              AND u.shop_name IS NOT NULL AND u.shop_name != ""
+        '''
+        params = [today]
+        vals = scope_values or []
+        if scope_type and vals:
+            ph = ','.join('?' * len(vals))
+            if scope_type == 'shop':
+                base += f' AND u.shop_name IN ({ph})'
+            elif scope_type == 'city':
+                base += f' AND u.city IN ({ph})'
+            elif scope_type == 'network':
+                base += f' AND u.trade_network IN ({ph})'
+            params.extend(vals)
+        base += ' ORDER BY u.shop_name, u.last_name, u.first_name'
+        cursor.execute(base, params)
+        rows = cursor.fetchall()
+        conn.close()
+        grouped: dict = {}
+        for sn, fn, ln in rows:
+            grouped.setdefault(sn, []).append((fn or '', ln or ''))
+        return sorted(grouped.items(), key=lambda x: len(x[1]), reverse=True)
+    except Exception:
+        return []
+
+
 def _low_stock_items(db_file: str, scope_type: str, scope_values: list,
                      threshold: int = 5, limit: int = 5) -> list:
     """Конкретные товары с низким остатком (для single-масштаба): [(name, qty), ...]."""
@@ -648,20 +688,33 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
         else:
             text += "• Никто ещё не отмечен\n"
     elif scale == 'wide':
-        by_shop = _staff_by_shop(current_db.db_file, today, scope_type, scope_values)
-        total_staff = sum(cnt for _, cnt in by_shop)
+        by_shop = _staff_by_shop_with_names(current_db.db_file, today, scope_type, scope_values)
+        total_staff = sum(len(names) for _, names in by_shop)
         if total_staff:
             text += f"• На смене: <b>{total_staff} чел.</b>\n"
-            for sn, cnt in by_shop[:6]:
-                text += f"  {he(sn)}: {cnt}\n"
-            if len(by_shop) > 6:
-                text += f"  ···  ещё {len(by_shop) - 6} магазинов\n"
+            for sn, names in by_shop[:8]:
+                name_parts = [he((ln + ' ' + fn).strip() or fn) for fn, ln in names[:4]]
+                names_str = ", ".join(p for p in name_parts if p)
+                if len(names) > 4:
+                    names_str += f" и ещё {len(names) - 4}"
+                text += f"  {he(sn)}: {len(names)} ({names_str})\n"
+            if len(by_shop) > 8:
+                text += f"  ···  ещё {len(by_shop) - 8} магазинов\n"
         else:
             text += "• Никто ещё не отмечен\n"
     else:
-        staff_total = len(_on_shift_details(current_db.db_file, today))
-        if staff_total:
-            text += f"• На смене: <b>{staff_total} чел.</b>\n"
+        by_shop = _staff_by_shop_with_names(current_db.db_file, today, scope_type, scope_values)
+        total_staff = sum(len(names) for _, names in by_shop)
+        if total_staff:
+            text += f"• На смене: <b>{total_staff} чел.</b>\n"
+            for sn, names in by_shop[:8]:
+                name_parts = [he((ln + ' ' + fn).strip() or fn) for fn, ln in names[:4]]
+                names_str = ", ".join(p for p in name_parts if p)
+                if len(names) > 4:
+                    names_str += f" и ещё {len(names) - 4}"
+                text += f"  {he(sn)}: {len(names)} ({names_str})\n"
+            if len(by_shop) > 8:
+                text += f"  ···  ещё {len(by_shop) - 8} магазинов\n"
         else:
             text += "• Никто ещё не отмечен\n"
 
