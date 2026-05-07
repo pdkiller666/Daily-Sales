@@ -415,16 +415,24 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
     message_text += f"• Категорий: {len(categories)}\n"
     message_text += f"• Магазинов: {len(shops_data)}\n\n"
 
-    # Топ категорий
+    # Все категории
     sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
-    message_text += "🏆 <b>Топ категорий:</b>\n"
-    for i, (category, cat_data) in enumerate(sorted_categories[:3], 1):
+    message_text += "📦 <b>По категориям:</b>\n"
+    for i, (category, cat_data) in enumerate(sorted_categories, 1):
+        if len(message_text) > 3500:
+            remaining = len(sorted_categories) - i + 1
+            message_text += f"<i>···  ещё {remaining} кат. — скачайте Excel</i>\n"
+            break
         message_text += f"{i}. {he(category)}: {format_currency(cat_data['total'])}\n"
 
-    # Топ магазинов
+    # Все магазины
     sorted_shops = sorted(shops_data.items(), key=lambda x: x[1], reverse=True)
-    message_text += "\n🏪 <b>Топ магазинов:</b>\n"
-    for i, (shop, total) in enumerate(sorted_shops[:3], 1):
+    message_text += "\n🏪 <b>По магазинам:</b>\n"
+    for i, (shop, total) in enumerate(sorted_shops, 1):
+        if len(message_text) > 3700:
+            remaining = len(sorted_shops) - i + 1
+            message_text += f"<i>···  ещё {remaining} маг. — скачайте Excel</i>\n"
+            break
         message_text += f"{i}. {he(shop)}: {format_currency(total)}\n"
 
     builder = InlineKeyboardBuilder()
@@ -683,7 +691,10 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
                 message_text += f"  📂 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
                 sorted_products = sorted(cat_data['products'].items(),
                                          key=lambda x: x[1]['total'], reverse=True)
-                for product_name, product_data in sorted_products[:3]:
+                for product_name, product_data in sorted_products:
+                    if len(message_text) > 3700:
+                        message_text += "     <i>···  остальные товары в Excel</i>\n"
+                        break
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
 
@@ -1092,7 +1103,10 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                 message_text += f"  📂 <b>{he(category)}:</b> {format_currency(cat_data['total'])}\n"
                 sorted_products = sorted(cat_data['products'].items(),
                                          key=lambda x: x[1]['total'], reverse=True)
-                for product_name, product_data in sorted_products[:3]:
+                for product_name, product_data in sorted_products:
+                    if len(message_text) > 3700:
+                        message_text += "     <i>···  остальные товары в Excel</i>\n"
+                        break
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
 
