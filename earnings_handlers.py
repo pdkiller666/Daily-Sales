@@ -6,14 +6,16 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, timedelta
-import calendar
 
 from database import Database
 from keyboards import InlineKeyboardBuilder
-from utils import format_price, escape_md
+from utils import format_price, he
 from db_utils import get_db
 
 earnings_router = Router()
+
+_MONTHS_RU = ['', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+              'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
 class EarningsStates(StatesGroup):
     selecting_period = State()
@@ -45,8 +47,8 @@ async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
     daily_rate = current_db.get_salary_rate(user_id)
 
     text = (
-        "💰 *Мой заработок*\n\n"
-        f"📅 *Текущий месяц:* {format_price(month_earnings['total_earnings'])}₽\n"
+        "💰 <b>Мой заработок</b>\n\n"
+        f"📅 <b>Текущий месяц:</b> {format_price(month_earnings['total_earnings'])}₽\n"
         f"📦 Продаж: {month_earnings['total_sales']}\n"
     )
     if daily_rate > 0 or worked_days > 0:
@@ -56,12 +58,12 @@ async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
             f"💼 Итого: {format_price(month_earnings['total_earnings'] + monthly_salary)}₽\n"
         )
     text += (
-        f"\n📊 *За всё время:* {format_price(all_time_earnings['total_earnings'])}₽\n"
+        f"\n📊 <b>За всё время:</b> {format_price(all_time_earnings['total_earnings'])}₽\n"
         f"📦 Продаж: {all_time_earnings['total_sales']}\n\n"
         "Выберите период для подробного просмотра:"
     )
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data == "earnings_current_month")
@@ -78,33 +80,33 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
     earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
     total_earnings = current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
 
-    current_month_name = calendar.month_name[datetime.now().month]
-
     now = datetime.now()
+    current_month_name = _MONTHS_RU[now.month]
+
     worked_days = current_db.get_worked_days_count(user_id, now.year, now.month)
     monthly_salary = current_db.calculate_monthly_salary(user_id, now.year, now.month)
     daily_rate = current_db.get_salary_rate(user_id)
 
-    text = f"📅 *Заработок за {current_month_name} {now.year}*\n\n"
-    text += f"💰 *Мотивация:* {format_price(total_earnings['total_earnings'])}₽\n"
-    text += f"📦 *Количество продаж:* {total_earnings['total_sales']}\n"
+    text = f"📅 <b>Заработок за {current_month_name} {now.year}</b>\n\n"
+    text += f"💰 <b>Мотивация:</b> {format_price(total_earnings['total_earnings'])}₽\n"
+    text += f"📦 <b>Количество продаж:</b> {total_earnings['total_sales']}\n"
     if daily_rate > 0 or worked_days > 0:
         text += (
-            f"\n🏠 *Оклад:*\n"
+            f"\n🏠 <b>Оклад:</b>\n"
             f"📅 Смен: {worked_days} × {format_price(daily_rate)}₽ = "
-            f"*{format_price(monthly_salary)}₽*\n"
+            f"<b>{format_price(monthly_salary)}₽</b>\n"
         )
         text += (
             f"\n━━━━━━━━━━━━━━━━\n"
-            f"💼 *Итого (мотивация + оклад):*\n"
-            f"*{format_price(total_earnings['total_earnings'] + monthly_salary)}₽*\n"
+            f"💼 <b>Итого (мотивация + оклад):</b>\n"
+            f"<b>{format_price(total_earnings['total_earnings'] + monthly_salary)}₽</b>\n"
         )
     text += "\n"
 
     if not earnings:
         text += "❌ В этом месяце продаж пока нет"
     else:
-        text += "📋 *Детали по продажам:*\n\n"
+        text += "📋 <b>Детали по продажам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
             commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
@@ -116,7 +118,7 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
 
         for product_name, data in products_earnings.items():
             text += (
-                f"🔹 *{escape_md(product_name)}*\n"
+                f"🔹 <b>{he(product_name)}</b>\n"
                 f"💰 {format_price(data['total_commission'])}₽ | "
                 f"📦 {data['total_quantity']} шт | "
                 f"📋 {data['sales_count']} продаж\n\n"
@@ -128,7 +130,7 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="my_earnings")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data == "earnings_all_time")
@@ -143,14 +145,14 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
     earnings = current_db.get_seller_earnings(user_id)
     total_earnings = current_db.get_seller_total_earnings(user_id)
 
-    text = "📊 *Заработок за всё время*\n\n"
-    text += f"💰 *Общий заработок:* {format_price(total_earnings['total_earnings'])}₽\n"
-    text += f"📦 *Количество продаж:* {total_earnings['total_sales']}\n\n"
+    text = "📊 <b>Заработок за всё время</b>\n\n"
+    text += f"💰 <b>Общий заработок:</b> {format_price(total_earnings['total_earnings'])}₽\n"
+    text += f"📦 <b>Количество продаж:</b> {total_earnings['total_sales']}\n\n"
 
     if not earnings:
         text += "❌ Продаж пока нет"
     else:
-        text += "📋 *Топ товаров по заработку:*\n\n"
+        text += "📋 <b>Топ товаров по заработку:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
             commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
@@ -165,7 +167,7 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
         for i, (product_name, data) in enumerate(sorted_products[:10], 1):
             medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
             text += (
-                f"{medal} *{escape_md(product_name)}*\n"
+                f"{medal} <b>{he(product_name)}</b>\n"
                 f"💰 {format_price(data['total_commission'])}₽ | "
                 f"📦 {data['total_quantity']} шт | "
                 f"📋 {data['sales_count']} продаж\n\n"
@@ -179,7 +181,7 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="my_earnings")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data.startswith("earnings_detailed"))
@@ -194,7 +196,8 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
     if callback.data == "earnings_detailed_current":
         current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
-        period_text = f"{calendar.month_name[datetime.now().month]} {datetime.now().year}"
+        now = datetime.now()
+        period_text = f"{_MONTHS_RU[now.month]} {now.year}"
         period_type = "current"
     else:
         earnings = current_db.get_seller_earnings(user_id)
@@ -202,10 +205,10 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
         period_type = "all"
 
     if not earnings:
-        text = f"📋 *Детальный отчет за {period_text}*\n\n❌ Продаж пока нет"
+        text = f"📋 <b>Детальный отчет за {period_text}</b>\n\n❌ Продаж пока нет"
         builder = InlineKeyboardBuilder()
         builder.button(text="⬅️ Назад", callback_data="my_earnings")
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         return
 
     sales_by_date = {}
@@ -229,13 +232,13 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
     sorted_dates = sorted(sales_by_date.keys(), reverse=True)
 
     if not sorted_dates:
-        text = f"📋 *Детальный отчет за {period_text}*\n\n❌ Продаж пока нет"
+        text = f"📋 <b>Детальный отчет за {period_text}</b>\n\n❌ Продаж пока нет"
         builder = InlineKeyboardBuilder()
         builder.button(text="⬅️ Назад", callback_data="my_earnings")
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         return
 
-    text = f"📋 *Детальный отчет за {period_text}*\n\n📊 Выберите день для просмотра:\n\n"
+    text = f"📋 <b>Детальный отчет за {period_text}</b>\n\n📊 Выберите день для просмотра:\n\n"
 
     builder = InlineKeyboardBuilder()
     for date_key in sorted_dates[:15]:
@@ -259,7 +262,7 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="my_earnings")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data.startswith("earnings_day_"))
@@ -307,7 +310,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
         formatted_date = date_key
         weekday = ""
 
-    text = f"📋 *Продажи за {weekday}, {formatted_date}*\n\n"
+    text = f"📋 <b>Продажи за {weekday}, {formatted_date}</b>\n\n"
 
     day_total = 0
     day_earning = 0
@@ -335,13 +338,13 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
         day_earning += commission_amount
 
         text += (
-            f"*{i}.* {product_name}\n"
-            f"🕐 {time_str} | 🏪 {shop_name}\n"
+            f"<b>{i}.</b> {he(product_name)}\n"
+            f"🕐 {time_str} | 🏪 {he(shop_name)}\n"
             f"📦 {quantity_sold} шт × {format_price(sale_price)}₽ = {format_price(sale_total)}₽\n"
             f"💰 Мотивация: {format_price(commission_amount)}₽ ({comm_info})\n\n"
         )
 
-    text += f"📊 *Итого за день:*\n"
+    text += "📊 <b>Итого за день:</b>\n"
     text += f"💵 Сумма продаж: {format_price(day_total)}₽\n"
     text += f"💰 Ваша мотивация: {format_price(day_earning)}₽\n"
     text += f"📦 Продаж: {len(day_sales)}"
@@ -351,7 +354,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     builder.button(text="🏠 Главное меню", callback_data="my_earnings")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data == "earnings_select_period")
@@ -362,7 +365,7 @@ async def earnings_select_period(callback: CallbackQuery, state: FSMContext):
     current_date = datetime.now()
     for i in range(1, 7):
         date = current_date - timedelta(days=30*i)
-        month_name = calendar.month_name[date.month]
+        month_name = _MONTHS_RU[date.month]
         builder.button(text=f"{month_name} {date.year}", callback_data=f"earnings_month_{date.year}_{date.month}")
 
     builder.button(text="📅 Прошлый год", callback_data="earnings_last_year")
@@ -370,8 +373,8 @@ async def earnings_select_period(callback: CallbackQuery, state: FSMContext):
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "🗓️ *Выбор периода*\n\nВыберите месяц или период для просмотра заработка:",
-        reply_markup=builder.as_markup(), parse_mode="Markdown"
+        "🗓️ <b>Выбор периода</b>\n\nВыберите месяц или период для просмотра заработка:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -396,30 +399,30 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
     earnings = current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
     total_earnings = current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
 
-    month_name = calendar.month_name[month]
+    month_name = _MONTHS_RU[month]
 
     worked_days = current_db.get_worked_days_count(user_id, year, month)
     monthly_salary = current_db.calculate_monthly_salary(user_id, year, month)
     daily_rate = current_db.get_salary_rate(user_id)
 
-    text = f"📅 *Заработок за {month_name} {year}*\n\n"
-    text += f"💰 *Мотивация:* {format_price(total_earnings['total_earnings'])}₽\n"
-    text += f"📦 *Количество продаж:* {total_earnings['total_sales']}\n"
+    text = f"📅 <b>Заработок за {month_name} {year}</b>\n\n"
+    text += f"💰 <b>Мотивация:</b> {format_price(total_earnings['total_earnings'])}₽\n"
+    text += f"📦 <b>Количество продаж:</b> {total_earnings['total_sales']}\n"
     if daily_rate > 0 or worked_days > 0:
         text += (
-            f"\n🏠 *Оклад:*\n"
+            f"\n🏠 <b>Оклад:</b>\n"
             f"📅 Смен: {worked_days} × {format_price(daily_rate)}₽ = "
-            f"*{format_price(monthly_salary)}₽*\n"
+            f"<b>{format_price(monthly_salary)}₽</b>\n"
             f"\n━━━━━━━━━━━━━━━━\n"
-            f"💼 *Итого (мотивация + оклад):*\n"
-            f"*{format_price(total_earnings['total_earnings'] + monthly_salary)}₽*\n"
+            f"💼 <b>Итого (мотивация + оклад):</b>\n"
+            f"<b>{format_price(total_earnings['total_earnings'] + monthly_salary)}₽</b>\n"
         )
     text += "\n"
 
     if not earnings:
         text += "❌ В этом месяце продаж не было"
     else:
-        text += "📋 *Продажи по товарам:*\n\n"
+        text += "📋 <b>Продажи по товарам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
             commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
@@ -431,7 +434,7 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
 
         for product_name, data in products_earnings.items():
             text += (
-                f"🔹 *{escape_md(product_name)}*\n"
+                f"🔹 <b>{he(product_name)}</b>\n"
                 f"💰 {format_price(data['total_commission'])}₽ | "
                 f"📦 {data['total_quantity']} шт | "
                 f"📋 {data['sales_count']} продаж\n\n"
@@ -441,7 +444,7 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="earnings_select_period")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 @earnings_router.callback_query(F.data == "earnings_last_year")
@@ -460,9 +463,9 @@ async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
     earnings = current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
     total_earnings = current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
 
-    text = f"📅 *Заработок за {last_year} год*\n\n"
-    text += f"💰 *Общий заработок:* {format_price(total_earnings['total_earnings'])}₽\n"
-    text += f"📦 *Количество продаж:* {total_earnings['total_sales']}\n\n"
+    text = f"📅 <b>Заработок за {last_year} год</b>\n\n"
+    text += f"💰 <b>Общий заработок:</b> {format_price(total_earnings['total_earnings'])}₽\n"
+    text += f"📦 <b>Количество продаж:</b> {total_earnings['total_sales']}\n\n"
 
     if not earnings:
         text += f"❌ В {last_year} году продаж не было"
@@ -480,15 +483,15 @@ async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
                 continue
 
         if monthly_earnings:
-            text += "📊 *По месяцам:*\n\n"
+            text += "📊 <b>По месяцам:</b>\n\n"
             for month in range(1, 13):
                 if month in monthly_earnings:
-                    month_name = calendar.month_name[month]
+                    month_name = _MONTHS_RU[month]
                     text += f"🔹 {month_name}: {format_price(monthly_earnings[month])}₽\n"
 
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ Назад", callback_data="earnings_select_period")
     builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()

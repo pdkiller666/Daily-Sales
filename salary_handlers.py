@@ -12,7 +12,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from keyboards import InlineKeyboardBuilder, back_button
 from env_manager import env_manager
-from utils import format_price, escape_md
+from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 
@@ -136,14 +136,14 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
                                   year: int, month: int, current_db) -> None:
     """Перерисовать административный календарь после изменения."""
     user = current_db.get_user_by_id(target_uid)
-    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+    name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
     daily_rate = current_db.get_salary_rate(target_uid)
     worked = current_db.get_work_schedule(target_uid, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     text = (
-        f"📅 *График работы: {name}*\n"
+        f"📅 <b>График работы: {name}</b>\n"
         f"{_MONTH_NAMES[month - 1]} {year}\n\n"
         f"⬜ — нажмите чтобы добавить смену\n"
         f"✅ — нажмите для управления сменой\n\n"
@@ -154,7 +154,7 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
     kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True,
                       back_cb="slr_scheds",
                       tmpl_uid=target_uid, tmpl_yr=year, tmpl_mo=month)
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 
 # ── Нажатие на пустые/нефункциональные кнопки ────────────────────────────────
@@ -181,11 +181,11 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     builder.add(back_button("admin_management"))
     builder.adjust(1)
     await callback.message.edit_text(
-        "💼 *Оклады и графики работы*\n\n"
+        "💼 <b>Оклады и графики работы</b>\n\n"
         "Управляйте дневными ставками продавцов и контролируйте рабочие смены.\n\n"
-        "📌 *Принцип расчёта:*\n"
+        "📌 <b>Принцип расчёта:</b>\n"
         "Оклад = количество отмеченных смен × дневная ставка",
-        reply_markup=builder.as_markup(), parse_mode="Markdown"
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -202,9 +202,9 @@ async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
     rates = [r for r in current_db.get_all_salary_rates()
              if not env_manager.is_super_admin(r[4])]
     builder = InlineKeyboardBuilder()
-    text = "💵 *Ставки сотрудников*\n\nНажмите на сотрудника для редактирования:\n\n"
+    text = "💵 <b>Ставки сотрудников</b>\n\nНажмите на сотрудника для редактирования:\n\n"
     for user_id, fn, ln, daily_rate, tg_id in rates:
-        name = escape_md(f"{fn} {ln}".strip())
+        name = he(f"{fn} {ln}".strip())
         rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
         text += f"👤 {name} — {rate_str}\n"
         builder.button(text=f"✏️ {f'{fn} {ln}'.strip()}", callback_data=f"slr_set_{user_id}")
@@ -212,7 +212,7 @@ async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
         text += "❌ Нет зарегистрированных продавцов"
     builder.add(back_button("admin_salary_menu"))
     builder.adjust(1)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -232,7 +232,7 @@ async def salary_set_user(callback: CallbackQuery, state: FSMContext):
         return
     daily_rate = current_db.get_salary_rate(target_uid)
     name_raw = f"{user[2]} {user[3]}".strip()
-    name = escape_md(name_raw)
+    name = he(name_raw)
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     await state.update_data(salary_target_uid=target_uid, salary_target_name=name_raw,
                              anchor_msg_id=callback.message.message_id)
@@ -240,11 +240,11 @@ async def salary_set_user(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.add(back_button("slr_rates"))
     await callback.message.edit_text(
-        f"✏️ *Ставка: {name}*\n\n"
-        f"Текущая ставка: *{rate_str}*\n\n"
+        f"✏️ <b>Ставка: {name}</b>\n\n"
+        f"Текущая ставка: <b>{rate_str}</b>\n\n"
         "Введите новую дневную ставку (₽ за смену).\n"
-        "Например: `1500` или `2000.50`",
-        reply_markup=builder.as_markup(), parse_mode="Markdown"
+        "Например: <code>1500</code> или <code>2000.50</code>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -273,14 +273,14 @@ async def salary_rate_enter(message: Message, state: FSMContext):
         return
     current_db = await get_db(uid, state)
     current_db.set_salary_rate(target_uid, rate, uid)
-    name = escape_md(name_raw)
+    name = he(name_raw)
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 К списку ставок", callback_data="slr_rates")
     builder.button(text="💼 Оклады и смены", callback_data="admin_salary_menu")
     builder.adjust(1)
     await fsm_edit(state, message,
-                   f"✅ Ставка *{name}* обновлена: *{format_price(rate)}₽/смену*",
-                   reply_markup=builder.as_markup(), parse_mode="Markdown")
+                   f"✅ Ставка <b>{name}</b> обновлена: <b>{format_price(rate)}₽/смену</b>",
+                   reply_markup=builder.as_markup(), parse_mode="HTML")
     await clear_state_keep_org(state)
 
 
@@ -313,8 +313,8 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
     builder.add(back_button("admin_salary_menu"))
     builder.adjust(1)
     await callback.message.edit_text(
-        "📅 *Графики работы*\n\nВыберите сотрудника:",
-        reply_markup=builder.as_markup(), parse_mode="Markdown"
+        "📅 <b>Графики работы</b>\n\nВыберите сотрудника:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
 
@@ -393,7 +393,7 @@ async def salary_day_subscreen(callback: CallbackQuery, state: FSMContext):
     date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
 
     user = current_db.get_user_by_id(target_uid)
-    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+    name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
 
     cal_cb = f"slr_cal_{target_uid}_{date_dt.year}_{date_dt.month}"
     builder = InlineKeyboardBuilder()
@@ -404,11 +404,11 @@ async def salary_day_subscreen(callback: CallbackQuery, state: FSMContext):
     builder.row(back_button(cal_cb))
 
     await callback.message.edit_text(
-        f"📅 *{name}* · {date_ru}\n"
-        f"⏰ Время смены: *{time_info}*\n\n"
+        f"📅 <b>{name}</b> · {date_ru}\n"
+        f"⏰ Время смены: <b>{time_info}</b>\n\n"
         "Выберите действие:",
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -456,8 +456,8 @@ async def salary_edit_date_start(callback: CallbackQuery, state: FSMContext):
     kb = _hour_picker_kb(prefix, back_cb, min_h=6, max_h=22)
 
     await callback.message.edit_text(
-        f"⏰ *Начало смены*\n{date_ru}\n\nВыберите час начала:",
-        reply_markup=kb, parse_mode="Markdown"
+        f"⏰ <b>Начало смены</b>\n{date_ru}\n\nВыберите час начала:",
+        reply_markup=kb, parse_mode="HTML"
     )
 
 
@@ -484,8 +484,8 @@ async def salary_edit_date_end(callback: CallbackQuery, state: FSMContext):
     kb = _hour_picker_kb(prefix, back_cb, min_h=start_h + 1, max_h=23)
 
     await callback.message.edit_text(
-        f"⏰ *Конец смены*\n{date_ru} · начало {_fmt_h(start_h)}\n\nВыберите час конца:",
-        reply_markup=kb, parse_mode="Markdown"
+        f"⏰ <b>Конец смены</b>\n{date_ru} · начало {_fmt_h(start_h)}\n\nВыберите час конца:",
+        reply_markup=kb, parse_mode="HTML"
     )
 
 
@@ -533,9 +533,9 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
 
     templates = current_db.get_shift_templates(target_uid)
     user = current_db.get_user_by_id(target_uid)
-    name = escape_md(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+    name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
 
-    lines = [f"⏰ *Шаблон смен: {name}*\n",
+    lines = [f"⏰ <b>Шаблон смен: {name}</b>\n",
              "Нажмите на день, чтобы изменить время:\n"]
     builder = InlineKeyboardBuilder()
     for wd, wd_name in enumerate(_WEEKDAY_NAMES):
@@ -544,7 +544,7 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
             t_str = _time_range_str(tmpl[0], tmpl[1])
         else:
             t_str = "выходной"
-        lines.append(f"*{wd_name}*: {t_str}")
+        lines.append(f"<b>{wd_name}</b>: {t_str}")
         builder.button(
             text=f"{wd_name} · {t_str}",
             callback_data=f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
@@ -555,7 +555,7 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "\n".join(lines),
         reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -581,8 +581,8 @@ async def salary_template_day_start(callback: CallbackQuery, state: FSMContext):
     kb = _hour_picker_kb(prefix, back_cb, min_h=6, max_h=22, day_off_cb=day_off_cb)
 
     await callback.message.edit_text(
-        f"⏰ *Начало смены — {wd_name}*\n\nВыберите час начала или установите выходной:",
-        reply_markup=kb, parse_mode="Markdown"
+        f"⏰ <b>Начало смены — {wd_name}</b>\n\nВыберите час начала или установите выходной:",
+        reply_markup=kb, parse_mode="HTML"
     )
 
 
@@ -628,9 +628,9 @@ async def salary_template_day_end(callback: CallbackQuery, state: FSMContext):
     kb = _hour_picker_kb(prefix, back_cb, min_h=start_h + 1, max_h=23)
 
     await callback.message.edit_text(
-        f"⏰ *Конец смены — {wd_name}*\n"
+        f"⏰ <b>Конец смены — {wd_name}</b>\n"
         f"Начало: {_fmt_h(start_h)}\n\nВыберите час конца:",
-        reply_markup=kb, parse_mode="Markdown"
+        reply_markup=kb, parse_mode="HTML"
     )
 
 
@@ -674,22 +674,22 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     raw_summary = current_db.get_team_salary_summary(year, month)
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
-    text = f"📊 *Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}*\n\n"
+    text = f"📊 <b>Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}</b>\n\n"
     total_fot = 0
     if not summary:
         text += "❌ Нет данных"
     else:
         for row in summary:
             s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id = row
-            name = escape_md(f"{fn} {ln}".strip())
-            shop_str = f" · {escape_md(shop)}" if shop else ""
+            name = he(f"{fn} {ln}".strip())
+            shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
             text += (
-                f"👤 *{name}*{shop_str}\n"
-                f"   📅 {worked_days} смен × {rate_str} = *{format_price(salary)}₽*\n\n"
+                f"👤 <b>{name}</b>{shop_str}\n"
+                f"   📅 {worked_days} смен × {rate_str} = <b>{format_price(salary)}₽</b>\n\n"
             )
             total_fot += salary
-        text += f"━━━━━━━━━━━━━━━━━━\n💰 *Итого ФОТ: {format_price(total_fot)}₽*"
+        text += f"━━━━━━━━━━━━━━━━━━\n💰 <b>Итого ФОТ: {format_price(total_fot)}₽</b>"
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
     next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
     builder = InlineKeyboardBuilder()
@@ -700,7 +700,7 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     )
     builder.add(back_button("admin_salary_menu"))
     builder.adjust(3, 1)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -710,7 +710,7 @@ def _my_schedule_text(month_name: str, year: int, daily_rate: float,
                       worked_count: int, salary: float) -> str:
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     return (
-        f"📅 *Мой график работы*\n"
+        f"📅 <b>Мой график работы</b>\n"
         f"{month_name} {year}\n\n"
         f"✅ — рабочая смена · нажмите чтобы узнать время\n"
         f"⬜ — выходной\n\n"
@@ -736,7 +736,7 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     salary = worked_count * daily_rate
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 
@@ -756,7 +756,7 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     salary = worked_count * daily_rate
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 

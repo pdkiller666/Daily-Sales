@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub + Amvera — сессия 38 (2026-05-06), commit `d6de26f`
+**Последний деплой:** GitHub + Amvera — сессия 39 (2026-05-07), commit `d13cbb7`
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -487,6 +487,14 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 4. **now_str**: дашборд и отчёты → `get_current_user_time(user_tz).strftime(...)`.
 5. **Scheduled notifications UTC fix**: ввод → `get_utc_time(naive, admin_tz)` → хранить; список → `format_user_datetime(raw_utc, admin_tz)`.
 6. **Аудит итог**: 34/34 модулей · 279/279 тестов · 0 кириллицы в callback_data.
+
+**Сессия 39:**
+1. **«Команда сегодня»** дашборд: добавлен `_staff_by_shop_with_names()` — для 'wide'/'org' scale показывает сгруппированный вид «ТЦ Лето: 3 (Иванов, Петров, Сидоров)». Commit `52d4d2d`.
+2. **Reports Markdown→HTML**: `report_full`, `report_shop_generate`, `report_city_generate` — переведены на HTML + `he()`. Commit `6b77c93`.
+3. **Perf: 7 индексов в `create_tables()`**: `idx_sales_user_date`, `idx_sales_shop_date`, `idx_inventory_shop_prod`, `idx_work_schedule_date`, `idx_seller_earnings_sale`, `idx_users_shop_name`, `idx_users_telegram_id` — все `CREATE INDEX IF NOT EXISTS`, применяются при каждом открытии БД.
+4. **`busy_timeout=10000`** в `create_tables()` (ранее только в `get_connection()`).
+5. **«message is not modified»** → тихий `answer()` без логирования (аналог «query is too old»). Commit `d13cbb7`.
+6. **Filter/dashboard investigation (read-only)**: дашборд и ручной фильтр (🔍 Фильтр) полностью независимы — дашборд читает только `get_user_org_scope()`, никогда не читает `ADMIN_FILTER_KEY` из FSM. Ручной фильтр влияет только на отчёты/рейтинги. Потенциальный gap: `get_plans_progress()` в дашборде (строка 529) не фильтрует по scope для 'wide'/'org' — показывает ВСЕ планы орга. Для single-shop scope фильтрация есть (строки 530-535). Поведение, видимо, намеренное (owner/org-level обзор планов).
 
 ---
 

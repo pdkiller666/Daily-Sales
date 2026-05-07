@@ -20,10 +20,12 @@ def main_menu(chat_id: int, user_shop: str = None):
     
     from tenant_manager import tenant_manager
     conn = sqlite3.connect(tenant_manager.main_db_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT role FROM user_org_mapping WHERE telegram_id = ?", (chat_id,))
-    mapping = cursor.fetchone()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT role FROM user_org_mapping WHERE telegram_id = ?", (chat_id,))
+        mapping = cursor.fetchone()
+    finally:
+        conn.close()
     
     is_org_admin = mapping and mapping[0] in ['owner', 'admin']
     
