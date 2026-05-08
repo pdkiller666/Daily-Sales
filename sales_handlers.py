@@ -249,12 +249,13 @@ def _sale_list_screen_kb(items_kb_rows: list, cart: list) -> InlineKeyboardMarku
 @sales_router.callback_query(F.data == "sale_show_favorites")
 async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
     """Подэкран: список избранных товаров."""
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user_row = current_db.get_user(callback.from_user.id)
     if not user_row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
+
+    await callback.answer()
     u_db_id   = user_row[0]
     fav_ids   = current_db.get_favorite_products(u_db_id) or []
     fav_prods = [current_db.get_product(pid) for pid in fav_ids]
@@ -283,12 +284,13 @@ async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data == "sale_show_recent")
 async def sale_show_recent_handler(callback: CallbackQuery, state: FSMContext):
     """Подэкран: недавно проданные товары."""
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user_row = current_db.get_user(callback.from_user.id)
     if not user_row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
+
+    await callback.answer()
     u_db_id = user_row[0]
     recent  = current_db.get_user_recent_products(u_db_id, limit=8) or []
 
@@ -391,7 +393,6 @@ async def sale_change_shop(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data.startswith("sale_cty_"))
 async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
     """Выбор города → показывает магазины в этом городе."""
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
     trade_network = data.get("sale_network", "")
@@ -404,6 +405,8 @@ async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
     if not city:
         await callback.answer("❌ Город не найден.", show_alert=True)
         return
+
+    await callback.answer()
 
     net_shops = current_db.get_shops_by_network(trade_network)
     city_shops = [(s, c) for s, c in net_shops if c == city]
@@ -441,7 +444,6 @@ async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data.startswith("sale_net_"))
 async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
     """Выбор конкретного магазина из сети — переходит к категориям."""
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
     trade_network = data.get("sale_network", "")
@@ -454,6 +456,8 @@ async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
     if not shop_name:
         await callback.answer("❌ Магазин не найден. Попробуйте снова.", show_alert=True)
         return
+
+    await callback.answer()
 
     # Проверяем: есть ли вообще товары с остатком в выбранном магазине
     inv_shops_with_stock = current_db.get_inventory_shops()
@@ -1811,13 +1815,14 @@ async def edit_sale_date_menu(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data.startswith("esd_quick_"))
 async def edit_sale_date_quick(callback: CallbackQuery, state: FSMContext):
     """Применить быструю дату к продаже."""
-    await callback.answer()
     new_date = callback.data.replace("esd_quick_", "")
     data = await state.get_data()
     sale_id = data.get('sale_id')
     if not sale_id:
         await callback.answer("❌ Продажа не найдена!", show_alert=True)
         return
+
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     editor_id  = current_db.get_user_id(callback.from_user.id)
     if current_db.update_sale_date(sale_id, new_date, changed_by=editor_id):
@@ -1836,7 +1841,13 @@ async def edit_sale_date_quick(callback: CallbackQuery, state: FSMContext):
         )
         await state.set_state(EditSaleStates.choosing_sale)
     else:
-        await callback.answer("❌ Ошибка при изменении даты!", show_alert=True)
+        await callback.message.edit_text(
+            "❌ <b>Ошибка при изменении даты!</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_edit_sale")],
+            ]),
+            parse_mode="HTML",
+        )
 
 @sales_router.callback_query(F.data == "esd_calendar")
 async def edit_sale_date_calendar(callback: CallbackQuery, state: FSMContext):

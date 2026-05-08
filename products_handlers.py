@@ -423,6 +423,7 @@ async def list_products(callback: CallbackQuery, state: FSMContext):
 @products_router.callback_query(F.data.startswith("prodl_pg_"))
 async def product_list_page(callback: CallbackQuery, state: FSMContext):
     """Навигация по страницам списка товаров."""
+    await callback.answer()
     try:
         page = int(callback.data.replace("prodl_pg_", ""))
     except ValueError:

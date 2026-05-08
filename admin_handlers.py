@@ -388,6 +388,7 @@ async def admin_users_menu(callback: CallbackQuery, state: FSMContext):
 @admin_router.callback_query(F.data.startswith("au_pg_"))
 async def admin_users_page(callback: CallbackQuery, state: FSMContext):
     """Навигация по страницам списка пользователей"""
+    await callback.answer()
     try:
         page = int(callback.data.replace("au_pg_", ""))
     except ValueError:

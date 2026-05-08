@@ -939,6 +939,7 @@ async def show_dashboard(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("dash_p_"))
 async def show_dashboard_period(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     period = callback.data.replace("dash_p_", "")
     if period not in ('today', 'week', 'month'):
         period = 'today'

@@ -240,7 +240,8 @@ async def send_payment_alerts(bot: Bot):
 
                     try:
                         end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                        days_remaining = (end_dt - datetime.now().replace(tzinfo=end_dt.tzinfo)).days
+                        # Считаем разницу в UTC, чтобы не ловить смещения из-за локального времени сервера
+                        days_remaining = (end_dt - current_utc).days
                     except Exception:
                         continue
 
@@ -428,8 +429,9 @@ async def check_scheduled_notifications(bot: Bot):
     """Отправка запланированных уведомлений, время которых наступило"""
     try:
         from datetime import datetime
+        import pytz
         db_paths = _get_scheduler_db_paths()
-        now_iso = datetime.now().isoformat()
+        now_utc = datetime.now(pytz.UTC)
 
         for path in db_paths:
             await asyncio.sleep(0)
@@ -445,7 +447,12 @@ async def check_scheduled_notifications(bot: Bot):
                     recipients_type = notif[4]
                     scheduled_dt = notif[6]
 
-                    if not scheduled_dt or scheduled_dt > now_iso:
+                    try:
+                        scheduled_utc = datetime.fromisoformat(str(scheduled_dt).replace('Z', '+00:00'))
+                    except Exception:
+                        continue
+
+                    if scheduled_utc > now_utc:
                         continue
 
                     if recipients_type == 'all':
