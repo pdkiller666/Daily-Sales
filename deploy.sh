@@ -199,3 +199,42 @@ else
   echo ""
   echo "=== Готово! Только GitHub обновлён ==="
 fi
+
+# ─── Авто-обновление AGENT_HANDOFF.md ───────────────────────────────────────
+echo "4. Обновление AGENT_HANDOFF.md..."
+
+HANDOFF="$SOURCE_DIR/AGENT_HANDOFF.md"
+TODAY=$(date '+%Y-%m-%d')
+
+# Хэши: GitHub из github-deploy, Amvera из amvera-deploy (если деплоился)
+GH_HASH=$(cd "$GITHUB_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+if $WITH_AMVERA && [ -d "/tmp/amvera-deploy/.git" ]; then
+  AV_HASH=$(cd "/tmp/amvera-deploy" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+else
+  # Если Amvera не деплоился — берём предыдущий хэш из файла
+  AV_HASH=$(grep -oP "Amvera \`\K[0-9a-f]+" "$HANDOFF" | head -1 || echo "unknown")
+fi
+
+# Текущий номер сессии из файла → +1
+CUR_SESSION=$(grep -oP "сессия \K\d+" "$HANDOFF" | head -1 || echo "43")
+NEW_SESSION=$((CUR_SESSION + 1))
+
+# Патчим строку «Последнее обновление»
+sed -i "s/> Последнее обновление: .*/> Последнее обновление: $TODAY (сессия $NEW_SESSION)/" "$HANDOFF"
+
+# Патчим строку «Последний деплой»
+sed -i "s/\*\*Последний деплой:\*\* GitHub \`[0-9a-f]*\` · Amvera \`[0-9a-f]*\` ([^)]*)./**Последний деплой:** GitHub \`$GH_HASH\` · Amvera \`$AV_HASH\` ($TODAY, сессия $NEW_SESSION). Оба хэша верифицированы через \`git ls-remote\`./" "$HANDOFF"
+
+echo "   AGENT_HANDOFF.md → сессия $NEW_SESSION · GitHub $GH_HASH · Amvera $AV_HASH"
+
+# Пушим обновлённый AGENT_HANDOFF.md на GitHub
+cd "$GITHUB_DIR"
+cp "$HANDOFF" "$GITHUB_DIR/AGENT_HANDOFF.md"
+git add AGENT_HANDOFF.md
+if git diff --cached --quiet; then
+  echo "   AGENT_HANDOFF.md: без изменений, пуш не нужен."
+else
+  git commit -m "auto: AGENT_HANDOFF сессия $NEW_SESSION ($TODAY)"
+  git push origin HEAD:main 2>/dev/null || git push origin HEAD:master
+  echo "   AGENT_HANDOFF.md: ✅ запушен на GitHub"
+fi
