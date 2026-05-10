@@ -186,7 +186,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
 
 @reports_router.callback_query(F.data == "report_today")
 async def report_today(callback: CallbackQuery, state: FSMContext):
-    """Отчет за сегодня для всех пользователей"""
+    """Отчет за сегодня — единый формат через generate_period_report."""
     if not callback.message:
         await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
         return
@@ -198,145 +198,11 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
-    is_admin = is_any_admin(callback.from_user.id)
-    today = datetime.now().strftime('%Y-%m-%d')
-    user_id = current_db.get_user_id(callback.from_user.id)
+    today = date.today().isoformat()
+    await state.update_data(start_date=today, end_date=today)
 
-    if is_admin:
-        # get_sales_report: id[0], product_id[1], shop_name[2], quantity_sold[3],
-        #                   sale_price[4], user_id[5], sale_date[6],
-        #                   product_name[7], category[8], first_name[9], last_name[10]
-        from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
-        _data_f = await state.get_data()
-        _af = _data_f.get(ADMIN_FILTER_KEY, empty_filter())
-        _scope_type, _scope_values = get_user_org_scope(callback.from_user.id)
-        _fkw = merge_scope_with_filter(_scope_type, _scope_values, _af)
-        sales = current_db.get_sales_report(start_date=today, end_date=today, **_fkw)
-    else:
-        # get_user_sales_by_date: id[0], product_id[1], shop_name[2], quantity_sold[3],
-        #                         sale_price[4], user_id[5], sale_date[6],
-        #                         product_name[7], category[8]
-        sales = current_db.get_user_sales_by_date(user_id, today, today)
-
-    if not sales:
-        await callback.message.edit_text(
-            "📅 Отчет за сегодня\n\n❌ Продажи за сегодня отсутствуют.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("reports")]])
-        )
-        return
-
-    # Одним запросом получаем все данные о заработке для всех продаж (без N+1)
-    sale_ids = [sale[0] for sale in sales]
-    earnings_map = {}  # {sale_id: (commission_amount, motivation_type, motivation_value)}
-    if sale_ids:
-        placeholders = ','.join('?' * len(sale_ids))
-        conn = current_db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            f'SELECT sale_id, commission_amount, motivation_type, motivation_value '
-            f'FROM seller_earnings WHERE sale_id IN ({placeholders})',
-            sale_ids
-        )
-        for row in cursor.fetchall():
-            earnings_map[row[0]] = (row[1], row[2], row[3])
-        conn.close()
-
-    shops_data = {}
-    products_agg = {}   # user view: {(product_name, category): {qty, total, commission}}
-    admin_lines = []    # admin view: per-transaction strings
-    total_sum = 0
-    total_quantity = 0
-    total_earnings_accumulated = 0
-
-    for sale in sales:
-        try:
-            if len(sale) >= 11:
-                sale_id, product_id, shop_name, quantity, sale_price, s_user_id, sale_date, product_name, category, first_name, last_name = sale[:11]
-            elif len(sale) >= 9:
-                sale_id, product_id, shop_name, quantity, sale_price, s_user_id, sale_date, product_name, category = sale[:9]
-                first_name, last_name = "", ""
-            else:
-                continue
-
-            quantity  = int(quantity) if quantity else 0
-            price     = float(sale_price) if sale_price else 0
-            sale_total = quantity * price
-            total_sum += sale_total
-            total_quantity += quantity
-
-            commission = 0.0
-            comm_label = ""
-            if sale_id in earnings_map:
-                e_comm, e_type, e_val = earnings_map[sale_id]
-                commission = float(e_comm) if e_comm else 0.0
-                if commission:
-                    comm_label = f"{e_val}%" if e_type == 'percentage' else f"{format_currency(e_val)}/шт"
-            total_earnings_accumulated += commission
-
-            if shop_name not in shops_data:
-                shops_data[shop_name] = {'shop_total': 0, 'shop_quantity': 0}
-            shops_data[shop_name]['shop_total']    += sale_total
-            shops_data[shop_name]['shop_quantity'] += quantity
-
-            if is_admin:
-                seller_part = f"  ·  {he(first_name)}" if first_name else ""
-                comm_part   = f"\n   💰 +{format_currency(commission)} ({comm_label})" if commission else ""
-                admin_lines.append(
-                    f"{he(product_name)}{seller_part}: {quantity} шт. × {format_currency(price)}"
-                    f" = <b>{format_currency(sale_total)}</b>{comm_part}"
-                )
-            else:
-                key = (product_name, category or 'Без категории')
-                if key not in products_agg:
-                    products_agg[key] = {'qty': 0, 'total': 0.0, 'commission': 0.0}
-                products_agg[key]['qty']        += quantity
-                products_agg[key]['total']      += sale_total
-                products_agg[key]['commission'] += commission
-        except Exception:
-            continue
-
-    # ── Build detail section ─────────────────────────────────────────────────
-    MAX_ADMIN_LINES = 25
-    if is_admin:
-        detail_text = "\n\n📋 <b>Детализация продаж:</b>\n"
-        for idx, line in enumerate(admin_lines[:MAX_ADMIN_LINES], 1):
-            detail_text += f"\n<b>{idx}.</b> {line}"
-        hidden = len(admin_lines) - MAX_ADMIN_LINES
-        if hidden > 0:
-            detail_text += f"\n\n<i>···  ещё {hidden} записей — скачайте Excel для полной детализации</i>"
-    else:
-        detail_text = "\n\n📋 <b>По товарам:</b>"
-        by_cat: dict = {}
-        for (pname, cat), pdata in products_agg.items():
-            by_cat.setdefault(cat, []).append((pname, pdata))
-        for cat in sorted(by_cat.keys()):
-            items = sorted(by_cat[cat], key=lambda x: x[1]['total'], reverse=True)
-            detail_text += f"\n\n<i>{he(cat)}</i>\n"
-            for pname, pdata in items:
-                comm_part = f" · 💰 <b>+{format_currency(pdata['commission'])}</b>" if pdata['commission'] else ""
-                detail_text += (
-                    f"  • {he(pname)}: <b>{pdata['qty']} шт.</b>"
-                    f" · {format_currency(pdata['total'])}{comm_part}\n"
-                )
-
-    # ── Assemble message ─────────────────────────────────────────────────────
-    message_text  = "📅 <b>Отчет за сегодня</b>\n\n"
-    message_text += "📈 <b>Общая статистика:</b>\n"
-    message_text += f"• Продано: {total_quantity} шт.\n"
-    message_text += f"• Сумма: {format_currency(total_sum)}\n"
-    message_text += f"• Заработок: <b>{format_currency(total_earnings_accumulated)}</b>\n\n"
-    for sn in sorted(shops_data.keys()):
-        message_text += f"🏪 <b>{he(sn)}:</b> {format_currency(shops_data[sn]['shop_total'])}\n"
-    message_text += detail_text
-
-    if len(message_text) > 3800:
-        message_text = message_text[:3750] + "\n<i>···  список обрезан — скачайте Excel для полной детализации</i>"
-
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("reports")]]),
-        parse_mode="HTML"
-    )
+    is_admin = is_any_admin(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)
+    await generate_period_report(callback, state, user_shop_only=not is_admin)
 
 @reports_router.callback_query(F.data == "report_full")
 async def report_full(callback: CallbackQuery, state: FSMContext):
