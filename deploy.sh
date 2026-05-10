@@ -222,8 +222,8 @@ NEW_SESSION=$((CUR_SESSION + 1))
 # Патчим строку «Последнее обновление»
 sed -i "s/> Последнее обновление: .*/> Последнее обновление: $TODAY (сессия $NEW_SESSION)/" "$HANDOFF"
 
-# Патчим строку «Последний деплой»
-sed -i "s/\*\*Последний деплой:\*\* GitHub \`[0-9a-f]*\` · Amvera \`[0-9a-f]*\` ([^)]*)./**Последний деплой:** GitHub \`$GH_HASH\` · Amvera \`$AV_HASH\` ($TODAY, сессия $NEW_SESSION). Оба хэша верифицированы через \`git ls-remote\`./" "$HANDOFF"
+# Патчим строку «Последний деплой» (заменяем всю строку целиком)
+sed -i "s|^\*\*Последний деплой:\*\*.*|**Последний деплой:** GitHub \`$GH_HASH\` · Amvera \`$AV_HASH\` ($TODAY, сессия $NEW_SESSION). Оба хэша верифицированы через \`git ls-remote\`.|" "$HANDOFF"
 
 echo "   AGENT_HANDOFF.md → сессия $NEW_SESSION · GitHub $GH_HASH · Amvera $AV_HASH"
 

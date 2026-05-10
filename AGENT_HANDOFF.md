@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `494b612` · Amvera `38c7d39` (2026-05-10, сессия 45). Оба хэша верифицированы через `git ls-remote`. Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `494b612` · Amvera `38c7d39` (2026-05-10, сессия 45). Оба хэша верифицированы через `git ls-remote`.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
