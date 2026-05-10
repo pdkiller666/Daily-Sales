@@ -2374,12 +2374,14 @@ class Database:
 
     def get_sales_summary(self, start_date=None, end_date=None,
                           shop_name=None, city=None, trade_network=None,
-                          shop_names=None, cities=None, trade_networks=None):
+                          shop_names=None, cities=None, trade_networks=None,
+                          user_id=None):
         """Получение сводного отчета по продажам.
 
         Поддерживает одиночные (shop_name/city/trade_network) и
         множественные (shop_names/cities/trade_networks — list[str]) фильтры зоны.
         При city/trade_network-фильтрах добавляется JOIN с users.
+        user_id — внутренний users.id для фильтрации по конкретному продавцу.
         """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -2437,6 +2439,10 @@ class Database:
             ph = ','.join('?' * len(trade_networks))
             query += f' AND u.trade_network IN ({ph})'
             params.extend(trade_networks)
+
+        if user_id is not None:
+            query += ' AND s.user_id = ?'
+            params.append(user_id)
 
         cursor.execute(query, params)
         summary = cursor.fetchone()

@@ -195,6 +195,13 @@ async def process_reg_invite_code(message: Message, state: FSMContext):
             reply_markup=cancel_registration_keyboard(),
         )
         await state.set_state(UserRegistrationStates.waiting_for_first_name)
+    elif result == "KICKED":
+        await fsm_edit(
+            state, message,
+            "🚫 <b>Доступ ограничен</b>\n\nВы были исключены из этой организации. "
+            "Обратитесь к администратору для восстановления доступа.",
+            reply_markup=cancel_registration_keyboard(),
+        )
     else:
         await fsm_edit(
             state, message,
@@ -952,15 +959,11 @@ async def start_profile_edit(callback: CallbackQuery, state: FSMContext):
 # ── Выбор магазина из списка (собственный профиль, admin) ─────────────────────
 
 async def _apply_user_field(telegram_id: int, db_file: str, field: str, value: str) -> None:
-    """Обновляет поле пользователя в org/personal БД и синхронизирует с main.db."""
+    """Обновляет поле пользователя в org/personal БД."""
     conn = sqlite3.connect(db_file)
     conn.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (value, telegram_id))
     conn.commit()
     conn.close()
-    main_conn = sqlite3.connect('data/main.db')
-    main_conn.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (value, telegram_id))
-    main_conn.commit()
-    main_conn.close()
 
 @router.callback_query(F.data.startswith("prof_shop_pick_"))
 async def prof_shop_pick(callback: CallbackQuery, state: FSMContext):

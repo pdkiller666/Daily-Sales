@@ -230,11 +230,20 @@ async def run_system_tests_handler(callback: CallbackQuery, state: FSMContext):
 
             ok = proc.returncode == 0
             out = stdout.decode("utf-8", errors="replace")
+            err = stderr.decode("utf-8", errors="replace")
             summary = _extract_summary(out, proc.returncode)
             icon = "✅" if ok else "❌"
-            results.append(f"{icon} <b>{he(label)}</b>\n    {he(summary)}")
+            block = f"{icon} <b>{he(label)}</b>\n    {he(summary)}"
             if not ok:
                 all_ok = False
+                # Показываем детали: последние строки stdout + stderr
+                detail_lines = [l for l in out.splitlines() if l.strip()][-15:]
+                if err.strip():
+                    detail_lines += ["— stderr —"] + [l for l in err.splitlines() if l.strip()][-10:]
+                if detail_lines:
+                    detail_str = "\n".join(detail_lines)
+                    block += f"\n<pre>{he(detail_str[:1200])}</pre>"
+            results.append(block)
         except Exception as e:
             results.append(f"❌ <b>{he(label)}</b>\n    Ошибка запуска: {he(str(e))}")
             all_ok = False
@@ -861,8 +870,12 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         if org_role in ('admin', 'owner') and custom_title:
             scope_line += f"\n🎖️ <b>Должность:</b> {he(custom_title)}"
 
+    # Статус заморозки
+    _is_active = tenant_manager.get_user_org_is_active(telegram_id)
+    frozen_badge = "\n⛔ <b>ЗАМОРОЖЕН</b> (нет доступа к организации)" if _is_active is False else ""
+
     message_text = (
-        f"👤 Пользователь: {he(first_name)} {he(last_name)}\n\n"
+        f"👤 Пользователь: {he(first_name)} {he(last_name)}{frozen_badge}\n\n"
         f"🎖️ Роль: <b>{user_role}</b>{scope_line}\n"
         f"🔗 Telegram ID: {telegram_id}\n"
         f"👤 ФИО: {he(first_name)} {he(last_name)}"
@@ -902,15 +915,22 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         target_org_role_for_buttons in ('admin', 'owner')
     )
 
+    # Проверяем is_active пользователя в org_mapping
+    user_is_active = tenant_manager.get_user_org_is_active(telegram_id)
+
     buttons = [
         [InlineKeyboardButton(text="✏️ Редактировать", callback_data="admin_edit_user")],
     ]
-    if can_change_role:
+    if can_change_role and user_is_active is not False:
         buttons.append([InlineKeyboardButton(text="🎖️ Изменить роль", callback_data="adm_role_menu")])
-    if can_set_title:
+    if can_set_title and user_is_active is not False:
         buttons.append([InlineKeyboardButton(text="🏷️ Название должности", callback_data="adm_title_start")])
     if telegram_id != callback.from_user.id:
-        buttons.append([InlineKeyboardButton(text="🚪 Исключить из орга", callback_data="adm_kick_confirm")])
+        if user_is_active is False:
+            # Пользователь заморожен — предлагаем восстановить
+            buttons.append([InlineKeyboardButton(text="🔄 Восстановить в организацию", callback_data="adm_restore_confirm")])
+        else:
+            buttons.append([InlineKeyboardButton(text="🚪 Исключить из орга", callback_data="adm_kick_confirm")])
     if caller_is_super and not env_manager.is_super_admin(telegram_id) and telegram_id != callback.from_user.id:
         buttons.append([InlineKeyboardButton(text="🗑 Удалить полностью", callback_data="admin_delete_user")])
     buttons.append([back_button("admin_users")])
@@ -1349,13 +1369,15 @@ async def adm_kick_confirm(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     await callback.message.edit_text(
-        f"🚪 <b>Исключить из организации</b>\n\n"
+        f"🚪 <b>Заморозить в организации</b>\n\n"
         f"Пользователь: <b>{user_name}</b>\n"
         f"Telegram ID: <code>{telegram_id}</code>\n\n"
-        f"Пользователь потеряет доступ к организации, но все его продажи и история сохранятся в отчётах.\n\n"
+        f"Пользователь <b>потеряет доступ</b> к организации, "
+        f"но все его продажи и история сохранятся в отчётах.\n"
+        f"Восстановить можно в любой момент через карточку сотрудника.\n\n"
         f"Продолжить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, исключить", callback_data="adm_kick_final"),
+            [InlineKeyboardButton(text="✅ Да, заморозить", callback_data="adm_kick_final"),
              InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin_user_{telegram_id}")]
         ]),
         parse_mode="HTML"
@@ -1363,7 +1385,7 @@ async def adm_kick_confirm(callback: CallbackQuery, state: FSMContext):
 
 @admin_router.callback_query(F.data == "adm_kick_final")
 async def adm_kick_final(callback: CallbackQuery, state: FSMContext):
-    """Исключение пользователя из орга — только убирает user_org_mapping."""
+    """Заморозка пользователя в орге — устанавливает is_active=0 в user_org_mapping."""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён.", show_alert=True)
         return
@@ -1380,9 +1402,12 @@ async def adm_kick_final(callback: CallbackQuery, state: FSMContext):
     success, result = tenant_manager.remove_user_from_org(telegram_id)
 
     if success:
+        invalidate_admin_cache(telegram_id)
+        invalidate_scope_cache(telegram_id)
         await callback.message.edit_text(
-            f"✅ Пользователь <code>{telegram_id}</code> исключён из организации.\n\n"
-            f"Его продажи и история сохранены в отчётах.",
+            f"✅ Пользователь <code>{telegram_id}</code> заморожен.\n\n"
+            f"Его продажи и история сохранены в отчётах.\n"
+            f"Пользователь не сможет войти по инвайт-коду — восстановить можно в карточке сотрудника.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_users")]]),
             parse_mode="HTML"
         )
@@ -1393,6 +1418,78 @@ async def adm_kick_final(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     await state.update_data(admin_edit_user_id=None, admin_delete_db_path=None)
+
+
+@admin_router.callback_query(F.data == "adm_restore_confirm")
+async def adm_restore_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение восстановления пользователя в организацию."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    telegram_id = data.get('admin_edit_user_id')
+    db_path = data.get('admin_delete_db_path')
+
+    if not telegram_id:
+        await callback.answer("❌ Контекст потерян.", show_alert=True)
+        return
+
+    user = None
+    if db_path and os.path.exists(db_path):
+        user = Database(db_path).get_user(telegram_id)
+
+    user_name = f"{he(user[2])} {he(user[3])}" if user else str(telegram_id)
+
+    await callback.answer()
+    await callback.message.edit_text(
+        f"🔄 <b>Восстановить в организацию</b>\n\n"
+        f"Пользователь: <b>{user_name}</b>\n"
+        f"Telegram ID: <code>{telegram_id}</code>\n\n"
+        f"Пользователь снова получит доступ к организации.\n\n"
+        f"Продолжить?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да, восстановить", callback_data="adm_restore_final"),
+             InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin_user_{telegram_id}")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@admin_router.callback_query(F.data == "adm_restore_final")
+async def adm_restore_final(callback: CallbackQuery, state: FSMContext):
+    """Восстановление пользователя в организацию (is_active=1)."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    telegram_id = data.get('admin_edit_user_id')
+
+    if not telegram_id:
+        await callback.answer("❌ Контекст потерян.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    success, result = tenant_manager.restore_user_to_org(telegram_id)
+
+    if success:
+        invalidate_admin_cache(telegram_id)
+        invalidate_scope_cache(telegram_id)
+        await callback.message.edit_text(
+            f"✅ Пользователь <code>{telegram_id}</code> восстановлен в организацию.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_users")]]),
+            parse_mode="HTML"
+        )
+    else:
+        await callback.message.edit_text(
+            f"❌ Ошибка при восстановлении: {he(result)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_users")]]),
+            parse_mode="HTML"
+        )
+    await state.update_data(admin_edit_user_id=None, admin_delete_db_path=None)
+
 
 @admin_router.callback_query(F.data == "admin_edit_user")
 async def admin_edit_user_menu(callback: CallbackQuery, state: FSMContext):

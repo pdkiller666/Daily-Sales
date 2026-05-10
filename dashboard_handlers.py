@@ -61,12 +61,21 @@ _CONTEST_TYPE_LABEL = {
 _REWARD_TYPE_LABEL = {'money': '💵', 'gift': '🎁', 'certificate': '🎟'}
 
 
-def _contest_block(contests: list, today_str: str) -> str:
+def _progress_bar(pct: float, width: int = 10) -> str:
+    """Текстовый прогресс-бар. pct — процент 0..100+."""
+    clamped = min(pct, 100.0)
+    filled = round(clamped / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _contest_block(contests: list, today_str: str,
+                   current_db=None, telegram_id: int = None) -> str:
     """Развёрнутый блок конкурсов для дашборда.
 
     contests — список из get_contests(status='active').
     Колонки: 0:id 1:title 3:contest_type 4:metric_type 5:target_value
              6:reward_type 7:reward_value 8:start_date 9:end_date
+    current_db / telegram_id — если переданы, показывается прогресс-бар пользователя.
     """
     if not contests:
         return ""
@@ -110,7 +119,31 @@ def _contest_block(contests: list, today_str: str) -> str:
             text += f"  {ctype_label}: <b>{title}</b>\n"
             text += f"  📊 {metric_short} · цель: {target_str}\n"
             text += f"  📅 {deadline_str}\n"
-            text += f"  {reward_icon} Приз: {reward_str}\n\n"
+            text += f"  {reward_icon} Приз: {reward_str}\n"
+
+            # Прогресс-бар пользователя
+            if current_db is not None and telegram_id is not None:
+                try:
+                    results = current_db.compute_contest_results(c[0])
+                    user_row = next(
+                        (r for r in results if r.get('telegram_id') == telegram_id), None
+                    )
+                    if user_row is not None:
+                        actual = float(user_row.get('actual', 0) or 0)
+                        tgt_f  = float(target or 0)
+                        pct    = round(actual / tgt_f * 100, 1) if tgt_f > 0 else 0.0
+                        bar    = _progress_bar(pct)
+                        if c[4] == 'turnover':
+                            actual_str = f"{actual:,.0f} ₽"
+                        else:
+                            actual_str = f"{int(actual)} шт."
+                        text += f"  [{bar}] {pct:.0f}% · {actual_str}\n"
+                    else:
+                        text += f"  [{_progress_bar(0)}] 0%\n"
+                except Exception:
+                    pass
+
+            text += "\n"
         except Exception:
             text += f"  🥊 <b>{he(str(c[1]))}</b>\n\n"
     if len(contests) > 4:
@@ -818,7 +851,8 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
     try:
         user_contests = current_db.get_contests(status='active') or []
         if user_contests:
-            text += _contest_block(user_contests, today)
+            text += _contest_block(user_contests, today,
+                                   current_db=current_db, telegram_id=telegram_id)
     except Exception:
         pass
 

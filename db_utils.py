@@ -83,7 +83,7 @@ def get_user_custom_title(telegram_id: int) -> str | None:
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
-            "SELECT custom_title FROM user_org_mapping WHERE telegram_id = ?",
+            "SELECT custom_title FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()
@@ -192,7 +192,7 @@ def is_any_admin(telegram_id: int) -> bool:
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
-            "SELECT role FROM user_org_mapping WHERE telegram_id = ?",
+            "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()
@@ -215,11 +215,13 @@ def invalidate_admin_cache(telegram_id: int) -> None:
 
 
 def get_user_org_role(telegram_id: int) -> str | None:
-    """Возвращает роль пользователя в организации: 'owner'/'admin'/'user' или None."""
+    """Возвращает роль пользователя в организации: 'owner'/'admin'/'user' или None.
+    Возвращает None если пользователь исключён (is_active=0).
+    """
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
-            "SELECT role FROM user_org_mapping WHERE telegram_id = ?",
+            "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()
@@ -247,7 +249,8 @@ def get_user_org_scope(telegram_id: int) -> tuple:
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
-            "SELECT role, scope_type, scope_value FROM user_org_mapping WHERE telegram_id = ?",
+            "SELECT role, scope_type, scope_value FROM user_org_mapping "
+            "WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()
@@ -289,7 +292,7 @@ def get_user_full_scope(telegram_id: int) -> tuple:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
             "SELECT role, scope_type, scope_value, custom_title "
-            "FROM user_org_mapping WHERE telegram_id = ?",
+            "FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()
@@ -320,7 +323,7 @@ def is_org_owner(telegram_id: int) -> bool:
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
-            "SELECT role FROM user_org_mapping WHERE telegram_id = ?",
+            "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
         conn.close()

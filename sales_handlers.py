@@ -900,10 +900,7 @@ async def use_default_price(callback: CallbackQuery, state: FSMContext):
     await state.update_data(sale_cart=sale_cart)
 
     # Показываем опции: добавить еще или завершить
-    first_item = len(sale_cart) == 1
     builder = InlineKeyboardBuilder()
-    if first_item:
-        builder.add(InlineKeyboardButton(text="⚡ Продать сейчас", callback_data="complete_sale"))
     builder.add(
         InlineKeyboardButton(text="➕ Добавить еще товар", callback_data="add_more_items"),
         InlineKeyboardButton(text="🛒 Просмотр корзины", callback_data="view_cart"),
@@ -999,10 +996,7 @@ async def process_custom_price(message: Message, state: FSMContext):
         await state.update_data(sale_cart=sale_cart)
 
         # Показываем опции: добавить еще или завершить
-        first_item = len(sale_cart) == 1
         builder = InlineKeyboardBuilder()
-        if first_item:
-            builder.add(InlineKeyboardButton(text="⚡ Продать сейчас", callback_data="complete_sale"))
         builder.add(
             InlineKeyboardButton(text="➕ Добавить еще товар", callback_data="add_more_items"),
             InlineKeyboardButton(text="🛒 Просмотр корзины", callback_data="view_cart"),

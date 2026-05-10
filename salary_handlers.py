@@ -101,12 +101,13 @@ def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
     for d in range(1, days_in_month + 1):
         date_str = f"{year}-{month:02d}-{d:02d}"
         is_w = date_str in worked
-        emoji = "✅" if is_w else "⬜"
+        # Используем ✓ (узкий символ) для рабочих дней — двузначные цифры не обрезаются
+        mark = "✓" if is_w else ""
         if editable and uid is not None:
             cb = f"slr_day_{uid}_{date_str}" if is_w else f"slr_tog_{uid}_{date_str}"
         else:
             cb = f"my_d_{date_str}" if is_w else "ignore"
-        row.append(InlineKeyboardButton(text=f"{emoji}{d}", callback_data=cb))
+        row.append(InlineKeyboardButton(text=f"{mark}{d}", callback_data=cb))
         if len(row) == 7:
             rows.append(row)
             row = []

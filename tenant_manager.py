@@ -56,6 +56,9 @@ class TenantManager:
             cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN scope_value TEXT DEFAULT NULL")
         if 'custom_title' not in cols:
             cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN custom_title TEXT DEFAULT NULL")
+        if 'is_active' not in cols:
+            cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN is_active INTEGER DEFAULT 1")
+            cursor.execute("UPDATE user_org_mapping SET is_active = 1 WHERE is_active IS NULL")
 
         # Миграция: переименовываем роль super_admin → owner
         cursor.execute("UPDATE user_org_mapping SET role = 'owner' WHERE role = 'super_admin'")
@@ -90,7 +93,7 @@ class TenantManager:
             conn.close()
 
     def join_organization_by_invite(self, telegram_id, invite_code):
-        """Присоединение пользователя к организации по коду"""
+        """Присоединение пользователя к организации по коду."""
         conn = sqlite3.connect(self.main_db_path)
         cursor = conn.cursor()
         
@@ -103,6 +106,16 @@ class TenantManager:
             
         org_id, org_name = org
         try:
+            # Проверяем, не был ли пользователь исключён из этой же организации
+            cursor.execute(
+                "SELECT is_active FROM user_org_mapping WHERE telegram_id = ? AND org_id = ?",
+                (telegram_id, org_id)
+            )
+            existing = cursor.fetchone()
+            if existing is not None and existing[0] == 0:
+                conn.close()
+                return False, "KICKED"  # специальный маркер — обработчик покажет верное сообщение
+
             cursor.execute('''
                 INSERT OR REPLACE INTO user_org_mapping (telegram_id, org_id, role)
                 VALUES (?, ?, ?)
@@ -131,7 +144,7 @@ class TenantManager:
         cursor.execute('''
             SELECT o.db_path FROM organizations o
             JOIN user_org_mapping m ON o.id = m.org_id
-            WHERE m.telegram_id = ?
+            WHERE m.telegram_id = ? AND m.is_active = 1
         ''', (telegram_id,))
         result = cursor.fetchone()
         conn.close()
@@ -310,18 +323,25 @@ class TenantManager:
             conn.close()
 
     def remove_user_from_org(self, telegram_id: int) -> tuple[bool, str]:
-        """Исключить пользователя из организации — только убирает запись из user_org_mapping.
+        """Заморозить пользователя в организации (is_active=0).
         Все данные (продажи, история, профиль в орг-БД) сохраняются.
         Пользователь теряет доступ к org-режиму, но его история остаётся в отчётах.
+        Администратор может восстановить пользователя через restore_user_to_org().
         """
         conn = sqlite3.connect(self.main_db_path)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT org_id FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,))
+            cursor.execute(
+                "SELECT org_id, is_active FROM user_org_mapping WHERE telegram_id = ?",
+                (telegram_id,)
+            )
             row = cursor.fetchone()
             if not row:
                 return False, "Пользователь не состоит ни в одной организации"
-            cursor.execute("DELETE FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,))
+            cursor.execute(
+                "UPDATE user_org_mapping SET is_active = 0 WHERE telegram_id = ?",
+                (telegram_id,)
+            )
             conn.commit()
             self._invalidate_path_cache(telegram_id)
             return True, "ok"
@@ -329,6 +349,45 @@ class TenantManager:
             return False, str(e)
         finally:
             conn.close()
+
+    def restore_user_to_org(self, telegram_id: int) -> tuple[bool, str]:
+        """Восстановить ранее исключённого пользователя (is_active=1)."""
+        conn = sqlite3.connect(self.main_db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT org_id FROM user_org_mapping WHERE telegram_id = ?",
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False, "Пользователь не найден в базе организации"
+            cursor.execute(
+                "UPDATE user_org_mapping SET is_active = 1 WHERE telegram_id = ?",
+                (telegram_id,)
+            )
+            conn.commit()
+            self._invalidate_path_cache(telegram_id)
+            return True, "ok"
+        except sqlite3.Error as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_user_org_is_active(self, telegram_id: int) -> bool | None:
+        """Возвращает is_active из user_org_mapping, или None если нет записи."""
+        try:
+            conn = sqlite3.connect(self.main_db_path)
+            row = conn.execute(
+                "SELECT is_active FROM user_org_mapping WHERE telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()
+            conn.close()
+            if row is None:
+                return None
+            return bool(row[0])
+        except Exception:
+            return None
 
     def get_all_organizations(self):
         """Получить список всех организаций"""
