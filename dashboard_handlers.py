@@ -705,7 +705,8 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
     # ── Конкурсы ─────────────────────────────────────────────────────────────
     if active_contests:
-        text += _contest_block(active_contests, today)
+        text += _contest_block(active_contests, today,
+                               current_db=current_db, telegram_id=telegram_id)
 
     # ── Команда сегодня ───────────────────────────────────────────────────────
     text += "👥 <b>Команда сегодня</b>\n"
