@@ -533,8 +533,10 @@ async def auto_finish_contests(bot: Bot):
                         continue
 
                     try:
+                        reward_mode = contest[22] if len(contest) > 22 else 'total'
                         results = current_db.compute_contest_results(contest_id)
                         winners = [r for r in results if r.get('is_winner')]
+                        notified = 0
                         for winner in winners:
                             tg_id = winner.get('telegram_id')
                             if not tg_id:
@@ -542,15 +544,27 @@ async def auto_finish_contests(bot: Bot):
                             fname = winner.get('first_name', '')
                             actual = winner.get('actual', 0)
                             reward = winner.get('reward', 0)
-                            text = (
-                                f"🏆 <b>Конкурс завершён!</b>\n\n"
-                                f"Поздравляем, <b>{he(fname)}</b>!\n"
-                                f"Вы победили в конкурсе «<b>{he(title)}</b>».\n\n"
-                                f"📊 Ваш результат: <b>{actual:,.2f}</b>\n"
-                                f"🎁 Награда: <b>{reward:,.2f} ₽</b>"
-                            )
+                            if reward_mode == 'per_sale':
+                                qty = int(actual)
+                                plan_pct = winner.get('plan_pct', 0)
+                                plan_note = f"\n📊 Выполнение плана: {plan_pct:.0f}%" if plan_pct > 0 else ""
+                                text = (
+                                    f"🏆 <b>Конкурс завершён!</b>\n\n"
+                                    f"<b>{he(title)}</b>\n\n"
+                                    f"Ваши продажи по конкурсу: <b>{qty} шт.</b>\n"
+                                    f"💵 Бонус: <b>{reward:,.2f} ₽</b>{plan_note}"
+                                )
+                            else:
+                                text = (
+                                    f"🏆 <b>Конкурс завершён!</b>\n\n"
+                                    f"Поздравляем, <b>{he(fname)}</b>!\n"
+                                    f"Вы победили в конкурсе «<b>{he(title)}</b>».\n\n"
+                                    f"📊 Ваш результат: <b>{actual:,.2f}</b>\n"
+                                    f"🎁 Награда: <b>{reward:,.2f} ₽</b>"
+                                )
                             try:
                                 await bot.send_message(int(tg_id), text, parse_mode="HTML", reply_markup=add_read_btn())
+                                notified += 1
                                 await asyncio.sleep(0.05)
                             except Exception as e:
                                 logging.error(
@@ -558,7 +572,7 @@ async def auto_finish_contests(bot: Bot):
                                     f"победителя {tg_id}: {e}"
                                 )
                         logging.info(
-                            f"Конкурс #{contest_id}: уведомлено {len(winners)} победителей"
+                            f"Конкурс #{contest_id}: уведомлено {notified} победителей"
                         )
                     except Exception as e:
                         logging.error(

@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-10 (сессия 49)
+> Последнее обновление: 2026-05-11 (сессия 50)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `cba3b43` · Amvera `fc3cd43` (2026-05-10, сессия 49). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** сессия 50 (2026-05-11). Деплой в конце сессии.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -558,6 +558,13 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 2. **6 Excel-хендлеров** в `reports_handlers.py` обновлены: scope-фильтр, лимит 50000, `_translit_filename()`, `⏳ Формирую файл...`, подписи с числом строк.
 3. **`_translit_filename(text)`** — хелпер транслитерации для имён .xlsx файлов.
 4. GitHub `7a7f1a3` · Amvera `e5913d1`. 559 тестов ✅.
+
+**Сессия 50 (2026-05-11) — Конкурсы: индивидуальные пороги (#3) + per_sale тиры (#4):**
+1. **database.py**: `contests` +`reward_mode`/`individual_targets` (ALTER TABLE migration); новая таблица `contest_product_bonuses`; новые методы `save_contest_product_bonuses`, `get_contest_product_bonuses`, `get_user_plan_pct_for_contest`; `create_contest`/`update_contest` расширены; `compute_contest_results` разделён на total (учитывает `individual_targets.by_shop`) и per_sale (тиры × qty × plan_pct); `get_user_contest_rewards` читает `reward_mode`.
+2. **contests_handlers.py**: новые FSM-состояния `configuring_tier_bonus`, `entering_individual_target`; новые шаги: выбор режима (`ctrm_`), wizard тиров per_sale (`cttc_`/`ctpct_`/bonus-ввод), индивидуальные пороги по магазинам (`ctind_yes/no`, `ctindval_skip`); `_show_contest_confirm` показывает тиры/инд.пороги; `contest_confirm_create` сохраняет `reward_mode`, `individual_targets`, тиры через `save_contest_product_bonuses`; `contest_view` отображает тиры/инд.пороги; `contest_results` ветвится по `reward_mode` (per_sale: бонус, plan_pct; total: победители + инд.пороги); `contest_notify_winners` — разные тексты для per_sale/total.
+3. **dashboard_handlers.py**: `_contest_block` — per_sale конкурсы показывают накопленный бонус+qty; total конкурсы — прогресс по индивидуальному порогу (`individual_target` из результатов).
+4. **main.py**: `auto_finish_contests` — per_sale уведомления (qty+бонус+plan_pct); total уведомления без изменений.
+5. **Индексы `contests` таблицы**: `reward_mode` = col 22, `individual_targets` = col 23 (после `created_at`=21).
 
 **Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.

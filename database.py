@@ -3612,7 +3612,30 @@ class Database:
                 notify_on_start INTEGER NOT NULL DEFAULT 0,
                 notify_on_end INTEGER NOT NULL DEFAULT 0,
                 created_by INTEGER,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (datetime('now')),
+                reward_mode TEXT NOT NULL DEFAULT 'total',
+                individual_targets TEXT
+            )
+        ''')
+        for col, defn in [
+            ('reward_mode', "TEXT NOT NULL DEFAULT 'total'"),
+            ('individual_targets', 'TEXT'),
+        ]:
+            try:
+                cursor.execute(f'ALTER TABLE contests ADD COLUMN {col} {defn}')
+            except Exception:
+                pass
+
+    def _ensure_contest_bonuses_table(self, cursor):
+        """Тиры бонусов для per_sale конкурсов (бонус за каждую продажу)."""
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS contest_product_bonuses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contest_id INTEGER NOT NULL,
+                product_id INTEGER,
+                product_name TEXT,
+                min_plan_pct REAL NOT NULL DEFAULT 0,
+                bonus_per_unit REAL NOT NULL DEFAULT 0
             )
         ''')
 
@@ -3623,7 +3646,7 @@ class Database:
                        shop_filter=None, city_filter=None, user_filter=None,
                        product_filter=None, category_filter=None,
                        extra_conditions=None, notify_on_start=0, notify_on_end=0,
-                       created_by=None):
+                       created_by=None, reward_mode='total', individual_targets=None):
         """Создать конкурс"""
         conn = None
         try:
@@ -3631,17 +3654,20 @@ class Database:
             conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
+            self._ensure_contest_bonuses_table(cursor)
             cursor.execute('''
                 INSERT INTO contests
                 (title, description, contest_type, metric_type, target_value,
                  reward_type, reward_value, start_date, end_date,
                  shop_filter, city_filter, user_filter, product_filter,
-                 category_filter, extra_conditions, notify_on_start, notify_on_end, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 category_filter, extra_conditions, notify_on_start, notify_on_end,
+                 created_by, reward_mode, individual_targets)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (title, description, contest_type, metric_type, target_value,
                   reward_type, reward_value, start_date, end_date,
                   shop_filter, city_filter, user_filter, product_filter,
-                  category_filter, extra_conditions, notify_on_start, notify_on_end, created_by))
+                  category_filter, extra_conditions, notify_on_start, notify_on_end,
+                  created_by, reward_mode, individual_targets))
             new_id = cursor.lastrowid
             conn.commit()
             conn.close()
@@ -3655,6 +3681,76 @@ class Database:
                     pass
                 conn.close()
             return None
+
+    def save_contest_product_bonuses(self, contest_id: int, tiers: list) -> bool:
+        """Сохранить тиры бонусов per_sale конкурса.
+
+        tiers — список dict:
+          {'min_plan_pct': 0, 'bonuses': [{product_id, product_name, bonus_per_unit}, ...]}
+        Для flat-бонуса (any/category): {'min_plan_pct': 0, 'bonuses': [{'product_id': None, 'product_name': None, 'bonus_per_unit': X}]}
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn.execute("PRAGMA busy_timeout=5000")
+            cursor = conn.cursor()
+            self._ensure_contest_bonuses_table(cursor)
+            cursor.execute('DELETE FROM contest_product_bonuses WHERE contest_id = ?', (contest_id,))
+            for tier in tiers:
+                pct = tier.get('min_plan_pct', 0)
+                for b in tier.get('bonuses', []):
+                    cursor.execute('''
+                        INSERT INTO contest_product_bonuses
+                        (contest_id, product_id, product_name, min_plan_pct, bonus_per_unit)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (contest_id, b.get('product_id'), b.get('product_name'), pct, b.get('bonus_per_unit', 0)))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка save_contest_product_bonuses: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                conn.close()
+            return False
+
+    def get_contest_product_bonuses(self, contest_id: int) -> list:
+        """Получить тиры бонусов для конкурса.
+        Возвращает список dict: {product_id, product_name, min_plan_pct, bonus_per_unit}
+        отсортированных по min_plan_pct DESC (наибольший тир первым).
+        """
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            self._ensure_contest_bonuses_table(cursor)
+            cursor.execute('''
+                SELECT product_id, product_name, min_plan_pct, bonus_per_unit
+                FROM contest_product_bonuses
+                WHERE contest_id = ?
+                ORDER BY min_plan_pct DESC, product_id
+            ''', (contest_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [{'product_id': r[0], 'product_name': r[1],
+                     'min_plan_pct': r[2], 'bonus_per_unit': r[3]} for r in rows]
+        except Exception as e:
+            logger.error(f"Ошибка get_contest_product_bonuses: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def get_user_plan_pct_for_contest(self, telegram_id: int) -> float:
+        """Процент выполнения плана продавца (максимум по всем активным планам продавца)."""
+        try:
+            progress = self.get_user_plans_progress(telegram_id)
+            if not progress:
+                return 0.0
+            return max((pct for _, _, pct in progress), default=0.0)
+        except Exception:
+            return 0.0
 
     def get_contests(self, status=None):
         """Получить конкурсы. Порядок колонок:
@@ -3720,8 +3816,9 @@ class Database:
             return False
 
     def update_contest(self, contest_id: int, **fields) -> bool:
-        """Обновить поля конкурса. Разрешённые поля: start_date, end_date, target_value, reward_value."""
-        allowed = {'start_date', 'end_date', 'target_value', 'reward_value'}
+        """Обновить поля конкурса."""
+        allowed = {'start_date', 'end_date', 'target_value', 'reward_value',
+                   'individual_targets', 'reward_mode'}
         to_update = {k: v for k, v in fields.items() if k in allowed}
         if not to_update:
             return False
@@ -3777,106 +3874,194 @@ class Database:
                 conn.close()
             return 0
 
+    def _build_contest_sale_query(self, start, end, shops, cities, users, products, categories, metric):
+        """Вспомогательный метод: условия WHERE и SELECT для запроса продаж конкурса."""
+        conditions = ["date(s.sale_date) >= ? AND date(s.sale_date) <= ?"]
+        params = [start, end]
+        if shops:
+            placeholders = ",".join(["?"] * len(shops))
+            conditions.append(f"s.shop_name IN ({placeholders})")
+            params.extend(shops)
+        if users:
+            placeholders = ",".join(["?"] * len(users))
+            conditions.append(f"s.user_id IN ({placeholders})")
+            params.extend(users)
+        if products:
+            placeholders = ",".join(["?"] * len(products))
+            conditions.append(f"s.product_id IN ({placeholders})")
+            params.extend(products)
+        elif categories:
+            placeholders = ",".join(["?"] * len(categories))
+            conditions.append(f"p.category IN ({placeholders})")
+            params.extend(categories)
+        if cities:
+            placeholders = ",".join(["?"] * len(cities))
+            conditions.append(f"u.city IN ({placeholders})")
+            params.extend(cities)
+        where = " AND ".join(conditions)
+        metric_expr = (
+            "SUM(COALESCE(s.quantity_sold, 0) * COALESCE(s.sale_price, 0))"
+            if metric == 'turnover'
+            else "SUM(COALESCE(s.quantity_sold, 0))"
+        )
+        return where, metric_expr, params
+
     def compute_contest_results(self, contest_id):
         """Рассчитать результаты конкурса.
-        Возвращает список dict: user_id, first_name, last_name, telegram_id,
-        shop_name, actual, reward, is_winner"""
+        Режим 'total': возвращает список dict: user_id, first_name, last_name, telegram_id,
+            shop_name, actual, reward, is_winner, individual_target.
+        Режим 'per_sale': возвращает список dict с bonus_earned вместо reward.
+        """
         try:
             import json as _json
             contest = self.get_contest(contest_id)
             if not contest:
                 return []
 
-            metric = contest[4]
-            target = contest[5]
-            rtype = contest[6]
-            rval = contest[7]
-            start = contest[8]
-            end = contest[9]
-            shop_f = contest[10]
-            city_f = contest[11]
-            user_f = contest[12]
-            prod_f = contest[13]
-            cat_f = contest[14]
+            metric   = contest[4]
+            target   = contest[5]
+            rtype    = contest[6]
+            rval     = contest[7]
+            start    = contest[8]
+            end      = contest[9]
+            shop_f   = contest[10]
+            city_f   = contest[11]
+            user_f   = contest[12]
+            prod_f   = contest[13]
+            cat_f    = contest[14]
+            reward_mode = contest[22] if len(contest) > 22 else 'total'
+            ind_tgt_raw = contest[23] if len(contest) > 23 else None
 
-            shops = _json.loads(shop_f) if shop_f else None
-            cities = _json.loads(city_f) if city_f else None
-            users = _json.loads(user_f) if user_f else None
-            products = _json.loads(prod_f) if prod_f else None
-            categories = _json.loads(cat_f) if cat_f else None
+            shops      = _json.loads(shop_f)  if shop_f  else None
+            cities     = _json.loads(city_f)  if city_f  else None
+            users      = _json.loads(user_f)  if user_f  else None
+            products   = _json.loads(prod_f)  if prod_f  else None
+            categories = _json.loads(cat_f)   if cat_f   else None
+            ind_targets = _json.loads(ind_tgt_raw) if ind_tgt_raw else {}
+
+            where, metric_expr, params = self._build_contest_sale_query(
+                start, end, shops, cities, users, products, categories, metric
+            )
 
             conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
 
-            conditions = ["date(s.sale_date) >= ? AND date(s.sale_date) <= ?"]
-            params = [start, end]
+            if reward_mode == 'per_sale':
+                # ── Режим «бонус за каждую продажу» ──────────────────────────
+                tier_bonuses = self.get_contest_product_bonuses(contest_id)
+                if not tier_bonuses:
+                    conn.close()
+                    return []
 
-            if shops:
-                placeholders = ",".join(["?"] * len(shops))
-                conditions.append(f"s.shop_name IN ({placeholders})")
-                params.extend(shops)
+                # Получаем продажи по товарам per user
+                qty_metric = "SUM(COALESCE(s.quantity_sold, 0))"
+                query_ps = f"""
+                    SELECT u.id, u.first_name, u.last_name, u.telegram_id, u.shop_name,
+                           s.product_id,
+                           {qty_metric} AS qty
+                    FROM sales s
+                    JOIN users u ON s.user_id = u.id
+                    LEFT JOIN products p ON s.product_id = p.id
+                    WHERE {where}
+                    GROUP BY s.user_id, s.product_id
+                    ORDER BY u.id
+                """
+                cursor.execute(query_ps, params)
+                sale_rows = cursor.fetchall()
+                conn.close()
 
-            if users:
-                placeholders = ",".join(["?"] * len(users))
-                conditions.append(f"s.user_id IN ({placeholders})")
-                params.extend(users)
+                # Группируем продажи по user_id
+                from collections import defaultdict
+                user_info = {}
+                user_product_qty = defaultdict(lambda: defaultdict(float))
+                for uid, fn, ln, tg_id, sn, pid, qty in sale_rows:
+                    user_info[uid] = (fn or '', ln or '', tg_id, sn or '')
+                    user_product_qty[uid][pid] += (qty or 0)
 
-            if products:
-                placeholders = ",".join(["?"] * len(products))
-                conditions.append(f"s.product_id IN ({placeholders})")
-                params.extend(products)
-            elif categories:
-                placeholders = ",".join(["?"] * len(categories))
-                conditions.append(f"p.category IN ({placeholders})")
-                params.extend(categories)
+                results = []
+                for uid, (fn, ln, tg_id, sn) in user_info.items():
+                    plan_pct = self.get_user_plan_pct_for_contest(tg_id) if tg_id else 0.0
+                    total_bonus = 0.0
+                    # Для каждого товара найти максимальный применимый тир
+                    seen_products = set()
+                    for pid, qty in user_product_qty[uid].items():
+                        best_bonus = 0.0
+                        for b in tier_bonuses:
+                            if b['product_id'] is not None and b['product_id'] != pid:
+                                continue
+                            if b['min_plan_pct'] <= plan_pct:
+                                best_bonus = max(best_bonus, b['bonus_per_unit'])
+                            seen_products.add(pid)
+                        total_bonus += best_bonus * qty
 
-            if cities:
-                placeholders = ",".join(["?"] * len(cities))
-                conditions.append(f"u.city IN ({placeholders})")
-                params.extend(cities)
+                    # Flat-бонус (product_id=None — для any/category конкурсов)
+                    flat_bonuses = [b for b in tier_bonuses if b['product_id'] is None]
+                    if flat_bonuses and not seen_products:
+                        total_qty = sum(user_product_qty[uid].values())
+                        best_flat = 0.0
+                        for b in flat_bonuses:
+                            if b['min_plan_pct'] <= plan_pct:
+                                best_flat = max(best_flat, b['bonus_per_unit'])
+                        total_bonus += best_flat * total_qty
 
-            where = " AND ".join(conditions)
-            metric_expr = (
-                "SUM(COALESCE(s.quantity_sold, 0) * COALESCE(s.sale_price, 0))"
-                if metric == 'turnover'
-                else "SUM(COALESCE(s.quantity_sold, 0))"
-            )
+                    results.append({
+                        'user_id': uid,
+                        'first_name': fn,
+                        'last_name': ln,
+                        'telegram_id': tg_id,
+                        'shop_name': sn,
+                        'actual': sum(user_product_qty[uid].values()),
+                        'reward': round(total_bonus, 2),
+                        'bonus_earned': round(total_bonus, 2),
+                        'plan_pct': round(plan_pct, 1),
+                        'is_winner': total_bonus > 0,
+                    })
+                results.sort(key=lambda r: r['reward'], reverse=True)
+                return results
 
-            query = f"""
-                SELECT u.id, u.first_name, u.last_name, u.telegram_id, u.shop_name,
-                       {metric_expr} AS actual_value
-                FROM sales s
-                JOIN users u ON s.user_id = u.id
-                LEFT JOIN products p ON s.product_id = p.id
-                WHERE {where}
-                GROUP BY s.user_id
-                ORDER BY actual_value DESC
-            """
+            else:
+                # ── Режим «итоговый приз» (total) ────────────────────────────
+                query = f"""
+                    SELECT u.id, u.first_name, u.last_name, u.telegram_id, u.shop_name,
+                           {metric_expr} AS actual_value
+                    FROM sales s
+                    JOIN users u ON s.user_id = u.id
+                    LEFT JOIN products p ON s.product_id = p.id
+                    WHERE {where}
+                    GROUP BY s.user_id
+                    ORDER BY actual_value DESC
+                """
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                conn.close()
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            conn.close()
+                # Словарь индивидуальных порогов по магазинам
+                by_shop = ind_targets.get('by_shop', {}) if isinstance(ind_targets, dict) else {}
 
-            results = []
-            for row in rows:
-                uid, fname, lname, tg_id, shop_name, actual = row
-                actual = actual or 0.0
-                is_winner = actual >= target
-                if rtype == 'fixed':
-                    reward = rval if is_winner else 0.0
-                else:
-                    reward = round(actual * rval / 100, 2) if is_winner else 0.0
-                results.append({
-                    'user_id': uid,
-                    'first_name': fname or '',
-                    'last_name': lname or '',
-                    'telegram_id': tg_id,
-                    'shop_name': shop_name,
-                    'actual': actual,
-                    'reward': reward,
-                    'is_winner': is_winner,
-                })
-            return results
+                results = []
+                for row in rows:
+                    uid, fname, lname, tg_id, shop_name, actual = row
+                    actual = actual or 0.0
+                    # Определяем порог: индивидуальный по магазину → глобальный
+                    effective_target = by_shop.get(shop_name, target) if shop_name else target
+                    effective_target = float(effective_target) if effective_target else float(target)
+                    is_winner = actual >= effective_target
+                    if rtype == 'fixed':
+                        reward = rval if is_winner else 0.0
+                    else:
+                        reward = round(actual * rval / 100, 2) if is_winner else 0.0
+                    results.append({
+                        'user_id': uid,
+                        'first_name': fname or '',
+                        'last_name': lname or '',
+                        'telegram_id': tg_id,
+                        'shop_name': shop_name,
+                        'actual': actual,
+                        'reward': reward,
+                        'is_winner': is_winner,
+                        'individual_target': effective_target,
+                    })
+                return results
         except Exception as e:
             logger.error(f"Ошибка compute_contest_results: {e}")
             if 'conn' in locals():
@@ -4179,17 +4364,21 @@ class Database:
             return []
 
     def get_user_contest_rewards(self, telegram_id: int, month_start: str, month_end: str) -> float:
-        """Суммарные призы конкурсов для пользователя за период (по telegram_id).
-        Учитываются только конкурсы, чей период пересекается с [month_start, month_end]."""
+        """Суммарные призы/бонусы конкурсов для пользователя за период (по telegram_id).
+        Учитываются только конкурсы, чей период пересекается с [month_start, month_end].
+        Поддерживает оба режима: 'total' (итоговый приз) и 'per_sale' (бонус за продажу)."""
         try:
-            # Фильтруем конкурсы по переданному периоду (не все за все время)
             period_contests = self.get_contests_for_period(month_start, month_end)
             total = 0.0
             for c in period_contests:
+                reward_mode = c[22] if len(c) > 22 else 'total'
                 results = self.compute_contest_results(c[0])
                 for r in results:
-                    if r.get('telegram_id') == telegram_id and r.get('is_winner'):
-                        total += r.get('reward', 0.0)
+                    if r.get('telegram_id') == telegram_id:
+                        if reward_mode == 'per_sale':
+                            total += r.get('bonus_earned', 0.0)
+                        elif r.get('is_winner'):
+                            total += r.get('reward', 0.0)
             return round(total, 2)
         except Exception as e:
             logger.error(f"Ошибка get_user_contest_rewards: {e}")

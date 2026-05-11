@@ -75,37 +75,25 @@ def _contest_block(contests: list, today_str: str,
     contests — список из get_contests(status='active').
     Колонки: 0:id 1:title 3:contest_type 4:metric_type 5:target_value
              6:reward_type 7:reward_value 8:start_date 9:end_date
-    current_db / telegram_id — если переданы, показывается прогресс-бар пользователя.
+             22:reward_mode 23:individual_targets
+    current_db / telegram_id — если переданы, показывается прогресс пользователя.
     """
     if not contests:
         return ""
     today_dt = datetime.strptime(today_str, '%Y-%m-%d').date()
     text = f"🏆 <b>Конкурсы</b> · активных <b>{len(contests)}</b>\n\n"
-    for c in contests[:4]:          # не больше 4, чтобы не перегружать дашборд
+    for c in contests[:4]:
         try:
             title        = he(c[1] or "Без названия")
             ctype_label  = _CONTEST_TYPE_LABEL.get(c[3], '🥊')
             metric_short = _METRIC_SHORT.get(c[4], c[4] or '?')
             target       = c[5]
-            reward_icon  = _REWARD_TYPE_LABEL.get(c[6], '🎁')
-            reward_val   = c[7]
+            reward_mode  = c[22] if len(c) > 22 else 'total'
             end_date_str = c[9]
-
-            # цель
-            if c[4] == 'turnover':
-                target_str = f"{float(target):,.0f} ₽" if target else "?"
-            else:
-                target_str = f"{int(float(target))} шт." if target else "?"
-
-            # приз
-            try:
-                reward_str = f"{float(reward_val):,.0f} ₽" if c[6] == 'money' else he(str(reward_val))
-            except (TypeError, ValueError):
-                reward_str = he(str(reward_val)) if reward_val else "?"
 
             # дедлайн
             try:
-                end_dt   = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                end_dt    = datetime.strptime(end_date_str, '%Y-%m-%d').date()
                 days_left = (end_dt - today_dt).days
                 if days_left < 0:
                     deadline_str = "завершён"
@@ -117,31 +105,62 @@ def _contest_block(contests: list, today_str: str,
                 deadline_str = end_date_str or "?"
 
             text += f"  {ctype_label}: <b>{title}</b>\n"
-            text += f"  📊 {metric_short} · цель: {target_str}\n"
             text += f"  📅 {deadline_str}\n"
-            text += f"  {reward_icon} Приз: {reward_str}\n"
 
-            # Прогресс-бар пользователя
-            if current_db is not None and telegram_id is not None:
+            if reward_mode == 'per_sale':
+                # Режим бонуса за продажу
+                text += f"  💵 Бонус за каждую продажу\n"
+                if current_db is not None and telegram_id is not None:
+                    try:
+                        results = current_db.compute_contest_results(c[0])
+                        user_row = next(
+                            (r for r in results if r.get('telegram_id') == telegram_id), None
+                        )
+                        if user_row is not None:
+                            bonus = user_row.get('reward', 0)
+                            qty = int(user_row.get('actual', 0))
+                            plan_pct = user_row.get('plan_pct', 0)
+                            pct_note = f" · план {plan_pct:.0f}%" if plan_pct > 0 else ""
+                            text += f"  💵 накоплено: {bonus:,.0f}₽ ({qty} шт.){pct_note}\n"
+                    except Exception:
+                        pass
+            else:
+                # Режим итогового приза
+                if c[4] == 'turnover':
+                    target_str = f"{float(target):,.0f} ₽" if target else "?"
+                else:
+                    target_str = f"{int(float(target))} шт." if target else "?"
+                reward_val = c[7]
                 try:
-                    results = current_db.compute_contest_results(c[0])
-                    user_row = next(
-                        (r for r in results if r.get('telegram_id') == telegram_id), None
-                    )
-                    if user_row is not None:
-                        actual = float(user_row.get('actual', 0) or 0)
-                        tgt_f  = float(target or 0)
-                        pct    = round(actual / tgt_f * 100, 1) if tgt_f > 0 else 0.0
-                        bar    = _progress_bar(pct)
-                        if c[4] == 'turnover':
-                            actual_str = f"{actual:,.0f} ₽"
+                    reward_str = (f"{float(reward_val):,.0f} ₽"
+                                  if c[6] in ('fixed', 'money') else he(str(reward_val)))
+                except (TypeError, ValueError):
+                    reward_str = he(str(reward_val)) if reward_val else "?"
+
+                text += f"  📊 {metric_short} · цель: {target_str}\n"
+                text += f"  🏅 Приз: {reward_str}\n"
+
+                # Прогресс-бар пользователя
+                if current_db is not None and telegram_id is not None:
+                    try:
+                        results = current_db.compute_contest_results(c[0])
+                        user_row = next(
+                            (r for r in results if r.get('telegram_id') == telegram_id), None
+                        )
+                        if user_row is not None:
+                            actual  = float(user_row.get('actual', 0) or 0)
+                            eff_tgt = float(user_row.get('individual_target', target) or target or 0)
+                            pct     = round(actual / eff_tgt * 100, 1) if eff_tgt > 0 else 0.0
+                            bar     = _progress_bar(pct)
+                            if c[4] == 'turnover':
+                                actual_str = f"{actual:,.0f} ₽"
+                            else:
+                                actual_str = f"{int(actual)} шт."
+                            text += f"  [{bar}] {pct:.0f}% · {actual_str}\n"
                         else:
-                            actual_str = f"{int(actual)} шт."
-                        text += f"  [{bar}] {pct:.0f}% · {actual_str}\n"
-                    else:
-                        text += f"  [{_progress_bar(0)}] 0%\n"
-                except Exception:
-                    pass
+                            text += f"  [{_progress_bar(0)}] 0%\n"
+                    except Exception:
+                        pass
 
             text += "\n"
         except Exception:

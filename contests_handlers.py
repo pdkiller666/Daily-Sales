@@ -81,6 +81,10 @@ class ContestStates(StatesGroup):
     entering_end_date = State()
     editing_contest_target = State()
     editing_contest_reward = State()
+    # per_sale: ввод бонуса за единицу (текущий товар текущего тира)
+    configuring_tier_bonus = State()
+    # total: ввод индивидуального порога для конкретного магазина
+    entering_individual_target = State()
 
 
 # ── Главное меню конкурсов ─────────────────────────────────────────────────────
@@ -128,7 +132,16 @@ async def contest_create_start(callback: CallbackQuery, state: FSMContext):
         ct_shops=None, ct_users=None,
         ct_products=None, ct_categories=None,
         ct_notify=0,
-        anchor_msg_id=callback.message.message_id
+        anchor_msg_id=callback.message.message_id,
+        # Новые поля
+        ct_reward_mode='total',        # 'total' или 'per_sale'
+        ct_tiers=[],                   # тиры per_sale: [{min_plan_pct, bonuses:[{product_id,product_name,bonus_per_unit}]}]
+        ct_tier_idx=0,                 # индекс текущего тира
+        ct_tier_count=1,               # сколько тиров
+        ct_product_idx=0,              # индекс текущего товара в тире
+        ct_individual_targets={},      # {shop_name: target_value} для total-режима
+        ct_ind_shops=[],               # список магазинов для индивидуальных порогов
+        ct_ind_idx=0,                  # текущий магазин
     )
     await state.set_state(ContestStates.entering_title)
 
@@ -357,21 +370,270 @@ async def _show_metric_step(callback: CallbackQuery, state: FSMContext):
 async def contest_metric_selected(callback: CallbackQuery, state: FSMContext):
     metric = callback.data[len("ctmet_"):]
     await state.update_data(ct_metric=metric, anchor_msg_id=callback.message.message_id)
-    await state.set_state(ContestStates.entering_target_value)
+    await _show_reward_mode_step(callback, state)
 
+
+async def _show_reward_mode_step(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    scope = data.get('ct_contest_type', 'any')
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🏅 Итоговый приз победителям", callback_data="ctrm_total")
+    builder.button(text="💵 Бонус за каждую продажу (с тирами по % плана)", callback_data="ctrm_per_sale")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+
+    note = ""
+    if scope != 'product':
+        note = "\n\n<i>Режим «Бонус за продажу» доступен для любого охвата, но позволяет задать единый flat-бонус за шт.</i>"
+
+    await callback.message.edit_text(
+        f"🏆 <b>Новый конкурс — шаг 5</b>\n\n"
+        f"<b>Тип вознаграждения:</b>\n\n"
+        f"• <b>Итоговый приз</b> — победитель получает фиксированную сумму или % от оборота, если достиг порога.\n"
+        f"• <b>Бонус за каждую продажу</b> — бонус начисляется за каждую проданную единицу; "
+        f"размер зависит от % выполнения плана (тиры).{note}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data.startswith("ctrm_"))
+async def contest_reward_mode_selected(callback: CallbackQuery, state: FSMContext):
+    mode = callback.data[len("ctrm_"):]
+    await state.update_data(ct_reward_mode=mode, anchor_msg_id=callback.message.message_id)
+
+    if mode == 'per_sale':
+        await _show_tier_count_step(callback, state)
+    else:
+        # total — идём к вводу глобального порога
+        await _show_target_step(callback, state)
+
+
+async def _show_target_step(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    metric = data.get('ct_metric', 'turnover')
     unit = "₽ (минимальный оборот для победы)" if metric == 'turnover' else "шт (минимальное кол-во для победы)"
     example = "100000" if metric == 'turnover' else "50"
 
+    await state.set_state(ContestStates.entering_target_value)
     builder = InlineKeyboardBuilder()
     builder.button(text="❌ Отмена", callback_data="contests_menu")
 
     await callback.message.edit_text(
-        f"🏆 <b>Новый конкурс — шаг 5/8</b>\n\n"
-        f"Введите минимальный порог для победы ({unit}):\n"
+        f"🏆 <b>Новый конкурс — шаг 6 (Итоговый приз)</b>\n\n"
+        f"Введите глобальный порог победы ({unit}):\n"
         f"Пример: <code>{example}</code>",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
+
+
+# ── per_sale: настройка тиров ─────────────────────────────────────────────────
+
+async def _show_tier_count_step(callback: CallbackQuery, state: FSMContext):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="1 тир (единый бонус)", callback_data="cttc_1")
+    builder.button(text="2 тира (например: 100% / 130%+)", callback_data="cttc_2")
+    builder.button(text="3 тира (например: 80% / 100% / 130%)", callback_data="cttc_3")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "🏆 <b>Бонус за продажу — шаг 6</b>\n\n"
+        "<b>Количество тиров бонуса:</b>\n\n"
+        "Тир определяет размер бонуса в зависимости от % выполнения плана продавца.\n"
+        "Например: тир 1 = при 100% плана, тир 2 = при 130%+.",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data.startswith("cttc_"))
+async def contest_tier_count_selected(callback: CallbackQuery, state: FSMContext):
+    count = int(callback.data[len("cttc_"):])
+    await state.update_data(ct_tier_count=count, ct_tier_idx=0, ct_tiers=[])
+    await _show_tier_pct_step(callback, state)
+
+
+async def _show_tier_pct_step(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tier_idx = data.get('ct_tier_idx', 0)
+    tier_count = data.get('ct_tier_count', 1)
+
+    builder = InlineKeyboardBuilder()
+    if tier_idx == 0:
+        builder.button(text="0% — всегда (без привязки к плану)", callback_data="ctpct_0")
+        builder.button(text="50%", callback_data="ctpct_50")
+        builder.button(text="80%", callback_data="ctpct_80")
+        builder.button(text="100%", callback_data="ctpct_100")
+    else:
+        builder.button(text="80%", callback_data="ctpct_80")
+        builder.button(text="100%", callback_data="ctpct_100")
+        builder.button(text="120%", callback_data="ctpct_120")
+        builder.button(text="130%", callback_data="ctpct_130")
+        builder.button(text="150%", callback_data="ctpct_150")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(2)
+
+    await callback.message.edit_text(
+        f"🏆 <b>Тир {tier_idx + 1} из {tier_count}</b>\n\n"
+        f"Минимальный % выполнения плана для этого тира:\n"
+        f"<i>(если у продавца нет плана, применяется тир с 0%)</i>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data.startswith("ctpct_"))
+async def contest_tier_pct_selected(callback: CallbackQuery, state: FSMContext):
+    pct = float(callback.data[len("ctpct_"):])
+    data = await state.get_data()
+    tier_idx = data.get('ct_tier_idx', 0)
+    tiers = list(data.get('ct_tiers') or [])
+
+    # Начинаем новый тир
+    tiers.append({'min_plan_pct': pct, 'bonuses': []})
+    await state.update_data(ct_tiers=tiers, ct_product_idx=0)
+    await _show_tier_bonus_step(callback, state, tiers)
+
+
+async def _show_tier_bonus_step(callback: CallbackQuery, state: FSMContext, tiers: list):
+    """Запрашивает бонус за единицу для текущего товара текущего тира."""
+    data = await state.get_data()
+    tier_idx = data.get('ct_tier_idx', 0)
+    tier_count = data.get('ct_tier_count', 1)
+    prod_idx = data.get('ct_product_idx', 0)
+    scope = data.get('ct_contest_type', 'any')
+
+    current_tier = tiers[tier_idx]
+    pct = current_tier['min_plan_pct']
+
+    if scope == 'product':
+        products = data.get('ct_products') or []
+        current_db = await get_db(callback.from_user.id, state)
+        all_products = current_db.get_all_products()
+        prod_map = {p[0]: p[1] for p in all_products}
+
+        if prod_idx >= len(products):
+            # Все товары текущего тира заполнены → следующий тир или период
+            await _advance_tier_or_finish(callback, state, tiers)
+            return
+
+        pid = products[prod_idx]
+        pname = prod_map.get(pid, f"Товар #{pid}")
+        await state.set_state(ContestStates.configuring_tier_bonus)
+
+        filled = len(current_tier['bonuses'])
+        total = len(products)
+        progress = f"({filled}/{total} товаров)"
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="❌ Отмена", callback_data="contests_menu")
+
+        await callback.message.edit_text(
+            f"🏆 <b>Тир {tier_idx + 1}, %≥{pct:.0f}%</b> {progress}\n\n"
+            f"Бонус за 1 шт. «<b>{he(pname)}</b>» (₽):\n"
+            f"<i>Пример: 500</i>",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+    else:
+        # any/category — единый flat-бонус за шт
+        await state.set_state(ContestStates.configuring_tier_bonus)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="❌ Отмена", callback_data="contests_menu")
+        await callback.message.edit_text(
+            f"🏆 <b>Тир {tier_idx + 1}/{tier_count}, %≥{pct:.0f}%</b>\n\n"
+            f"Единый бонус за 1 проданную единицу (₽):\n"
+            f"<i>Пример: 500</i>",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+
+
+@contests_router.message(ContestStates.configuring_tier_bonus)
+async def contest_tier_bonus_entered(message: Message, state: FSMContext):
+    cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="contests_menu"
+    ).as_markup()
+
+    raw = message.text.strip().replace(',', '.').replace(' ', '')
+    try:
+        bonus = float(raw)
+        if bonus < 0:
+            raise ValueError
+    except ValueError:
+        await fsm_edit(state, message,
+                       "❌ Введите положительное число (бонус в ₽):",
+                       reply_markup=cancel_kb)
+        return
+
+    data = await state.get_data()
+    tier_idx = data.get('ct_tier_idx', 0)
+    prod_idx = data.get('ct_product_idx', 0)
+    scope = data.get('ct_contest_type', 'any')
+    tiers = list(data.get('ct_tiers') or [])
+    await state.set_state(None)
+
+    if scope == 'product':
+        products = data.get('ct_products') or []
+        current_db = await get_db(message.from_user.id, state)
+        all_products = current_db.get_all_products()
+        prod_map = {p[0]: p[1] for p in all_products}
+
+        pid = products[prod_idx]
+        pname = prod_map.get(pid, f"Товар #{pid}")
+        tiers[tier_idx]['bonuses'].append({
+            'product_id': pid,
+            'product_name': pname,
+            'bonus_per_unit': bonus,
+        })
+        next_prod_idx = prod_idx + 1
+        await state.update_data(ct_tiers=tiers, ct_product_idx=next_prod_idx)
+
+        if next_prod_idx >= len(products):
+            # Все товары тира заполнены
+            class _FakeCallback:
+                def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+                async def answer(self): pass
+            fc = _FakeCallback(message)
+            await _advance_tier_or_finish(fc, state, tiers)
+        else:
+            # Следующий товар того же тира
+            class _FakeCallback:
+                def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+                async def answer(self): pass
+            fc = _FakeCallback(message)
+            await _show_tier_bonus_step(fc, state, tiers)
+    else:
+        # flat-бонус
+        tiers[tier_idx]['bonuses'].append({
+            'product_id': None,
+            'product_name': None,
+            'bonus_per_unit': bonus,
+        })
+        await state.update_data(ct_tiers=tiers)
+
+        class _FakeCallback:
+            def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+            async def answer(self): pass
+        fc = _FakeCallback(message)
+        await _advance_tier_or_finish(fc, state, tiers)
+
+
+async def _advance_tier_or_finish(callback, state: FSMContext, tiers: list):
+    """После заполнения тира: переходим к следующему или к шагу периода."""
+    data = await state.get_data()
+    tier_idx = data.get('ct_tier_idx', 0)
+    tier_count = data.get('ct_tier_count', 1)
+    next_idx = tier_idx + 1
+
+    if next_idx < tier_count:
+        await state.update_data(ct_tier_idx=next_idx, ct_product_idx=0)
+        await _show_tier_pct_step(callback, state)
+    else:
+        # Все тиры заполнены → к периоду
+        await _show_period_step(callback, state)
 
 
 @contests_router.message(ContestStates.entering_target_value)
@@ -392,17 +654,133 @@ async def contest_target_entered(message: Message, state: FSMContext):
     await state.update_data(ct_target=value)
     await state.set_state(None)
 
+    # Предлагаем индивидуальные пороги по магазинам
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🏪 Да, задать индивидуальные пороги по магазинам", callback_data="ctind_yes")
+    builder.button(text="⏭ Нет, единый порог для всех", callback_data="ctind_no")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+
+    metric = (await state.get_data()).get('ct_metric', 'turnover')
+    unit = '₽' if metric == 'turnover' else ' шт'
+
+    await fsm_edit(
+        state, message,
+        f"✅ Глобальный порог: <b>{format_price(value)}{unit}</b>\n\n"
+        f"🏆 <b>Индивидуальные пороги по магазинам:</b>\n"
+        f"Хотите задать разные пороги для каждого магазина?\n"
+        f"<i>(например: Магазин А → 100 000₽, Магазин Б → 80 000₽)</i>",
+        reply_markup=builder.as_markup()
+    )
+
+
+@contests_router.callback_query(F.data == "ctind_no")
+async def contest_individual_targets_skip(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(ct_individual_targets={})
+    await _show_reward_type_step(callback, state)
+
+
+@contests_router.callback_query(F.data == "ctind_yes")
+async def contest_individual_targets_start(callback: CallbackQuery, state: FSMContext):
+    current_db = await get_db(callback.from_user.id, state)
+    data = await state.get_data()
+    ct_shops = data.get('ct_shops') or []
+    if ct_shops:
+        shops = ct_shops
+    else:
+        shops = current_db.get_all_shops() or []
+    if not shops:
+        await callback.answer("❌ Нет магазинов в системе", show_alert=True)
+        return
+    await state.update_data(ct_ind_shops=shops, ct_ind_idx=0, ct_individual_targets={})
+    await _show_individual_target_prompt(callback, state)
+
+
+async def _show_individual_target_prompt(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    shops = data.get('ct_ind_shops', [])
+    idx = data.get('ct_ind_idx', 0)
+    done = data.get('ct_individual_targets', {})
+    metric = data.get('ct_metric', 'turnover')
+    global_target = data.get('ct_target', 0)
+    unit = '₽' if metric == 'turnover' else ' шт'
+
+    if idx >= len(shops):
+        await _show_reward_type_step(callback, state)
+        return
+
+    shop = shops[idx]
+    progress = f"({idx + 1}/{len(shops)})"
+    await state.set_state(ContestStates.entering_individual_target)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"⏭ Использовать глобальный ({format_price(global_target)}{unit})", callback_data="ctindval_skip")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+
+    done_lines = "\n".join(f"  • {he(s)}: {format_price(v)}{unit}" for s, v in done.items())
+    done_block = f"\n\n<b>Уже задано:</b>\n{done_lines}" if done_lines else ""
+
+    await callback.message.edit_text(
+        f"🏪 <b>Индивидуальный порог {progress}</b>\n\n"
+        f"Магазин: <b>{he(shop)}</b>\n"
+        f"Введите порог ({unit}) или пропустите:{done_block}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data == "ctindval_skip")
+async def contest_individual_target_skip_shop(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(None)
+    data = await state.get_data()
+    idx = data.get('ct_ind_idx', 0)
+    await state.update_data(ct_ind_idx=idx + 1)
+    await _show_individual_target_prompt(callback, state)
+
+
+@contests_router.message(ContestStates.entering_individual_target)
+async def contest_individual_target_entered(message: Message, state: FSMContext):
+    cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="contests_menu"
+    ).as_markup()
+    raw = message.text.strip().replace(',', '.').replace(' ', '')
+    try:
+        value = float(raw)
+        if value <= 0:
+            raise ValueError
+    except ValueError:
+        await fsm_edit(state, message, "❌ Введите положительное число:", reply_markup=cancel_kb)
+        return
+
+    data = await state.get_data()
+    shops = data.get('ct_ind_shops', [])
+    idx = data.get('ct_ind_idx', 0)
+    done = dict(data.get('ct_individual_targets') or {})
+
+    if idx < len(shops):
+        done[shops[idx]] = value
+
+    await state.update_data(ct_individual_targets=done, ct_ind_idx=idx + 1)
+    await state.set_state(None)
+
+    class _FakeCallback:
+        def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+        async def answer(self): pass
+    await _show_individual_target_prompt(_FakeCallback(message), state)
+
+
+async def _show_reward_type_step(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.button(text="💰 Фиксированная надбавка (₽)", callback_data="ctrwd_fixed")
     builder.button(text="📊 Процент от оборота (%)", callback_data="ctrwd_percent")
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
-
-    await fsm_edit(
-        state, message,
-        "🏆 <b>Новый конкурс — шаг 6/8</b>\n\nТип награды победителям:",
-        reply_markup=builder.as_markup()
+    await callback.message.edit_text(
+        "🏆 <b>Новый конкурс — Тип награды победителям:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+    await callback.answer()
 
 
 @contests_router.callback_query(F.data.startswith("ctrwd_"))
@@ -828,6 +1206,7 @@ async def _show_contest_confirm(callback: CallbackQuery, state: FSMContext):
     scope = scope_labels.get(data.get('ct_contest_type', 'any'), '?')
     metric_labels = {'turnover': '💰 Оборот', 'quantity': '📦 Количество'}
     metric = metric_labels.get(data.get('ct_metric', 'turnover'), '?')
+    metric_unit = '₽' if data.get('ct_metric') == 'turnover' else ' шт'
     target = data.get('ct_target', 0)
     reward_type = data.get('ct_reward_type', 'fixed')
     reward = data.get('ct_reward', 0)
@@ -836,11 +1215,13 @@ async def _show_contest_confirm(callback: CallbackQuery, state: FSMContext):
     shops = data.get('ct_shops')
     users = data.get('ct_users')
     notify = data.get('ct_notify', 0)
+    reward_mode = data.get('ct_reward_mode', 'total')
+    tiers = data.get('ct_tiers') or []
+    ind_targets = data.get('ct_individual_targets') or {}
 
-    metric_unit = '₽' if data.get('ct_metric') == 'turnover' else ' шт'
-    reward_str = f"{format_price(reward)}₽" if reward_type == 'fixed' else f"{reward}% от оборота"
     shops_str = ", ".join(shops) if shops else "Все магазины"
     users_str = f"{len(users)} чел." if users else "Все сотрудники"
+    mode_label = '💵 Бонус за каждую продажу' if reward_mode == 'per_sale' else '🏅 Итоговый приз'
 
     text = (
         f"✅ <b>Подтверждение создания конкурса</b>\n\n"
@@ -848,8 +1229,31 @@ async def _show_contest_confirm(callback: CallbackQuery, state: FSMContext):
         + (f"📝 {he(desc)}\n" if desc else "")
         + f"\n🎯 Охват: {scope}\n"
         f"📊 Метрика: {metric}\n"
-        f"🎯 Порог победы: {format_price(target)}{metric_unit}\n"
-        f"🏅 Награда: {reward_str}\n"
+        f"💡 Режим: {mode_label}\n"
+    )
+
+    if reward_mode == 'per_sale':
+        if tiers:
+            text += "📋 <b>Тиры бонусов:</b>\n"
+            for t in tiers:
+                pct = t.get('min_plan_pct', 0)
+                pct_str = "всегда" if pct == 0 else f"≥{pct:.0f}% плана"
+                bonuses = t.get('bonuses', [])
+                bonus_lines = []
+                for b in bonuses:
+                    bname = b.get('product_name') or 'все товары'
+                    bonus_lines.append(f"{he(bname)}: {format_price(b['bonus_per_unit'])}₽/шт")
+                text += f"  • {pct_str}: " + ", ".join(bonus_lines) + "\n"
+    else:
+        reward_str = f"{format_price(reward)}₽" if reward_type == 'fixed' else f"{reward}% от оборота"
+        text += f"🎯 Порог победы: {format_price(target)}{metric_unit}\n"
+        text += f"🏅 Награда: {reward_str}\n"
+        if ind_targets:
+            text += "🏪 <b>Индивидуальные пороги:</b>\n"
+            for s, v in ind_targets.items():
+                text += f"  • {he(s)}: {format_price(v)}{metric_unit}\n"
+
+    text += (
         f"📅 Период: {_fmt_date(start)} — {_fmt_date(end)}\n"
         f"🏪 Магазины: {he(shops_str)}\n"
         f"👥 Участники: {users_str}\n"
@@ -876,14 +1280,18 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
     user = current_db.get_user(callback.from_user.id)
     created_by = user[0] if user else None
 
+    reward_mode = data.get('ct_reward_mode', 'total')
+    ind_targets = data.get('ct_individual_targets') or {}
+    ind_targets_json = _json.dumps({'by_shop': ind_targets}, ensure_ascii=False) if ind_targets else None
+
     contest_id = current_db.create_contest(
         title=data.get('ct_title'),
         description=data.get('ct_description'),
         contest_type=data.get('ct_contest_type', 'any'),
         metric_type=data.get('ct_metric', 'turnover'),
-        target_value=data.get('ct_target', 0),
+        target_value=data.get('ct_target', 0) or 0,
         reward_type=data.get('ct_reward_type', 'fixed'),
-        reward_value=data.get('ct_reward', 0),
+        reward_value=data.get('ct_reward', 0) or 0,
         start_date=data.get('ct_start'),
         end_date=data.get('ct_end'),
         shop_filter=_json.dumps(data.get('ct_shops'), ensure_ascii=False) if data.get('ct_shops') else None,
@@ -891,8 +1299,16 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
         product_filter=_json.dumps(data.get('ct_products')) if data.get('ct_products') else None,
         category_filter=_json.dumps(data.get('ct_categories'), ensure_ascii=False) if data.get('ct_categories') else None,
         notify_on_start=data.get('ct_notify', 0),
-        created_by=created_by
+        created_by=created_by,
+        reward_mode=reward_mode,
+        individual_targets=ind_targets_json,
     )
+
+    # Сохраняем тиры per_sale
+    if contest_id and reward_mode == 'per_sale':
+        tiers = data.get('ct_tiers') or []
+        if tiers:
+            current_db.save_contest_product_bonuses(contest_id, tiers)
 
     await clear_state_keep_org(state)
 
@@ -1161,14 +1577,16 @@ async def contest_view(callback: CallbackQuery, state: FSMContext):
     shop_f = contest[10]
     cat_f = contest[14]
     status = contest[16]
+    reward_mode = contest[22] if len(contest) > 22 else 'total'
+    ind_tgt_raw = contest[23] if len(contest) > 23 else None
 
     ctype_labels = {'product': 'Товары', 'category': 'Категории', 'any': 'Все товары'}
     metric_label = {'turnover': 'Оборот', 'quantity': 'Количество'}.get(metric, metric)
     metric_unit = '₽' if metric == 'turnover' else ' шт'
-    reward_str = f"{format_price(rval)}₽ (фиксированно)" if rtype == 'fixed' else f"{rval}% от оборота"
     status_labels = {'active': '🟢 Активен', 'finished': '✅ Завершён', 'cancelled': '❌ Отменён'}
     shops_str = ", ".join(_json.loads(shop_f)) if shop_f else "Все"
     cats_str = ", ".join(_json.loads(cat_f)) if cat_f else None
+    mode_label = '💵 Бонус за продажу' if reward_mode == 'per_sale' else '🏅 Итоговый приз'
 
     text = (
         f"🏆 <b>{he(title)}</b>\n"
@@ -1177,8 +1595,42 @@ async def contest_view(callback: CallbackQuery, state: FSMContext):
         f"📅 Период: {_fmt_date(start)} — {_fmt_date(end)}\n"
         f"🎯 Охват: {ctype_labels.get(ctype, ctype)}\n"
         f"📈 Метрика: {metric_label}\n"
-        f"🎯 Порог: {format_price(target)}{metric_unit}\n"
-        f"🏅 Награда: {reward_str}\n"
+        f"💡 Режим: {mode_label}\n"
+    )
+
+    if reward_mode == 'per_sale':
+        tier_bonuses = current_db.get_contest_product_bonuses(cid)
+        if tier_bonuses:
+            # Группируем по min_plan_pct
+            from collections import defaultdict
+            tiers_grouped = defaultdict(list)
+            for b in tier_bonuses:
+                tiers_grouped[b['min_plan_pct']].append(b)
+            text += "📋 <b>Тиры бонусов:</b>\n"
+            for pct in sorted(tiers_grouped.keys()):
+                pct_str = "всегда" if pct == 0 else f"≥{pct:.0f}% плана"
+                lines = []
+                for b in tiers_grouped[pct]:
+                    bname = b.get('product_name') or 'все товары'
+                    lines.append(f"{he(bname)}: {format_price(b['bonus_per_unit'])}₽/шт")
+                text += f"  • {pct_str}: " + ", ".join(lines) + "\n"
+    else:
+        reward_str = f"{format_price(rval)}₽ (фиксированно)" if rtype == 'fixed' else f"{rval}% от оборота"
+        text += f"🎯 Порог: {format_price(target)}{metric_unit}\n"
+        text += f"🏅 Награда: {reward_str}\n"
+        # Индивидуальные пороги
+        if ind_tgt_raw:
+            try:
+                ind = _json.loads(ind_tgt_raw)
+                by_shop = ind.get('by_shop', {})
+                if by_shop:
+                    text += "🏪 <b>Индивидуальные пороги:</b>\n"
+                    for sn, tv in by_shop.items():
+                        text += f"  • {he(sn)}: {format_price(tv)}{metric_unit}\n"
+            except Exception:
+                pass
+
+    text += (
         f"🏪 Магазины: {he(shops_str)}\n"
         + (f"📂 Категории: {he(cats_str)}\n" if cats_str else "")
     )
@@ -1219,6 +1671,7 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
     start = contest[8]
     end = contest[9]
     status = contest[16]
+    reward_mode = contest[22] if len(contest) > 22 else 'total'
 
     results = current_db.compute_contest_results(contest_id)
     metric_unit = '₽' if metric == 'turnover' else ' шт'
@@ -1227,7 +1680,31 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
 
     if not results:
         text += "❌ Нет данных о продажах за указанный период"
+    elif reward_mode == 'per_sale':
+        # ── per_sale: показываем накопленный бонус ───────────────────────────
+        earners = [r for r in results if r.get('reward', 0) > 0]
+        no_bonus = [r for r in results if r.get('reward', 0) == 0]
+
+        if earners:
+            text += "💵 <b>Бонусы за продажи:</b>\n"
+            for i, r in enumerate(earners, 1):
+                name = he(f"{r['first_name']} {r['last_name']}".strip())
+                qty = int(r.get('actual', 0))
+                bonus = format_price(r.get('reward', 0))
+                plan_pct = r.get('plan_pct', 0)
+                tier_note = f" (план {plan_pct:.0f}%)" if plan_pct > 0 else ""
+                text += f"  {i}. {name} — {qty} шт. → 💵 +{bonus}₽{tier_note}\n"
+            text += "\n"
+
+        if no_bonus:
+            text += "📉 <b>Продаж по конкурсу нет:</b>\n"
+            for r in no_bonus[:5]:
+                name = he(f"{r['first_name']} {r['last_name']}".strip())
+                text += f"  • {name}\n"
+            if len(no_bonus) > 5:
+                text += f"  … и ещё {len(no_bonus) - 5}\n"
     else:
+        # ── total: победители и не достигшие порога ──────────────────────────
         winners = [r for r in results if r['is_winner']]
         others = [r for r in results if not r['is_winner']]
 
@@ -1237,7 +1714,9 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
                 actual = format_price(r['actual']) if metric == 'turnover' else str(int(r['actual']))
                 reward = format_price(r['reward'])
-                text += f"  {i}. {name} — {actual}{metric_unit} → 🏅 +{reward}₽\n"
+                ind_tgt = r.get('individual_target')
+                tgt_note = f" (порог: {format_price(ind_tgt)}{metric_unit})" if ind_tgt else ""
+                text += f"  {i}. {name} — {actual}{metric_unit}{tgt_note} → 🏅 +{reward}₽\n"
             text += "\n"
 
         if others:
@@ -1245,7 +1724,9 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
             for r in others[:10]:
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
                 actual = format_price(r['actual']) if metric == 'turnover' else str(int(r['actual']))
-                text += f"  • {name} — {actual}{metric_unit}\n"
+                ind_tgt = r.get('individual_target')
+                tgt_note = f" / нужно {format_price(ind_tgt)}{metric_unit}" if ind_tgt else ""
+                text += f"  • {name} — {actual}{metric_unit}{tgt_note}\n"
             if len(others) > 10:
                 text += f"  … и ещё {len(others) - 10}\n"
 
@@ -1276,21 +1757,35 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
 
     title = contest[1]
     metric = contest[4]
+    reward_mode = contest[22] if len(contest) > 22 else 'total'
     results = current_db.compute_contest_results(contest_id)
     winners = [r for r in results if r['is_winner']]
     sent = 0
     for r in winners:
         try:
-            actual_str = f"{format_price(r['actual'])}₽" if metric == 'turnover' else f"{int(r['actual'])} шт"
+            if reward_mode == 'per_sale':
+                qty = int(r.get('actual', 0))
+                bonus = format_price(r.get('reward', 0))
+                plan_pct = r.get('plan_pct', 0)
+                plan_note = f"\n📊 Выполнение плана: {plan_pct:.0f}%" if plan_pct > 0 else ""
+                msg_text = (
+                    f"🏆 <b>Итоги конкурса «{he(title)}»</b>\n\n"
+                    f"Продано единиц: <b>{qty} шт.</b>\n"
+                    f"💵 Ваш бонус за продажи: <b>+{bonus}₽</b>{plan_note}\n\n"
+                    f"Отличная работа! 🎉"
+                )
+            else:
+                actual_str = f"{format_price(r['actual'])}₽" if metric == 'turnover' else f"{int(r['actual'])} шт"
+                msg_text = (
+                    f"🏆 <b>Поздравляем с победой!</b>\n\n"
+                    f"Вы победили в конкурсе «{he(title)}»!\n\n"
+                    f"📊 Ваш результат: {actual_str}\n"
+                    f"🏅 Ваша награда: {format_price(r['reward'])}₽\n\n"
+                    f"Отличная работа! 🎉"
+                )
             await callback.bot.send_message(
-                r['telegram_id'],
-                f"🏆 <b>Поздравляем с победой!</b>\n\n"
-                f"Вы победили в конкурсе «{he(title)}»!\n\n"
-                f"📊 Ваш результат: {actual_str}\n"
-                f"🏅 Ваша награда: {format_price(r['reward'])}₽\n\n"
-                f"Отличная работа! 🎉",
-                parse_mode="HTML",
-                reply_markup=add_read_btn()
+                r['telegram_id'], msg_text,
+                parse_mode="HTML", reply_markup=add_read_btn()
             )
             sent += 1
         except Exception as e:
