@@ -22,6 +22,7 @@ class MotivationStates(StatesGroup):
 
 class ExtraConditionStates(StatesGroup):
     entering_min_sellers = State()
+    selecting_calc_mode = State()
     entering_coefficient = State()
     selecting_categories = State()
 
@@ -552,17 +553,54 @@ async def process_min_sellers(message: Message, state: FSMContext):
 
     data = await state.get_data()
     await state.update_data(coeff_min_sellers=min_s)
-    await state.set_state(ExtraConditionStates.entering_coefficient)
+    await state.set_state(ExtraConditionStates.selecting_calc_mode)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Раздельный", callback_data="coeff_mode_individual")
+    builder.button(text="🤝 Совместный", callback_data="coeff_mode_joint")
+    builder.button(text="❌ Отмена", callback_data="motivation_extra")
+    builder.adjust(2, 1)
 
     await fsm_edit(
         state, message,
-        f"📉 <b>Коэффициент смены — шаг 3/3</b>\n\n"
+        f"📉 <b>Коэффициент смены — шаг 3/4</b>\n\n"
         f"🏪 Магазин: <b>{he(data['coeff_shop_label'])}</b>\n"
         f"👥 Порог: {min_s}+ продавцов\n\n"
-        "Введите коэффициент мотивации (от 0.01 до 0.99):\n\n"
-        "Пример: <code>0.7</code> — продавец получит 70% от базовой мотивации",
-        reply_markup=cancel_kb
+        "<b>Режим расчёта мотивации:</b>\n\n"
+        "👤 <b>Раздельный</b> — каждый получает мотивацию от своих продаж × коэффициент\n"
+        "   Пример: А продал 6 ед. → 6×500×0.7 = 2100₽\n\n"
+        "🤝 <b>Совместный</b> — каждый получает мотивацию от суммарных продаж всей смены × коэффициент\n"
+        "   Пример: А=6, Б=4, итого 10 ед. → 10×500×0.7 = 3500₽ каждому",
+        reply_markup=builder.as_markup()
     )
+
+
+@commission_router.callback_query(
+    ExtraConditionStates.selecting_calc_mode,
+    F.data.in_({"coeff_mode_individual", "coeff_mode_joint"})
+)
+async def coeff_calc_mode_selected(callback: CallbackQuery, state: FSMContext):
+    """Режим расчёта выбран — переходим к вводу коэффициента"""
+    calc_mode = "joint" if callback.data == "coeff_mode_joint" else "individual"
+    mode_label = "🤝 Совместный" if calc_mode == "joint" else "👤 Раздельный"
+    await state.update_data(coeff_calc_mode=calc_mode)
+    await state.set_state(ExtraConditionStates.entering_coefficient)
+
+    data = await state.get_data()
+    cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="motivation_extra"
+    ).as_markup()
+
+    await callback.message.edit_text(
+        f"📉 <b>Коэффициент смены — шаг 4/4</b>\n\n"
+        f"🏪 Магазин: <b>{he(data['coeff_shop_label'])}</b>\n"
+        f"👥 Порог: {data['coeff_min_sellers']}+ продавцов\n"
+        f"📊 Режим: {mode_label}\n\n"
+        "Введите коэффициент мотивации (от 0.01 до 0.99):\n\n"
+        "Пример: <code>0.7</code> — итоговая сумма составит 70% от базовой мотивации",
+        reply_markup=cancel_kb, parse_mode="HTML"
+    )
+    await callback.answer()
 
 
 @commission_router.message(ExtraConditionStates.entering_coefficient)
@@ -589,23 +627,35 @@ async def process_coefficient(message: Message, state: FSMContext):
 
     shop_label = data.get('coeff_shop_label', 'Все магазины')
     min_s = data.get('coeff_min_sellers', 2)
+    calc_mode = data.get('coeff_calc_mode', 'individual')
+    mode_label = "🤝 Совместный" if calc_mode == "joint" else "👤 Раздельный"
+    mode_suffix = " [совм.]" if calc_mode == "joint" else ""
+
     cond_id = current_db.add_extra_condition(
         condition_type='multi_seller_coeff',
         shop_name=data.get('coeff_shop'),
         min_sellers=min_s,
         coefficient=coeff,
-        description=f"×{coeff} при {min_s}+ продавцах — {shop_label}"
+        description=f"×{coeff} при {min_s}+ продавцах — {shop_label}{mode_suffix}",
+        calc_mode=calc_mode,
     )
 
     if cond_id:
+        joint_note = (
+            f"\n\nВ совместном режиме каждый участник смены получает мотивацию "
+            f"от суммарного оборота всех продавцов × {coeff}."
+        ) if calc_mode == "joint" else (
+            f"\n\nПри {min_s}+ продавцах каждый получает "
+            f"{coeff * 100:.0f}% от своей базовой мотивации."
+        )
         await fsm_edit(
             state, message,
             f"✅ <b>Коэффициент смены добавлен!</b>\n\n"
             f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
             f"👥 Порог: {min_s}+ продавцов\n"
-            f"📉 Коэффициент: ×{coeff}\n\n"
-            f"При {min_s}+ продавцах в «{shop_label}» каждый будет получать "
-            f"{coeff * 100:.0f}% от базовой мотивации.",
+            f"📊 Режим: {mode_label}\n"
+            f"📉 Коэффициент: ×{coeff}"
+            f"{joint_note}",
             reply_markup=InlineKeyboardBuilder().button(
                 text="⬅️ Доп. условия", callback_data="motivation_extra"
             ).as_markup()
@@ -862,7 +912,9 @@ async def view_extra_conditions(callback: CallbackQuery, state: FSMContext):
         text += "📉 <b>Коэффициенты смены:</b>\n"
         for c in coeff_list:
             shop = c[3] or "Все магазины"
-            text += f"  • {shop}: {c[4]}+ продавцов → ×{c[5]}\n"
+            calc_mode = c[12] if len(c) > 12 else "individual"
+            mode_icon = "🤝" if calc_mode == "joint" else "👤"
+            text += f"  • {shop}: {c[4]}+ продавцов → ×{c[5]} {mode_icon}\n"
         text += "\n"
 
     if filter_list:

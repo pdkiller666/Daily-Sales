@@ -360,9 +360,15 @@ class Database:
                 user_id INTEGER,
                 allowed_categories TEXT,
                 is_active INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (datetime('now')),
+                calc_mode TEXT DEFAULT 'individual'
             )
         ''')
+        # Миграция: добавить calc_mode если отсутствует
+        try:
+            cursor.execute("ALTER TABLE motivation_extra_conditions ADD COLUMN calc_mode TEXT DEFAULT 'individual'")
+        except Exception:
+            pass
 
         # Заработок продавцов
         cursor.execute('''
@@ -4091,7 +4097,7 @@ class Database:
 
     def add_extra_condition(self, condition_type, shop_name=None, min_sellers=None,
                             coefficient=None, user_id=None, allowed_categories=None,
-                            description=None):
+                            description=None, calc_mode='individual'):
         """Добавить доп. условие мотивации"""
         try:
             import json as _json
@@ -4100,9 +4106,9 @@ class Database:
             allowed_str = _json.dumps(allowed_categories, ensure_ascii=False) if allowed_categories else None
             cursor.execute('''
                 INSERT INTO motivation_extra_conditions
-                (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_categories)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_str))
+                (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_categories, calc_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (condition_type, description, shop_name, min_sellers, coefficient, user_id, allowed_str, calc_mode))
             new_id = cursor.lastrowid
             conn.commit()
             conn.close()
@@ -4112,6 +4118,104 @@ class Database:
             if 'conn' in locals():
                 conn.close()
             return None
+
+    def get_joint_bonus_adjustment(self, user_id, start_date=None, end_date=None):
+        """Расчёт корректировки заработка для совместного режима мотивации.
+
+        Для магазинов с calc_mode='joint':
+          joint_pool = SUM(seller_earnings всех продавцов в магазине за период)
+          user_individual = SUM(seller_earnings этого пользователя в магазине за период)
+          adjustment = joint_pool - user_individual
+
+        Возвращает суммарную корректировку по всем совместным условиям.
+        Если совместных условий нет — возвращает 0.0.
+        """
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+
+            # Проверяем: есть ли вообще активные joint условия
+            cursor.execute("""
+                SELECT DISTINCT shop_name FROM motivation_extra_conditions
+                WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint' AND is_active = 1
+            """)
+            joint_shops_rows = cursor.fetchall()
+            if not joint_shops_rows:
+                conn.close()
+                return 0.0
+
+            # Находим магазины, где этот пользователь продавал за период
+            date_filter = ""
+            params_user = [user_id]
+            if start_date:
+                date_filter += " AND sale_date >= ?"
+                params_user.append(start_date)
+            if end_date:
+                date_filter += " AND sale_date <= ?"
+                params_user.append(end_date)
+
+            cursor.execute(f"""
+                SELECT DISTINCT shop_name FROM sales
+                WHERE user_id = ? {date_filter}
+            """, params_user)
+            user_shops = {r[0] for r in cursor.fetchall()}
+
+            # Определяем набор joint_shop_names (None = все магазины)
+            joint_shop_names = set()
+            has_global_joint = False
+            for (sn,) in joint_shops_rows:
+                if sn is None:
+                    has_global_joint = True
+                else:
+                    joint_shop_names.add(sn)
+
+            if has_global_joint:
+                active_joint_shops = user_shops
+            else:
+                active_joint_shops = user_shops & joint_shop_names
+
+            if not active_joint_shops:
+                conn.close()
+                return 0.0
+
+            total_adjustment = 0.0
+            for shop in active_joint_shops:
+                params_pool = []
+                date_clause = ""
+                if start_date:
+                    date_clause += " AND s.sale_date >= ?"
+                    params_pool.append(start_date)
+                if end_date:
+                    date_clause += " AND s.sale_date <= ?"
+                    params_pool.append(end_date)
+
+                # Пул всех продавцов в магазине за период
+                cursor.execute(f"""
+                    SELECT COALESCE(SUM(se.commission_amount), 0.0)
+                    FROM seller_earnings se
+                    JOIN sales s ON se.sale_id = s.id
+                    WHERE s.shop_name = ? {date_clause}
+                """, [shop] + params_pool)
+                pool = cursor.fetchone()[0] or 0.0
+
+                # Индивидуальный вклад этого пользователя (уже учтён в его seller_earnings)
+                cursor.execute(f"""
+                    SELECT COALESCE(SUM(se.commission_amount), 0.0)
+                    FROM seller_earnings se
+                    JOIN sales s ON se.sale_id = s.id
+                    WHERE se.user_id = ? AND s.shop_name = ? {date_clause}
+                """, [user_id, shop] + params_pool)
+                user_individual = cursor.fetchone()[0] or 0.0
+
+                total_adjustment += pool - user_individual
+
+            conn.close()
+            return round(total_adjustment, 2)
+        except Exception as e:
+            logger.error(f"Ошибка get_joint_bonus_adjustment: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return 0.0
 
     def get_extra_conditions(self, active_only=True):
         """Получить все доп. условия мотивации"""
@@ -4124,7 +4228,8 @@ class Database:
                        mec.shop_name, mec.min_sellers, mec.coefficient,
                        mec.user_id, mec.allowed_categories,
                        mec.is_active, mec.created_at,
-                       u.first_name, u.last_name
+                       u.first_name, u.last_name,
+                       COALESCE(mec.calc_mode, 'individual') as calc_mode
                 FROM motivation_extra_conditions mec
                 LEFT JOIN users u ON mec.user_id = u.id
                 {where}
@@ -4603,13 +4708,17 @@ class Database:
             conn.close()
 
             if result and result[1] is not None:
-                return {
-                    'total_earnings': round(result[0] if result[0] else 0.0, 2),
-                    'total_sales': result[1]
-                }
+                base_earnings = round(result[0] if result[0] else 0.0, 2)
+            else:
+                base_earnings = 0.0
+                result = (0.0, 0)
+
+            # Добавляем корректировку совместного режима мотивации
+            joint_adj = self.get_joint_bonus_adjustment(user_id, start_date, end_date)
+
             return {
-                'total_earnings': 0.0,
-                'total_sales': 0
+                'total_earnings': round(base_earnings + joint_adj, 2),
+                'total_sales': result[1] if result else 0
             }
         except Exception as e:
             logger.error(f"Ошибка при получении общего заработка: {e}")

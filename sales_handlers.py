@@ -217,6 +217,20 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
+    # Fallback для сотрудников орг без trade_network: проверяем все магазины в БД
+    if not allow_change and not is_super and shop_name:
+        try:
+            all_org_shops = current_db.get_all_shops()
+            if len(all_org_shops) > 1 and shop_name in all_org_shops:
+                allow_change = True
+                await state.update_data(
+                    sale_network=None,
+                    sale_home_shop=shop_name,
+                    sale_allow_change=True,
+                )
+        except Exception:
+            pass
+
     await _show_sale_categories(callback, state, current_db, shop_name, allow_change=allow_change)
 
 
@@ -333,40 +347,50 @@ async def sale_back_to_cats(callback: CallbackQuery, state: FSMContext):
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, current_db):
-    """Экран выбора магазина из торговой сети: город → магазин."""
+    """Экран выбора магазина — поддерживает торговые сети и орг-магазины без trade_network."""
     data = await state.get_data()
-    trade_network = data.get("sale_network", "")
+    trade_network = data.get("sale_network") or ""
     current_shop = data.get("shop_name", "")
 
-    if not trade_network:
-        await callback.answer("❌ Торговая сеть не определена.", show_alert=True)
-        return
-
-    net_shops = current_db.get_shops_by_network(trade_network)
-    if not net_shops:
-        await callback.answer("❌ Нет других магазинов в сети.", show_alert=True)
-        return
-
-    cities = current_db.get_cities_by_network(trade_network)
     builder = InlineKeyboardBuilder()
 
-    if len(cities) > 1:
-        # Показываем список городов — сначала выбираем город
-        builder.row(InlineKeyboardButton(text="🏙 Выберите город:", callback_data="pg_noop"))
-        for city in sorted(cities):
-            builder.row(InlineKeyboardButton(
-                text=f"📍 {he(city)}",
-                callback_data=safe_cb("sale_cty_", city)
-            ))
+    if trade_network:
+        # Режим торговой сети: фильтрация по сети
+        net_shops = current_db.get_shops_by_network(trade_network)
+        if not net_shops:
+            await callback.answer("❌ Нет других магазинов в сети.", show_alert=True)
+            return
+        cities = current_db.get_cities_by_network(trade_network)
+        if len(cities) > 1:
+            builder.row(InlineKeyboardButton(text="🏙 Выберите город:", callback_data="pg_noop"))
+            for city in sorted(cities):
+                builder.row(InlineKeyboardButton(
+                    text=f"📍 {he(city)}",
+                    callback_data=safe_cb("sale_cty_", city)
+                ))
+        else:
+            builder.row(InlineKeyboardButton(text="🏪 Выберите магазин:", callback_data="pg_noop"))
+            for shop_name, city in sorted(net_shops, key=lambda x: x[0]):
+                mark = " ✓" if shop_name == current_shop else ""
+                builder.row(InlineKeyboardButton(
+                    text=f"🏪 {he(shop_name)}{mark}",
+                    callback_data=safe_cb("sale_net_", shop_name)
+                ))
+        header_line = f"🌐 Сеть: {he(trade_network)}\n"
     else:
-        # Один город или города без названия → сразу показываем магазины
+        # Режим организации: все магазины из БД без фильтра по сети
+        all_shops = current_db.get_all_shops()
+        if not all_shops or len(all_shops) < 2:
+            await callback.answer("❌ Нет других магазинов.", show_alert=True)
+            return
         builder.row(InlineKeyboardButton(text="🏪 Выберите магазин:", callback_data="pg_noop"))
-        for shop_name, city in sorted(net_shops, key=lambda x: x[0]):
-            mark = " ✓" if shop_name == current_shop else ""
+        for shop in sorted(all_shops):
+            mark = " ✓" if shop == current_shop else ""
             builder.row(InlineKeyboardButton(
-                text=f"🏪 {he(shop_name)}{mark}",
-                callback_data=safe_cb("sale_net_", shop_name)
+                text=f"🏪 {he(shop)}{mark}",
+                callback_data=safe_cb("sale_net_", shop)
             ))
+        header_line = ""
 
     builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="new_sale"))
 
@@ -375,8 +399,8 @@ async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, c
 
     await callback.message.edit_text(
         f"🔄 <b>Выбор магазина для списания</b>\n"
-        f"🌐 Сеть: {he(trade_network)}{cart_note}\n\n"
-        f"Выберите {'город' if len(cities) > 1 else 'магазин'}:",
+        f"{header_line}{cart_note}\n"
+        f"Выберите магазин:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -443,14 +467,18 @@ async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
 
 @sales_router.callback_query(F.data.startswith("sale_net_"))
 async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
-    """Выбор конкретного магазина из сети — переходит к категориям."""
+    """Выбор конкретного магазина из сети/орг — переходит к категориям."""
     current_db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
-    trade_network = data.get("sale_network", "")
+    trade_network = data.get("sale_network") or ""
 
     shop_raw = callback.data.replace("sale_net_", "")
-    net_shops = current_db.get_shops_by_network(trade_network)
-    all_shop_names = [s for s, _ in net_shops]
+    if trade_network:
+        net_shops = current_db.get_shops_by_network(trade_network)
+        all_shop_names = [s for s, _ in net_shops]
+    else:
+        # Орг-режим: все магазины из БД
+        all_shop_names = current_db.get_all_shops()
     shop_name = resolve_cb_name(shop_raw, all_shop_names)
 
     if not shop_name:
@@ -1764,7 +1792,17 @@ async def back_to_edit_sale(callback: CallbackQuery, state: FSMContext):
     """Возврат к редактированию продажи"""
     await callback.answer()
     data = await state.get_data()
-    sale_id = data['sale_id']
+    sale_id = data.get('sale_id')
+    if sale_id is None:
+        # state сброшен (перезапуск бота) — возвращаем к списку или к выбору периода
+        cached = data.get('edit_sales_cache')
+        title = data.get('edit_sales_title', 'Продажи')
+        page = data.get('edit_sales_page_num', 0)
+        if cached:
+            await show_sales_for_edit(callback, cached, state, title, page=page)
+        else:
+            await edit_sales_start(callback, state)
+        return
     await render_edit_sale_menu(callback.message, state, sale_id, callback.from_user.id)
 
 @sales_router.callback_query(F.data == "back_to_sales_list")

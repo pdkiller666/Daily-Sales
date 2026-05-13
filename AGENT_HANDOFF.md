@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-11 (сессия 51)
+> Последнее обновление: 2026-05-13 (сессия 52)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -27,6 +27,7 @@ Workflow: "Start application" → python main.py
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
 **Последний деплой:** GitHub `0779877` · Amvera `56fa368` (2026-05-11, сессия 51). Оба хэша верифицированы через `git ls-remote`.
+**Сессия 52 (2026-05-13):** 4 исправления/фичи — все изменения в Replit, НЕ задеплоены на Amvera ещё. Нужен `bash deploy.sh "..."` перед следующим сеансом работы с prod.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -565,6 +566,20 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 3. **dashboard_handlers.py**: `_contest_block` — per_sale конкурсы показывают накопленный бонус+qty; total конкурсы — прогресс по индивидуальному порогу (`individual_target` из результатов).
 4. **main.py**: `auto_finish_contests` — per_sale уведомления (qty+бонус+plan_pct); total уведомления без изменений.
 5. **Индексы `contests` таблицы**: `reward_mode` = col 22, `individual_targets` = col 23 (после `created_at`=21).
+
+**Сессия 52 (2026-05-13) — БАГФИКСЫ + СОВМЕСТНАЯ МОТИВАЦИЯ:**
+1. **Баг: `back_to_edit_sale` KeyError** — `data['sale_id']` → `data.get('sale_id')` с fallback к кешу продаж или `edit_sales_start` (`sales_handlers.py`).
+2. **Баг: FakeCallback в тирах конкурса** — `_safe_tier_edit(callback, state, text, markup)` в `contests_handlers.py`: сначала пробует `callback.message.edit_text()`, при ошибке ищет `anchor_msg_id` из FSM и редактирует якорное сообщение. Применён в `_show_tier_bonus_step`, `_show_tier_pct_step`, `_show_period_step`.
+3. **Баг: кнопка «Сменить магазин» не появлялась** для орг-пользователей без `trade_network` — `_build_cross_shop_screen` переписан: если `trade_network` пустой → использует `get_all_shops()` вместо `get_shops_by_network()`. `sale_select_network_shop` аналогично. Кнопка `allow_change=True` выставляется при 2+ магазинах в орге (`sales_handlers.py`).
+4. **Фича: Совместный режим мотивации** (`commission_handlers.py`, `database.py`):
+   - `motivation_extra_conditions` + колонка `calc_mode TEXT DEFAULT 'individual'`; автомиграция.
+   - `ExtraConditionStates.selecting_calc_mode` — новый шаг 3/4 между min_sellers и coefficient.
+   - Обработчик `coeff_calc_mode_selected` — кнопки «👤 Раздельный» / «🤝 Совместный».
+   - `add_extra_condition(calc_mode=...)` — новый параметр.
+   - `get_extra_conditions()` — SELECT добавлен `COALESCE(mec.calc_mode,'individual') as calc_mode` (индекс [12]).
+   - `get_joint_bonus_adjustment(user_id, start_date, end_date)` — пул = SUM(комиссий всех продавцов в совместных магазинах). Математика: `joint_bonus = SUM(individual*coeff all sellers) = total_qty × motiv × coeff` — каждый получает одинаково.
+   - `get_seller_total_earnings` — добавляет корректировку: `base + get_joint_bonus_adjustment(...)`.
+   - `view_extra_conditions` — иконка режима 👤/🤝 рядом с каждым условием.
 
 **Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.

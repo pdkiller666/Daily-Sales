@@ -22,6 +22,29 @@ from notif_utils import add_read_btn
 contests_router = Router()
 logger = logging.getLogger(__name__)
 
+
+async def _safe_tier_edit(callback, state: FSMContext, text: str, markup, parse_mode: str = "HTML") -> None:
+    """Редактирует якорное сообщение — работает и с реальным CallbackQuery, и с FakeCallback."""
+    try:
+        await callback.message.edit_text(text, reply_markup=markup, parse_mode=parse_mode)
+    except Exception:
+        # FakeCallback: callback.message — сообщение пользователя, редактировать нельзя.
+        # Ищем якорное сообщение бота в FSM state.
+        data = await state.get_data()
+        anchor_id = data.get("anchor_msg_id")
+        if anchor_id:
+            try:
+                await callback.message.bot.edit_message_text(
+                    chat_id=callback.message.chat.id,
+                    message_id=anchor_id,
+                    text=text,
+                    reply_markup=markup,
+                    parse_mode=parse_mode,
+                )
+            except Exception as e:
+                logger.error(f"_safe_tier_edit: не удалось отредактировать якорь #{anchor_id}: {e}")
+    await callback.answer()
+
 MONTH_NAMES_CAL = [
     'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
     'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
@@ -475,13 +498,13 @@ async def _show_tier_pct_step(callback: CallbackQuery, state: FSMContext):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(2)
 
-    await callback.message.edit_text(
+    await _safe_tier_edit(
+        callback, state,
         f"🏆 <b>Тир {tier_idx + 1} из {tier_count}</b>\n\n"
         f"Минимальный % выполнения плана для этого тира:\n"
         f"<i>(если у продавца нет плана, применяется тир с 0%)</i>",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
+        builder.as_markup(),
     )
-    await callback.answer()
 
 
 @contests_router.callback_query(F.data.startswith("ctpct_"))
@@ -530,25 +553,25 @@ async def _show_tier_bonus_step(callback: CallbackQuery, state: FSMContext, tier
         builder = InlineKeyboardBuilder()
         builder.button(text="❌ Отмена", callback_data="contests_menu")
 
-        await callback.message.edit_text(
+        await _safe_tier_edit(
+            callback, state,
             f"🏆 <b>Тир {tier_idx + 1}, %≥{pct:.0f}%</b> {progress}\n\n"
             f"Бонус за 1 шт. «<b>{he(pname)}</b>» (₽):\n"
             f"<i>Пример: 500</i>",
-            reply_markup=builder.as_markup(), parse_mode="HTML"
+            builder.as_markup(),
         )
-        await callback.answer()
     else:
         # any/category — единый flat-бонус за шт
         await state.set_state(ContestStates.configuring_tier_bonus)
         builder = InlineKeyboardBuilder()
         builder.button(text="❌ Отмена", callback_data="contests_menu")
-        await callback.message.edit_text(
+        await _safe_tier_edit(
+            callback, state,
             f"🏆 <b>Тир {tier_idx + 1}/{tier_count}, %≥{pct:.0f}%</b>\n\n"
             f"Единый бонус за 1 проданную единицу (₽):\n"
             f"<i>Пример: 500</i>",
-            reply_markup=builder.as_markup(), parse_mode="HTML"
+            builder.as_markup(),
         )
-        await callback.answer()
 
 
 @contests_router.message(ContestStates.configuring_tier_bonus)
@@ -874,11 +897,11 @@ async def _show_period_step(callback: CallbackQuery, state: FSMContext):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
 
-    await callback.message.edit_text(
+    await _safe_tier_edit(
+        callback, state,
         "🏆 <b>Новый конкурс — шаг 7/8</b>\n\nВыберите период проведения конкурса:",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
+        builder.as_markup(),
     )
-    await callback.answer()
 
 
 @contests_router.callback_query(F.data == "ctper_manual")
