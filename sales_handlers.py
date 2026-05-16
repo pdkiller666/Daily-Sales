@@ -1403,7 +1403,10 @@ async def edit_sales_menu(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data == "edit_sales_start")
 async def edit_sales_start(callback: CallbackQuery, state: FSMContext):
     """Начало процесса редактирования продаж (выбор периода)"""
-    await callback.answer()
+    try:
+        await callback.answer()
+    except Exception:
+        pass
     is_admin = is_any_admin(callback.from_user.id)
     back_cb = "edit_sales" if is_admin else "main_menu"
     
@@ -1611,7 +1614,7 @@ async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegr
         parse_mode="HTML"
     )
 
-@sales_router.callback_query(F.data.startswith("edit_sale_"))
+@sales_router.callback_query(F.data.regexp(r'^edit_sale_\d+$'))
 async def choose_edit_sale(callback: CallbackQuery, state: FSMContext):
     """Выбор конкретной продажи для редактирования"""
     await callback.answer()
