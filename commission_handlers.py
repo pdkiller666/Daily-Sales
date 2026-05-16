@@ -19,6 +19,7 @@ commission_router = Router()
 class MotivationStates(StatesGroup):
     waiting_for_motivation_value = State()
     waiting_for_motivation_type = State()
+    searching_product = State()
 
 class ExtraConditionStates(StatesGroup):
     entering_min_sellers = State()
@@ -53,18 +54,17 @@ async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
 
 @commission_router.callback_query(F.data == "set_motivation")
 async def set_motivation_start(callback: CallbackQuery, state: FSMContext):
-    """Начало установки мотивации - выбор товара"""
+    """Начало установки мотивации — сначала выбираем категорию"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
-    
-    if not products:
+    categories = current_db.get_all_categories()
+
+    if not categories:
         await callback.message.edit_text(
-            "❌ <b>Нет товаров</b>\n\n"
-            "Сначала добавьте товары в систему.",
+            "❌ <b>Нет товаров</b>\n\nСначала добавьте товары в систему.",
             reply_markup=InlineKeyboardBuilder().button(
                 text="⬅️ Назад", callback_data="admin_motivation"
             ).as_markup(), parse_mode="HTML"
@@ -72,42 +72,134 @@ async def set_motivation_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Загружаем все мотивации одним запросом вместо N+1
-    all_motivations = current_db.get_all_product_motivations()
-    motivations_map = {
-        row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
-        for row in all_motivations if row[2]
-    }
-
     builder = InlineKeyboardBuilder()
-    for product in products:
-        commission_info = motivations_map.get(product[0])
-        commission_text = ""
-        if commission_info:
-            if commission_info['motivation_type'] == 'percentage':
-                commission_text = f" ({commission_info['motivation_value']}%)"
-            else:
-                commission_text = f" ({format_price(commission_info['motivation_value'])})"
-
-        builder.button(
-            text=f"{product[1]}{commission_text}",
-            callback_data=f"set_motiv_product_{product[0]}"
-        )
-    
+    for cat in categories:
+        builder.button(text=f"📂 {cat}", callback_data=safe_cb("motiv_cat_", cat))
     builder.button(text="⬅️ Назад", callback_data="admin_motivation")
     builder.adjust(1)
 
     await callback.message.edit_text(
-        "📝 <b>Установка мотивации</b>\n\n"
-        "Выберите товар для настройки мотивации:\n\n"
-        "🔹 Товары с уже установленными мотивациями показаны со значениями",
+        "📝 <b>Установка мотивации — шаг 1/3</b>\n\n"
+        "Выберите категорию товаров:",
         reply_markup=builder.as_markup(), parse_mode="HTML",
     )
     await callback.answer()
 
+
+@commission_router.callback_query(F.data.startswith("motiv_cat_"))
+async def set_motivation_category_selected(callback: CallbackQuery, state: FSMContext):
+    """Категория выбрана — показываем товары этой категории с поиском"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    raw = callback.data[len("motiv_cat_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    category = resolve_cb_name(raw, categories)
+
+    products = current_db.get_products_by_category(category)
+    if not products:
+        await callback.answer("❌ Нет товаров в этой категории", show_alert=True)
+        return
+
+    all_motivations = current_db.get_all_product_motivations()
+    motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
+                       for row in all_motivations if row[2]}
+
+    await state.update_data(motiv_category=category,
+                            motiv_products_cache=[p[0] for p in products])
+
+    await _render_motiv_products(callback, state, category, products, motivations_map)
+    await callback.answer()
+
+
+async def _render_motiv_products(callback, state, category, products, motivations_map, search_query=""):
+    """Отрисовка списка товаров категории для установки мотивации (с поиском)"""
+    from utils import format_price as fp
+    filtered = products
+    if search_query:
+        q = search_query.lower()
+        filtered = [p for p in products if q in p[1].lower()]
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти товар", callback_data="motiv_prod_search")
+    for p in filtered[:30]:
+        info = motivations_map.get(p[0])
+        suffix = ""
+        if info and info['motivation_type']:
+            suffix = f" ({info['motivation_value']}%)" if info['motivation_type'] == 'percentage' \
+                else f" ({fp(info['motivation_value'])})"
+        builder.button(text=f"{p[1]}{suffix}", callback_data=f"set_motiv_product_{p[0]}")
+    builder.button(text="⬅️ Назад к категориям", callback_data="set_motivation")
+    builder.adjust(1)
+
+    extra = f"\n🔍 Результаты для: «{search_query}» — {len(filtered)} шт." if search_query else ""
+    await callback.message.edit_text(
+        f"📝 <b>Установка мотивации — шаг 2/3</b>\n\n"
+        f"📂 Категория: <b>{he(category)}</b>{extra}\n\n"
+        "Выберите товар:",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
+
+
+@commission_router.callback_query(F.data == "motiv_prod_search")
+async def motiv_prod_search_start(callback: CallbackQuery, state: FSMContext):
+    """Начало поиска товара при установке мотивации"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(MotivationStates.searching_product)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data=f"motiv_cat_back")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@commission_router.callback_query(F.data == "motiv_cat_back")
+async def motiv_cat_back(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к списку товаров категории (отменить поиск)"""
+    await callback.answer()
+    data = await state.get_data()
+    category = data.get('motiv_category', '')
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_products_by_category(category)
+    all_motivations = current_db.get_all_product_motivations()
+    motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
+                       for row in all_motivations if row[2]}
+    await _render_motiv_products(callback, state, category, products, motivations_map)
+
+
+@commission_router.message(MotivationStates.searching_product)
+async def motiv_prod_search_process(message: Message, state: FSMContext):
+    """Обработка поискового запроса товара при установке мотивации"""
+    query = message.text.strip()
+    data = await state.get_data()
+    category = data.get('motiv_category', '')
+    await state.set_state(None)
+    from message_utils import fsm_edit as _fe
+    current_db = await get_db(message.from_user.id, state)
+    products = current_db.get_products_by_category(category)
+    all_motivations = current_db.get_all_product_motivations()
+    motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
+                       for row in all_motivations if row[2]}
+
+    class _FakeCallback:
+        def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+        async def answer(self): pass
+
+    await _render_motiv_products(_FakeCallback(message), state, category, products,
+                                  motivations_map, search_query=query)
+
+
 @commission_router.callback_query(F.data.startswith("set_motiv_product_"))
 async def set_motivation_product_selected(callback: CallbackQuery, state: FSMContext):
-    """Выбор типа мотивации для товара"""
+    """Товар выбран — показываем текущую мотивацию, историю и выбор типа"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
@@ -115,33 +207,46 @@ async def set_motivation_product_selected(callback: CallbackQuery, state: FSMCon
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
     product = current_db.get_product(product_id)
-    
+
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
         return
 
     await state.update_data(motivation_product_id=product_id, motivation_product_name=product[1])
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📊 Процент от продажи", callback_data="comm_type_percentage")
-    builder.button(text="💰 Фиксированная сумма", callback_data="comm_type_fixed")
-    builder.button(text="⬅️ Назад", callback_data="set_motivation")
-    builder.adjust(1)
-
     commission_info = current_db.get_product_motivation(product_id)
     current_text = ""
     if commission_info:
         if commission_info['motivation_type'] == 'percentage':
-            current_text = f"\n\n📈 <i>Текущая мотивация: {commission_info['motivation_value']}% от продажи</i>"
+            current_text = f"\n📈 <i>Текущая: {commission_info['motivation_value']}% от продажи</i>"
         else:
-            current_text = f"\n\n💰 <i>Текущая мотивация: {format_price(commission_info['motivation_value'])} за единицу</i>"
+            current_text = f"\n💰 <i>Текущая: {format_price(commission_info['motivation_value'])} за единицу</i>"
+
+    # История изменений
+    history = current_db.get_motivation_history(product_id, limit=3)
+    history_text = ""
+    if history:
+        history_text = "\n\n📜 <b>Последние изменения:</b>\n"
+        for h_type, h_val, h_at, h_fn, h_ln in history:
+            h_label = f"{h_val}%" if h_type == 'percentage' else f"{format_price(h_val)}/шт"
+            h_who = f"{h_fn or ''} {h_ln or ''}".strip() or "—"
+            h_date = h_at[:10] if h_at else "—"
+            history_text += f"  • {h_label} · {he(h_who)} · {h_date}\n"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Процент от продажи", callback_data="comm_type_percentage")
+    builder.button(text="💰 Фиксированная сумма", callback_data="comm_type_fixed")
+    category = data_cat = (await state.get_data()).get('motiv_category', '')
+    back_cb = safe_cb("motiv_cat_", category) if category else "set_motivation"
+    builder.button(text="⬅️ Назад", callback_data=back_cb)
+    builder.adjust(1)
 
     await callback.message.edit_text(
-        f"📝 <b>Мотивация для товара:</b> {product[1]}\n"
-        f"💵 <b>Цена товара:</b> {format_price(product[3])}{current_text}\n\n"
-        "Выберите тип мотивации:\n\n"
-        "📊 <b>Процент от продажи</b> - % от общей суммы продажи\n"
-        "💰 <b>Фиксированная сумма</b> - конкретная сумма за каждую единицу товара",
+        f"📝 <b>Установка мотивации — шаг 3/3</b>\n\n"
+        f"📦 Товар: <b>{he(product[1])}</b>\n"
+        f"📂 Категория: {he(product[2])}\n"
+        f"💵 Цена: {format_price(product[3])}{current_text}{history_text}\n\n"
+        "Выберите тип мотивации:",
         reply_markup=builder.as_markup(), parse_mode="HTML",
     )
     await callback.answer()

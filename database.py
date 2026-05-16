@@ -370,6 +370,32 @@ class Database:
         except Exception:
             pass
 
+        # Архив мотиваций — история изменений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS motivation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                motivation_type TEXT NOT NULL,
+                motivation_value REAL NOT NULL,
+                changed_by INTEGER,
+                changed_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (product_id) REFERENCES products (id)
+            )
+        ''')
+
+        # Ручные корректировки результатов конкурса по магазинам
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS contest_manual_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contest_id INTEGER NOT NULL,
+                shop_name TEXT NOT NULL,
+                manual_value REAL NOT NULL,
+                edited_by INTEGER,
+                edited_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(contest_id, shop_name)
+            )
+        ''')
+
         # Заработок продавцов
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS seller_earnings (
@@ -3435,7 +3461,8 @@ class Database:
     # ============ СИСТЕМА МОТИВАЦИИ ============
 
     def set_product_motivation(self, product_id, motivation_type, motivation_value, admin_telegram_id):
-        """Установка мотивации для товара с использованием telegram_id администратора"""
+        """Установка мотивации для товара с использованием telegram_id администратора.
+        Старая мотивация сохраняется в motivation_history перед перезаписью."""
         try:
             conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
@@ -3444,6 +3471,15 @@ class Database:
             cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
             res = cursor.fetchone()
             admin_id = res[0] if res else None
+
+            # Сохраняем старую мотивацию в историю
+            cursor.execute('SELECT motivation_type, motivation_value FROM product_motivations WHERE product_id = ?', (product_id,))
+            old = cursor.fetchone()
+            if old:
+                cursor.execute('''
+                    INSERT INTO motivation_history (product_id, motivation_type, motivation_value, changed_by)
+                    VALUES (?, ?, ?, ?)
+                ''', (product_id, old[0], old[1], admin_id))
 
             # Удаляем существующую мотивацию, если есть
             cursor.execute('DELETE FROM product_motivations WHERE product_id = ?', (product_id,))
@@ -3456,9 +3492,187 @@ class Database:
 
             conn.commit()
             conn.close()
+
+            # Пересчитываем заработки за текущий месяц
+            self.recalculate_month_earnings(product_id)
             return True
         except Exception as e:
             logger.error(f"Ошибка при установке мотивации: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return False
+
+    def get_motivation_history(self, product_id, limit=10):
+        """История изменений мотивации для товара"""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT mh.motivation_type, mh.motivation_value, mh.changed_at,
+                       u.first_name, u.last_name
+                FROM motivation_history mh
+                LEFT JOIN users u ON mh.changed_by = u.id
+                WHERE mh.product_id = ?
+                ORDER BY mh.changed_at DESC
+                LIMIT ?
+            ''', (product_id, limit))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"Ошибка get_motivation_history: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def recalculate_month_earnings(self, product_id=None):
+        """Пересчитать seller_earnings за текущий месяц.
+        Если product_id задан — пересчитываем только продажи этого товара.
+        Если None — пересчитываем все продажи за месяц."""
+        from datetime import date
+        try:
+            today = date.today()
+            month_start = today.replace(day=1).strftime('%Y-%m-%d')
+            month_end = today.strftime('%Y-%m-%d')
+
+            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout=30000')
+            cursor = conn.cursor()
+
+            # Получаем все продажи текущего месяца (с фильтром по товару если нужно)
+            if product_id is not None:
+                cursor.execute('''
+                    SELECT s.id, s.product_id, s.sale_price, s.quantity_sold,
+                           s.user_id, s.shop_name, u.telegram_id
+                    FROM sales s
+                    JOIN users u ON s.user_id = u.id
+                    WHERE date(s.sale_date) BETWEEN ? AND ?
+                      AND s.product_id = ?
+                ''', (month_start, month_end, product_id))
+            else:
+                cursor.execute('''
+                    SELECT s.id, s.product_id, s.sale_price, s.quantity_sold,
+                           s.user_id, s.shop_name, u.telegram_id
+                    FROM sales s
+                    JOIN users u ON s.user_id = u.id
+                    WHERE date(s.sale_date) BETWEEN ? AND ?
+                ''', (month_start, month_end))
+
+            sales = cursor.fetchall()
+            conn.close()
+
+            # Пересчитываем каждую продажу
+            for sale_id, prod_id, sale_price, qty, user_id, shop_name, tg_id in sales:
+                new_commission = self.calculate_seller_commission(
+                    sale_id, prod_id, sale_price, qty,
+                    user_id=user_id, shop_name=shop_name
+                )
+                motivation_info = self.get_product_motivation(prod_id)
+                m_type = motivation_info['motivation_type'] if motivation_info else 'percentage'
+                m_val  = motivation_info['motivation_value'] if motivation_info else 0.0
+
+                conn2 = sqlite3.connect(self.db_file, timeout=30.0)
+                conn2.execute('PRAGMA busy_timeout=30000')
+                cur2 = conn2.cursor()
+                # Обновляем если запись есть, иначе вставляем
+                cur2.execute('SELECT id FROM seller_earnings WHERE sale_id = ? AND user_id = ?',
+                             (sale_id, user_id))
+                existing = cur2.fetchone()
+                if existing:
+                    cur2.execute('''
+                        UPDATE seller_earnings
+                        SET commission_amount=?, motivation_type=?, motivation_value=?
+                        WHERE sale_id=? AND user_id=?
+                    ''', (new_commission, m_type, m_val, sale_id, user_id))
+                else:
+                    cur2.execute('''
+                        INSERT INTO seller_earnings
+                        (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (sale_id, user_id, prod_id, new_commission, m_type, m_val))
+                conn2.commit()
+                conn2.close()
+
+            logger.info(f"recalculate_month_earnings: обработано {len(sales)} продаж, product_id={product_id}")
+        except Exception as e:
+            logger.error(f"Ошибка recalculate_month_earnings: {e}")
+            if 'conn' in locals():
+                try: conn.close()
+                except: pass
+
+    def get_products_by_category(self, category):
+        """Получить все товары в заданной категории"""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM products WHERE category = ? ORDER BY name', (category,))
+        products = cursor.fetchall()
+        conn.close()
+        return products
+
+    # ── Ручные корректировки результатов конкурса по магазинам ────────────────
+
+    def set_contest_manual_result(self, contest_id, shop_name, manual_value, editor_telegram_id=None):
+        """Установить ручную корректировку результата магазина в конкурсе"""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn.execute('PRAGMA busy_timeout=5000')
+            cursor = conn.cursor()
+            editor_id = None
+            if editor_telegram_id:
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (editor_telegram_id,))
+                r = cursor.fetchone()
+                editor_id = r[0] if r else None
+            cursor.execute('''
+                INSERT INTO contest_manual_results (contest_id, shop_name, manual_value, edited_by)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(contest_id, shop_name) DO UPDATE SET
+                    manual_value=excluded.manual_value,
+                    edited_by=excluded.edited_by,
+                    edited_at=datetime('now')
+            ''', (contest_id, shop_name, manual_value, editor_id))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка set_contest_manual_result: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return False
+
+    def get_contest_manual_results(self, contest_id):
+        """Получить все ручные корректировки для конкурса {shop_name: manual_value}"""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT shop_name, manual_value, edited_at, u.first_name, u.last_name
+                FROM contest_manual_results cmr
+                LEFT JOIN users u ON cmr.edited_by = u.id
+                WHERE contest_id = ?
+            ''', (contest_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return {r[0]: {'value': r[1], 'edited_at': r[2],
+                           'editor': f"{r[3] or ''} {r[4] or ''}".strip()}
+                    for r in rows}
+        except Exception as e:
+            logger.error(f"Ошибка get_contest_manual_results: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return {}
+
+    def delete_contest_manual_result(self, contest_id, shop_name):
+        """Удалить ручную корректировку для магазина"""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM contest_manual_results WHERE contest_id=? AND shop_name=?',
+                           (contest_id, shop_name))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка delete_contest_manual_result: {e}")
             if 'conn' in locals():
                 conn.close()
             return False
@@ -4044,10 +4258,16 @@ class Database:
                 # Словарь индивидуальных порогов по магазинам
                 by_shop = ind_targets.get('by_shop', {}) if isinstance(ind_targets, dict) else {}
 
+                # Ручные корректировки результатов по магазинам
+                manual_results = self.get_contest_manual_results(contest_id)
+
                 results = []
                 for row in rows:
                     uid, fname, lname, tg_id, shop_name, actual = row
                     actual = actual or 0.0
+                    # Применяем ручную корректировку если задана для этого магазина
+                    if shop_name and shop_name in manual_results:
+                        actual = manual_results[shop_name]['value']
                     # Определяем порог: индивидуальный по магазину → глобальный
                     effective_target = by_shop.get(shop_name, target) if shop_name else target
                     effective_target = float(effective_target) if effective_target else float(target)
@@ -4066,6 +4286,7 @@ class Database:
                         'reward': reward,
                         'is_winner': is_winner,
                         'individual_target': effective_target,
+                        'is_manual': bool(shop_name and shop_name in manual_results),
                     })
                 return results
         except Exception as e:
