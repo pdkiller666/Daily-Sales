@@ -1408,7 +1408,7 @@ async def edit_sales_start(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     is_admin = is_any_admin(callback.from_user.id)
-    back_cb = "edit_sales" if is_admin else "main_menu"
+    back_cb = "admin_management" if is_admin else "main_menu"
     
     await callback.message.edit_text(
         "📝 Редактирование продаж\n\nВыберите период:",
