@@ -1541,6 +1541,7 @@ LOOKUP_BTN_STEPS = {
             ('seller_name',  '👤 Имя продавца'),
             ('product_name', '📦 Название товара'),
         ],
+        'prev': 'idcol',   # special: back to id-column picker
         'next': 'col_search_field',
     },
     'col_search_field': {
@@ -1554,6 +1555,7 @@ LOOKUP_BTN_STEPS = {
             ('category',     '📂 Категория'),
             ('shop_name',    '🏪 Название магазина'),
         ],
+        'prev': 'row_search_field',
         'next': 'operation',
     },
     'operation': {
@@ -1566,6 +1568,7 @@ LOOKUP_BTN_STEPS = {
             ('decrement', '➖ Вычесть (возврат)'),
             ('set',       '= Установить значение'),
         ],
+        'prev': 'col_search_field',
         'next': 'value_field',
     },
     'value_field': {
@@ -1578,6 +1581,7 @@ LOOKUP_BTN_STEPS = {
             ('total',    '💰 Сумма продажи (руб.)'),
             ('price',    '💲 Цена единицы'),
         ],
+        'prev': 'operation',
         'next': None,
     },
 }
@@ -1588,6 +1592,10 @@ def _lookup_btn_kb(field_key: str) -> InlineKeyboardMarkup:
     for val, label in LOOKUP_BTN_STEPS[field_key]['options']:
         cb = f"gs_lkp_{field_key}_{val}"
         kb.row(InlineKeyboardButton(text=label, callback_data=cb))
+    prev_key = LOOKUP_BTN_STEPS[field_key].get('prev')
+    if prev_key:
+        bk_cb = "gs_lkp_bk_idcol" if prev_key == 'idcol' else f"gs_lkp_bk_{prev_key}"
+        kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=bk_cb))
     return kb.as_markup()
 
 
@@ -1643,7 +1651,7 @@ def _col_btn_label(col_idx: int, header: str, first_val: str) -> str:
 _HROW_PAGE_SIZE = 5
 
 
-def _hrow_page_kb(rows_sorted: list, page: int) -> InlineKeyboardMarkup:
+def _hrow_page_kb(rows_sorted: list, page: int, wiz_back_cb: str = "") -> InlineKeyboardMarkup:
     """Build paginated row-picker keyboard. rows_sorted = [(rn, values), ...]"""
     total      = len(rows_sorted)
     total_pages = max(1, -(-total // _HROW_PAGE_SIZE))   # ceil division
@@ -1667,6 +1675,8 @@ def _hrow_page_kb(rows_sorted: list, page: int) -> InlineKeyboardMarkup:
 
     kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
                                 callback_data="gs_lkp_hrow_manual"))
+    if wiz_back_cb:
+        kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=wiz_back_cb))
     return kb.as_markup()
 
 
@@ -1679,7 +1689,9 @@ async def _show_hrow_picker(target, state: FSMContext, rows_data: dict, page: in
     await state.update_data(gs_hrow_rows=rows_sorted)
     total       = len(rows_sorted)
     total_pages = max(1, -(-total // _HROW_PAGE_SIZE))
-    markup      = _hrow_page_kb(rows_sorted, page)
+    data2 = await state.get_data()
+    wiz_back_cb = data2.get('gs_wizard_back_cb', '')
+    markup      = _hrow_page_kb(rows_sorted, page, wiz_back_cb=wiz_back_cb)
     text = (
         f"🔍 <b>Настройка матрицы — шаг 1/4</b>\n"
         f"<i>Стр. {page+1}/{total_pages} · всего строк: {total}</i>\n\n"
@@ -1703,7 +1715,8 @@ async def gs_lkp_hrow_page(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Данные устарели, начните заново", show_alert=True)
         return
     total_pages = max(1, -(-len(rows_sorted) // _HROW_PAGE_SIZE))
-    markup      = _hrow_page_kb(rows_sorted, page)
+    wiz_back_cb = data.get('gs_wizard_back_cb', '')
+    markup      = _hrow_page_kb(rows_sorted, page, wiz_back_cb=wiz_back_cb)
     text = (
         f"🔍 <b>Настройка матрицы — шаг 1/4</b>\n"
         f"<i>Стр. {page+1}/{total_pages} · всего строк: {len(rows_sorted)}</i>\n\n"
@@ -1726,6 +1739,7 @@ def _idcol_page_kb(cols: list, page: int) -> tuple:
         kb.row(*nav)
     kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
                                 callback_data="gs_lkp_idcol_manual"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_lkp_bk_hrow"))
     return kb.as_markup(), total_pages, page
 
 
@@ -1747,7 +1761,11 @@ async def _show_idcol_picker(target, state: FSMContext,
 
 
 async def _start_lookup_wizard(message: Message, state: FSMContext):
-    await state.update_data(gs_lookup={}, gs_lookup_step=0)
+    data = await state.get_data()
+    conn_id  = data.get('gs_conn_id', '')
+    exp_type = data.get('gs_exp_type', 'sales')
+    wiz_back = f"gs_exp_type_{conn_id}_{exp_type}"
+    await state.update_data(gs_lookup={}, gs_lookup_step=0, gs_wizard_back_cb=wiz_back)
     await state.set_state(IntegrationStates.waiting_lookup_step)
 
     data       = await state.get_data()
@@ -1846,6 +1864,52 @@ async def gs_lookup_step(message: Message, state: FSMContext):
 async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
     raw = callback.data[len("gs_lkp_"):]
     await callback.answer()
+
+    # ── back navigation ────────────────────────────────────────
+    if raw == "bk_hrow":
+        # Step 2 → back to step 1 (hrow picker)
+        data = await state.get_data()
+        rows_sorted = data.get('gs_hrow_rows') or []
+        if not rows_sorted:
+            await callback.message.edit_text("⚠️ Данные потеряны — начни мастер заново.")
+            return
+        wiz_back_cb = data.get('gs_wizard_back_cb', '')
+        markup = _hrow_page_kb(rows_sorted, 0, wiz_back_cb=wiz_back_cb)
+        total_pages = max(1, -(-len(rows_sorted) // _HROW_PAGE_SIZE))
+        await callback.message.edit_text(
+            f"🔍 <b>Настройка матрицы — шаг 1/4</b>\n"
+            f"<i>Стр. 1/{total_pages} · всего строк: {len(rows_sorted)}</i>\n\n"
+            "Выбери строку, в которой написаны <b>названия столбцов</b> "
+            "(заголовки матрицы — товары, недели и т.п.):",
+            reply_markup=markup, parse_mode="HTML"
+        )
+        return
+
+    if raw == "bk_idcol":
+        # Step 3 → back to step 2 (idcol picker)
+        data = await state.get_data()
+        cols = data.get('gs_idcol_cols') or []
+        if not cols:
+            header_row = data.get('gs_header_row', [])
+            first_drow = data.get('gs_first_drow', [])
+            cols = [(i, str(hval), str(first_drow[i-1] if i-1 < len(first_drow) else ""))
+                    for i, hval in enumerate(header_row, start=1)]
+        if not cols:
+            await callback.message.edit_text("⚠️ Данные колонок потеряны — начни мастер заново.")
+            return
+        await _show_idcol_picker(callback.message, state, [c[1] for c in cols],
+                                  [c[2] for c in cols], page=0)
+        return
+
+    # Step 4-6 → back to a previous LOOKUP_BTN_STEPS field
+    for key in LOOKUP_BTN_STEPS:
+        if raw == f"bk_{key}":
+            await callback.message.edit_text(
+                LOOKUP_BTN_STEPS[key]['prompt'],
+                reply_markup=_lookup_btn_kb(key),
+                parse_mode="HTML"
+            )
+            return
 
     # ── skip aliases ──────────────────────────────────────────
     if raw == "skip_aliases":
