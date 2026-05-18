@@ -404,6 +404,37 @@ async def _edit_anchor(bot, chat_id: int, anchor_id: int,
             pass
 
 
+async def _fetch_gs_config(user_id: int, state: FSMContext):
+    """Return (GoogleSheetsProvider, config_dict) for the current connection in FSM state.
+    Returns (None, None) on any failure."""
+    try:
+        data = await state.get_data()
+        conn_id = data.get('gs_conn_id')
+        if not conn_id:
+            return None, None
+        db = await get_db(user_id, state)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            return None, None
+        cfg = json.loads(conn[3] or '{}')
+        from integration.providers.google_sheets import GoogleSheetsProvider
+        return GoogleSheetsProvider(), cfg
+    except Exception as e:
+        logger.warning(f"_fetch_gs_config: {e}")
+        return None, None
+
+
+def _render_sheet_macro(name: str) -> str:
+    """Render {year}/{month}/{week}/{day} macros with today's date."""
+    import datetime
+    now = datetime.datetime.now()
+    return (name
+            .replace('{year}',  str(now.year))
+            .replace('{month}', str(now.month))
+            .replace('{week}',  str(now.isocalendar()[1]))
+            .replace('{day}',   str(now.day)))
+
+
 async def _fsm_edit(message: Message, state: FSMContext,
                     text: str, reply_markup=None):
     """In message handlers: delete user message, then edit the anchor stored in FSM state."""
@@ -1301,11 +1332,54 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
     exp_type = data.get('gs_exp_type', 'sales')
-    conn_id = data.get('gs_conn_id')
+    conn_id  = data.get('gs_conn_id')
+
+    sheets = []
+    try:
+        provider, cfg = await _fetch_gs_config(callback.from_user.id, state)
+        if provider:
+            sheets = await asyncio.wait_for(
+                provider.get_sheets_list(cfg), timeout=6.0)
+    except Exception:
+        sheets = []
+
+    back_btn = _back(f"gs_exp_type_{conn_id}_{exp_type}")
+
+    if sheets:
+        await state.update_data(gs_available_sheets=sheets)
+        kb = InlineKeyboardBuilder()
+        for i, s in enumerate(sheets[:12]):
+            kb.row(InlineKeyboardButton(text=f"📋 {s}", callback_data=f"gs_pick_sheet_{i}"))
+        kb.row(InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="gs_sheet_manual"))
+        kb.row(back_btn)
+        await callback.message.edit_text(
+            f"✅ Операция: <b>{OPERATION_LABELS[operation]}</b>\n\n"
+            "📋 <b>Выбери лист из таблицы:</b>",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
+    else:
+        await callback.message.edit_text(
+            f"✅ Операция: <b>{OPERATION_LABELS[operation]}</b>\n\n"
+            "Введите <b>название листа</b> (поддерживаются макросы: "
+            "<code>{year}</code> <code>{month}</code> <code>{week}</code> <code>{day}</code>).\n"
+            "Пример: <code>w{week}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_btn]]),
+            parse_mode="HTML"
+        )
+        await state.set_state(IntegrationStates.waiting_export_sheet)
+
+
+@integration_router.callback_query(F.data == "gs_sheet_manual")
+async def gs_sheet_manual(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    conn_id  = data.get('gs_conn_id')
+    exp_type = data.get('gs_exp_type', 'sales')
     await callback.message.edit_text(
-        f"✅ Операция: {OPERATION_LABELS[operation]}\n\n"
-        "Введите <b>название листа</b> (поддерживаются макросы: "
-        "<code>{year}</code> <code>{month}</code> <code>{week}</code> <code>{day}</code>).\n"
+        "✏️ <b>Название листа вручную</b>\n\n"
+        "Поддерживаются макросы: "
+        "<code>{year}</code> <code>{month}</code> <code>{week}</code> <code>{day}</code>\n"
         "Пример: <code>w{week}</code>",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[_back(f"gs_exp_type_{conn_id}_{exp_type}")]]
@@ -1315,11 +1389,33 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
     await state.set_state(IntegrationStates.waiting_export_sheet)
 
 
+@integration_router.callback_query(F.data.startswith("gs_pick_sheet_"))
+async def gs_pick_sheet(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    idx = int(callback.data.replace("gs_pick_sheet_", ""))
+    data = await state.get_data()
+    sheets    = data.get('gs_available_sheets', [])
+    exp_type  = data.get('gs_exp_type', 'sales')
+    operation = data.get('gs_exp_op', 'append_row')
+    if idx >= len(sheets):
+        await callback.answer("⚠️ Лист не найден", show_alert=True)
+        return
+    sheet = sheets[idx]
+    await state.update_data(gs_target_sheet=sheet)
+
+    if operation == 'append_row':
+        await _start_mapping_wizard(callback.message, state, exp_type)
+    elif operation == 'update_cell':
+        await _start_lookup_wizard(callback.message, state)
+    else:
+        await _ask_schedule(callback.message, state)
+
+
 @integration_router.message(IntegrationStates.waiting_export_sheet)
 async def gs_export_sheet(message: Message, state: FSMContext):
     sheet = message.text.strip()
     data = await state.get_data()
-    conn_id = data.get('gs_conn_id')
+    conn_id  = data.get('gs_conn_id')
     exp_type = data.get('gs_exp_type', 'sales')
     if not sheet:
         await _fsm_edit(message, state, "❌ Введите название листа.",
@@ -1464,14 +1560,35 @@ def _lookup_btn_kb(field_key: str) -> InlineKeyboardMarkup:
 async def _start_lookup_wizard(message: Message, state: FSMContext):
     await state.update_data(gs_lookup={}, gs_lookup_step=0)
     await state.set_state(IntegrationStates.waiting_lookup_step)
+
+    data       = await state.get_data()
+    sheet_name = data.get('gs_target_sheet', '')
+    user_id    = message.chat.id
+
+    sheet_info = ""
+    try:
+        provider, cfg = await _fetch_gs_config(user_id, state)
+        if provider:
+            rendered = _render_sheet_macro(sheet_name)
+            rows_raw = await asyncio.wait_for(
+                provider.read_col(cfg, rendered, 1), timeout=6.0)
+            if rows_raw:
+                sample = [str(v) for v in rows_raw[:5] if v]
+                sheet_info = (f"\n📋 Лист <b>{rendered}</b> открыт. "
+                              f"Колонка A (первые значения): "
+                              f"<code>{', '.join(sample)}</code>\n")
+    except Exception:
+        pass
+
     await _fsm_edit(
         message, state,
-        "🔍 <b>Настройка матрицы (шаг 1/6)</b>\n\n"
-        "Бот будет находить ячейку пересечения строки (магазин/продавец) "
-        "и столбца (товар) и обновлять значение.\n\n"
+        f"🔍 <b>Настройка матрицы (шаг 1/6)</b>\n"
+        f"{sheet_info}\n"
+        "Бот ищет ячейку на пересечении строки (магазин/продавец) "
+        "и столбца (товар) — и обновляет значение.\n\n"
         "<b>В какой строке написаны заголовки столбцов?</b>\n"
         "Введи номер строки.\n"
-        "Пример для w21: <code>6</code>",
+        "Пример: <code>6</code>",
     )
 
 
@@ -1479,8 +1596,10 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
 async def gs_lookup_step(message: Message, state: FSMContext):
     text = message.text.strip()
     data = await state.get_data()
-    step   = data.get('gs_lookup_step', 0)
-    lookup = data.get('gs_lookup', {})
+    step       = data.get('gs_lookup_step', 0)
+    lookup     = data.get('gs_lookup', {})
+    sheet_name = data.get('gs_target_sheet', '')
+    user_id    = message.chat.id
 
     if step == 0:
         try:
@@ -1491,13 +1610,35 @@ async def gs_lookup_step(message: Message, state: FSMContext):
             return
         step = 1
         await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
+
+        # Try to fetch that header row and show actual column names
+        headers_hint = ""
+        try:
+            provider, cfg = await _fetch_gs_config(user_id, state)
+            if provider:
+                rendered = _render_sheet_macro(sheet_name)
+                hrow = await asyncio.wait_for(
+                    provider.read_row(cfg, rendered, lookup['col_search_row']),
+                    timeout=6.0)
+                non_empty = [str(v) for v in hrow if v]
+                if non_empty:
+                    preview = '  '.join(
+                        f"<code>{v}</code>" for v in non_empty[:10])
+                    headers_hint = (
+                        f"\n📋 Заголовки строки {lookup['col_search_row']}: "
+                        f"{preview}\n")
+        except Exception:
+            pass
+
         await _fsm_edit(
             message, state,
-            "🔍 <b>Шаг 2/6 — Колонка с идентификаторами строк</b>\n\n"
+            f"🔍 <b>Шаг 2/6 — Колонка с ID строк</b>\n"
+            f"{headers_hint}\n"
             "В какой <b>колонке</b> хранятся названия магазинов/продавцов?\n"
             "1 = A,  2 = B,  3 = C…\n"
-            "Пример для w21: <code>1</code> (колонка A)"
+            "Пример: <code>1</code> (колонка A)"
         )
+
     elif step == 1:
         try:
             lookup['row_search_col'] = int(text)
@@ -1508,9 +1649,34 @@ async def gs_lookup_step(message: Message, state: FSMContext):
         lookup['data_start_row'] = lookup.get('col_search_row', 1) + 1
         step = 2
         await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
+
+        # Try to fetch the ID column and show sample row identifiers
+        col_hint = ""
+        try:
+            provider, cfg = await _fetch_gs_config(user_id, state)
+            if provider:
+                rendered  = _render_sheet_macro(sheet_name)
+                start_row = lookup['data_start_row']
+                col_vals  = await asyncio.wait_for(
+                    provider.read_col(cfg, rendered, lookup['row_search_col']),
+                    timeout=6.0)
+                sample = [str(v) for v in col_vals[start_row - 1:] if v][:6]
+                if sample:
+                    preview = '  '.join(
+                        f"<code>{v}</code>" for v in sample)
+                    col_hint = (
+                        f"\n📋 Значения в этой колонке: {preview}\n"
+                        "↑ Это то, с чем бот будет сравнивать имена магазинов/продавцов.\n")
+        except Exception:
+            pass
+
+        prompt = (
+            LOOKUP_BTN_STEPS['row_search_field']['prompt']
+            + (f"\n\n{col_hint}" if col_hint else "")
+        )
         await _fsm_edit(
             message, state,
-            LOOKUP_BTN_STEPS['row_search_field']['prompt'],
+            prompt,
             reply_markup=_lookup_btn_kb('row_search_field'),
         )
     else:
