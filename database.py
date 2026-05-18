@@ -707,6 +707,47 @@ class Database:
                 )
             ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS integration_connections (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL,
+                provider   TEXT    NOT NULL DEFAULT 'google_sheets',
+                config     TEXT    NOT NULL DEFAULT '{}',
+                enabled    INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT    DEFAULT (datetime('now')),
+                updated_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS integration_exports (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER NOT NULL,
+                export_type   TEXT    NOT NULL,
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                schedule      TEXT,
+                target_sheet  TEXT,
+                operation     TEXT    NOT NULL DEFAULT 'append_row',
+                mapping       TEXT    DEFAULT '{}',
+                lookup_config TEXT    DEFAULT '{}',
+                extra         TEXT    DEFAULT '{}',
+                last_run      TEXT,
+                created_at    TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (connection_id) REFERENCES integration_connections(id) ON DELETE CASCADE
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS integration_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER,
+                export_id     INTEGER,
+                status        TEXT NOT NULL,
+                message       TEXT,
+                created_at    TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -5871,6 +5912,365 @@ class Database:
             logger.error(f"Ошибка set_work_day_time: {e}")
             if 'conn' in locals():
                 conn.close()
+
+    # ══════════════════════════════════════════════════════════
+    # Integration CRUD
+    # ══════════════════════════════════════════════════════════
+
+    def add_integration_connection(self, name: str, config: str,
+                                   provider: str = 'google_sheets') -> int:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO integration_connections (name, provider, config) VALUES (?, ?, ?)",
+                (name, provider, config)
+            )
+            row_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return row_id
+        except Exception as e:
+            logger.error(f"add_integration_connection: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return 0
+
+    def get_integration_connections(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, provider, config, enabled, created_at FROM integration_connections ORDER BY id"
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_integration_connections: {e}")
+            return []
+
+    def get_integration_connection(self, connection_id: int):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, provider, config, enabled, created_at FROM integration_connections WHERE id = ?",
+                (connection_id,)
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_integration_connection: {e}")
+            return None
+
+    def update_integration_connection(self, connection_id: int, **kwargs):
+        allowed = {'name', 'config', 'enabled', 'provider'}
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            set_clause = ", ".join(f"{k} = ?" for k in fields)
+            set_clause += ", updated_at = datetime('now')"
+            cursor.execute(
+                f"UPDATE integration_connections SET {set_clause} WHERE id = ?",
+                list(fields.values()) + [connection_id]
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"update_integration_connection: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def delete_integration_connection(self, connection_id: int):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM integration_exports WHERE connection_id = ?", (connection_id,))
+            cursor.execute("DELETE FROM integration_connections WHERE id = ?", (connection_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"delete_integration_connection: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def add_integration_export(self, connection_id: int, export_type: str,
+                               operation: str, target_sheet: str, schedule,
+                               enabled: int = 1, mapping=None,
+                               lookup_config=None) -> int:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO integration_exports
+                   (connection_id, export_type, operation, target_sheet, schedule,
+                    enabled, mapping, lookup_config)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (connection_id, export_type, operation, target_sheet, schedule,
+                 enabled, mapping, lookup_config)
+            )
+            row_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return row_id
+        except Exception as e:
+            logger.error(f"add_integration_export: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return 0
+
+    def get_integration_exports(self, connection_id: int = None) -> list:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            if connection_id is not None:
+                cursor.execute(
+                    '''SELECT id, export_type, enabled, schedule, target_sheet,
+                              operation, mapping, lookup_config, last_run
+                       FROM integration_exports
+                       WHERE connection_id = ? ORDER BY id''',
+                    (connection_id,)
+                )
+            else:
+                cursor.execute(
+                    '''SELECT id, export_type, enabled, schedule, target_sheet,
+                              operation, mapping, lookup_config, last_run
+                       FROM integration_exports ORDER BY id'''
+                )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_integration_exports: {e}")
+            return []
+
+    def get_integration_export(self, export_id: int):
+        """Returns (export_type, connection_id, enabled, schedule, target_sheet,
+                     operation, mapping, lookup_config, extra, last_run)"""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT export_type, connection_id, enabled, schedule, target_sheet,
+                          operation, mapping, lookup_config, extra, last_run
+                   FROM integration_exports WHERE id = ?''',
+                (export_id,)
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_integration_export: {e}")
+            return None
+
+    def get_enabled_exports_by_type(self, export_type: str,
+                                    schedule: str = None) -> list:
+        """Returns rows of (export_id, conn_id, export_type, schedule, target_sheet,
+                             operation, mapping, lookup_config, conn_config_json)"""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            if schedule is not None:
+                cursor.execute(
+                    '''SELECT e.id, e.connection_id, e.export_type, e.schedule,
+                              e.target_sheet, e.operation, e.mapping, e.lookup_config,
+                              c.config
+                       FROM integration_exports e
+                       JOIN integration_connections c ON c.id = e.connection_id
+                       WHERE e.export_type = ? AND e.enabled = 1 AND c.enabled = 1
+                         AND e.schedule = ?''',
+                    (export_type, schedule)
+                )
+            else:
+                cursor.execute(
+                    '''SELECT e.id, e.connection_id, e.export_type, e.schedule,
+                              e.target_sheet, e.operation, e.mapping, e.lookup_config,
+                              c.config
+                       FROM integration_exports e
+                       JOIN integration_connections c ON c.id = e.connection_id
+                       WHERE e.export_type = ? AND e.enabled = 1 AND c.enabled = 1''',
+                    (export_type,)
+                )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_enabled_exports_by_type: {e}")
+            return []
+
+    def get_all_enabled_cron_exports(self) -> list:
+        """Returns rows of (export_id, conn_id, export_type, schedule, target_sheet,
+                             operation, mapping, lookup_config, conn_config_json)
+           for all exports with a cron schedule (not 'immediate' and not empty)."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT e.id, e.connection_id, e.export_type, e.schedule,
+                          e.target_sheet, e.operation, e.mapping, e.lookup_config,
+                          c.config
+                   FROM integration_exports e
+                   JOIN integration_connections c ON c.id = e.connection_id
+                   WHERE e.enabled = 1 AND c.enabled = 1
+                     AND e.schedule IS NOT NULL AND e.schedule != ''
+                     AND e.schedule != 'immediate' '''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_enabled_cron_exports: {e}")
+            return []
+
+    def update_integration_export(self, export_id: int, **kwargs):
+        allowed = {'enabled', 'schedule', 'target_sheet', 'operation',
+                   'mapping', 'lookup_config', 'extra'}
+        fields = {k: v for k, v in kwargs.items() if k in allowed}
+        if not fields:
+            return
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            set_clause = ", ".join(f"{k} = ?" for k in fields)
+            cursor.execute(
+                f"UPDATE integration_exports SET {set_clause} WHERE id = ?",
+                list(fields.values()) + [export_id]
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"update_integration_export: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def update_integration_export_last_run(self, export_id: int):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE integration_exports SET last_run = datetime('now') WHERE id = ?",
+                (export_id,)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"update_integration_export_last_run: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def delete_integration_export(self, export_id: int):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM integration_exports WHERE id = ?", (export_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"delete_integration_export: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def add_integration_log(self, connection_id, export_id, status: str,
+                            message: str):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO integration_log (connection_id, export_id, status, message) VALUES (?, ?, ?, ?)",
+                (connection_id, export_id, status, message[:2000] if message else '')
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"add_integration_log: {e}")
+            if 'conn' in locals():
+                conn.close()
+
+    def get_integration_logs(self, connection_id: int = None,
+                             limit: int = 15) -> list:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            if connection_id is not None:
+                cursor.execute(
+                    '''SELECT id, connection_id, export_id, status, message, created_at
+                       FROM integration_log WHERE connection_id = ?
+                       ORDER BY id DESC LIMIT ?''',
+                    (connection_id, limit)
+                )
+            else:
+                cursor.execute(
+                    '''SELECT id, connection_id, export_id, status, message, created_at
+                       FROM integration_log ORDER BY id DESC LIMIT ?''',
+                    (limit,)
+                )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_integration_logs: {e}")
+            return []
+
+    def get_all_admins_telegram_ids(self) -> list:
+        """Return telegram_ids of all admin/owner users."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT telegram_id FROM users WHERE is_active = 1 AND role IN ('admin', 'owner') LIMIT 10"
+            )
+            result = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_admins_telegram_ids: {e}")
+            return []
+
+    def get_all_sales_for_export(self) -> list:
+        """Return all sales for replace_sheet export."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT s.sale_date, p.name, p.category, s.shop_name,
+                          s.quantity_sold, s.sale_price,
+                          ROUND(s.quantity_sold * s.sale_price, 2) as total,
+                          COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') as seller
+                   FROM sales s
+                   JOIN products p ON p.id = s.product_id
+                   LEFT JOIN users u ON u.id = s.user_id
+                   ORDER BY s.sale_date DESC
+                   LIMIT 50000'''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_sales_for_export: {e}")
+            return []
+
+    def get_all_inventory_for_export(self) -> list:
+        """Return all inventory for replace_sheet export."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT i.shop_name, p.name, p.category, i.quantity, i.last_updated
+                   FROM inventory i
+                   JOIN products p ON p.id = i.product_id
+                   ORDER BY i.shop_name, p.name'''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_inventory_for_export: {e}")
+            return []
 
     def calculate_monthly_salary(self, user_id, year, month):
         """Рассчитать зарплату за месяц: смены × ставка"""

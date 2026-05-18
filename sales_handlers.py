@@ -1590,6 +1590,25 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             except Exception:
                     pass
 
+        # ── Google Sheets integration trigger ──────────────────────────────
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            from datetime import datetime as _dt
+            _seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ''
+            _sale_event = {
+                'date': _dt.now().strftime('%Y-%m-%d %H:%M'),
+                'shop_name': shop_name,
+                'quantity': total_items,
+                'total': total_sum,
+                'seller_name': _seller_name,
+                'product_name': results[0]['name'] if len(results) == 1 else 'Несколько товаров',
+                'price': results[0]['price'] if len(results) == 1 else 0,
+                'category': '',
+            }
+            await _int_mgr.trigger_export(current_db, 'sales', _sale_event)
+        except Exception as _ie:
+            logging.warning(f"integration trigger_export (sales): {_ie}")
+
         # ── Уведомления коллегам по смене ─────────────────────────────────
         # Отправляем пуш всем, кто привязан к этому магазину, у кого
         # в графике стоит сегодняшний рабочий день и включена опция.

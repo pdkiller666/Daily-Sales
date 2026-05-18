@@ -589,7 +589,22 @@ async def process_new_quantity(message: Message, state: FSMContext):
             return
             
         current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'manual', 'Добавление остатков')
-        
+
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            from datetime import datetime as _dt
+            _product = current_db.get_product(product_id)
+            await _int_mgr.trigger_export(current_db, 'inventory', {
+                'shop_name': shop_name,
+                'product_name': _product[1] if _product else '',
+                'category': _product[2] if _product else '',
+                'quantity': new_quantity,
+                'last_updated': _dt.now().strftime('%Y-%m-%d %H:%M'),
+            })
+        except Exception as _ie:
+            import logging as _log
+            _log.warning(f"integration trigger_export (inventory add): {_ie}")
+
         await fsm_edit(state, message,
                        f"✅ Остатки обновлены для магазина {shop_name}!",
                        reply_markup=_add_kb)
@@ -614,6 +629,20 @@ async def process_new_quantity(message: Message, state: FSMContext):
                 change_reason = f'Изменение с {existing_quantity} на {new_quantity} шт. ({"+" if delta > 0 else ""}{delta})'
                 current_db.update_inventory(shop_name, product_id, delta, user_id, 'user_edit', change_reason)
             
+            try:
+                from integration.manager import integration_manager as _int_mgr
+                from datetime import datetime as _dt
+                await _int_mgr.trigger_export(current_db, 'inventory', {
+                    'shop_name': shop_name,
+                    'product_name': product_name or '',
+                    'category': category or '',
+                    'quantity': new_quantity,
+                    'last_updated': _dt.now().strftime('%Y-%m-%d %H:%M'),
+                })
+            except Exception as _ie:
+                import logging as _log
+                _log.warning(f"integration trigger_export (inventory edit): {_ie}")
+
             await fsm_edit(state, message,
                            f"✅ Остатки обновлены!\n\n"
                            f"🏷 Товар: {product_name}\n"

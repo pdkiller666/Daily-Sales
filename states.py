@@ -178,3 +178,11 @@ class MotivationScheduleStates(StatesGroup):
     selecting_custom_month      = State()
     selecting_extra_month       = State()
     selecting_extra_custom_month = State()
+
+class IntegrationStates(StatesGroup):
+    waiting_conn_name      = State()
+    waiting_spreadsheet_id = State()
+    waiting_export_sheet   = State()
+    waiting_mapping        = State()
+    waiting_lookup_step    = State()
+    waiting_cron           = State()

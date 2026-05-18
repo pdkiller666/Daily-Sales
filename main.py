@@ -36,6 +36,7 @@ from salary_handlers import salary_router
 from contests_handlers import contests_router
 from dashboard_handlers import router as dashboard_router
 from filter_handlers import filter_router
+from integration_handlers import integration_router
 import scheduler_module
 from utils import he
 
@@ -125,6 +126,7 @@ dp.include_router(salary_router)
 dp.include_router(contests_router)
 dp.include_router(dashboard_router)
 dp.include_router(filter_router)
+dp.include_router(integration_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):
@@ -729,7 +731,14 @@ async def main():
     )
     
     scheduler.start()
-    
+
+    # Регистрируем cron-задачи из интеграций Google Sheets
+    try:
+        from integration.manager import integration_manager
+        await integration_manager.schedule_exports(scheduler, _get_scheduler_db_paths)
+    except Exception as _ie:
+        logging.warning(f"Integration schedule_exports: {_ie}")
+
     logging.info("Бот запущен")
     
     # Проверяем, нужно ли отправить post-restart сообщение
