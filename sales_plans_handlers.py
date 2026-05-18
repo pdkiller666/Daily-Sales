@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+from aiogram.types import InlineKeyboardButton
 from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button
 from env_manager import env_manager
 from utils import format_price, he
@@ -15,6 +16,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit, safe_edit_message
 from hints import hint_suffix
 from states import SearchStates
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 
 sales_plans_router = Router()
 
@@ -628,26 +630,29 @@ async def plnwiz_filter_prod(callback: CallbackQuery, state: FSMContext):
 
 
 async def _render_product_selection(message: Message, products, selected_ids: list,
-                                     back_cb: str = "plnwiz_start", query: str = ""):
-    filtered = products
-    if query:
-        q = query.lower()
-        filtered = [p for p in products if q in p[1].lower()]
+                                     back_cb: str = "plnwiz_start", query: str = "", page: int = 0):
+    filtered = [p for p in products if query.lower() in p[1].lower()] if query else list(products)
+    page_items, has_prev, has_next, total_pages, page = paginate(filtered, page, PAGE_SIZE_BTN)
+
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔍 Найти товар", callback_data="plnwiz_srch_prd_start")
-    for p in filtered:
+    builder.row(InlineKeyboardButton(text="🔍 Найти товар", callback_data="plnwiz_srch_prd_start"))
+    for p in page_items:
         icon = "✅" if p[0] in selected_ids else "◻️"
-        builder.button(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}")
+        builder.row(InlineKeyboardButton(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}"))
+    nav = page_nav_row("plnprd_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
     if query:
-        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_prd_cancel")
-    builder.button(text="💾 Подтвердить выбор", callback_data="plnprdok")
-    builder.button(text="⬅️ Назад", callback_data=back_cb)
-    builder.adjust(1)
+        builder.row(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_prd_cancel"))
+    builder.row(InlineKeyboardButton(text="💾 Подтвердить выбор", callback_data="plnprdok"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
 
     sel_text = f"Выбрано: {len(selected_ids)} тов." if selected_ids else "Ничего не выбрано"
-    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
+    pg_line  = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(filtered)}</i>" if total_pages > 1 else ""
+    suffix   = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered
+                else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
-        f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
+        f"📋 <b>Выбор товаров</b>{pg_line}\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
 
@@ -675,6 +680,7 @@ async def plnwiz_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
     edit_id = data.get('editpln_id')
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     selected = list(data.get('pln_products', []))
+    await state.update_data(pln_query='', pln_page=0)
     await state.set_state(SalesPlanStates.selecting_products)
     current_db = await get_db(callback.from_user.id, state)
     products = current_db.get_all_products()
@@ -688,35 +694,55 @@ async def plnwiz_srch_prd_process(message: Message, state: FSMContext):
     edit_id = data.get('editpln_id')
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     selected = list(data.get('pln_products', []))
+    await state.update_data(pln_query=query, pln_page=0)
     current_db = await get_db(message.from_user.id, state)
     products = current_db.get_all_products()
-    q = query.lower()
-    filtered = [p for p in products if q in p[1].lower()] if query else products
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔍 Найти товар", callback_data="plnwiz_srch_prd_start")
-    for p in filtered:
-        icon = "✅" if p[0] in selected else "◻️"
-        builder.button(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}")
-    if query:
-        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_prd_cancel")
-    builder.button(text="💾 Подтвердить выбор", callback_data="plnprdok")
-    builder.button(text="⬅️ Назад", callback_data=back_cb)
-    builder.adjust(1)
-    sel_text = f"Выбрано: {len(selected)} тов." if selected else "Ничего не выбрано"
-    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
-    await fsm_edit(
-        state, message,
-        f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
-    )
     await state.set_state(SalesPlanStates.selecting_products)
+    anchor = data.get('anchor_msg_id')
+
+    class _Proxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self._bot = bot; self._chat = chat_id; self._mid = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self._bot.edit_message_text(text, self._chat, self._mid,
+                                              reply_markup=reply_markup, parse_mode=parse_mode)
+
+    target = _Proxy(message.bot, message.chat.id, anchor) if anchor else message
+    await _render_product_selection(target, products, selected, back_cb=back_cb, query=query)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+# Page navigation for product selection (must be before plnprd_ toggle handler)
+@sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_pg_"))
+async def plnwiz_products_page(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.removeprefix("plnprd_pg_"))
+    data = await state.get_data()
+    selected = list(data.get('pln_products', []))
+    query    = data.get('pln_query', '')
+    edit_id  = data.get('editpln_id')
+    back_cb  = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    await state.update_data(pln_page=page)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    await _render_product_selection(callback.message, products, selected, back_cb=back_cb,
+                                    query=query, page=page)
+    await callback.answer()
 
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_"))
 async def plnwiz_toggle_product(callback: CallbackQuery, state: FSMContext):
-    prod_id = int(callback.data[len("plnprd_"):])
+    raw = callback.data[len("plnprd_"):]
+    if not raw.isdigit():   # guard against plnprd_pg_ leaking here
+        await callback.answer()
+        return
+    prod_id = int(raw)
     data = await state.get_data()
     selected = list(data.get('pln_products', []))
+    page     = data.get('pln_page', 0)
+    query    = data.get('pln_query', '')
 
     if prod_id in selected:
         selected.remove(prod_id)
@@ -728,7 +754,8 @@ async def plnwiz_toggle_product(callback: CallbackQuery, state: FSMContext):
     products = current_db.get_all_products()
     edit_id = data.get('editpln_id')
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
-    await _render_product_selection(callback.message, products, selected, back_cb=back_cb)
+    await _render_product_selection(callback.message, products, selected, back_cb=back_cb,
+                                    query=query, page=page)
     await callback.answer()
 
 

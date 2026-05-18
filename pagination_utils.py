@@ -5,6 +5,7 @@ PAGE_SIZE_DEFAULT = 8
 PAGE_SIZE_USERS   = 10
 PAGE_SIZE_ORGS    = 8
 PAGE_SIZE_SALES   = 8
+PAGE_SIZE_BTN     = 5   # inline-button lists (shops, products, users)
 
 
 def paginate(items: list, page: int = 0, per_page: int = PAGE_SIZE_DEFAULT):

@@ -15,6 +15,7 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 
 salary_router = Router()
 
@@ -193,6 +194,26 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
 
 # ── Список ставок ─────────────────────────────────────────────────────────────
 
+def _build_rates_content(rates: list, page: int):
+    """Return (text, markup) for salary rates list, paginated."""
+    page_items, has_prev, has_next, total_pages, page = paginate(rates, page, PAGE_SIZE_BTN)
+    pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(rates)}</i>" if total_pages > 1 else ""
+    text = f"💵 <b>Ставки сотрудников</b>{pg_line}\n\nНажмите на сотрудника для редактирования:\n\n"
+    builder = InlineKeyboardBuilder()
+    for user_id, fn, ln, daily_rate, tg_id in page_items:
+        name = he(f"{fn} {ln}".strip())
+        rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+        text += f"👤 {name} — {rate_str}\n"
+        builder.row(InlineKeyboardButton(text=f"✏️ {f'{fn} {ln}'.strip()}", callback_data=f"slr_set_{user_id}"))
+    if not rates:
+        text += "❌ Нет зарегистрированных продавцов"
+    nav = page_nav_row("slr_rates_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("admin_salary_menu"))
+    return text, builder.as_markup()
+
+
 @salary_router.callback_query(F.data == "slr_rates")
 async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
@@ -200,20 +221,23 @@ async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     current_db = await get_db(uid, state)
-    rates = [r for r in current_db.get_all_salary_rates()
-             if not env_manager.is_super_admin(r[4])]
-    builder = InlineKeyboardBuilder()
-    text = "💵 <b>Ставки сотрудников</b>\n\nНажмите на сотрудника для редактирования:\n\n"
-    for user_id, fn, ln, daily_rate, tg_id in rates:
-        name = he(f"{fn} {ln}".strip())
-        rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
-        text += f"👤 {name} — {rate_str}\n"
-        builder.button(text=f"✏️ {f'{fn} {ln}'.strip()}", callback_data=f"slr_set_{user_id}")
-    if not rates:
-        text += "❌ Нет зарегистрированных продавцов"
-    builder.add(back_button("admin_salary_menu"))
-    builder.adjust(1)
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    rates = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    text, markup = _build_rates_content(rates, 0)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await callback.answer()
+
+
+@salary_router.callback_query(F.data.startswith("slr_rates_pg_"))
+async def salary_rates_page(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    page = int(callback.data.removeprefix("slr_rates_pg_"))
+    current_db = await get_db(uid, state)
+    rates = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    text, markup = _build_rates_content(rates, page)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 
 
@@ -287,6 +311,24 @@ async def salary_rate_enter(message: Message, state: FSMContext):
 
 # ── Выбор сотрудника для просмотра графика (admin) ────────────────────────────
 
+def _build_scheds_content(users: list, page: int):
+    """Return (text, markup) for schedules list, paginated."""
+    now = datetime.now()
+    page_items, has_prev, has_next, total_pages, page = paginate(users, page, PAGE_SIZE_BTN)
+    pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(users)}</i>" if total_pages > 1 else ""
+    builder = InlineKeyboardBuilder()
+    for user_id, fn, ln, _, tg_id in page_items:
+        name = f"{fn} {ln}".strip()
+        builder.row(InlineKeyboardButton(
+            text=f"📅 {name}",
+            callback_data=f"slr_cal_{user_id}_{now.year}_{now.month}"))
+    nav = page_nav_row("slr_sched_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("admin_salary_menu"))
+    return f"📅 <b>Графики работы</b>{pg_line}\n\nВыберите сотрудника:", builder.as_markup()
+
+
 @salary_router.callback_query(F.data == "slr_scheds")
 async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
@@ -294,29 +336,30 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     current_db = await get_db(uid, state)
-    users = [r for r in current_db.get_all_salary_rates()
-             if not env_manager.is_super_admin(r[4])]
+    users = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     if not users:
         builder = InlineKeyboardBuilder()
         builder.add(back_button("admin_salary_menu"))
-        await callback.message.edit_text(
-            "❌ Нет зарегистрированных продавцов",
-            reply_markup=builder.as_markup()
-        )
+        await callback.message.edit_text("❌ Нет зарегистрированных продавцов",
+                                         reply_markup=builder.as_markup())
         await callback.answer()
         return
-    now = datetime.now()
-    builder = InlineKeyboardBuilder()
-    for user_id, fn, ln, _, tg_id in users:
-        name = f"{fn} {ln}".strip()
-        builder.button(text=f"📅 {name}",
-                       callback_data=f"slr_cal_{user_id}_{now.year}_{now.month}")
-    builder.add(back_button("admin_salary_menu"))
-    builder.adjust(1)
-    await callback.message.edit_text(
-        "📅 <b>Графики работы</b>\n\nВыберите сотрудника:",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
-    )
+    text, markup = _build_scheds_content(users, 0)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await callback.answer()
+
+
+@salary_router.callback_query(F.data.startswith("slr_sched_pg_"))
+async def salary_sched_page(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    page = int(callback.data.removeprefix("slr_sched_pg_"))
+    current_db = await get_db(uid, state)
+    users = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    text, markup = _build_scheds_content(users, page)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 
 

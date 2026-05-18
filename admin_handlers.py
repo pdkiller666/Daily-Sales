@@ -15,7 +15,7 @@ from utils import he
 from database import Database
 from keyboards import main_menu, back_button, create_selection_keyboard
 from states import AdminUserStates, UserProfileStates, AdminManagementStates, AdminNotificationStates, SearchStates
-from pagination_utils import paginate, page_nav_row, PAGE_SIZE_USERS, PAGE_SIZE_ORGS
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_USERS, PAGE_SIZE_ORGS, PAGE_SIZE_BTN
 from env_manager import env_manager
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 
@@ -576,24 +576,54 @@ async def add_admin_start(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
 
+    page_items, has_prev, has_next, total_pages, page = paginate(users, 0, PAGE_SIZE_BTN)
+    pg_line = f"\n<i>Стр. 1/{total_pages} · всего: {len(users)}</i>" if total_pages > 1 else ""
     builder = InlineKeyboardBuilder()
-    # Добавляем первых 10 пользователей как кнопки для быстрого выбора
-    for t_id, f_name, l_name, s_name in users[:15]:
+    for t_id, f_name, l_name, s_name in page_items:
         display = f"{f_name or ''} {l_name or ''}".strip() or str(t_id)
         if s_name: display += f" ({s_name})"
-        builder.add(InlineKeyboardButton(text=display, callback_data=f"add_admin_id_{t_id}"))
-    
-    builder.add(back_button("manage_admins"))
-    builder.adjust(1)
-    
+        builder.row(InlineKeyboardButton(text=display, callback_data=f"add_admin_id_{t_id}"))
+    nav = page_nav_row("add_admin_pg_", 0, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("manage_admins"))
+
+    await state.update_data(add_admin_users=[(t, f, l, s) for t, f, l, s in users],
+                             anchor_msg_id=callback.message.message_id)
     await callback.answer()
-    await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
-        "➕ <b>Добавление администратора</b>\n\nВыберите пользователя из списка ниже или <b>введите Telegram ID</b> вручную:",
+        f"➕ <b>Добавление администратора</b>{pg_line}\n\nВыберите пользователя или <b>введите Telegram ID</b>:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
     await state.set_state(AdminManagementStates.waiting_for_admin_id)
+
+
+@admin_router.callback_query(AdminManagementStates.waiting_for_admin_id,
+                              F.data.startswith("add_admin_pg_"))
+async def add_admin_page(callback: CallbackQuery, state: FSMContext):
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    page = int(callback.data.removeprefix("add_admin_pg_"))
+    data = await state.get_data()
+    users = data.get('add_admin_users', [])
+    page_items, has_prev, has_next, total_pages, page = paginate(users, page, PAGE_SIZE_BTN)
+    pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(users)}</i>" if total_pages > 1 else ""
+    builder = InlineKeyboardBuilder()
+    for t_id, f_name, l_name, s_name in page_items:
+        display = f"{f_name or ''} {l_name or ''}".strip() or str(t_id)
+        if s_name: display += f" ({s_name})"
+        builder.row(InlineKeyboardButton(text=display, callback_data=f"add_admin_id_{t_id}"))
+    nav = page_nav_row("add_admin_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("manage_admins"))
+    await callback.message.edit_text(
+        f"➕ <b>Добавление администратора</b>{pg_line}\n\nВыберите пользователя или <b>введите Telegram ID</b>:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("add_admin_id_"))
 async def process_add_admin_callback(callback: CallbackQuery, state: FSMContext):
@@ -1210,8 +1240,8 @@ async def adm_scope_all(callback: CallbackQuery, state: FSMContext):
         )
 
 
-async def _render_scope_list(message, state: FSMContext, current_db, scope_type: str):
-    """Рендерит экран мульти-выбора зоны ответственности с чекбоксами."""
+async def _render_scope_list(message, state: FSMContext, current_db, scope_type: str, page: int = 0):
+    """Рендерит экран мульти-выбора зоны ответственности с чекбоксами и пагинацией."""
     import sqlite3 as _sq3
     data = await state.get_data()
     selections: list = list(data.get('adm_scope_sels', []))
@@ -1244,26 +1274,31 @@ async def _render_scope_list(message, state: FSMContext, current_db, scope_type:
         )
         return
 
-    buttons = []
-    for val in values:
+    page_items, has_prev, has_next, total_pages, page = paginate(values, page, PAGE_SIZE_BTN)
+    await state.update_data(adm_scope_pg=page)
+
+    builder = InlineKeyboardBuilder()
+    for val in page_items:
         mark = "✅" if val in selections else "☐"
         cb = safe_cb(prefix, val)
-        buttons.append([InlineKeyboardButton(text=f"{mark} {icon} {val}", callback_data=cb)])
+        builder.row(InlineKeyboardButton(text=f"{mark} {icon} {val}", callback_data=cb))
+
+    nav = page_nav_row("adm_scope_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
 
     n = len(selections)
-    scope_names_ru = {'shop': 'Магазин', 'city': 'Город', 'network': 'Торговая сеть'}
     if n > 0:
-        buttons.append([InlineKeyboardButton(
-            text=f"✅ Подтвердить ({n} выбрано)",
-            callback_data="adm_scope_submit"
-        )])
-    buttons.append([back_button("adm_role_set_admin")])
+        builder.row(InlineKeyboardButton(text=f"✅ Подтвердить ({n} выбрано)",
+                                         callback_data="adm_scope_submit"))
+    builder.row(back_button("adm_role_set_admin"))
 
+    pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(values)}</i>" if total_pages > 1 else ""
     await message.edit_text(
-        f"🛡️ <b>Выберите {name_map.get(scope_type, 'зону')}:</b>\n\n"
+        f"🛡️ <b>Выберите {name_map.get(scope_type, 'зону')}:</b>{pg_line}\n\n"
         f"Можно выбрать несколько — выбрано: <b>{n}</b>\n"
         f"Нажмите элемент для выбора / снятия выбора.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
 
@@ -1320,9 +1355,25 @@ async def _toggle_scope_value(callback: CallbackQuery, state: FSMContext,
         sels.remove(full_val)
     else:
         sels.append(full_val)
+    data2 = await state.get_data()
+    page = data2.get('adm_scope_pg', 0)
     await state.update_data(adm_scope_sels=sels)
     await callback.answer()
-    await _render_scope_list(callback.message, state, current_db, scope_type)
+    await _render_scope_list(callback.message, state, current_db, scope_type, page=page)
+
+
+@admin_router.callback_query(F.data.startswith("adm_scope_pg_"))
+async def adm_scope_page(callback: CallbackQuery, state: FSMContext):
+    """Пагинация в списке зон ответственности."""
+    if not (is_org_owner(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)):
+        await callback.answer("❌ Доступ запрещён.", show_alert=True)
+        return
+    page = int(callback.data.removeprefix("adm_scope_pg_"))
+    data = await state.get_data()
+    scope_type = data.get('adm_scope_type', 'shop')
+    current_db = await get_db(callback.from_user.id, state)
+    await callback.answer()
+    await _render_scope_list(callback.message, state, current_db, scope_type, page=page)
 
 
 @admin_router.callback_query(F.data.startswith("adm_t_s_"))

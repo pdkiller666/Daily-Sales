@@ -1713,23 +1713,37 @@ async def gs_lkp_hrow_page(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
-async def _show_idcol_picker(target, state: FSMContext,
-                             header_row: list, first_data_row: list):
-    """Show column-picker buttons from the header row values."""
+def _idcol_page_kb(cols: list, page: int) -> tuple:
+    """Build (markup, total_pages, clamped_page) for the ID-column picker, paginated."""
+    from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+    page_items, has_prev, has_next, total_pages, page = paginate(cols, page, PAGE_SIZE_BTN)
     kb = InlineKeyboardBuilder()
-    for i, hval in enumerate(header_row, start=1):
-        fval = first_data_row[i - 1] if i - 1 < len(first_data_row) else ""
-        label = _col_btn_label(i, str(hval), str(fval))
+    for i, hval, fval in page_items:
+        label = _col_btn_label(i, hval, fval)
         kb.row(InlineKeyboardButton(text=label, callback_data=f"gs_lkp_idcol_{i}"))
+    nav = page_nav_row("gs_lkp_idcol_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        kb.row(*nav)
     kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
                                 callback_data="gs_lkp_idcol_manual"))
-    text = ("🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
+    return kb.as_markup(), total_pages, page
+
+
+async def _show_idcol_picker(target, state: FSMContext,
+                             header_row: list, first_data_row: list, page: int = 0):
+    """Show column-picker buttons from the header row values, paginated."""
+    cols = [(i, str(hval), str(first_data_row[i - 1] if i - 1 < len(first_data_row) else ""))
+            for i, hval in enumerate(header_row, start=1)]
+    await state.update_data(gs_idcol_cols=cols)
+    markup, total_pages, page = _idcol_page_kb(cols, page)
+    pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(cols)}</i>" if total_pages > 1 else ""
+    text = (f"🔍 <b>Шаг 2/4 — Колонка с ID строк</b>{pg_line}\n\n"
             "Выбери колонку, в которой записаны <b>названия магазинов или продавцов</b> "
             "(то, по чему бот будет искать нужную строку):")
     try:
-        await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await target.edit_text(text, reply_markup=markup, parse_mode="HTML")
     except Exception:
-        await _fsm_edit(target, state, text, reply_markup=kb.as_markup())
+        await _fsm_edit(target, state, text, reply_markup=markup)
 
 
 async def _start_lookup_wizard(message: Message, state: FSMContext):
@@ -1877,23 +1891,7 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
         if header_row:
             await state.update_data(gs_header_row=header_row,
                                     gs_first_drow=first_drow)
-            kb = InlineKeyboardBuilder()
-            for i, hval in enumerate(header_row, start=1):
-                fval  = first_drow[i - 1] if i - 1 < len(first_drow) else ""
-                label = _col_btn_label(i, str(hval), str(fval))
-                kb.row(InlineKeyboardButton(
-                    text=label, callback_data=f"gs_lkp_idcol_{i}"))
-            kb.row(InlineKeyboardButton(
-                text="✏️ Ввести номер вручную",
-                callback_data="gs_lkp_idcol_manual"))
-            await callback.message.edit_text(
-                f"✅ Строка {row_num} выбрана как строка заголовков.\n\n"
-                "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
-                "Выбери колонку, в которой записаны "
-                "<b>названия магазинов или продавцов</b>:",
-                reply_markup=kb.as_markup(),
-                parse_mode="HTML"
-            )
+            await _show_idcol_picker(callback.message, state, header_row, first_drow, page=0)
         else:
             # API failed — fall back to text
             await state.update_data(gs_lookup_step=1)
@@ -1917,6 +1915,25 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
             "Введи номер колонки, в которой написаны названия магазинов/продавцов.\n"
             "1 = A,  2 = B,  3 = C…\nПример: <code>1</code>",
             parse_mode="HTML"
+        )
+        return
+
+    if raw.startswith("idcol_pg_"):
+        pg = int(raw[len("idcol_pg_"):])
+        data   = await state.get_data()
+        cols   = data.get('gs_idcol_cols') or []
+        if not cols:
+            header_row = data.get('gs_header_row', [])
+            first_drow = data.get('gs_first_drow', [])
+            cols = [(i, str(hval), str(first_drow[i-1] if i-1 < len(first_drow) else ""))
+                    for i, hval in enumerate(header_row, start=1)]
+        markup, total_pages, pg = _idcol_page_kb(cols, pg)
+        pg_line = f"\n<i>Стр. {pg+1}/{total_pages} · всего: {len(cols)}</i>" if total_pages > 1 else ""
+        await callback.message.edit_text(
+            f"🔍 <b>Шаг 2/4 — Колонка с ID строк</b>{pg_line}\n\n"
+            "Выбери колонку, в которой записаны "
+            "<b>названия магазинов или продавцов</b>:",
+            reply_markup=markup, parse_mode="HTML"
         )
         return
 
