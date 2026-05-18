@@ -346,7 +346,7 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
     if query:
         q = query.lower()
         filtered = [u for u in users
-                    if q in f"{u[2] or ''} {u[3] or ''} {u[8] or ''}".lower()]
+                    if q in f"{u[2] or ''} {u[3] or ''} {u[4] or ''} {u[5] or ''} {u[8] or ''}".lower()]
         overflow = max(0, len(filtered) - MAX_SEARCH)
         page_items = filtered[:MAX_SEARCH]
         has_prev = has_next = False
@@ -486,6 +486,8 @@ async def adm_usr_srch_cancel(callback: CallbackQuery, state: FSMContext):
 @admin_router.message(SearchStates.org_users)
 async def adm_usr_srch_process(message: Message, state: FSMContext):
     """Обрабатывает поисковый запрос по списку сотрудников."""
+    if not is_any_admin(message.from_user.id):
+        return
     query = (message.text or "").strip()
     await state.set_state(None)
     users, title, back_target, show_admin_management, current_db, is_super_user, data = \
