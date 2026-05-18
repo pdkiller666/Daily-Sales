@@ -1640,21 +1640,77 @@ def _col_btn_label(col_idx: int, header: str, first_val: str) -> str:
     return f"{prefix}{detail}" if detail else f"{prefix}(пусто)"
 
 
-async def _show_hrow_picker(target, state: FSMContext, rows_data: dict):
-    """Show row-picker buttons. target = Message or .message from callback."""
+_HROW_PAGE_SIZE = 5
+
+
+def _hrow_page_kb(rows_sorted: list, page: int) -> InlineKeyboardMarkup:
+    """Build paginated row-picker keyboard. rows_sorted = [(rn, values), ...]"""
+    total      = len(rows_sorted)
+    total_pages = max(1, -(-total // _HROW_PAGE_SIZE))   # ceil division
+    page        = max(0, min(page, total_pages - 1))
+    start       = page * _HROW_PAGE_SIZE
+    chunk       = rows_sorted[start: start + _HROW_PAGE_SIZE]
+
     kb = InlineKeyboardBuilder()
-    for rn in sorted(rows_data):
-        label = _row_btn_label(rn, rows_data[rn])
-        kb.row(InlineKeyboardButton(text=label, callback_data=f"gs_lkp_hrow_{rn}"))
+    for rn, vals in chunk:
+        kb.row(InlineKeyboardButton(
+            text=_row_btn_label(rn, vals), callback_data=f"gs_lkp_hrow_{rn}"))
+
+    # Prev / Next navigation row
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_lkp_hrow_pg_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_lkp_hrow_pg_{page+1}"))
+    if nav:
+        kb.row(*nav)
+
     kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
                                 callback_data="gs_lkp_hrow_manual"))
-    text = ("🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
-            "Выбери строку, в которой написаны <b>названия столбцов</b> "
-            "(заголовки матрицы — товары, недели и т.п.):")
+    return kb.as_markup()
+
+
+async def _show_hrow_picker(target, state: FSMContext, rows_data: dict, page: int = 0):
+    """Show paginated row-picker buttons.
+    target = Message or .message from callback.
+    Stores rows in FSM state for page-turn handler.
+    """
+    rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
+    await state.update_data(gs_hrow_rows=rows_sorted)
+    total       = len(rows_sorted)
+    total_pages = max(1, -(-total // _HROW_PAGE_SIZE))
+    markup      = _hrow_page_kb(rows_sorted, page)
+    text = (
+        f"🔍 <b>Настройка матрицы — шаг 1/4</b>\n"
+        f"<i>Стр. {page+1}/{total_pages} · всего строк: {total}</i>\n\n"
+        "Выбери строку, в которой написаны <b>названия столбцов</b> "
+        "(заголовки матрицы — товары, недели и т.п.):"
+    )
     try:
-        await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await target.edit_text(text, reply_markup=markup, parse_mode="HTML")
     except Exception:
-        await _fsm_edit(target, state, text, reply_markup=kb.as_markup())
+        await _fsm_edit(target, state, text, reply_markup=markup)
+
+
+@integration_router.callback_query(F.data.startswith("gs_lkp_hrow_pg_"))
+async def gs_lkp_hrow_page(callback: CallbackQuery, state: FSMContext):
+    """Navigate between pages of the row picker."""
+    await callback.answer()
+    page = int(callback.data.replace("gs_lkp_hrow_pg_", ""))
+    data = await state.get_data()
+    rows_sorted = data.get('gs_hrow_rows', [])
+    if not rows_sorted:
+        await callback.answer("⚠️ Данные устарели, начните заново", show_alert=True)
+        return
+    total_pages = max(1, -(-len(rows_sorted) // _HROW_PAGE_SIZE))
+    markup      = _hrow_page_kb(rows_sorted, page)
+    text = (
+        f"🔍 <b>Настройка матрицы — шаг 1/4</b>\n"
+        f"<i>Стр. {page+1}/{total_pages} · всего строк: {len(rows_sorted)}</i>\n\n"
+        "Выбери строку, в которой написаны <b>названия столбцов</b> "
+        "(заголовки матрицы — товары, недели и т.п.):"
+    )
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 async def _show_idcol_picker(target, state: FSMContext,
@@ -1687,37 +1743,35 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
     # When called from a callback, message IS the anchor — don't delete it
     is_anchor  = (message.message_id == anchor_id)
 
-    # Fetch first 15 rows in ONE API call
+    # Fetch up to 50 rows in ONE API call
     rows_data = {}
     try:
         provider, cfg = await _fetch_gs_config(user_id, state)
         if provider:
             rendered  = _render_sheet_macro(sheet_name)
             rows_data = await asyncio.wait_for(
-                provider.get_first_rows(cfg, rendered, max_rows=15), timeout=8.0)
+                provider.get_first_rows(cfg, rendered, max_rows=50), timeout=10.0)
     except Exception:
         rows_data = {}
 
     if rows_data:
-        kb = InlineKeyboardBuilder()
-        for rn in sorted(rows_data):
-            label = _row_btn_label(rn, rows_data[rn])
-            kb.row(InlineKeyboardButton(
-                text=label, callback_data=f"gs_lkp_hrow_{rn}"))
-        kb.row(InlineKeyboardButton(
-            text="✏️ Ввести номер вручную", callback_data="gs_lkp_hrow_manual"))
-        text = (
-            "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
-            "Выбери строку, в которой написаны <b>названия столбцов</b> "
-            "(заголовки матрицы — товары, недели, модели):"
-        )
-        if is_anchor:
-            await message.edit_text(text, reply_markup=kb.as_markup(),
-                                    parse_mode="HTML")
-        else:
+        # _show_hrow_picker needs a Message-like target with edit_text.
+        # When is_anchor: message itself is the anchor → edit directly.
+        # When NOT is_anchor: delete the user message, then show on anchor.
+        if not is_anchor:
             await delete_message_safe(message)
-            await _edit_anchor(message.bot, message.chat.id, anchor_id,
-                               text, reply_markup=kb.as_markup())
+            # Build a proxy target pointing to the anchor message
+            class _AnchorProxy:
+                def __init__(self, bot, chat_id, msg_id):
+                    self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+                async def edit_text(self, text, reply_markup=None, parse_mode=None):
+                    await self.bot.edit_message_text(
+                        text, chat_id=self.chat_id, message_id=self.msg_id,
+                        reply_markup=reply_markup, parse_mode=parse_mode)
+            target = _AnchorProxy(message.bot, message.chat.id, anchor_id)
+        else:
+            target = message
+        await _show_hrow_picker(target, state, rows_data)
     else:
         fallback = (
             "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
