@@ -178,7 +178,10 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
+    maybe_refresh_username(
+        current_db, callback.from_user.id, callback.from_user.username,
+        stored_username=user_data[12] if len(user_data) > 12 else None,
+    )
     shop_name = user_data[8]
     trade_network = user_data[7]
 

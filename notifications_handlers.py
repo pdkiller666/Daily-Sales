@@ -51,7 +51,10 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
 
-    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
+    maybe_refresh_username(
+        current_db, callback.from_user.id, callback.from_user.username,
+        stored_username=user[12] if len(user) > 12 else None,
+    )
     await callback.answer()
     user_id = user[0]
     # Вычисляем роль один раз — используется и в проверке подписки, и в построении меню

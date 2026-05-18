@@ -109,6 +109,11 @@ async def cmd_start(message: Message, state: FSMContext):
         user = central_db.get_user(message.from_user.id)
     
     if user:
+        if _found_db:
+            maybe_refresh_username(
+                _found_db, message.from_user.id, message.from_user.username,
+                stored_username=user[12] if len(user) > 12 else None,
+            )
         welcome_text = f"👋 Добро пожаловать, {user[2]} {user[3]}!"
         welcome_text += f"\n🔗 <b>Telegram:</b> <a href='tg://user?id={message.from_user.id}'>Мой профиль</a>"
         
@@ -136,7 +141,6 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
         if _found_db:
-            maybe_refresh_username(_found_db, message.from_user.id, message.from_user.username)
             _found_db.create_tables()
             await maybe_send_welcome(
                 message, _found_db, user[0],

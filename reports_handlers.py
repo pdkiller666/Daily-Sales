@@ -81,7 +81,10 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
         return
 
-    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
+    maybe_refresh_username(
+        current_db, callback.from_user.id, callback.from_user.username,
+        stored_username=user[12] if len(user) > 12 else None,
+    )
 
     # Вычисляем роль и scope один раз — используем далее во всех местах
     is_admin = is_any_admin(callback.from_user.id) or is_super_admin

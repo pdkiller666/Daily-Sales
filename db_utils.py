@@ -336,19 +336,29 @@ def is_org_owner(telegram_id: int) -> bool:
         return False
 
 
-def maybe_refresh_username(db, telegram_id: int, tg_username) -> None:
+_NOTPASSED = object()
+
+
+def maybe_refresh_username(db, telegram_id: int, tg_username, stored_username=_NOTPASSED) -> None:
     """Обновляет username в БД если он изменился или отсутствовал (NULL).
 
     Вызывать после get_user() при входе (/start, sale_start, и др.).
     Не делает запрос в БД если значение не изменилось.
     tg_username=None корректно обрабатывается: сохраняет NULL если пользователь
     удалил username в Telegram.
+
+    stored_username — передаёт уже известное значение из ранее полученной строки
+                      пользователя (user[12]) чтобы избежать лишнего запроса к БД.
+                      Если не передан, функция сама вызывает get_user().
     """
     try:
-        user = db.get_user(telegram_id)
-        if not user:
-            return
-        stored = user[12] if len(user) > 12 else None
+        if stored_username is _NOTPASSED:
+            user_row = db.get_user(telegram_id)
+            if not user_row:
+                return
+            stored = user_row[12] if len(user_row) > 12 else None
+        else:
+            stored = stored_username
         if stored != tg_username:
             db.update_user(telegram_id, username=tg_username)
     except Exception as e:
