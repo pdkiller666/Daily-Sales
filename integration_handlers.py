@@ -595,12 +595,11 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
             await _edit_anchor(
                 bot, chat_id, anchor_id,
                 f"❌ <b>Ошибка авторизации:</b> {e}\n\nПопробуйте подключить снова.",
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(
-                        text="🔄 Попробовать снова",
-                        callback_data="gs_add_conn"
-                    )]]
-                ),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Попробовать снова",
+                                         callback_data="gs_add_conn")],
+                    [_back("integration_menu")],
+                ]),
             )
             return
         except Exception as e:
@@ -681,12 +680,11 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
     await _edit_anchor(
         bot, chat_id, anchor_id,
         "⏰ <b>Время авторизации истекло.</b>\n\nНачните добавление подключения заново.",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(
-                text="🔄 Попробовать снова",
-                callback_data="gs_add_conn"
-            )]]
-        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Попробовать снова",
+                                  callback_data="gs_add_conn")],
+            [_back("integration_menu")],
+        ]),
     )
 
 
@@ -1423,6 +1421,7 @@ async def _save_export(msg, state: FSMContext, from_message: bool = False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Экспорты",
                               callback_data=f"gs_exports_{conn_id}")],
+        [_back(f"gs_conn_{conn_id}")],
     ])
 
     if from_message and anchor_id:
