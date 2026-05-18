@@ -404,6 +404,20 @@ async def _edit_anchor(bot, chat_id: int, anchor_id: int,
             pass
 
 
+async def _fsm_edit(message: Message, state: FSMContext,
+                    text: str, reply_markup=None):
+    """In message handlers: delete user message, then edit the anchor stored in FSM state."""
+    await delete_message_safe(message)
+    data = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    if anchor_id:
+        await _edit_anchor(message.bot, message.chat.id, anchor_id,
+                           text, reply_markup=reply_markup)
+    else:
+        sent = await message.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+        await state.update_data(anchor_msg_id=sent.message_id)
+
+
 @integration_router.message(IntegrationStates.waiting_spreadsheet_id)
 async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
     """Unified handler for spreadsheet_id — routes to OAuth or service account."""
@@ -768,7 +782,11 @@ async def gs_test_conn(callback: CallbackQuery, state: FSMContext):
     from integration.providers.google_sheets import GoogleSheetsProvider
     ok, msg = await GoogleSheetsProvider().test_connection(cfg)
     icon = "✅" if ok else "❌"
-    await callback.message.answer(f"{icon} {msg}", parse_mode="HTML")
+    await callback.message.edit_text(
+        f"{icon} {msg}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]),
+        parse_mode="HTML"
+    )
 
 
 @integration_router.callback_query(F.data.startswith("gs_reauth_"))
@@ -818,16 +836,20 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     logs = current_db.get_integration_logs(conn_id, limit=10)
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
     if not logs:
-        await callback.message.answer("📢 Журнал пуст.")
+        await callback.message.edit_text(
+            "📢 <b>Журнал пуст.</b>",
+            reply_markup=back_kb, parse_mode="HTML"
+        )
         return
     lines = []
     for log in logs:
         icon = "✅" if log[3] == "success" else "❌"
         lines.append(f"{icon} {log[5][:16]} — {log[4][:80]}")
-    await callback.message.answer(
+    await callback.message.edit_text(
         "📢 <b>Последние события:</b>\n\n" + "\n".join(lines),
-        parse_mode="HTML"
+        reply_markup=back_kb, parse_mode="HTML"
     )
 
 
@@ -845,7 +867,8 @@ async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
 
-    await state.update_data(gs_motiv_conn_id=conn_id)
+    await state.update_data(gs_motiv_conn_id=conn_id,
+                            anchor_msg_id=callback.message.message_id)
     now_week = __import__('datetime').datetime.now().isocalendar()[1]
 
     await callback.message.edit_text(
@@ -867,11 +890,16 @@ async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
 @integration_router.message(IntegrationStates.waiting_motiv_sheet)
 async def gs_motiv_sheet_input(message: Message, state: FSMContext):
     sheet = message.text.strip()
+    data = await state.get_data()
+    conn_id = data.get('gs_motiv_conn_id')
     if not sheet:
-        await message.answer("❌ Введите название листа.")
+        await _fsm_edit(message, state, "❌ Введите название листа.",
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]))
         return
     await state.update_data(gs_motiv_sheet=sheet)
-    await message.answer(
+    await _fsm_edit(
+        message, state,
         f"✅ Лист: <code>{sheet}</code>\n\n"
         f"<b>Параметры структуры листа</b>\n\n"
         f"Введите через пробел 4 числа:\n"
@@ -879,28 +907,36 @@ async def gs_motiv_sheet_input(message: Message, state: FSMContext):
         f"Для вашего листа w{{week}} стандартные значения:\n"
         f"<code>6 2 3 14</code>\n\n"
         f"Отправьте <code>6 2 3 14</code> или введите свои значения:",
-        parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
     )
     await state.set_state(IntegrationStates.waiting_motiv_rows)
 
 
 @integration_router.message(IntegrationStates.waiting_motiv_rows)
 async def gs_motiv_rows_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    conn_id = data.get('gs_motiv_conn_id')
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
+
     parts = message.text.strip().split()
     if len(parts) != 4:
-        await message.answer("❌ Введите ровно 4 числа через пробел.")
+        await _fsm_edit(message, state, "❌ Введите ровно 4 числа через пробел.",
+                        reply_markup=back_kb)
         return
     try:
         header_row, dns_row, mvm_row, model_start_col = [int(p) for p in parts]
     except ValueError:
-        await message.answer("❌ Все значения должны быть целыми числами.")
+        await _fsm_edit(message, state, "❌ Все значения должны быть целыми числами.",
+                        reply_markup=back_kb)
         return
 
-    data = await state.get_data()
-    conn_id = data.get('gs_motiv_conn_id')
     sheet = data.get('gs_motiv_sheet', 'w{week}')
+    bot = message.bot
+    chat_id = message.chat.id
+    anchor_id = data.get('anchor_msg_id')
 
-    wait_msg = await message.answer("⏳ Читаю лист и синхронизирую мотивацию…")
+    await _fsm_edit(message, state, "⏳ Читаю лист и синхронизирую мотивацию…")
 
     current_db = await get_db(message.from_user.id, state)
     try:
@@ -916,12 +952,12 @@ async def gs_motiv_rows_input(message: Message, state: FSMContext):
         actual_sheet = result['sheet']
         models = result['models']
 
-        await wait_msg.delete()
         models_preview = ", ".join(models[:8])
         if len(models) > 8:
             models_preview += f" … ещё {len(models) - 8}"
 
-        await message.answer(
+        await _edit_anchor(
+            bot, chat_id, anchor_id,
             f"✅ <b>Мотивация синхронизирована!</b>\n\n"
             f"📋 Лист: <code>{actual_sheet}</code>\n"
             f"🔢 Моделей: <b>{synced}</b>\n"
@@ -933,14 +969,13 @@ async def gs_motiv_rows_input(message: Message, state: FSMContext):
                 [InlineKeyboardButton(text="⬅️ К подключению",
                                       callback_data=f"gs_conn_{conn_id}")],
             ]),
-            parse_mode="HTML"
         )
     except Exception as e:
-        await wait_msg.delete()
-        await message.answer(
+        await _edit_anchor(
+            bot, chat_id, anchor_id,
             f"❌ <b>Ошибка синхронизации:</b>\n<code>{e}</code>\n\n"
             f"Проверьте название листа и параметры структуры.",
-            parse_mode="HTML"
+            reply_markup=back_kb,
         )
     finally:
         await clear_state_keep_org(state)
@@ -1110,7 +1145,8 @@ async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
 async def gs_add_exp_start(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
     await state.update_data(gs_conn_id=conn_id, gs_mapping={}, gs_mapping_idx=0,
-                            gs_lookup={}, gs_lookup_step=0)
+                            gs_lookup={}, gs_lookup_step=0,
+                            anchor_msg_id=callback.message.message_id)
     await callback.answer()
     kb = InlineKeyboardBuilder()
     for k, v in EXPORT_TYPE_LABELS.items():
@@ -1166,13 +1202,16 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
 @integration_router.message(IntegrationStates.waiting_export_sheet)
 async def gs_export_sheet(message: Message, state: FSMContext):
     sheet = message.text.strip()
+    data = await state.get_data()
+    conn_id = data.get('gs_conn_id')
+    exp_type = data.get('gs_exp_type', 'sales')
     if not sheet:
-        await message.answer("❌ Введите название листа.")
+        await _fsm_edit(message, state, "❌ Введите название листа.",
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[[_back(f"gs_exp_type_{conn_id}_{exp_type}")]]))
         return
     await state.update_data(gs_target_sheet=sheet)
-    data = await state.get_data()
     operation = data.get('gs_exp_op', 'append_row')
-    exp_type = data.get('gs_exp_type', 'sales')
 
     if operation == 'append_row':
         await _start_mapping_wizard(message, state, exp_type)
@@ -1199,12 +1238,12 @@ async def _ask_next_mapping_field(message, state: FSMContext):
     label = FIELD_LABELS.get(field, field)
     done  = len(data.get('gs_mapping', {}))
     total = len(fields)
-    await message.answer(
+    await _fsm_edit(
+        message, state,
         f"📋 <b>Маппинг столбцов ({done}/{total})</b>\n\n"
         f"Поле: <b>{label}</b> (<code>{field}</code>)\n\n"
         f"Введите <b>заголовок столбца</b> в вашей таблице.\n"
         f"Или <code>skip</code> — пропустить.",
-        parse_mode="HTML"
     )
     await state.set_state(IntegrationStates.waiting_mapping)
 
@@ -1227,13 +1266,13 @@ async def gs_mapping_field(message: Message, state: FSMContext):
 async def _start_lookup_wizard(message: Message, state: FSMContext):
     await state.update_data(gs_lookup={}, gs_lookup_step=0)
     await state.set_state(IntegrationStates.waiting_lookup_step)
-    await message.answer(
+    await _fsm_edit(
+        message, state,
         "🔍 <b>Настройка поиска ячейки (update_cell)</b>\n\n"
         "Используется для матриц: бот ищет строку по ID магазина и столбец по названию товара.\n\n"
         "<b>Шаг 1/7:</b> В какой <b>колонке</b> искать строку?\n"
         "Введите номер (1 = A, 2 = B…)\n"
         "Пример для вашей таблицы: <code>1</code> (Shop ID в колонке A)",
-        parse_mode="HTML"
     )
 
 
@@ -1269,7 +1308,7 @@ async def gs_lookup_step(message: Message, state: FSMContext):
         try:
             lookup[key] = int(text)
         except ValueError:
-            await message.answer("❌ Введите целое число.")
+            await _fsm_edit(message, state, "❌ Введите целое число.")
             return
     else:
         lookup[key] = text
@@ -1280,7 +1319,7 @@ async def gs_lookup_step(message: Message, state: FSMContext):
     if step >= len(LOOKUP_STEPS):
         await _ask_schedule(message, state)
     else:
-        await message.answer(LOOKUP_STEPS[step][1], parse_mode="HTML")
+        await _fsm_edit(message, state, LOOKUP_STEPS[step][1])
 
 
 async def _ask_schedule(message, state: FSMContext):
@@ -1291,10 +1330,16 @@ async def _ask_schedule(message, state: FSMContext):
                                 callback_data="gs_sched_cron"))
     kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['disabled'],
                                 callback_data="gs_sched_disabled"))
-    await message.answer(
-        "📅 <b>Расписание экспорта:</b>",
-        reply_markup=kb.as_markup(), parse_mode="HTML"
-    )
+    data = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    text = "📅 <b>Расписание экспорта:</b>"
+    # message may be a user Message (needs delete+edit anchor) or callback.message (just edit)
+    if anchor_id and getattr(message, 'message_id', None) != anchor_id:
+        await delete_message_safe(message)
+        await _edit_anchor(message.bot, message.chat.id, anchor_id,
+                           text, reply_markup=kb.as_markup())
+    else:
+        await message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_sched_"))
@@ -1321,13 +1366,14 @@ async def gs_sched(callback: CallbackQuery, state: FSMContext):
 async def gs_cron_input(message: Message, state: FSMContext):
     cron_str = message.text.strip()
     if len(cron_str.split()) != 5:
-        await message.answer("❌ Неверный формат. Нужно 5 частей через пробел.")
+        await _fsm_edit(message, state,
+                        "❌ Неверный формат. Нужно 5 частей через пробел.")
         return
     await state.update_data(gs_schedule=cron_str)
-    await _save_export(message, state)
+    await _save_export(message, state, from_message=True)
 
 
-async def _save_export(msg, state: FSMContext):
+async def _save_export(msg, state: FSMContext, from_message: bool = False):
     data = await state.get_data()
     conn_id      = data.get('gs_conn_id')
     exp_type     = data.get('gs_exp_type', 'sales')
@@ -1336,6 +1382,7 @@ async def _save_export(msg, state: FSMContext):
     schedule     = data.get('gs_schedule', 'immediate')
     mapping      = data.get('gs_mapping', {})
     lookup       = data.get('gs_lookup', {})
+    anchor_id    = data.get('anchor_msg_id')
 
     from db_utils import get_db as _get_db
     user_id = msg.from_user.id if hasattr(msg, 'from_user') else msg.chat.id
@@ -1373,11 +1420,13 @@ async def _save_export(msg, state: FSMContext):
             f"<b>Данные с строки:</b> {lookup.get('data_start_row', 1)}\n"
         )
 
-    await msg.answer(
-        summary,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Экспорты",
-                                  callback_data=f"gs_exports_{conn_id}")],
-        ]),
-        parse_mode="HTML"
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Экспорты",
+                              callback_data=f"gs_exports_{conn_id}")],
+    ])
+
+    if from_message and anchor_id:
+        await delete_message_safe(msg)
+        await _edit_anchor(msg.bot, msg.chat.id, anchor_id, summary, reply_markup=kb)
+    else:
+        await msg.edit_text(summary, reply_markup=kb, parse_mode="HTML")
