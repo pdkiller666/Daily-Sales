@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import Database
 from env_manager import env_manager
 from keyboards import main_menu, inventory_menu, back_button, create_selection_keyboard
-from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates, ExcelImportStates
+from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates, ExcelImportStates, SearchStates
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_SALES
 from utils import format_currency, get_stock_color_indicator, format_date_display, he
 
@@ -591,6 +591,48 @@ async def process_quick_search(message: Message, state: FSMContext):
     )
 
 
+async def _show_sale_product_list(message, shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
+    """Показывает список товаров категории с фильтрацией по запросу."""
+    products = current_db.get_all_products()
+    category_products = [p for p in products if p[2] == category]
+
+    available = []
+    for product in category_products:
+        pid, name, price = product[0], product[1], product[3]
+        qty = current_db.get_inventory(shop_name, pid)
+        if qty > 0:
+            available.append((pid, name, price, qty))
+
+    if query:
+        q = query.lower()
+        filtered = [(pid, name, price, qty) for pid, name, price, qty in available if q in name.lower()]
+    else:
+        filtered = available
+
+    is_other = shop_name != home_shop
+    shop_note = f" <i>(из «{he(shop_name)}»)</i>" if is_other else ""
+
+    builder = InlineKeyboardBuilder()
+    for pid, name, price, qty in filtered:
+        color = get_stock_color_indicator(qty)
+        builder.add(InlineKeyboardButton(
+            text=f"{color} {name} - {qty} шт. × {price}₽",
+            callback_data=f"sale_product_{pid}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_srch_prd_start"))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="sale_srch_prd_cancel"))
+    builder.add(InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale"))
+    builder.adjust(1)
+
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
+    await message.edit_text(
+        f"📂 {he(category)}{shop_note}{suffix}\n\nВыберите товар для продажи:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
 @sales_router.callback_query(F.data.startswith("sale_category_"))
 async def select_sale_category(callback: CallbackQuery, state: FSMContext):
     """Выбор категории для продажи"""
@@ -612,40 +654,26 @@ async def select_sale_category(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     shop_name = data['shop_name']
+    home_shop = data.get("sale_home_shop", shop_name)
 
-    builder = InlineKeyboardBuilder()
-    available_products = []
-
+    # Проверяем доступность хотя бы одного товара
+    available_check = False
     for product in category_products:
-        product_id = product[0]
-        name = product[1]
-        price = product[3]
-        quantity = current_db.get_inventory(shop_name, product_id)
+        if current_db.get_inventory(shop_name, product[0]) > 0:
+            available_check = True
+            break
 
-        if quantity > 0:
-            color = get_stock_color_indicator(quantity)
-            builder.add(InlineKeyboardButton(
-                text=f"{color} {name} - {quantity} шт. × {price}₽",
-                callback_data=f"sale_product_{product_id}"
-            ))
-            available_products.append(product)
-
-    if not available_products:
-        data2 = await state.get_data()
-        allow_change2 = data2.get("sale_allow_change", False)
-        home_shop2 = data2.get("sale_home_shop", shop_name)
-        is_other2 = shop_name != home_shop2
-
+    if not available_check:
+        allow_change2 = data.get("sale_allow_change", False)
+        is_other2 = shop_name != home_shop
         extra_buttons = []
         if allow_change2:
             extra_buttons.append([InlineKeyboardButton(text="🔄 Выбрать другой магазин", callback_data="sale_change_shop")])
             if is_other2:
                 extra_buttons.append([InlineKeyboardButton(
-                    text=f"🏪 Вернуться в «{he(home_shop2)[:28]}»", callback_data="new_sale"
+                    text=f"🏪 Вернуться в «{he(home_shop)[:28]}»", callback_data="new_sale"
                 )])
-
         extra_buttons.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")])
-
         shop_label = f"«{he(shop_name)}»" if is_other2 else "вашем магазине"
         await callback.message.edit_text(
             f"📂 {he(category)}\n\n❌ Нет товаров в наличии в {shop_label}.",
@@ -654,16 +682,83 @@ async def select_sale_category(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    await state.update_data(sale_current_category=category, anchor_msg_id=callback.message.message_id)
+    await _show_sale_product_list(callback.message, shop_name, category, current_db, home_shop)
+
+
+@sales_router.callback_query(F.data == "sale_srch_prd_start")
+async def sale_srch_prd_start(callback: CallbackQuery, state: FSMContext):
+    """Запуск поиска товара внутри категории."""
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.product_sale)
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или его часть:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖️ Отмена", callback_data="sale_srch_prd_cancel")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_router.callback_query(F.data == "sale_srch_prd_cancel")
+async def sale_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
+    """Сброс поиска — возвращает полный список товаров категории."""
+    await state.set_state(None)
+    data = await state.get_data()
+    shop_name = data.get("shop_name", "")
+    home_shop = data.get("sale_home_shop", shop_name)
+    category = data.get("sale_current_category", "")
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_sale_product_list(callback.message, shop_name, category, current_db, home_shop)
+    await callback.answer()
+
+
+@sales_router.message(SearchStates.product_sale)
+async def sale_srch_prd_process(message: Message, state: FSMContext):
+    """Обрабатывает поисковый запрос товара внутри категории."""
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    data = await state.get_data()
+    shop_name = data.get("shop_name", "")
+    home_shop = data.get("sale_home_shop", shop_name)
+    category = data.get("sale_current_category", "")
+    current_db = await get_db(message.from_user.id, state)
+
+    products = current_db.get_all_products()
+    category_products = [p for p in products if p[2] == category]
+    q = query.lower()
+    filtered_pids = [p[0] for p in category_products if q in p[1].lower()] if query else [p[0] for p in category_products]
+
+    available = []
+    for product in category_products:
+        pid, name, price = product[0], product[1], product[3]
+        if query and q not in name.lower():
+            continue
+        qty = current_db.get_inventory(shop_name, pid)
+        if qty > 0:
+            available.append((pid, name, price, qty))
+
+    is_other = shop_name != home_shop
+    shop_note = f" <i>(из «{he(shop_name)}»)</i>" if is_other else ""
+
+    builder = InlineKeyboardBuilder()
+    for pid, name, price, qty in available:
+        color = get_stock_color_indicator(qty)
+        builder.add(InlineKeyboardButton(
+            text=f"{color} {name} - {qty} шт. × {price}₽",
+            callback_data=f"sale_product_{pid}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_srch_prd_start"))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="sale_srch_prd_cancel"))
     builder.add(InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale"))
     builder.adjust(1)
 
-    data3 = await state.get_data()
-    home_shop3 = data3.get("sale_home_shop", shop_name)
-    is_other3 = shop_name != home_shop3
-    shop_note = f" <i>(из «{he(shop_name)}»)</i>" if is_other3 else ""
-
-    await callback.message.edit_text(
-        f"📂 {he(category)}{shop_note}\n\nВыберите товар для продажи:",
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(available)}" if available else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
+    await fsm_edit(
+        state, message,
+        f"📂 {he(category)}{shop_note}{suffix}\n\nВыберите товар для продажи:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )

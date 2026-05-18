@@ -160,6 +160,7 @@ class SearchStates(StatesGroup):
     product_inventory  = State()   # inventory_handlers — товар для остатков
     shop_contacts      = State()   # contacts_handlers — магазин контактов
     shop_contests      = State()   # contests_handlers — магазин конкурса
+    product_sale       = State()   # sales_handlers — товар внутри категории (cross-shop)
 
 class ExcelImportStates(StatesGroup):
     waiting_file       = State()
