@@ -1909,18 +1909,22 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
             text += "💵 <b>Бонусы за продажи:</b>\n"
             for i, r in enumerate(earners, 1):
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
+                uname = r.get('username')
+                uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
                 qty = int(r.get('actual', 0))
                 bonus = format_price(r.get('reward', 0))
                 plan_pct = r.get('plan_pct', 0)
                 tier_note = f" (план {plan_pct:.0f}%)" if plan_pct > 0 else ""
-                text += f"  {i}. {name} — {qty} шт. → 💵 +{bonus}₽{tier_note}\n"
+                text += f"  {i}. {name}{uname_str} — {qty} шт. → 💵 +{bonus}₽{tier_note}\n"
             text += "\n"
 
         if no_bonus:
             text += "📉 <b>Продаж по конкурсу нет:</b>\n"
             for r in no_bonus[:5]:
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
-                text += f"  • {name}\n"
+                uname = r.get('username')
+                uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
+                text += f"  • {name}{uname_str}\n"
             if len(no_bonus) > 5:
                 text += f"  … и ещё {len(no_bonus) - 5}\n"
     else:
@@ -1932,23 +1936,27 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
             text += "🏆 <b>Победители:</b>\n"
             for i, r in enumerate(winners, 1):
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
+                uname = r.get('username')
+                uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
                 actual = format_price(r['actual']) if metric == 'turnover' else str(int(r['actual']))
                 reward = format_price(r['reward'])
                 ind_tgt = r.get('individual_target')
                 tgt_note = f" (порог: {format_price(ind_tgt)}{metric_unit})" if ind_tgt else ""
                 manual_note = " ✏️" if r.get('is_manual') else ""
-                text += f"  {i}. {name} — {actual}{metric_unit}{tgt_note}{manual_note} → 🏅 +{reward}₽\n"
+                text += f"  {i}. {name}{uname_str} — {actual}{metric_unit}{tgt_note}{manual_note} → 🏅 +{reward}₽\n"
             text += "\n"
 
         if others:
             text += "📉 <b>Не достигли порога:</b>\n"
             for r in others[:10]:
                 name = he(f"{r['first_name']} {r['last_name']}".strip())
+                uname = r.get('username')
+                uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
                 actual = format_price(r['actual']) if metric == 'turnover' else str(int(r['actual']))
                 ind_tgt = r.get('individual_target')
                 tgt_note = f" / нужно {format_price(ind_tgt)}{metric_unit}" if ind_tgt else ""
                 manual_note = " ✏️" if r.get('is_manual') else ""
-                text += f"  • {name} — {actual}{metric_unit}{tgt_note}{manual_note}\n"
+                text += f"  • {name}{uname_str} — {actual}{metric_unit}{tgt_note}{manual_note}\n"
             if len(others) > 10:
                 text += f"  … и ещё {len(others) - 10}\n"
 

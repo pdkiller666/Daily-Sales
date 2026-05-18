@@ -2934,7 +2934,8 @@ class Database:
                    SUM(s.quantity_sold * s.sale_price) as total_revenue,
                    COUNT(s.id) as total_sales,
                    SUM(COALESCE(se.commission_amount, 0)) as total_earnings,
-                   u.id as user_db_id
+                   u.id as user_db_id,
+                   u.username
             FROM sales s
             JOIN users u ON s.user_id = u.id
             LEFT JOIN seller_earnings se ON s.id = se.sale_id
@@ -4561,7 +4562,8 @@ class Database:
                 query_ps = f"""
                     SELECT u.id, u.first_name, u.last_name, u.telegram_id, u.shop_name,
                            s.product_id,
-                           {qty_metric} AS qty
+                           {qty_metric} AS qty,
+                           u.username
                     FROM sales s
                     JOIN users u ON s.user_id = u.id
                     LEFT JOIN products p ON s.product_id = p.id
@@ -4577,12 +4579,12 @@ class Database:
                 from collections import defaultdict
                 user_info = {}
                 user_product_qty = defaultdict(lambda: defaultdict(float))
-                for uid, fn, ln, tg_id, sn, pid, qty in sale_rows:
-                    user_info[uid] = (fn or '', ln or '', tg_id, sn or '')
+                for uid, fn, ln, tg_id, sn, pid, qty, uname in sale_rows:
+                    user_info[uid] = (fn or '', ln or '', tg_id, sn or '', uname)
                     user_product_qty[uid][pid] += (qty or 0)
 
                 results = []
-                for uid, (fn, ln, tg_id, sn) in user_info.items():
+                for uid, (fn, ln, tg_id, sn, uname) in user_info.items():
                     plan_pct = self.get_user_plan_pct_for_contest(tg_id) if tg_id else 0.0
                     total_bonus = 0.0
                     # Для каждого товара найти максимальный применимый тир
@@ -4613,6 +4615,7 @@ class Database:
                         'last_name': ln,
                         'telegram_id': tg_id,
                         'shop_name': sn,
+                        'username': uname,
                         'actual': sum(user_product_qty[uid].values()),
                         'reward': round(total_bonus, 2),
                         'bonus_earned': round(total_bonus, 2),
@@ -4626,7 +4629,8 @@ class Database:
                 # ── Режим «итоговый приз» (total) ────────────────────────────
                 query = f"""
                     SELECT u.id, u.first_name, u.last_name, u.telegram_id, u.shop_name,
-                           {metric_expr} AS actual_value
+                           {metric_expr} AS actual_value,
+                           u.username
                     FROM sales s
                     JOIN users u ON s.user_id = u.id
                     LEFT JOIN products p ON s.product_id = p.id
@@ -4646,7 +4650,7 @@ class Database:
 
                 results = []
                 for row in rows:
-                    uid, fname, lname, tg_id, shop_name, actual = row
+                    uid, fname, lname, tg_id, shop_name, actual, uname = row
                     actual = actual or 0.0
                     # Применяем ручную корректировку если задана для этого магазина
                     if shop_name and shop_name in manual_results:
@@ -4665,6 +4669,7 @@ class Database:
                         'last_name': lname or '',
                         'telegram_id': tg_id,
                         'shop_name': shop_name,
+                        'username': uname,
                         'actual': actual,
                         'reward': reward,
                         'is_winner': is_winner,

@@ -349,8 +349,10 @@ async def view_ratings(callback: CallbackQuery, state: FSMContext):
         medals = ["🥇", "🥈", "🥉"]
         for i, row in enumerate(ranking):
             first_name, last_name, shop_name, quantity, total_sum, sales_count, earnings = row[:7]
+            username = row[8] if len(row) > 8 else None
             medal = medals[i] if i < 3 else f"{i + 1}."
-            text += f"{medal} <b>{he(first_name)} {he(last_name)}</b>\n"
+            uname_str = f" <a href='tg://resolve?domain={he(username)}'>@{he(username)}</a>" if username else ""
+            text += f"{medal} <b>{he(first_name)} {he(last_name)}</b>{uname_str}\n"
             text += f"   🏪 {he(shop_name)}\n"
             text += f"   📦 {quantity} шт. • 💰 {format_currency(total_sum)} • 📈 {format_currency(earnings)}\n\n"
 
@@ -1297,9 +1299,11 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
     for i, row in enumerate(ranking[:10]):
         fn, ln, sn, qty, revenue, cnt, earn = row[:7]
         uid_row = row[7] if len(row) > 7 else None
+        uname   = row[8] if len(row) > 8 else None
         medal   = medals[i] if i < 3 else f"{i+1}."
+        uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
 
-        text += f"{medal} <b>{he(fn)} {he(ln)}</b>\n"
+        text += f"{medal} <b>{he(fn)} {he(ln)}</b>{uname_str}\n"
         text += f"   🏪 {he(sn)}\n"
         text += f"   📦 {qty} шт. · 💰 {format_currency(revenue)}\n"
         if earn and earn > 0:
