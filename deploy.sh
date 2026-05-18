@@ -184,12 +184,17 @@ if $WITH_AMVERA; then
   # Проверяем: есть ли локальные изменения ИЛИ remote ушёл вперёд (diverged)
   git remote set-url amvera "https://${AMVERA_USER}:${AMVERA_PASS}@git.msk0.amvera.ru/pdkiller666/dailysalesdeploy"
   REMOTE_HASH=$(git ls-remote amvera refs/heads/master 2>/dev/null | awk '{print $1}')
-  LOCAL_HASH=$(git rev-parse HEAD)
+  LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
   REMOTE_DIVERGED=false
-  [ -n "$REMOTE_HASH" ] && [ "$REMOTE_HASH" != "$LOCAL_HASH" ] && REMOTE_DIVERGED=true
+  [ -n "$REMOTE_HASH" ] && [ -n "$LOCAL_HASH" ] && [ "$REMOTE_HASH" != "$LOCAL_HASH" ] && REMOTE_DIVERGED=true
 
   HAS_LOCAL_CHANGES=false
-  git diff --cached --quiet || HAS_LOCAL_CHANGES=true
+  # If no commits yet, treat as always having changes
+  if [ -z "$LOCAL_HASH" ]; then
+    HAS_LOCAL_CHANGES=true
+  else
+    git diff --cached --quiet || HAS_LOCAL_CHANGES=true
+  fi
 
   if $HAS_LOCAL_CHANGES; then
     git commit -m "$COMMIT_MSG"
