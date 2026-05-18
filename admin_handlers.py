@@ -14,7 +14,7 @@ from utils import he
 
 from database import Database
 from keyboards import main_menu, back_button, create_selection_keyboard
-from states import AdminUserStates, UserProfileStates, AdminManagementStates, AdminNotificationStates
+from states import AdminUserStates, UserProfileStates, AdminManagementStates, AdminNotificationStates, SearchStates
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_USERS, PAGE_SIZE_ORGS
 from env_manager import env_manager
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
@@ -258,26 +258,21 @@ async def run_system_tests_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
-async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
-    """Рендерит страницу N списка пользователей с пагинацией."""
-    if not is_any_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен!", show_alert=True)
-        return
+_ADMIN_USERS_COLS = "id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at"
 
-    await callback.answer()
-    await state.update_data(admin_edit_user_id=None, admin_delete_db_path=None)
 
-    is_super_user = env_manager.is_super_admin(callback.from_user.id)
+async def _collect_admin_users(user_id: int, state: FSMContext):
+    """Получает список пользователей и контекст для рендеринга.
+    Возвращает (users, title, back_target, show_admin_management, current_db, is_super_user, data)."""
+    is_super_user = env_manager.is_super_admin(user_id)
     data = await state.get_data()
     selected_org_id = data.get("selected_org_id")
     selected_org_db = data.get("selected_org_db")
 
-    USER_COLS = "id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at"
-
     def _read_users(db_path):
         try:
             c = sqlite3.connect(db_path)
-            rows = c.execute(f"SELECT {USER_COLS} FROM users").fetchall()
+            rows = c.execute(f"SELECT {_ADMIN_USERS_COLS} FROM users").fetchall()
             c.close()
             return rows
         except Exception:
@@ -289,6 +284,8 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
             if row[1] not in existing:
                 base.append(row)
                 existing.add(row[1])
+
+    current_db = None
 
     if is_super_user:
         if selected_org_id is None:
@@ -303,7 +300,7 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
             show_admin_management = True
             title = "👥 <b>Все пользователи системы</b>"
         elif selected_org_id == 0:
-            users = [u for u in _read_users('data/shop_bot.db') if u[1] == callback.from_user.id]
+            users = [u for u in _read_users('data/shop_bot.db') if u[1] == user_id]
             back_target = "admin_management"
             show_admin_management = False
             title = "👤 <b>Личный кабинет</b>"
@@ -314,12 +311,12 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
             org_name = data.get("selected_org_name", "Организация")
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
     else:
-        current_db = await get_db(callback.from_user.id, state)
+        current_db = await get_db(user_id, state)
         all_users = current_db.get_all_users()
         is_personal_mode = (selected_org_db == "data/shop_bot.db") if selected_org_db else False
 
         if is_personal_mode or selected_org_db is None:
-            users = [u for u in all_users if u[1] == callback.from_user.id]
+            users = [u for u in all_users if u[1] == user_id]
             show_admin_management = False
             title = "👤 <b>Мой профиль</b>"
         else:
@@ -327,8 +324,7 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
             show_admin_management = True
             title = "👥 <b>Управление сотрудниками</b>"
 
-            # Применяем ручной фильтр (по магазину/городу/сети)
-            from filter_utils import ADMIN_FILTER_KEY, empty_filter, is_filter_active
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter
             _af = data.get(ADMIN_FILTER_KEY, empty_filter())
             if _af.get("shops"):
                 users = [u for u in users if u[8] in _af["shops"]]
@@ -339,6 +335,97 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
 
         back_target = "admin_management"
 
+    return users, title, back_target, show_admin_management, current_db, is_super_user, data
+
+
+def _build_admin_users_content(users, page, title, back_target, show_admin_management, *,
+                                query="", data=None, current_db=None, uid=None, is_super_user=False):
+    """Строит (text, markup) для списка пользователей с опциональным поиском."""
+    MAX_SEARCH = 20
+
+    if query:
+        q = query.lower()
+        filtered = [u for u in users
+                    if q in f"{u[2] or ''} {u[3] or ''} {u[8] or ''}".lower()]
+        overflow = max(0, len(filtered) - MAX_SEARCH)
+        page_items = filtered[:MAX_SEARCH]
+        has_prev = has_next = False
+        total_pages = 1
+    else:
+        filtered = users
+        overflow = 0
+        page_items, has_prev, has_next, total_pages, page = paginate(filtered, page, PAGE_SIZE_USERS)
+
+    builder = InlineKeyboardBuilder()
+    for user in page_items:
+        u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
+        display_name = f"{f_name or '?'}"
+        if l_name:
+            display_name += f" {l_name}"
+        if s_name:
+            display_name += f" ({s_name})"
+        builder.add(InlineKeyboardButton(text=display_name, callback_data=f"admin_user_{t_id}"))
+    builder.adjust(1)
+
+    if not query:
+        nav = page_nav_row("au_pg_", page, has_prev, has_next, total_pages)
+        if nav:
+            builder.row(*nav)
+
+    if show_admin_management:
+        try:
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
+            if not is_super_user and current_db and uid:
+                _sc, _sv = get_user_org_scope(uid)
+                _avail = get_available_filter_values(current_db, _sc, _sv)
+                if has_anything_to_filter(_avail):
+                    _af = (data or {}).get(ADMIN_FILTER_KEY, empty_filter())
+                    builder.row(InlineKeyboardButton(
+                        text=filter_button_text(_af),
+                        callback_data="flt_open_admin_users"
+                    ))
+        except Exception:
+            pass
+        builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
+
+    builder.row(InlineKeyboardButton(text="🔍 Найти", callback_data="adm_usr_srch_start"))
+    if query:
+        builder.row(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="adm_usr_srch_cancel"))
+    builder.row(back_button(back_target))
+
+    total_count = len(filtered)
+    pg_info = f" · стр. {page + 1}/{total_pages}" if not query and total_pages > 1 else ""
+
+    if query:
+        if not filtered:
+            q_line = f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос"
+            text = f"{title}{q_line}"
+        elif overflow:
+            q_line = f"\n\n🔍 «{he(query)}» — найдено: {total_count}, показаны первые {MAX_SEARCH}"
+            text = f"{title}{q_line}\n\nВыберите пользователя:"
+        else:
+            q_line = f"\n\n🔍 «{he(query)}» — найдено: {total_count}"
+            text = f"{title}{q_line}\n\nВыберите пользователя:"
+    else:
+        text = f"{title}\n\nВсего: {total_count}{pg_info}\n\nВыберите пользователя:"
+
+    return text, builder.as_markup()
+
+
+async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Рендерит страницу N списка пользователей с пагинацией."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.update_data(admin_edit_user_id=None, admin_delete_db_path=None)
+
+    users, title, back_target, show_admin_management, current_db, is_super_user, data = \
+        await _collect_admin_users(callback.from_user.id, state)
+
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+
     if not users:
         await callback.message.edit_text(
             f"{title}\n\n❌ Пользователи отсутствуют.",
@@ -347,45 +434,11 @@ async def _render_admin_users_page(callback: CallbackQuery, state: FSMContext, p
         )
         return
 
-    page_items, has_prev, has_next, total_pages, page = paginate(users, page, PAGE_SIZE_USERS)
-
-    builder = InlineKeyboardBuilder()
-    for user in page_items:
-        u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
-        display_name = f"{f_name or '?'}"
-        if l_name: display_name += f" {l_name}"
-        if s_name: display_name += f" ({s_name})"
-        builder.add(InlineKeyboardButton(text=display_name, callback_data=f"admin_user_{t_id}"))
-    builder.adjust(1)
-
-    nav = page_nav_row("au_pg_", page, has_prev, has_next, total_pages)
-    if nav:
-        builder.row(*nav)
-
-    if show_admin_management:
-        # Кнопка фильтра (если есть что фильтровать)
-        try:
-            from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
-            from db_utils import get_user_org_scope
-            if not is_super_user:
-                _sc, _sv = get_user_org_scope(callback.from_user.id)
-                _avail = get_available_filter_values(current_db, _sc, _sv)
-                if has_anything_to_filter(_avail):
-                    _af = data.get(ADMIN_FILTER_KEY, empty_filter())
-                    builder.row(InlineKeyboardButton(
-                        text=filter_button_text(_af),
-                        callback_data="flt_open_admin_users"
-                    ))
-        except Exception:
-            pass
-        builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
-    builder.row(back_button(back_target))
-
-    total_users = len(users)
-    pg_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
-    message_text = f"{title}\n\nВсего: {total_users}{pg_info}\n\nВыберите пользователя:"
-
-    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    text, markup = _build_admin_users_content(
+        users, page, title, back_target, show_admin_management,
+        data=data, current_db=current_db, uid=callback.from_user.id, is_super_user=is_super_user
+    )
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @admin_router.callback_query(F.data == "admin_users")
@@ -403,6 +456,47 @@ async def admin_users_page(callback: CallbackQuery, state: FSMContext):
     except ValueError:
         page = 0
     await _render_admin_users_page(callback, state, page=page)
+
+
+@admin_router.callback_query(F.data == "adm_usr_srch_start")
+async def adm_usr_srch_start(callback: CallbackQuery, state: FSMContext):
+    """Запуск поиска по списку сотрудников."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.org_users)
+    await callback.message.edit_text(
+        "🔍 <b>Поиск сотрудника</b>\n\nВведите имя, фамилию или название магазина:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖️ Отмена", callback_data="adm_usr_srch_cancel")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@admin_router.callback_query(F.data == "adm_usr_srch_cancel")
+async def adm_usr_srch_cancel(callback: CallbackQuery, state: FSMContext):
+    """Сброс поиска — возвращает полный список сотрудников."""
+    await state.set_state(None)
+    await _render_admin_users_page(callback, state, page=0)
+
+
+@admin_router.message(SearchStates.org_users)
+async def adm_usr_srch_process(message: Message, state: FSMContext):
+    """Обрабатывает поисковый запрос по списку сотрудников."""
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    users, title, back_target, show_admin_management, current_db, is_super_user, data = \
+        await _collect_admin_users(message.from_user.id, state)
+    text, markup = _build_admin_users_content(
+        users, 0, title, back_target, show_admin_management,
+        query=query, data=data, current_db=current_db,
+        uid=message.from_user.id, is_super_user=is_super_user
+    )
+    await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
+
 
 @admin_router.callback_query(F.data == "admin_confirm_delete")
 async def admin_confirm_delete_handler(callback: CallbackQuery, state: FSMContext):
