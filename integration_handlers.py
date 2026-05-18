@@ -1557,6 +1557,70 @@ def _lookup_btn_kb(field_key: str) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def _col_letter(n: int) -> str:
+    """Convert 1-based column index to spreadsheet letter (1=A, 2=B, 27=AA)."""
+    result = ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        result = chr(65 + rem) + result
+    return result
+
+
+def _row_btn_label(row_idx: int, values: list) -> str:
+    """Short label for a row button: 'Строка N: val1 · val2 · val3'."""
+    non_empty = [str(v) for v in values if str(v).strip()][:5]
+    preview   = "  ·  ".join(non_empty)[:48]
+    return f"Строка {row_idx}: {preview}" if preview else f"Строка {row_idx}: (пусто)"
+
+
+def _col_btn_label(col_idx: int, header: str, first_val: str) -> str:
+    """Short label for a column button: 'A — HeaderName (first_val)'."""
+    letter = _col_letter(col_idx)
+    parts  = []
+    if header.strip():
+        parts.append(header.strip()[:30])
+    if first_val.strip() and first_val.strip() != header.strip():
+        parts.append(f"({first_val.strip()[:20]})")
+    detail = "  ".join(parts) if parts else "(пусто)"
+    return f"{letter} — {detail}"
+
+
+async def _show_hrow_picker(target, state: FSMContext, rows_data: dict):
+    """Show row-picker buttons. target = Message or .message from callback."""
+    kb = InlineKeyboardBuilder()
+    for rn in sorted(rows_data):
+        label = _row_btn_label(rn, rows_data[rn])
+        kb.row(InlineKeyboardButton(text=label, callback_data=f"gs_lkp_hrow_{rn}"))
+    kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
+                                callback_data="gs_lkp_hrow_manual"))
+    text = ("🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
+            "Выбери строку, в которой написаны <b>названия столбцов</b> "
+            "(заголовки матрицы — товары, недели и т.п.):")
+    try:
+        await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await _fsm_edit(target, state, text, reply_markup=kb.as_markup())
+
+
+async def _show_idcol_picker(target, state: FSMContext,
+                             header_row: list, first_data_row: list):
+    """Show column-picker buttons from the header row values."""
+    kb = InlineKeyboardBuilder()
+    for i, hval in enumerate(header_row, start=1):
+        fval = first_data_row[i - 1] if i - 1 < len(first_data_row) else ""
+        label = _col_btn_label(i, str(hval), str(fval))
+        kb.row(InlineKeyboardButton(text=label, callback_data=f"gs_lkp_idcol_{i}"))
+    kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную",
+                                callback_data="gs_lkp_idcol_manual"))
+    text = ("🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
+            "Выбери колонку, в которой записаны <b>названия магазинов или продавцов</b> "
+            "(то, по чему бот будет искать нужную строку):")
+    try:
+        await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await _fsm_edit(target, state, text, reply_markup=kb.as_markup())
+
+
 async def _start_lookup_wizard(message: Message, state: FSMContext):
     await state.update_data(gs_lookup={}, gs_lookup_step=0)
     await state.set_state(IntegrationStates.waiting_lookup_step)
@@ -1565,35 +1629,56 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
     sheet_name = data.get('gs_target_sheet', '')
     user_id    = message.chat.id
 
-    sheet_info = ""
+    # Try to fetch first 15 rows and present as buttons
+    rows_data = {}
     try:
         provider, cfg = await _fetch_gs_config(user_id, state)
         if provider:
             rendered = _render_sheet_macro(sheet_name)
-            rows_raw = await asyncio.wait_for(
-                provider.read_col(cfg, rendered, 1), timeout=6.0)
-            if rows_raw:
-                sample = [str(v) for v in rows_raw[:5] if v]
-                sheet_info = (f"\n📋 Лист <b>{rendered}</b> открыт. "
-                              f"Колонка A (первые значения): "
-                              f"<code>{', '.join(sample)}</code>\n")
+            for rn in range(1, 16):
+                row_vals = await asyncio.wait_for(
+                    provider.read_row(cfg, rendered, rn), timeout=8.0)
+                if any(str(v).strip() for v in row_vals):
+                    rows_data[rn] = row_vals
     except Exception:
-        pass
+        rows_data = {}
 
-    await _fsm_edit(
-        message, state,
-        f"🔍 <b>Настройка матрицы (шаг 1/6)</b>\n"
-        f"{sheet_info}\n"
-        "Бот ищет ячейку на пересечении строки (магазин/продавец) "
-        "и столбца (товар) — и обновляет значение.\n\n"
-        "<b>В какой строке написаны заголовки столбцов?</b>\n"
-        "Введи номер строки.\n"
-        "Пример: <code>6</code>",
-    )
+    if rows_data:
+        await state.update_data(gs_ws_rows=rows_data)
+        # Use the anchor message directly (no delete of user message needed here)
+        anchor_id = data.get('anchor_msg_id')
+        from aiogram.types import Message as _M
+        # Build a fake-target compatible with _show_hrow_picker
+        await delete_message_safe(message)
+        kb = InlineKeyboardBuilder()
+        for rn in sorted(rows_data):
+            label = _row_btn_label(rn, rows_data[rn])
+            kb.row(InlineKeyboardButton(
+                text=label, callback_data=f"gs_lkp_hrow_{rn}"))
+        kb.row(InlineKeyboardButton(
+            text="✏️ Ввести номер вручную", callback_data="gs_lkp_hrow_manual"))
+        anchor_id = data.get('anchor_msg_id')
+        await _edit_anchor(
+            message.bot, message.chat.id, anchor_id,
+            "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
+            "Выбери строку, в которой написаны <b>названия столбцов</b> "
+            "(заголовки матрицы — товары, недели, модели):",
+            reply_markup=kb.as_markup(),
+        )
+    else:
+        # Fallback: text input
+        await _fsm_edit(
+            message, state,
+            "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
+            "Не удалось загрузить таблицу автоматически.\n\n"
+            "<b>В какой строке написаны заголовки столбцов?</b>\n"
+            "Введи номер строки. Пример: <code>6</code>",
+        )
 
 
 @integration_router.message(IntegrationStates.waiting_lookup_step)
 async def gs_lookup_step(message: Message, state: FSMContext):
+    """Fallback: manual text input when sheet API was unavailable."""
     text = message.text.strip()
     data = await state.get_data()
     step       = data.get('gs_lookup_step', 0)
@@ -1608,35 +1693,12 @@ async def gs_lookup_step(message: Message, state: FSMContext):
             await _fsm_edit(message, state,
                             "❌ Нужно целое число. Пример: <code>6</code>")
             return
-        step = 1
-        await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
-
-        # Try to fetch that header row and show actual column names
-        headers_hint = ""
-        try:
-            provider, cfg = await _fetch_gs_config(user_id, state)
-            if provider:
-                rendered = _render_sheet_macro(sheet_name)
-                hrow = await asyncio.wait_for(
-                    provider.read_row(cfg, rendered, lookup['col_search_row']),
-                    timeout=6.0)
-                non_empty = [str(v) for v in hrow if v]
-                if non_empty:
-                    preview = '  '.join(
-                        f"<code>{v}</code>" for v in non_empty[:10])
-                    headers_hint = (
-                        f"\n📋 Заголовки строки {lookup['col_search_row']}: "
-                        f"{preview}\n")
-        except Exception:
-            pass
-
+        await state.update_data(gs_lookup=lookup, gs_lookup_step=1)
         await _fsm_edit(
             message, state,
-            f"🔍 <b>Шаг 2/6 — Колонка с ID строк</b>\n"
-            f"{headers_hint}\n"
+            "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
             "В какой <b>колонке</b> хранятся названия магазинов/продавцов?\n"
-            "1 = A,  2 = B,  3 = C…\n"
-            "Пример: <code>1</code> (колонка A)"
+            "1 = A,  2 = B,  3 = C…\nПример: <code>1</code>"
         )
 
     elif step == 1:
@@ -1647,36 +1709,10 @@ async def gs_lookup_step(message: Message, state: FSMContext):
                             "❌ Нужно целое число. Пример: <code>1</code>")
             return
         lookup['data_start_row'] = lookup.get('col_search_row', 1) + 1
-        step = 2
-        await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
-
-        # Try to fetch the ID column and show sample row identifiers
-        col_hint = ""
-        try:
-            provider, cfg = await _fetch_gs_config(user_id, state)
-            if provider:
-                rendered  = _render_sheet_macro(sheet_name)
-                start_row = lookup['data_start_row']
-                col_vals  = await asyncio.wait_for(
-                    provider.read_col(cfg, rendered, lookup['row_search_col']),
-                    timeout=6.0)
-                sample = [str(v) for v in col_vals[start_row - 1:] if v][:6]
-                if sample:
-                    preview = '  '.join(
-                        f"<code>{v}</code>" for v in sample)
-                    col_hint = (
-                        f"\n📋 Значения в этой колонке: {preview}\n"
-                        "↑ Это то, с чем бот будет сравнивать имена магазинов/продавцов.\n")
-        except Exception:
-            pass
-
-        prompt = (
-            LOOKUP_BTN_STEPS['row_search_field']['prompt']
-            + (f"\n\n{col_hint}" if col_hint else "")
-        )
+        await state.update_data(gs_lookup=lookup, gs_lookup_step=2)
         await _fsm_edit(
             message, state,
-            prompt,
+            LOOKUP_BTN_STEPS['row_search_field']['prompt'],
             reply_markup=_lookup_btn_kb('row_search_field'),
         )
     else:
@@ -1686,27 +1722,122 @@ async def gs_lookup_step(message: Message, state: FSMContext):
 @integration_router.callback_query(F.data.startswith("gs_lkp_"))
 async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
     raw = callback.data[len("gs_lkp_"):]
+    await callback.answer()
 
+    # ── skip aliases ──────────────────────────────────────────
     if raw == "skip_aliases":
-        await callback.answer()
         await state.set_state(None)
         await _ask_schedule(callback.message, state)
         return
 
+    # ── header-row picker (step 1) ────────────────────────────
+    if raw == "hrow_manual":
+        await state.update_data(gs_lookup_step=0)
+        await state.set_state(IntegrationStates.waiting_lookup_step)
+        await callback.message.edit_text(
+            "🔍 <b>Шаг 1/4 — строка заголовков</b>\n\n"
+            "Введи номер строки, в которой написаны заголовки столбцов.\n"
+            "Пример: <code>6</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    if raw.startswith("hrow_"):
+        row_num = int(raw[len("hrow_"):])
+        data   = await state.get_data()
+        lookup = data.get('gs_lookup', {})
+        lookup['col_search_row'] = row_num
+        await state.update_data(gs_lookup=lookup)
+
+        # Fetch header row + first data row for column picker
+        sheet_name = data.get('gs_target_sheet', '')
+        user_id    = callback.from_user.id
+        header_row  = []
+        first_drow  = []
+        try:
+            provider, cfg = await _fetch_gs_config(user_id, state)
+            if provider:
+                rendered   = _render_sheet_macro(sheet_name)
+                header_row = await asyncio.wait_for(
+                    provider.read_row(cfg, rendered, row_num), timeout=6.0)
+                first_drow = await asyncio.wait_for(
+                    provider.read_row(cfg, rendered, row_num + 1), timeout=6.0)
+        except Exception:
+            pass
+
+        if header_row:
+            await state.update_data(gs_header_row=header_row,
+                                    gs_first_drow=first_drow)
+            kb = InlineKeyboardBuilder()
+            for i, hval in enumerate(header_row, start=1):
+                fval  = first_drow[i - 1] if i - 1 < len(first_drow) else ""
+                label = _col_btn_label(i, str(hval), str(fval))
+                kb.row(InlineKeyboardButton(
+                    text=label, callback_data=f"gs_lkp_idcol_{i}"))
+            kb.row(InlineKeyboardButton(
+                text="✏️ Ввести номер вручную",
+                callback_data="gs_lkp_idcol_manual"))
+            await callback.message.edit_text(
+                f"✅ Строка {row_num} выбрана как строка заголовков.\n\n"
+                "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
+                "Выбери колонку, в которой записаны "
+                "<b>названия магазинов или продавцов</b>:",
+                reply_markup=kb.as_markup(),
+                parse_mode="HTML"
+            )
+        else:
+            # API failed — fall back to text
+            await state.update_data(gs_lookup_step=1)
+            await state.set_state(IntegrationStates.waiting_lookup_step)
+            await callback.message.edit_text(
+                f"✅ Строка {row_num} выбрана.\n\n"
+                "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
+                "Не удалось загрузить данные колонок автоматически.\n"
+                "Введи номер колонки. 1 = A,  2 = B…\n"
+                "Пример: <code>1</code>",
+                parse_mode="HTML"
+            )
+        return
+
+    # ── id-column picker (step 2) ─────────────────────────────
+    if raw == "idcol_manual":
+        await state.update_data(gs_lookup_step=1)
+        await state.set_state(IntegrationStates.waiting_lookup_step)
+        await callback.message.edit_text(
+            "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
+            "Введи номер колонки, в которой написаны названия магазинов/продавцов.\n"
+            "1 = A,  2 = B,  3 = C…\nПример: <code>1</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    if raw.startswith("idcol_"):
+        col_num = int(raw[len("idcol_"):])
+        data   = await state.get_data()
+        lookup = data.get('gs_lookup', {})
+        lookup['row_search_col']  = col_num
+        lookup['data_start_row']  = lookup.get('col_search_row', 1) + 1
+        await state.update_data(gs_lookup=lookup)
+        await callback.message.edit_text(
+            LOOKUP_BTN_STEPS['row_search_field']['prompt'],
+            reply_markup=_lookup_btn_kb('row_search_field'),
+            parse_mode="HTML"
+        )
+        return
+
+    # ── LOOKUP_BTN_STEPS fields (steps 3-6) ───────────────────
     field_key = None
-    value = None
+    value     = None
     for key in LOOKUP_BTN_STEPS:
         if raw.startswith(key + "_"):
             field_key = key
-            value = raw[len(key) + 1:]
+            value     = raw[len(key) + 1:]
             break
 
     if field_key is None:
-        await callback.answer()
         return
 
-    await callback.answer()
-    data = await state.get_data()
+    data   = await state.get_data()
     lookup = data.get('gs_lookup', {})
     lookup[field_key] = value
 
