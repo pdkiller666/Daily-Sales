@@ -166,7 +166,8 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
             shop_name=None,
             trade_network=None,
             city=None,
-            phone="000"
+            phone="000",
+            username=callback.from_user.username
         )
         user_data = current_db.get_user(callback.from_user.id)
 

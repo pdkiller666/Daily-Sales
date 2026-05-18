@@ -365,7 +365,8 @@ async def process_payment_proof(message: Message, state: FSMContext):
                     db.add_user(
                         telegram_id=u[1], first_name=u[2], last_name=u[3],
                         middle_name=u[4], phone=u[5], email=u[6],
-                        trade_network=u[7], shop_name=u[8], city=u[9]
+                        trade_network=u[7], shop_name=u[8], city=u[9],
+                        username=u[12] if len(u) > 12 else None
                     )
                     user_id = db.get_user_id(message.from_user.id)
         except Exception:

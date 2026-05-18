@@ -88,6 +88,12 @@ class Database:
             )
         ''')
 
+        # Добавляем username в users если отсутствует (миграция)
+        cursor.execute("PRAGMA table_info(users)")
+        users_cols = [col[1] for col in cursor.fetchall()]
+        if 'username' not in users_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+
         # Добавляем недостающие столбцы в таблицу inventory если их нет
         cursor.execute("PRAGMA table_info(inventory)")
         inventory_columns = [column[1] for column in cursor.fetchall()]
@@ -369,6 +375,53 @@ class Database:
             cursor.execute("ALTER TABLE motivation_extra_conditions ADD COLUMN calc_mode TEXT DEFAULT 'individual'")
         except Exception:
             pass
+
+        # Расписание мотивации по месяцам
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS motivation_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                motivation_type TEXT NOT NULL CHECK (motivation_type IN ('percentage', 'fixed')),
+                motivation_value REAL NOT NULL,
+                created_by INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products (id),
+                FOREIGN KEY (created_by) REFERENCES users (id),
+                UNIQUE(product_id, year, month)
+            )
+        ''')
+
+        # Расписание доп. условий мотивации по месяцам
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS extra_conditions_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                condition_type TEXT NOT NULL,
+                description TEXT,
+                shop_name TEXT,
+                min_sellers INTEGER,
+                coefficient REAL,
+                user_id INTEGER,
+                allowed_categories TEXT,
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                calc_mode TEXT DEFAULT 'individual',
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                created_by INTEGER
+            )
+        ''')
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS uix_extra_cond_schedule
+            ON extra_conditions_schedule(
+                condition_type,
+                COALESCE(shop_name, ''),
+                COALESCE(CAST(user_id AS TEXT), ''),
+                year,
+                month
+            )
+        ''')
 
         # Архив мотиваций — история изменений
         cursor.execute('''
@@ -1132,15 +1185,15 @@ class Database:
         }
 
     # Базовые методы пользователей
-    def add_user(self, telegram_id, first_name, last_name, middle_name=None, phone=None, email=None, trade_network=None, shop_name=None, city=None):
+    def add_user(self, telegram_id, first_name, last_name, middle_name=None, phone=None, email=None, trade_network=None, shop_name=None, city=None, username=None):
         """Добавление нового пользователя"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         cursor.execute('''
             INSERT OR REPLACE INTO users 
-            (telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city))
+            (telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, username)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, username))
         conn.commit()
         conn.close()
 
@@ -2272,7 +2325,9 @@ class Database:
 
                 # Добавляем продажу
                 from datetime import datetime
-                sale_date = datetime.now().isoformat()
+                _sale_now = datetime.now()
+                sale_date = _sale_now.isoformat()
+                _sale_year, _sale_month = _sale_now.year, _sale_now.month
 
                 cursor.execute('''
                     INSERT INTO sales (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price)
@@ -2301,12 +2356,13 @@ class Database:
 
                 # Рассчитываем и добавляем комиссию продавца
                 try:
-                    commission_info = self.get_product_motivation(product_id)
+                    commission_info = self.get_motivation_for_month(product_id, _sale_year, _sale_month)
                     
                     if commission_info:
                         commission_amount = self.calculate_seller_commission(
                             sale_id, product_id, sale_price, quantity_sold,
-                            user_id=user_id, shop_name=shop_name
+                            user_id=user_id, shop_name=shop_name,
+                            sale_year=_sale_year, sale_month=_sale_month
                         )
                         if commission_amount > 0:
                             self.add_seller_earning(
@@ -2555,7 +2611,7 @@ class Database:
             return False
 
     def update_user(self, telegram_id, first_name=None, last_name=None, middle_name=None, 
-                   phone=None, email=None, trade_network=None, shop_name=None, city=None):
+                   phone=None, email=None, trade_network=None, shop_name=None, city=None, username=None):
         """Обновление данных пользователя"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -2587,6 +2643,9 @@ class Database:
         if city is not None:
             updates.append('city = ?')
             params.append(city)
+        if username is not None:
+            updates.append('username = ?')
+            params.append(username)
 
         if updates:
             params.append(telegram_id)
@@ -2714,11 +2773,20 @@ class Database:
                     # Пересчитываем заработок продавца
                     final_price = sale_price if sale_price is not None else current_sale[4]  # sale_price col
                     sale_user_id = current_sale[5]  # user_id col
-                    commission_info = self.get_product_motivation(product_id)
+                    _sale_date_str = current_sale[6] if len(current_sale) > 6 else None
+                    try:
+                        from datetime import datetime as _dt2
+                        _sdt = _dt2.fromisoformat(_sale_date_str) if _sale_date_str else _dt2.now()
+                    except Exception:
+                        from datetime import datetime as _dt2
+                        _sdt = _dt2.now()
+                    _upd_year, _upd_month = _sdt.year, _sdt.month
+                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month)
                     if commission_info:
                         new_commission = self.calculate_seller_commission(
                             sale_id, product_id, final_price, quantity_sold,
-                            user_id=sale_user_id, shop_name=shop_name
+                            user_id=sale_user_id, shop_name=shop_name,
+                            sale_year=_upd_year, sale_month=_upd_month
                         )
                         # Используем INSERT OR REPLACE чтобы обновить или создать запись
                         cursor.execute('''
@@ -3525,21 +3593,28 @@ class Database:
                 conn.close()
             return []
 
-    def recalculate_month_earnings(self, product_id=None):
-        """Пересчитать seller_earnings за текущий месяц.
+    def recalculate_month_earnings(self, product_id=None, year=None, month=None):
+        """Пересчитать seller_earnings за указанный месяц (по умолчанию — текущий).
         Если product_id задан — пересчитываем только продажи этого товара.
         Если None — пересчитываем все продажи за месяц."""
+        import calendar as _cal
         from datetime import date
         try:
             today = date.today()
-            month_start = today.replace(day=1).strftime('%Y-%m-%d')
-            month_end = today.strftime('%Y-%m-%d')
+            if year is None:
+                year = today.year
+            if month is None:
+                month = today.month
+
+            _, last_day = _cal.monthrange(year, month)
+            month_start = f"{year}-{month:02d}-01"
+            month_end   = f"{year}-{month:02d}-{last_day:02d}"
 
             conn = sqlite3.connect(self.db_file, timeout=30.0)
             conn.execute('PRAGMA busy_timeout=30000')
             cursor = conn.cursor()
 
-            # Получаем все продажи текущего месяца (с фильтром по товару если нужно)
+            # Получаем все продажи за указанный месяц (с фильтром по товару если нужно)
             if product_id is not None:
                 cursor.execute('''
                     SELECT s.id, s.product_id, s.sale_price, s.quantity_sold,
@@ -3565,9 +3640,10 @@ class Database:
             for sale_id, prod_id, sale_price, qty, user_id, shop_name, tg_id in sales:
                 new_commission = self.calculate_seller_commission(
                     sale_id, prod_id, sale_price, qty,
-                    user_id=user_id, shop_name=shop_name
+                    user_id=user_id, shop_name=shop_name,
+                    sale_year=year, sale_month=month
                 )
-                motivation_info = self.get_product_motivation(prod_id)
+                motivation_info = self.get_motivation_for_month(prod_id, year, month)
                 m_type = motivation_info['motivation_type'] if motivation_info else 'percentage'
                 m_val  = motivation_info['motivation_value'] if motivation_info else 0.0
 
@@ -3593,12 +3669,189 @@ class Database:
                 conn2.commit()
                 conn2.close()
 
-            logger.info(f"recalculate_month_earnings: обработано {len(sales)} продаж, product_id={product_id}")
+            logger.info(f"recalculate_month_earnings: обработано {len(sales)} продаж, product_id={product_id}, {year}-{month:02d}")
         except Exception as e:
             logger.error(f"Ошибка recalculate_month_earnings: {e}")
             if 'conn' in locals():
                 try: conn.close()
                 except: pass
+
+    def set_motivation_for_month(self, product_id, year, month, motivation_type, motivation_value,
+                                  admin_telegram_id=None):
+        """Установить мотивацию на товар для конкретного месяца.
+        Сохраняет в motivation_schedule; UNIQUE(product_id, year, month) — перезаписывает."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn.execute('PRAGMA busy_timeout=30000')
+            cursor = conn.cursor()
+            admin_id = None
+            if admin_telegram_id:
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
+                r = cursor.fetchone()
+                admin_id = r[0] if r else None
+            cursor.execute('''
+                INSERT INTO motivation_schedule
+                    (product_id, year, month, motivation_type, motivation_value, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(product_id, year, month) DO UPDATE SET
+                    motivation_type  = excluded.motivation_type,
+                    motivation_value = excluded.motivation_value,
+                    created_by       = excluded.created_by,
+                    created_at       = CURRENT_TIMESTAMP
+            ''', (product_id, year, month, motivation_type, motivation_value, admin_id))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка set_motivation_for_month: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return False
+
+    def get_motivation_for_month(self, product_id, year, month):
+        """Получить мотивацию для товара на конкретный месяц.
+        Сначала проверяет motivation_schedule, при отсутствии — fallback на product_motivations."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT motivation_type, motivation_value
+                FROM motivation_schedule
+                WHERE product_id = ? AND year = ? AND month = ?
+            ''', (product_id, year, month))
+            row = cursor.fetchone()
+            if row:
+                conn.close()
+                return {'motivation_type': row[0], 'motivation_value': row[1], 'is_scheduled': True}
+            # Fallback на глобальную мотивацию
+            cursor.execute('''
+                SELECT motivation_type, motivation_value
+                FROM product_motivations
+                WHERE product_id = ?
+            ''', (product_id,))
+            row2 = cursor.fetchone()
+            conn.close()
+            if row2:
+                return {'motivation_type': row2[0], 'motivation_value': row2[1], 'is_scheduled': False}
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка get_motivation_for_month: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
+
+    def get_motivation_schedule(self, product_id):
+        """Получить все месячные записи мотивации для товара, отсортированные по убыванию."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ms.year, ms.month, ms.motivation_type, ms.motivation_value,
+                       ms.created_at, u.first_name, u.last_name
+                FROM motivation_schedule ms
+                LEFT JOIN users u ON ms.created_by = u.id
+                WHERE ms.product_id = ?
+                ORDER BY ms.year DESC, ms.month DESC
+            ''', (product_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"Ошибка get_motivation_schedule: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def get_all_motivation_schedules(self):
+        """Получить все записи motivation_schedule с именами товаров."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ms.product_id, p.name, ms.year, ms.month,
+                       ms.motivation_type, ms.motivation_value
+                FROM motivation_schedule ms
+                JOIN products p ON ms.product_id = p.id
+                ORDER BY p.name, ms.year DESC, ms.month DESC
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"Ошибка get_all_motivation_schedules: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def set_extra_condition_for_month(self, condition_type, year, month, shop_name=None,
+                                       min_sellers=None, coefficient=None, user_id=None,
+                                       allowed_categories=None, description=None,
+                                       calc_mode='individual', admin_telegram_id=None):
+        """Добавить/обновить доп. условие мотивации для конкретного месяца."""
+        try:
+            import json as _json
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            allowed_str = _json.dumps(allowed_categories, ensure_ascii=False) if allowed_categories else None
+            created_by = None
+            if admin_telegram_id:
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
+                r = cursor.fetchone()
+                created_by = r[0] if r else None
+            # Удаляем старые записи того же типа/магазина/пользователя/месяца перед вставкой
+            if condition_type == 'category_filter':
+                cursor.execute('''
+                    DELETE FROM extra_conditions_schedule
+                    WHERE condition_type = ? AND user_id = ? AND year = ? AND month = ?
+                ''', (condition_type, user_id, year, month))
+            else:
+                cursor.execute('''
+                    DELETE FROM extra_conditions_schedule
+                    WHERE condition_type = ? AND year = ? AND month = ?
+                      AND (shop_name = ? OR (shop_name IS NULL AND ? IS NULL))
+                ''', (condition_type, year, month, shop_name, shop_name))
+            cursor.execute('''
+                INSERT INTO extra_conditions_schedule
+                    (condition_type, description, shop_name, min_sellers, coefficient,
+                     user_id, allowed_categories, calc_mode, year, month, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (condition_type, description, shop_name, min_sellers, coefficient,
+                  user_id, allowed_str, calc_mode, year, month, created_by))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка set_extra_condition_for_month: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return False
+
+    def get_extra_conditions_for_month(self, year, month):
+        """Получить доп. условия для конкретного месяца (только из расписания)."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ecs.id, ecs.condition_type, ecs.description,
+                       ecs.shop_name, ecs.min_sellers, ecs.coefficient,
+                       ecs.user_id, ecs.allowed_categories,
+                       ecs.is_active, ecs.created_at,
+                       u.first_name, u.last_name,
+                       COALESCE(ecs.calc_mode, 'individual') as calc_mode,
+                       ecs.year, ecs.month
+                FROM extra_conditions_schedule ecs
+                LEFT JOIN users u ON ecs.user_id = u.id
+                WHERE ecs.year = ? AND ecs.month = ? AND ecs.is_active = 1
+                ORDER BY ecs.created_at DESC
+            ''', (year, month))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"Ошибка get_extra_conditions_for_month: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
 
     def get_products_by_category(self, category):
         """Получить все товары в заданной категории"""
@@ -3728,6 +3981,83 @@ class Database:
                 conn.close()
             return []
 
+    def get_effective_motivation_matrix(self, col_months):
+        """Вернуть эффективные ставки для всех товаров с мотивацией за указанные месяцы.
+        col_months: list of (year, month) tuples.
+        Возвращает (prod_order, product_names, cell_data) где:
+          prod_order — отсортированный список product_id
+          product_names — {prod_id: name}
+          cell_data — {prod_id: {(yr, mo): {'type':..., 'value':..., 'is_scheduled': bool}}}
+        Включает только товары у которых есть глобальная мотивация ИЛИ хотя бы одна запись в расписании.
+        """
+        from collections import defaultdict
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            cursor = conn.cursor()
+
+            # Все глобальные мотивации
+            cursor.execute('''
+                SELECT p.id, p.name, pm.motivation_type, pm.motivation_value
+                FROM product_motivations pm
+                JOIN products p ON pm.product_id = p.id
+                ORDER BY p.name
+            ''')
+            globals_rows = cursor.fetchall()
+
+            # Все записи расписания для нужных месяцев
+            if col_months:
+                placeholders = ','.join(['(?,?)'] * len(col_months))
+                params = [v for ym in col_months for v in ym]
+                cursor.execute(f'''
+                    SELECT ms.product_id, p.name, ms.year, ms.month,
+                           ms.motivation_type, ms.motivation_value
+                    FROM motivation_schedule ms
+                    JOIN products p ON ms.product_id = p.id
+                    WHERE (ms.year, ms.month) IN ({placeholders})
+                ''', params)
+                sched_rows = cursor.fetchall()
+            else:
+                sched_rows = []
+            conn.close()
+
+            product_names = {}
+            global_rates = {}
+            for pid, pname, gtype, gval in globals_rows:
+                product_names[pid] = pname
+                global_rates[pid] = (gtype, gval)
+
+            # Add products only in schedule (no global rate)
+            for pid, pname, yr, mo, mtype, mval in sched_rows:
+                if pid not in product_names:
+                    product_names[pid] = pname
+
+            prod_order = sorted(product_names.keys(), key=lambda x: product_names[x])
+
+            # Build scheduled lookup
+            sched_lookup = defaultdict(dict)
+            for pid, pname, yr, mo, mtype, mval in sched_rows:
+                sched_lookup[pid][(yr, mo)] = (mtype, mval)
+
+            # Build cell data with fallback
+            cell_data = {}
+            for pid in prod_order:
+                cell_data[pid] = {}
+                for ym in col_months:
+                    if ym in sched_lookup[pid]:
+                        mt, mv = sched_lookup[pid][ym]
+                        cell_data[pid][ym] = {'type': mt, 'value': mv, 'is_scheduled': True}
+                    elif pid in global_rates:
+                        gt, gv = global_rates[pid]
+                        cell_data[pid][ym] = {'type': gt, 'value': gv, 'is_scheduled': False}
+                    # else: no data for this cell
+
+            return prod_order, product_names, cell_data
+        except Exception as e:
+            logger.error(f"Ошибка get_effective_motivation_matrix: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return [], {}, {}
+
     def remove_product_motivation(self, product_id):
         """Удаление мотивации с товара"""
         try:
@@ -3745,8 +4075,10 @@ class Database:
                 conn.close()
             return False
 
-    def apply_extra_conditions(self, base_commission, user_id, product_id, shop_name):
-        """Применить доп. условия мотивации: фильтр категорий и коэффициент смены"""
+    def apply_extra_conditions(self, base_commission, user_id, product_id, shop_name,
+                               year=None, month=None):
+        """Применить доп. условия мотивации: фильтр категорий и коэффициент смены.
+        Если year/month заданы — проверяет extra_conditions_schedule сначала, иначе global."""
         if base_commission <= 0:
             return base_commission
         try:
@@ -3758,24 +4090,47 @@ class Database:
             prod = cursor.fetchone()
             product_category = prod[0] if prod else None
 
-            cursor.execute('''
-                SELECT allowed_categories FROM motivation_extra_conditions
-                WHERE condition_type = 'category_filter' AND user_id = ? AND is_active = 1
-            ''', (user_id,))
-            cat_row = cursor.fetchone()
+            # ─── Фильтр категорий ─────────────────────────────────────────────
+            cat_row = None
+            if year is not None and month is not None:
+                cursor.execute('''
+                    SELECT allowed_categories FROM extra_conditions_schedule
+                    WHERE condition_type = 'category_filter' AND user_id = ?
+                      AND year = ? AND month = ? AND is_active = 1
+                ''', (user_id, year, month))
+                cat_row = cursor.fetchone()
+            if cat_row is None:
+                cursor.execute('''
+                    SELECT allowed_categories FROM motivation_extra_conditions
+                    WHERE condition_type = 'category_filter' AND user_id = ? AND is_active = 1
+                ''', (user_id,))
+                cat_row = cursor.fetchone()
+
             if cat_row and cat_row[0]:
                 allowed = _json.loads(cat_row[0])
                 if allowed and product_category not in allowed:
                     conn.close()
                     return 0.0
 
-            cursor.execute('''
-                SELECT shop_name, min_sellers, coefficient FROM motivation_extra_conditions
-                WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
-                  AND (shop_name = ? OR shop_name IS NULL)
-                ORDER BY shop_name DESC
-            ''', (shop_name,))
-            coeff_conditions = cursor.fetchall()
+            # ─── Коэффициент смены ────────────────────────────────────────────
+            coeff_conditions = []
+            if year is not None and month is not None:
+                cursor.execute('''
+                    SELECT shop_name, min_sellers, coefficient FROM extra_conditions_schedule
+                    WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
+                      AND year = ? AND month = ?
+                      AND (shop_name = ? OR shop_name IS NULL)
+                    ORDER BY shop_name DESC
+                ''', (year, month, shop_name))
+                coeff_conditions = cursor.fetchall()
+            if not coeff_conditions:
+                cursor.execute('''
+                    SELECT shop_name, min_sellers, coefficient FROM motivation_extra_conditions
+                    WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
+                      AND (shop_name = ? OR shop_name IS NULL)
+                    ORDER BY shop_name DESC
+                ''', (shop_name,))
+                coeff_conditions = cursor.fetchall()
 
             cursor.execute(
                 'SELECT daily_rate FROM salary_settings WHERE user_id = ? AND daily_rate > 0',
@@ -3785,11 +4140,21 @@ class Database:
 
             final_commission = base_commission
             if coeff_conditions and not has_fixed_salary:
-                start_of_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-                cursor.execute('''
-                    SELECT COUNT(DISTINCT user_id) FROM sales
-                    WHERE shop_name = ? AND date(sale_date) >= date(?)
-                ''', (shop_name, start_of_month))
+                if year is not None and month is not None:
+                    import calendar as _cal
+                    _, last_day = _cal.monthrange(year, month)
+                    start_of_month = f"{year}-{month:02d}-01"
+                    end_of_month   = f"{year}-{month:02d}-{last_day:02d}"
+                    cursor.execute('''
+                        SELECT COUNT(DISTINCT user_id) FROM sales
+                        WHERE shop_name = ? AND date(sale_date) BETWEEN date(?) AND date(?)
+                    ''', (shop_name, start_of_month, end_of_month))
+                else:
+                    start_of_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+                    cursor.execute('''
+                        SELECT COUNT(DISTINCT user_id) FROM sales
+                        WHERE shop_name = ? AND date(sale_date) >= date(?)
+                    ''', (shop_name, start_of_month))
                 sellers_count = cursor.fetchone()[0]
 
                 for _cond_shop, min_sellers, coefficient in coeff_conditions:
@@ -4760,9 +5125,14 @@ class Database:
             return 0.0
 
     def calculate_seller_commission(self, sale_id, product_id, sale_price, quantity_sold,
-                                    user_id=None, shop_name=None):
-        """Расчет мотивации продавца за продажу"""
-        commission_info = self.get_product_motivation(product_id)
+                                    user_id=None, shop_name=None,
+                                    sale_year=None, sale_month=None):
+        """Расчет мотивации продавца за продажу.
+        Если sale_year/sale_month переданы — берёт ставку из motivation_schedule (с fallback на глобальную)."""
+        if sale_year is not None and sale_month is not None:
+            commission_info = self.get_motivation_for_month(product_id, sale_year, sale_month)
+        else:
+            commission_info = self.get_product_motivation(product_id)
 
         if not commission_info:
             return 0.0
@@ -4771,16 +5141,15 @@ class Database:
         motivation_value = commission_info['motivation_value']
 
         if motivation_type == 'percentage':
-            # Процент от суммы продажи
             total_sale_amount = sale_price * quantity_sold
             commission_amount = total_sale_amount * (motivation_value / 100)
         else:  # fixed
-            # Фиксированная сумма за каждую единицу товара
             commission_amount = motivation_value * quantity_sold
 
         if user_id is not None and shop_name is not None:
             commission_amount = self.apply_extra_conditions(
-                commission_amount, user_id, product_id, shop_name
+                commission_amount, user_id, product_id, shop_name,
+                year=sale_year, month=sale_month
             )
 
         return round(commission_amount, 2)

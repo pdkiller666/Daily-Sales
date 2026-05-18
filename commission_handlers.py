@@ -13,14 +13,47 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
-from states import SearchStates
+from states import SearchStates, MotivationScheduleStates
 
 commission_router = Router()
+
+MONTH_NAMES_RU = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+}
+MONTH_NAMES_SHORT = {
+    1: "Янв", 2: "Фев", 3: "Мар", 4: "Апр",
+    5: "Май", 6: "Июн", 7: "Июл", 8: "Авг",
+    9: "Сен", 10: "Окт", 11: "Ноя", 12: "Дек"
+}
+
+def _next_month(year, month):
+    if month == 12:
+        return year + 1, 1
+    return year, month + 1
+
+def _months_range(center_year, center_month, past=3, future=2):
+    """Возвращает список (year, month) — past месяцев до центра + центр + future после."""
+    from datetime import date
+    result = []
+    for delta in range(-past, future + 1):
+        m = center_month + delta
+        y = center_year
+        while m <= 0:
+            m += 12
+            y -= 1
+        while m > 12:
+            m -= 12
+            y += 1
+        result.append((y, m))
+    return result
 
 class MotivationStates(StatesGroup):
     waiting_for_motivation_value = State()
     waiting_for_motivation_type = State()
     searching_product = State()
+    waiting_for_cell_value = State()
 
 class ExtraConditionStates(StatesGroup):
     entering_min_sellers = State()
@@ -38,6 +71,7 @@ async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
     builder.button(text="📊 Просмотр всех мотиваций", callback_data="view_all_motivations")
+    builder.button(text="📅 По месяцам", callback_data="view_motivation_schedule")
     builder.button(text="🗑️ Удалить мотивацию", callback_data="remove_motivation")
     builder.button(text="📈 Топ продавцов", callback_data="top_sellers")
     builder.button(text="⚙️ Доп. условия", callback_data="motivation_extra")
@@ -290,11 +324,12 @@ async def set_motivation_type_selected(callback: CallbackQuery, state: FSMContex
 
 @commission_router.message(MotivationStates.waiting_for_motivation_value)
 async def process_motivation_value(message: Message, state: FSMContext):
-    """Обработка введенного значения мотивации"""
+    """Обработка введенного значения мотивации — переходим к выбору месяца"""
+    from datetime import date as _date
     try:
         value = float(message.text.replace(',', '.'))
         data = await state.get_data()
-        
+
         _cancel_kb = InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="set_motivation").as_markup()
         if data['motivation_type'] == 'percentage':
             if value <= 0 or value > 50:
@@ -309,40 +344,161 @@ async def process_motivation_value(message: Message, state: FSMContext):
                                reply_markup=_cancel_kb)
                 return
 
-        current_db = await get_db(message.from_user.id, state)
-        success = current_db.set_product_motivation(
-            data['motivation_product_id'],
-            data['motivation_type'],
-            value,
-            message.from_user.id
+        await state.update_data(
+            motivation_pending_value=value,
+            motivation_pending_type=data['motivation_type']
         )
+        await state.set_state(MotivationScheduleStates.selecting_month)
 
-        if success:
-            if data['motivation_type'] == 'percentage':
-                commission_text = f"{value}% от продажи"
-            else:
-                commission_text = f"{format_price(value)} за единицу"
+        today = _date.today()
+        nxt_year, nxt_month = _next_month(today.year, today.month)
+        cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+        nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
 
-            await fsm_edit(
-                state, message,
-                f"✅ <b>Мотивация установлена!</b>\n\n"
-                f"📦 Товар: {data['motivation_product_name']}\n"
-                f"💰 Мотивация: {commission_text}",
-                reply_markup=InlineKeyboardBuilder().button(
-                    text="📝 Установить еще мотивацию", callback_data="set_motivation"
-                ).button(
-                    text="⬅️ В меню", callback_data="admin_motivation"
-                ).adjust(1).as_markup(),
-            )
+        if data['motivation_type'] == 'percentage':
+            commission_text = f"{value}% от продажи"
         else:
-            await fsm_edit(state, message, "❌ Ошибка при сохранении мотивации", reply_markup=_cancel_kb)
-        
-        await clear_state_keep_org(state)
+            commission_text = f"{format_price(value)} за единицу"
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"📅 Текущий ({cur_label})", callback_data="motiv_month_cur")
+        builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="motiv_month_next")
+        builder.button(text="📆 Выбрать месяц", callback_data="motiv_month_pick")
+        builder.button(text="❌ Отмена", callback_data="set_motivation")
+        builder.adjust(1)
+
+        await fsm_edit(
+            state, message,
+            f"📅 <b>На какой месяц применить?</b>\n\n"
+            f"📦 Товар: <b>{he(data['motivation_product_name'])}</b>\n"
+            f"💰 Мотивация: <b>{commission_text}</b>",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except ValueError:
         await fsm_edit(state, message,
                        "❌ <b>Неверный формат</b>\n\nВведите число. Используйте точку или запятую для разделения дробной части.",
                        reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="set_motivation").as_markup())
+
+
+async def _apply_product_motivation_month(callback, state, year, month, is_current=False):
+    """Сохранить мотивацию товара на указанный месяц и показать результат."""
+    from datetime import date as _date
+    data = await state.get_data()
+    product_id = data['motivation_product_id']
+    product_name = data['motivation_product_name']
+    mtype = data['motivation_pending_type']
+    mvalue = data['motivation_pending_value']
+
+    current_db = await get_db(callback.from_user.id, state)
+    ok = current_db.set_motivation_for_month(product_id, year, month, mtype, mvalue, callback.from_user.id)
+
+    today = _date.today()
+    is_past_or_current = (year < today.year) or (year == today.year and month <= today.month)
+    recalc_note = ""
+    if ok and is_past_or_current:
+        current_db.recalculate_month_earnings(product_id, year, month)
+        recalc_note = "\n\nЗаработки за этот месяц пересчитаны."
+
+    await clear_state_keep_org(state)
+
+    month_label = f"{MONTH_NAMES_RU[month]} {year}"
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+
+    await callback.message.edit_text(
+        f"✅ <b>Мотивация установлена!</b>\n\n"
+        f"📦 Товар: {he(product_name)}\n"
+        f"📅 Месяц: {month_label}\n"
+        f"💰 Мотивация: {commission_text}{recalc_note}",
+        reply_markup=InlineKeyboardBuilder().button(
+            text="📝 Установить ещё", callback_data="set_motivation"
+        ).button(
+            text="⬅️ В меню", callback_data="admin_motivation"
+        ).adjust(1).as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_month, F.data == "motiv_month_cur")
+async def motiv_month_cur(callback: CallbackQuery, state: FSMContext):
+    """Применить мотивацию к текущему месяцу"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    await _apply_product_motivation_month(callback, state, today.year, today.month, is_current=True)
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_month, F.data == "motiv_month_next")
+async def motiv_month_next_handler(callback: CallbackQuery, state: FSMContext):
+    """Применить мотивацию к следующему месяцу"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    ny, nm = _next_month(today.year, today.month)
+    await _apply_product_motivation_month(callback, state, ny, nm)
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_month, F.data == "motiv_month_pick")
+async def motiv_month_pick(callback: CallbackQuery, state: FSMContext):
+    """Показать пикер месяца для мотивации"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    months = _months_range(today.year, today.month, past=3, future=2)
+    builder = InlineKeyboardBuilder()
+    for y, m in months:
+        builder.button(text=f"{MONTH_NAMES_SHORT[m]} {y}", callback_data=f"motiv_ym_{y}_{m}")
+    builder.button(text="⬅️ Назад", callback_data="motiv_month_back")
+    builder.adjust(3)
+    await callback.message.edit_text(
+        "📆 <b>Выберите месяц для применения мотивации:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_month, F.data == "motiv_month_back")
+async def motiv_month_back(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору месяца (с пикера)"""
+    from datetime import date as _date
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+    data = await state.get_data()
+    mtype = data.get('motivation_pending_type', 'percentage')
+    mvalue = data.get('motivation_pending_value', 0)
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="motiv_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="motiv_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="motiv_month_pick")
+    builder.button(text="❌ Отмена", callback_data="set_motivation")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        f"📅 <b>На какой месяц применить?</b>\n\n"
+        f"📦 Товар: <b>{he(data.get('motivation_product_name', ''))}</b>\n"
+        f"💰 Мотивация: <b>{commission_text}</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_month, F.data.startswith("motiv_ym_"))
+async def motiv_ym_selected(callback: CallbackQuery, state: FSMContext):
+    """Выбран конкретный месяц для мотивации"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    year, month = int(parts[2]), int(parts[3])
+    await _apply_product_motivation_month(callback, state, year, month)
 
 @commission_router.callback_query(F.data == "view_all_motivations")
 async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
@@ -797,39 +953,38 @@ async def process_coefficient(message: Message, state: FSMContext):
     mode_label = "🤝 Совместный" if calc_mode == "joint" else "👤 Раздельный"
     mode_suffix = " [совм.]" if calc_mode == "joint" else ""
 
-    cond_id = current_db.add_extra_condition(
-        condition_type='multi_seller_coeff',
-        shop_name=data.get('coeff_shop'),
-        min_sellers=min_s,
-        coefficient=coeff,
-        description=f"×{coeff} при {min_s}+ продавцах — {shop_label}{mode_suffix}",
-        calc_mode=calc_mode,
+    await state.update_data(
+        coeff_pending_coeff=coeff,
+        coeff_pending_desc=f"×{coeff} при {min_s}+ продавцах — {shop_label}{mode_suffix}",
+        coeff_pending_mode=calc_mode,
+        coeff_pending_mode_label=mode_label,
     )
+    await state.set_state(MotivationScheduleStates.selecting_extra_month)
+    await state.update_data(extra_cond_type='coeff')
 
-    if cond_id:
-        joint_note = (
-            f"\n\nВ совместном режиме каждый участник смены получает мотивацию "
-            f"от суммарного оборота всех продавцов × {coeff}."
-        ) if calc_mode == "joint" else (
-            f"\n\nПри {min_s}+ продавцах каждый получает "
-            f"{coeff * 100:.0f}% от своей базовой мотивации."
-        )
-        await fsm_edit(
-            state, message,
-            f"✅ <b>Коэффициент смены добавлен!</b>\n\n"
-            f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
-            f"👥 Порог: {min_s}+ продавцов\n"
-            f"📊 Режим: {mode_label}\n"
-            f"📉 Коэффициент: ×{coeff}"
-            f"{joint_note}",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="⬅️ Доп. условия", callback_data="motivation_extra"
-            ).as_markup()
-        )
-    else:
-        await fsm_edit(state, message, "❌ Ошибка при сохранении условия",
-                       reply_markup=cancel_kb)
-    await clear_state_keep_org(state)
+    from datetime import date as _date
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="extra_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="extra_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="extra_month_pick")
+    builder.button(text="🌐 На все время (глобально)", callback_data="extra_month_global")
+    builder.button(text="❌ Отмена", callback_data="motivation_extra")
+    builder.adjust(1)
+
+    await fsm_edit(
+        state, message,
+        f"📅 <b>На какой месяц применить коэффициент?</b>\n\n"
+        f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
+        f"👥 Порог: {min_s}+ продавцов\n"
+        f"📊 Режим: {mode_label}\n"
+        f"📉 Коэффициент: ×{coeff}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
 
 # ── Фильтр категорий ──────────────────────────────────────
@@ -1055,37 +1210,35 @@ async def catfilt_confirm(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    conditions = current_db.get_extra_conditions()
-    for c in conditions:
-        if c[1] == 'category_filter' and c[6] == user_id:
-            current_db.delete_extra_condition(c[0])
-
-    cond_id = current_db.add_extra_condition(
-        condition_type='category_filter',
-        user_id=user_id,
-        allowed_categories=selected,
-        description=f"Фильтр категорий для {username}"
+    await state.update_data(
+        catfilt_pending_selected=selected,
+        extra_cond_type='catfilt'
     )
+    await state.set_state(MotivationScheduleStates.selecting_extra_month)
 
-    await clear_state_keep_org(state)
+    from datetime import date as _date
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+    cats_text = "\n".join(f"• {c}" for c in selected[:5])
+    if len(selected) > 5:
+        cats_text += f"\n  ...ещё {len(selected) - 5}"
 
-    if cond_id:
-        cats_text = "\n".join(f"• {c}" for c in selected)
-        await callback.message.edit_text(
-            f"✅ <b>Фильтр категорий сохранён!</b>\n\n"
-            f"👤 Продавец: <b>{he(username)}</b>\n\n"
-            f"<b>Разрешённые категории ({len(selected)}):</b>\n{cats_text}",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="⬅️ Доп. условия", callback_data="motivation_extra"
-            ).as_markup(), parse_mode="HTML"
-        )
-    else:
-        await callback.message.edit_text(
-            "❌ Ошибка при сохранении фильтра",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="⬅️ Назад", callback_data="motivation_extra"
-            ).as_markup(), parse_mode="HTML"
-        )
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="extra_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="extra_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="extra_month_pick")
+    builder.button(text="🌐 На все время (глобально)", callback_data="extra_month_global")
+    builder.button(text="❌ Отмена", callback_data="motivation_extra")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"📅 <b>На какой месяц применить фильтр?</b>\n\n"
+        f"👤 Продавец: <b>{he(username)}</b>\n\n"
+        f"<b>Категории ({len(selected)}):</b>\n{cats_text}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -1101,6 +1254,8 @@ async def catfilt_allow_all(callback: CallbackQuery, state: FSMContext):
     for c in conditions:
         if c[1] == 'category_filter' and c[6] == user_id:
             current_db.delete_extra_condition(c[0])
+
+    current_db.recalculate_month_earnings(None)
 
     await clear_state_keep_org(state)
     await callback.message.edit_text(
@@ -1261,6 +1416,7 @@ async def del_extra_execute(callback: CallbackQuery, state: FSMContext):
     success = current_db.delete_extra_condition(cond_id)
 
     if success:
+        current_db.recalculate_month_earnings(None)
         await callback.message.edit_text(
             "✅ <b>Условие удалено</b>",
             reply_markup=InlineKeyboardBuilder().button(
@@ -1275,3 +1431,584 @@ async def del_extra_execute(callback: CallbackQuery, state: FSMContext):
             ).as_markup(), parse_mode="HTML"
         )
     await callback.answer()
+
+
+# ─────────────────────────────────────────────────────────────
+# ВЫБОР МЕСЯЦА ДЛЯ ДОП. УСЛОВИЙ
+# ─────────────────────────────────────────────────────────────
+
+async def _save_extra_condition_for_month(callback, state, year, month, is_global=False):
+    """Сохранить доп. условие на конкретный месяц или глобально, показать результат."""
+    from datetime import date as _date
+    data = await state.get_data()
+    cond_type = data.get('extra_cond_type', 'coeff')
+    current_db = await get_db(callback.from_user.id, state)
+
+    if cond_type == 'coeff':
+        shop_name = data.get('coeff_shop')
+        shop_label = data.get('coeff_shop_label', 'Все магазины')
+        min_s = data.get('coeff_min_sellers', 2)
+        coeff = data.get('coeff_pending_coeff')
+        calc_mode = data.get('coeff_pending_mode', 'individual')
+        mode_label = data.get('coeff_pending_mode_label', '👤 Раздельный')
+        desc = data.get('coeff_pending_desc', '')
+
+        if is_global:
+            cond_id = current_db.add_extra_condition(
+                condition_type='multi_seller_coeff',
+                shop_name=shop_name,
+                min_sellers=min_s,
+                coefficient=coeff,
+                description=desc,
+                calc_mode=calc_mode,
+            )
+            ok = bool(cond_id)
+        else:
+            ok = current_db.set_extra_condition_for_month(
+                condition_type='multi_seller_coeff', year=year, month=month,
+                shop_name=shop_name, min_sellers=min_s, coefficient=coeff,
+                description=desc, calc_mode=calc_mode,
+                admin_telegram_id=callback.from_user.id,
+            )
+
+        today = _date.today()
+        if ok:
+            is_past_or_cur = is_global or (year < today.year) or (year == today.year and month <= today.month)
+            if is_past_or_cur:
+                recalc_year = today.year if is_global else year
+                recalc_month = today.month if is_global else month
+                current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
+
+        await clear_state_keep_org(state)
+        month_label = "Глобально (все периоды)" if is_global else f"{MONTH_NAMES_RU[month]} {year}"
+        joint_note = (
+            f"\n\nВ совместном режиме каждый получает мотивацию от суммарного оборота × {coeff}."
+        ) if calc_mode == "joint" else (
+            f"\n\nПри {min_s}+ продавцах каждый получает {coeff * 100:.0f}% от базовой мотивации."
+        )
+        await callback.message.edit_text(
+            f"✅ <b>Коэффициент смены добавлен!</b>\n\n"
+            f"🏪 Магазин: <b>{he(shop_label)}</b>\n"
+            f"👥 Порог: {min_s}+ продавцов\n"
+            f"📊 Режим: {mode_label}\n"
+            f"📉 Коэффициент: ×{coeff}\n"
+            f"📅 Период: {month_label}"
+            f"{joint_note}",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ Доп. условия", callback_data="motivation_extra"
+            ).as_markup(), parse_mode="HTML"
+        )
+
+    elif cond_type == 'catfilt':
+        user_id = data.get('catfilt_user_id')
+        username = data.get('catfilt_username', '')
+        selected = data.get('catfilt_pending_selected', [])
+
+        if is_global:
+            conditions = current_db.get_extra_conditions()
+            for c in conditions:
+                if c[1] == 'category_filter' and c[6] == user_id:
+                    current_db.delete_extra_condition(c[0])
+            cond_id = current_db.add_extra_condition(
+                condition_type='category_filter',
+                user_id=user_id,
+                allowed_categories=selected,
+                description=f"Фильтр категорий для {username}"
+            )
+            ok = bool(cond_id)
+        else:
+            ok = current_db.set_extra_condition_for_month(
+                condition_type='category_filter', year=year, month=month,
+                user_id=user_id, allowed_categories=selected,
+                description=f"Фильтр категорий для {username}",
+                admin_telegram_id=callback.from_user.id,
+            )
+
+        today = _date.today()
+        if ok:
+            is_past_or_cur = is_global or (year < today.year) or (year == today.year and month <= today.month)
+            if is_past_or_cur:
+                recalc_year = today.year if is_global else year
+                recalc_month = today.month if is_global else month
+                current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
+
+        await clear_state_keep_org(state)
+        month_label = "Глобально (все периоды)" if is_global else f"{MONTH_NAMES_RU[month]} {year}"
+        cats_text = "\n".join(f"• {c}" for c in selected)
+
+        if ok:
+            await callback.message.edit_text(
+                f"✅ <b>Фильтр категорий сохранён!</b>\n\n"
+                f"👤 Продавец: <b>{he(username)}</b>\n"
+                f"📅 Период: {month_label}\n\n"
+                f"<b>Разрешённые категории ({len(selected)}):</b>\n{cats_text}",
+                reply_markup=InlineKeyboardBuilder().button(
+                    text="⬅️ Доп. условия", callback_data="motivation_extra"
+                ).as_markup(), parse_mode="HTML"
+            )
+        else:
+            await callback.message.edit_text(
+                "❌ Ошибка при сохранении фильтра",
+                reply_markup=InlineKeyboardBuilder().button(
+                    text="⬅️ Назад", callback_data="motivation_extra"
+                ).as_markup(), parse_mode="HTML"
+            )
+
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data == "extra_month_cur")
+async def extra_month_cur(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    await _save_extra_condition_for_month(callback, state, today.year, today.month)
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data == "extra_month_next")
+async def extra_month_next_handler(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    ny, nm = _next_month(today.year, today.month)
+    await _save_extra_condition_for_month(callback, state, ny, nm)
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data == "extra_month_global")
+async def extra_month_global(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    await _save_extra_condition_for_month(callback, state, today.year, today.month, is_global=True)
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data == "extra_month_pick")
+async def extra_month_pick(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    months = _months_range(today.year, today.month, past=3, future=2)
+    builder = InlineKeyboardBuilder()
+    for y, m in months:
+        builder.button(text=f"{MONTH_NAMES_SHORT[m]} {y}", callback_data=f"extra_ym_{y}_{m}")
+    builder.button(text="⬅️ Назад", callback_data="extra_month_back")
+    builder.adjust(3)
+    await callback.message.edit_text(
+        "📆 <b>Выберите месяц для применения условия:</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data == "extra_month_back")
+async def extra_month_back(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору месяца для доп. условия"""
+    from datetime import date as _date
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="extra_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="extra_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="extra_month_pick")
+    builder.button(text="🌐 На все время (глобально)", callback_data="extra_month_global")
+    builder.button(text="❌ Отмена", callback_data="motivation_extra")
+    builder.adjust(1)
+    await callback.message.edit_text(
+        "📅 <b>На какой месяц применить условие?</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationScheduleStates.selecting_extra_month, F.data.startswith("extra_ym_"))
+async def extra_ym_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    year, month = int(parts[2]), int(parts[3])
+    await _save_extra_condition_for_month(callback, state, year, month)
+
+
+# ─────────────────────────────────────────────────────────────
+# ПРОСМОТР РАСПИСАНИЯ МОТИВАЦИИ ПО МЕСЯЦАМ
+# ─────────────────────────────────────────────────────────────
+
+MATRIX_PRODS_PER_PAGE = 3  # fewer rows fit comfortably in Telegram with 7 month columns
+MATRIX_COL_PAST = 5        # последние 6 месяцев (5 прошлых + текущий) + 1 будущий = 7 столбцов
+MATRIX_COL_FUTURE = 1
+
+
+@commission_router.callback_query(F.data == "view_motivation_schedule")
+async def view_motivation_schedule(callback: CallbackQuery, state: FSMContext):
+    """Матрица мотивации: строки = товары, столбцы = последние 6 + следующий"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await _show_schedule_matrix(callback, state, page=0)
+
+
+async def _show_schedule_matrix(callback, state, page=0):
+    from datetime import date as _date
+    today = _date.today()
+    col_months = _months_range(today.year, today.month, past=MATRIX_COL_PAST, future=MATRIX_COL_FUTURE)
+
+    current_db = await get_db(callback.from_user.id, state)
+    prod_order, product_names, cell_data = current_db.get_effective_motivation_matrix(col_months)
+
+    if not prod_order:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
+        builder.button(text="📋 Архив по месяцам", callback_data="archive_months")
+        builder.button(text="⬅️ Назад", callback_data="admin_motivation")
+        builder.adjust(1)
+        await callback.message.edit_text(
+            "📅 <b>Мотивация по месяцам</b>\n\n"
+            "❌ Нет товаров с мотивацией.\n\n"
+            "Используйте «📝 Установить мотивацию», чтобы задать ставку товару.",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    total_pages = max(1, (len(prod_order) + MATRIX_PRODS_PER_PAGE - 1) // MATRIX_PRODS_PER_PAGE)
+    start = page * MATRIX_PRODS_PER_PAGE
+    page_prods = prod_order[start:start + MATRIX_PRODS_PER_PAGE]
+
+    # Build text table
+    hdr = " ".join(f"{MONTH_NAMES_SHORT[m]}{str(y)[-2:]}" for y, m in col_months)
+    text = f"📅 <b>Мотивация по месяцам</b>\n<code>{hdr}</code>\n\n"
+
+    for prod_id in page_prods:
+        name = product_names.get(prod_id, f"#{prod_id}")
+        rate_parts = []
+        for ym in col_months:
+            cell = cell_data[prod_id].get(ym)
+            if cell:
+                mv = cell['value']
+                mt = cell['type']
+                sched_mark = "●" if cell['is_scheduled'] else "○"
+                rate_parts.append(f"{sched_mark}{mv:.0f}{'%' if mt == 'percentage' else '₽'}")
+            else:
+                rate_parts.append(" — ")
+        text += f"📦 <b>{he(name)}</b>\n"
+        text += "<code>" + " ".join(rate_parts) + "</code>\n\n"
+
+    text += "<i>● расписание  ○ глобальная</i>"
+
+    builder = InlineKeyboardBuilder()
+    # Edit buttons grouped by product
+    for prod_id in page_prods:
+        name = product_names.get(prod_id, f"#{prod_id}")
+        short_name = name[:8] + "…" if len(name) > 8 else name
+        for yr, mo in col_months:
+            cell = cell_data[prod_id].get((yr, mo))
+            is_sched = cell['is_scheduled'] if cell else False
+            prefix = "✏️" if is_sched else "➕"
+            mo_short = MONTH_NAMES_SHORT[mo][:3]
+            builder.button(
+                text=f"{prefix}{short_name} {mo_short}",
+                callback_data=f"sched_cell_{prod_id}_{yr}_{mo}"
+            )
+        builder.adjust(len(col_months))
+
+    # Pagination row
+    pag_row = []
+    if page > 0:
+        pag_row.append(("⬅️ Пред.", f"sched_page_{page - 1}"))
+    if page < total_pages - 1:
+        pag_row.append((f"➡️ След.", f"sched_page_{page + 1}"))
+    for lbl, cb in pag_row:
+        builder.button(text=lbl, callback_data=cb)
+    if pag_row:
+        builder.adjust(len(pag_row))
+
+    builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
+    builder.button(text="📋 Архив по месяцам", callback_data="archive_months")
+    builder.button(text="⬅️ В меню", callback_data="admin_motivation")
+    builder.adjust(1)
+
+    text += f"\n<i>Стр. {page + 1}/{total_pages}</i>"
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("sched_page_"))
+async def sched_page(callback: CallbackQuery, state: FSMContext):
+    """Переключение страниц в матрице мотивации"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    page = int(callback.data.split("_")[-1])
+    await _show_schedule_matrix(callback, state, page=page)
+
+
+@commission_router.callback_query(F.data.regexp(r"^sched_cell_\d+_\d{4}_\d+$"))
+async def sched_cell_edit(callback: CallbackQuery, state: FSMContext):
+    """Редактирование ячейки матрицы мотивации (товар × месяц)"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    parts = callback.data.split("_")
+    prod_id = int(parts[2])
+    year = int(parts[3])
+    month = int(parts[4])
+
+    current_db = await get_db(callback.from_user.id, state)
+    # Получаем текущую ставку для этой ячейки (если есть)
+    current_rate = current_db.get_motivation_for_month(prod_id, year, month)
+
+    # Определяем имя товара
+    prod_rows = current_db.get_all_motivation_schedules()
+    prod_name = next((r[1] for r in prod_rows if r[0] == prod_id), f"Товар #{prod_id}")
+
+    month_label = f"{MONTH_NAMES_RU[month]} {year}"
+    cur_str = ""
+    if current_rate:
+        mt = current_rate['motivation_type']
+        mv = current_rate['motivation_value']
+        cur_str = f"\nТекущая: {mv}% от продажи" if mt == 'percentage' else f"\nТекущая: {format_price(mv)}/шт"
+        cur_str += " (из расписания)" if current_rate.get('is_scheduled') else " (глобальная)"
+
+    await state.update_data(
+        motivation_product_id=prod_id,
+        motivation_product_name=prod_name,
+        motivation_type='percentage',  # will be updated by type selection if needed
+        motivation_pending_year=year,
+        motivation_pending_month=month,
+    )
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💹 % от продажи", callback_data=f"sched_cell_pct_{prod_id}_{year}_{month}")
+    builder.button(text="💰 Фикс. за штуку", callback_data=f"sched_cell_fix_{prod_id}_{year}_{month}")
+    builder.button(text="⬅️ Назад", callback_data="view_motivation_schedule")
+    builder.adjust(2, 1)
+
+    await callback.message.edit_text(
+        f"✏️ <b>Редактирование ячейки</b>\n\n"
+        f"📦 Товар: <b>{he(prod_name)}</b>\n"
+        f"📅 Месяц: <b>{month_label}</b>{cur_str}\n\n"
+        f"Выберите тип мотивации:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("sched_cell_pct_") | F.data.startswith("sched_cell_fix_"))
+async def sched_cell_type_selected(callback: CallbackQuery, state: FSMContext):
+    """Выбран тип мотивации для ячейки, ждём ввод значения"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    is_pct = callback.data.startswith("sched_cell_pct_")
+    parts = callback.data.replace("sched_cell_pct_", "").replace("sched_cell_fix_", "").split("_")
+    prod_id = int(parts[0])
+    year = int(parts[1])
+    month = int(parts[2])
+
+    mtype = 'percentage' if is_pct else 'fixed'
+    data = await state.get_data()
+    prod_name = data.get('motivation_product_name', f"Товар #{prod_id}")
+
+    await state.update_data(
+        motivation_product_id=prod_id,
+        motivation_product_name=prod_name,
+        motivation_type=mtype,
+        motivation_pending_year=year,
+        motivation_pending_month=month,
+    )
+    await state.set_state(MotivationStates.waiting_for_cell_value)
+
+    month_label = f"{MONTH_NAMES_RU[month]} {year}"
+    hint = "Введите процент (от 0.1 до 50):" if is_pct else "Введите сумму за единицу (руб.):"
+    await callback.message.edit_text(
+        f"📝 <b>Введите значение мотивации</b>\n\n"
+        f"📦 Товар: <b>{he(prod_name)}</b>\n"
+        f"📅 Месяц: <b>{month_label}</b>\n\n"
+        f"{hint}",
+        reply_markup=InlineKeyboardBuilder().button(
+            text="❌ Отмена", callback_data="view_motivation_schedule"
+        ).as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data == "archive_months")
+async def archive_months(callback: CallbackQuery, state: FSMContext):
+    """Архив по месяцам — выбор месяца для просмотра"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    today = _date.today()
+    months = _months_range(today.year, today.month, past=5, future=1)
+    builder = InlineKeyboardBuilder()
+    for yr, mo in months:
+        builder.button(
+            text=f"{MONTH_NAMES_RU[mo]} {yr}",
+            callback_data=f"archive_month_{yr}_{mo}"
+        )
+    builder.button(text="⬅️ По месяцам", callback_data="view_motivation_schedule")
+    builder.adjust(2)
+    await callback.message.edit_text(
+        "📋 <b>Архив по месяцам</b>\n\nВыберите месяц для просмотра ставок и условий:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("archive_month_"))
+async def archive_month_view(callback: CallbackQuery, state: FSMContext):
+    """Детальный просмотр мотиваций и доп. условий за выбранный месяц.
+    Показывает эффективную ставку для КАЖДОГО товара с мотивацией (расписание или глобальная)."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    import json as _json
+    parts = callback.data.split("_")
+    year, month = int(parts[2]), int(parts[3])
+    month_label = f"{MONTH_NAMES_RU[month]} {year}"
+
+    current_db = await get_db(callback.from_user.id, state)
+
+    # Эффективные ставки для всех товаров за этот месяц (расписание + fallback глобальные)
+    prod_order, product_names, cell_data = current_db.get_effective_motivation_matrix([(year, month)])
+
+    # Доп. условия за этот месяц
+    conditions = current_db.get_extra_conditions_for_month(year, month)
+    # Глобальные доп. условия (для показа если нет месячных)
+    global_conditions = current_db.get_extra_conditions()
+
+    text = f"📋 <b>Архив мотивации — {month_label}</b>\n\n"
+
+    if prod_order:
+        text += "📦 <b>Ставки товаров:</b>\n"
+        for pid in prod_order:
+            name = product_names.get(pid, f"#{pid}")
+            cell = cell_data[pid].get((year, month))
+            if cell:
+                mt = cell['type']
+                mv = cell['value']
+                is_sched = cell['is_scheduled']
+                val_str = f"{mv}%" if mt == 'percentage' else f"{format_price(mv)}/шт"
+                src = "📅 расписание" if is_sched else "🌐 глобальная"
+                text += f"  • {he(name)}: {val_str} ({src})\n"
+        text += "\n"
+    else:
+        text += "📦 <i>Нет товаров с мотивацией</i>\n\n"
+
+    def _format_conditions(conds, label_prefix=""):
+        out = ""
+        coeff_list = [c for c in conds if c[1] == 'multi_seller_coeff']
+        filter_list = [c for c in conds if c[1] == 'category_filter']
+        if coeff_list:
+            out += f"📉 <b>Коэффициенты смены{label_prefix}:</b>\n"
+            for c in coeff_list:
+                shop = he(c[3]) if c[3] else "Все магазины"
+                out += f"  • {shop}: {c[4]}+ → ×{c[5]}\n"
+        if filter_list:
+            out += f"🔒 <b>Фильтры категорий{label_prefix}:</b>\n"
+            for c in filter_list:
+                fname = c[10] or ""
+                lname = c[11] or ""
+                uname = f"{fname} {lname}".strip() or f"id={c[6]}"
+                allowed = []
+                if c[7]:
+                    try:
+                        allowed = _json.loads(c[7])
+                    except Exception:
+                        pass
+                cats = ", ".join(he(x) for x in allowed[:3])
+                if len(allowed) > 3:
+                    cats += "…"
+                if not cats:
+                    cats = "все"
+                out += f"  • {he(uname)}: {cats}\n"
+        return out
+
+    if conditions:
+        text += _format_conditions(conditions, " (месяц)")
+    if global_conditions:
+        text += _format_conditions(global_conditions, " (глобальные)")
+    if not conditions and not global_conditions:
+        text += "⚙️ <i>Доп. условий нет</i>\n"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⬅️ Выбор месяца", callback_data="archive_months")
+    builder.button(text="📅 Матрица", callback_data="view_motivation_schedule")
+    builder.button(text="⬅️ В меню", callback_data="admin_motivation")
+    builder.adjust(1)
+
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+@commission_router.message(MotivationStates.waiting_for_cell_value)
+async def process_cell_value(message: Message, state: FSMContext):
+    """Обработка введённого значения мотивации для конкретной ячейки матрицы"""
+    from datetime import date as _date
+    _cancel_kb = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data="view_motivation_schedule"
+    ).as_markup()
+    try:
+        value = float(message.text.replace(',', '.'))
+    except ValueError:
+        await fsm_edit(state, message,
+                       "❌ <b>Неверный формат</b>\n\nВведите число.",
+                       reply_markup=_cancel_kb)
+        return
+
+    data = await state.get_data()
+    mtype = data.get('motivation_type', 'percentage')
+    prod_id = data.get('motivation_product_id')
+    prod_name = data.get('motivation_product_name', '')
+    year = data.get('motivation_pending_year')
+    month = data.get('motivation_pending_month')
+
+    if mtype == 'percentage' and (value <= 0 or value > 50):
+        await fsm_edit(state, message, "❌ Процент должен быть от 0.1 до 50", reply_markup=_cancel_kb)
+        return
+    if mtype == 'fixed' and value <= 0:
+        await fsm_edit(state, message, "❌ Сумма должна быть больше 0", reply_markup=_cancel_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    ok = current_db.set_motivation_for_month(prod_id, year, month, mtype, value, message.from_user.id)
+
+    today = _date.today()
+    recalc_note = ""
+    if ok:
+        is_past_or_cur = (year < today.year) or (year == today.year and month <= today.month)
+        if is_past_or_cur:
+            current_db.recalculate_month_earnings(prod_id, year, month)
+            recalc_note = "\n\nЗаработки за этот месяц пересчитаны."
+
+    await clear_state_keep_org(state)
+    month_label = f"{MONTH_NAMES_RU[month]} {year}"
+    val_str = f"{value}% от продажи" if mtype == 'percentage' else f"{format_price(value)}/шт"
+
+    await fsm_edit(
+        state, message,
+        f"✅ <b>Мотивация обновлена!</b>\n\n"
+        f"📦 Товар: {he(prod_name)}\n"
+        f"📅 Месяц: {month_label}\n"
+        f"💰 Ставка: {val_str}{recalc_note}",
+        reply_markup=InlineKeyboardBuilder().button(
+            text="📅 В матрицу", callback_data="view_motivation_schedule"
+        ).button(
+            text="⬅️ В меню", callback_data="admin_motivation"
+        ).adjust(1).as_markup(), parse_mode="HTML"
+    )

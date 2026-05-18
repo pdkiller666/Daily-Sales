@@ -172,3 +172,9 @@ class ExcelImportStates(StatesGroup):
 class RankingStates(StatesGroup):
     choosing_start_date = State()
     choosing_end_date   = State()
+
+class MotivationScheduleStates(StatesGroup):
+    selecting_month             = State()
+    selecting_custom_month      = State()
+    selecting_extra_month       = State()
+    selecting_extra_custom_month = State()

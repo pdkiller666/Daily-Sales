@@ -258,7 +258,7 @@ async def run_system_tests_handler(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
-_ADMIN_USERS_COLS = "id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at"
+_ADMIN_USERS_COLS = "id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username"
 
 
 async def _collect_admin_users(user_id: int, state: FSMContext):
@@ -346,7 +346,7 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
     if query:
         q = query.lower()
         filtered = [u for u in users
-                    if q in f"{u[2] or ''} {u[3] or ''} {u[4] or ''} {u[5] or ''} {u[8] or ''}".lower()]
+                    if q in f"{u[2] or ''} {u[3] or ''} {u[4] or ''} {u[5] or ''} {u[8] or ''} {('@' + u[12]) if len(u) > 12 and u[12] else ''}".lower()]
         overflow = max(0, len(filtered) - MAX_SEARCH)
         page_items = filtered[:MAX_SEARCH]
         has_prev = has_next = False
@@ -358,11 +358,15 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
 
     builder = InlineKeyboardBuilder()
     for user in page_items:
-        u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
+        u_id, t_id, f_name, l_name = user[0], user[1], user[2], user[3]
+        s_name = user[8] if len(user) > 8 else None
+        uname = user[12] if len(user) > 12 else None
         display_name = f"{f_name or '?'}"
         if l_name:
             display_name += f" {l_name}"
-        if s_name:
+        if uname:
+            display_name += f" @{uname}"
+        elif s_name:
             display_name += f" ({s_name})"
         builder.add(InlineKeyboardButton(text=display_name, callback_data=f"admin_user_{t_id}"))
     builder.adjust(1)

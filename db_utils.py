@@ -136,7 +136,8 @@ async def get_db(telegram_id, state=None):
                     email=user_in_main[6],
                     trade_network=user_in_main[7],
                     shop_name=user_in_main[8],
-                    city=user_in_main[9]
+                    city=user_in_main[9],
+                    username=user_in_main[12] if len(user_in_main) > 12 else None
                 )
             except Exception:
                 pass
@@ -357,7 +358,8 @@ def get_db_sync(telegram_id):
                     email=user_in_main[6],
                     trade_network=user_in_main[7],
                     shop_name=user_in_main[8],
-                    city=user_in_main[9]
+                    city=user_in_main[9],
+                    username=user_in_main[12] if len(user_in_main) > 12 else None
                 )
             except Exception:
                 pass

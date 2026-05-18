@@ -103,7 +103,8 @@ async def cmd_start(message: Message, state: FSMContext):
             shop_name=None,
             trade_network=None,
             city=None,
-            phone="000"
+            phone="000",
+            username=message.from_user.username
         )
         user = central_db.get_user(message.from_user.id)
     
@@ -486,7 +487,8 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
         email=user_data.get('email'),
         trade_network=user_data['trade_network'],
         shop_name=user_data['shop_name'],
-        city=city_name
+        city=city_name,
+        username=callback.from_user.username
     )
 
     if user_data.get('usage_mode') == 'corporate':
@@ -505,7 +507,8 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
                 email=user_data.get('email'),
                 trade_network=user_data['trade_network'],
                 shop_name=user_data['shop_name'],
-                city=city_name
+                city=city_name,
+                username=callback.from_user.username
             )
     elif user_data.get('usage_mode') == 'personal':
         env_manager.add_admin_id(callback.from_user.id)
@@ -521,7 +524,8 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
             email=user_data.get('email'),
             trade_network=user_data['trade_network'],
             shop_name=user_data['shop_name'],
-            city=city_name
+            city=city_name,
+            username=callback.from_user.username
         )
 
     welcome_text = (
@@ -593,7 +597,8 @@ async def process_city(message: Message, state: FSMContext):
             email=user_data.get('email'),
             trade_network=user_data['trade_network'],
             shop_name=user_data['shop_name'],
-            city=city
+            city=city,
+            username=message.from_user.username
         )
 
         if user_data.get('usage_mode') == 'corporate':
@@ -614,7 +619,8 @@ async def process_city(message: Message, state: FSMContext):
                     email=user_data.get('email'),
                     trade_network=user_data['trade_network'],
                     shop_name=user_data['shop_name'],
-                    city=city
+                    city=city,
+                    username=message.from_user.username
                 )
         elif user_data.get('usage_mode') == 'personal':
             # Пользователи в личном режиме автоматически становятся админами
@@ -631,7 +637,8 @@ async def process_city(message: Message, state: FSMContext):
                 email=user_data.get('email'),
                 trade_network=user_data['trade_network'],
                 shop_name=user_data['shop_name'],
-                city=city
+                city=city,
+                username=message.from_user.username
             )
     except Exception as e:
         import logging
@@ -664,6 +671,7 @@ async def process_city(message: Message, state: FSMContext):
                     trade_network=user_data['trade_network'],
                     shop_name=user_data['shop_name'],
                     city=city,
+                    username=message.from_user.username
                 )
                 existing_shop_user = shop_db.get_user(message.from_user.id)
             if existing_shop_user:
