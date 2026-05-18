@@ -381,6 +381,12 @@ class Database:
         except Exception:
             pass
 
+        # Миграция: добавить shift_sale_alerts в notification_settings если отсутствует
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN shift_sale_alerts BOOLEAN DEFAULT TRUE")
+        except Exception:
+            pass
+
         # Расписание мотивации по месяцам
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS motivation_schedule (
@@ -1939,7 +1945,6 @@ class Database:
         conn.close()
 
         if settings:
-            # Возвращаем словарь для удобства использования
             return {
                 'low_stock_alerts': bool(settings[2]),
                 'daily_reports': bool(settings[3]),
@@ -1947,10 +1952,11 @@ class Database:
                 'payment_alerts': bool(settings[5]),
                 'admin_notifications': bool(settings[6]),
                 'stock_threshold': settings[7],
-                'notification_time': settings[8]
+                'notification_time': settings[8],
+                # shift_sale_alerts добавлен миграцией — индекс 11 (после created_at[9], updated_at[10])
+                'shift_sale_alerts': bool(settings[11]) if len(settings) > 11 else True,
             }
         else:
-            # Создаем настройки по умолчанию если их нет
             self.create_default_notification_settings(user_id)
             return {
                 'low_stock_alerts': True,
@@ -1959,7 +1965,8 @@ class Database:
                 'payment_alerts': True,
                 'admin_notifications': True,
                 'stock_threshold': 5,
-                'notification_time': '09:00'
+                'notification_time': '09:00',
+                'shift_sale_alerts': True,
             }
 
     def create_default_notification_settings(self, user_id):
@@ -2687,6 +2694,39 @@ class Database:
         users = cursor.fetchall()
         conn.close()
         return users
+
+    def get_shop_coworkers_on_shift(self, shop_name, today_str, exclude_user_id):
+        """Возвращает коллег по магазину, у которых стоит рабочая смена сегодня
+        и включены уведомления о продажах коллег (shift_sale_alerts).
+
+        Args:
+            shop_name:        название магазина продажи
+            today_str:        дата в формате 'YYYY-MM-DD'
+            exclude_user_id:  internal users.id продавца, который совершил продажу
+
+        Returns:
+            list of (user_internal_id, telegram_id, first_name)
+        """
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT u.id, u.telegram_id, u.first_name
+                FROM users u
+                JOIN work_schedule ws ON ws.user_id = u.id AND ws.work_date = ?
+                LEFT JOIN notification_settings ns ON ns.user_id = u.id
+                WHERE u.shop_name = ?
+                  AND u.id != ?
+                  AND COALESCE(ns.shift_sale_alerts, 1) = 1
+            ''', (today_str, shop_name, exclude_user_id))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"Ошибка get_shop_coworkers_on_shift: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
 
     def get_users_by_city(self, city):
         """Получение пользователей конкретного города"""

@@ -1590,6 +1590,44 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             except Exception:
                     pass
 
+        # ── Уведомления коллегам по смене ─────────────────────────────────
+        # Отправляем пуш всем, кто привязан к этому магазину, у кого
+        # в графике стоит сегодняшний рабочий день и включена опция.
+        try:
+            from main import bot
+            from notif_utils import add_read_btn as _add_read_btn
+            from datetime import date as _date
+            today_str = _date.today().isoformat()
+            coworkers = current_db.get_shop_coworkers_on_shift(
+                shop_name, today_str, user_id
+            )
+            if coworkers:
+                seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ""
+                notif_lines = [f"🛍 <b>Новая продажа в магазине {shop_name}</b>"]
+                if seller_name:
+                    notif_lines.append(f"👤 Продавец: {seller_name}")
+                for r in results:
+                    notif_lines.append(
+                        f"• {r['name']}: {r['quantity']} шт. "
+                        f"× {format_currency(r['price'])} = {format_currency(r['total'])}"
+                    )
+                notif_text = "\n".join(notif_lines)
+                for cw_uid, cw_tgid, _cw_name in coworkers:
+                    try:
+                        await bot.send_message(
+                            int(cw_tgid),
+                            notif_text,
+                            parse_mode="HTML",
+                            reply_markup=_add_read_btn()
+                        )
+                        current_db.add_notification_to_history(
+                            cw_uid, 'shift_sale', notif_text
+                        )
+                    except Exception as _send_err:
+                        logging.warning(f"shift_sale notif to {cw_tgid}: {_send_err}")
+        except Exception as _notif_err:
+            logging.error(f"Ошибка уведомлений коллег по смене: {_notif_err}")
+
         await clear_state_keep_org(state)
 
     except Exception as e:

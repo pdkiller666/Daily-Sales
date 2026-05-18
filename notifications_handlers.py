@@ -75,13 +75,15 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
 
     settings = current_db.get_notification_settings(user_id)
     history = current_db.get_notification_history(user_id)
-    unread_count = sum(1 for item in history if not item[3])
+    # item[4] = is_read (item[3] = message — это был баг, всегда давал 0 непрочитанных)
+    unread_count = sum(1 for item in history if not item[4])
     
     text = "📥 <b>Управление уведомлениями</b>\n\n"
     text += "📱 <b>Текущие настройки:</b>\n"
     text += f"• Низкие остатки: {'✅' if settings['low_stock_alerts'] else '❌'}\n"
     text += f"• Ежедневные отчеты: {'✅' if settings['daily_reports'] else '❌'}\n"
     text += f"• Уведомления о продажах: {'✅' if settings['sales_alerts'] else '❌'}\n"
+    text += f"• Продажи коллег по смене: {'✅' if settings.get('shift_sale_alerts', True) else '❌'}\n"
     text += f"• Платежные уведомления: {'✅' if settings['payment_alerts'] else '❌'}\n"
     text += f"• Админ уведомления: {'✅' if settings['admin_notifications'] else '❌'}\n"
     text += f"• Порог остатков: {settings['stock_threshold']} шт.\n"
@@ -400,6 +402,7 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
         [InlineKeyboardButton(text=f"📦 Низкие остатки {'✅' if settings['low_stock_alerts'] else '❌'}", callback_data="toggle_low_stock")],
         [InlineKeyboardButton(text=f"📊 Ежедневные отчеты {'✅' if settings['daily_reports'] else '❌'}", callback_data="toggle_daily_reports")],
         [InlineKeyboardButton(text=f"💰 Уведомления о продажах {'✅' if settings['sales_alerts'] else '❌'}", callback_data="toggle_sales_alerts")],
+        [InlineKeyboardButton(text=f"👥 Продажи коллег по смене {'✅' if settings.get('shift_sale_alerts', True) else '❌'}", callback_data="toggle_shift_sale")],
     ]
     
     if is_admin:
@@ -432,7 +435,7 @@ async def set_notification_time_start(callback: CallbackQuery, state: FSMContext
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notification_settings")]]), parse_mode="HTML")
     await state.set_state(NotificationStates.waiting_for_time)
 
-@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications"]))
+@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale"]))
 async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
@@ -446,7 +449,8 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
         'toggle_daily_reports': 'daily_reports',
         'toggle_sales_alerts': 'sales_alerts',
         'toggle_payment_alerts': 'payment_alerts',
-        'toggle_admin_notifications': 'admin_notifications'
+        'toggle_admin_notifications': 'admin_notifications',
+        'toggle_shift_sale': 'shift_sale_alerts',
     }
     
     setting_type = setting_mapping.get(callback.data)
