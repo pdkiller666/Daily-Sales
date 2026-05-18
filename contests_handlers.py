@@ -546,6 +546,7 @@ async def _show_metric_step(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ctmet_"))
 async def contest_metric_selected(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     metric = callback.data[len("ctmet_"):]
     await state.update_data(ct_metric=metric, anchor_msg_id=callback.message.message_id)
     await _show_reward_mode_step(callback, state)
@@ -578,6 +579,7 @@ async def _show_reward_mode_step(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ctrm_"))
 async def contest_reward_mode_selected(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     mode = callback.data[len("ctrm_"):]
     await state.update_data(ct_reward_mode=mode, anchor_msg_id=callback.message.message_id)
 
@@ -628,6 +630,7 @@ async def _show_tier_count_step(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("cttc_"))
 async def contest_tier_count_selected(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     count = int(callback.data[len("cttc_"):])
     await state.update_data(ct_tier_count=count, ct_tier_idx=0, ct_tiers=[])
     await _show_tier_pct_step(callback, state)
@@ -664,6 +667,7 @@ async def _show_tier_pct_step(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ctpct_"))
 async def contest_tier_pct_selected(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     pct = float(callback.data[len("ctpct_"):])
     data = await state.get_data()
     tier_idx = data.get('ct_tier_idx', 0)
@@ -912,6 +916,7 @@ async def _show_individual_target_prompt(callback: CallbackQuery, state: FSMCont
 
 @contests_router.callback_query(F.data == "ctindval_skip")
 async def contest_individual_target_skip_shop(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.set_state(None)
     data = await state.get_data()
     idx = data.get('ct_ind_idx', 0)
@@ -2305,7 +2310,6 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
-    await callback.answer()
 
     contest_id = int(callback.data[len("ct_manual_"):])
     current_db = await get_db(callback.from_user.id, state)
@@ -2313,6 +2317,7 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
+    await callback.answer()
 
     import json as _json2
     shop_f = contest[10]
@@ -2405,7 +2410,6 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
-    await callback.answer()
 
     raw = callback.data[len("ct_manset_"):]
     current_db = await get_db(callback.from_user.id, state)
@@ -2482,6 +2486,7 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     cancel_kb.button(text="⬅️ Назад", callback_data=f"ct_manual_{contest_id}")
     cancel_kb.adjust(1)
 
+    await callback.answer()
     await callback.message.edit_text(
         f"✏️ <b>Корректировка показателя</b>\n\n"
         f"🏪 <b>{he(shop_name)}</b>{info_lines}\n\n"

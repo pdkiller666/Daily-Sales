@@ -582,12 +582,12 @@ async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
 @integration_router.callback_query(F.data.startswith("gs_conn_"))
 async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[2])
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     conn = current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Подключение не найдено", show_alert=True)
         return
+    await callback.answer()
 
     exports = current_db.get_integration_exports(conn_id)
     cfg = json.loads(conn[3] or '{}')
@@ -737,13 +737,12 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
 @integration_router.callback_query(F.data.startswith("gs_sync_motiv_"))
 async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
-    await callback.answer()
-
     current_db = await get_db(callback.from_user.id, state)
     conn = current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Подключение не найдено", show_alert=True)
         return
+    await callback.answer()
 
     await state.update_data(gs_motiv_conn_id=conn_id)
     now_week = __import__('datetime').datetime.now().isocalendar()[1]
@@ -941,13 +940,14 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
     try:
         exp_id = int(parts[2])
     except (IndexError, ValueError):
+        await callback.answer()
         return
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     exp = current_db.get_integration_export(exp_id)
     if not exp:
         await callback.answer("❌ Не найдено", show_alert=True)
         return
+    await callback.answer()
 
     conn_id = exp[1]
     icon = "✅" if exp[2] else "❌"

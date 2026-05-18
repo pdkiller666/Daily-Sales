@@ -2037,6 +2037,247 @@ print(f"\n{'='*60}")
 print("  ИТОГИ ТЕСТИРОВАНИЯ")
 print('='*60)
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 30: Google Sheets — кэш бонусов (gs_bonus_cache)
+# ─────────────────────────────────────────────────────────
+section("Сценарий 30: Google Sheets — кэш бонусов (gs_bonus_cache)")
+
+gsdb = make_db("gs_bonus.db")
+
+# upsert_bonus_cache — добавление
+gsdb.upsert_bonus_cache(1, "iPhone 15 Pro", "Сеть А", 500.0, 89999.0)
+gsdb.upsert_bonus_cache(1, "Samsung A55",   "Сеть А", 350.0, 39999.0)
+gsdb.upsert_bonus_cache(1, "Xiaomi 14",     "Сеть Б", 400.0, 49999.0)
+gsdb.upsert_bonus_cache(2, "iPhone 15 Pro", "Сеть А", 600.0, 89999.0)
+
+# get_bonus_cache — по connection_id
+cache1 = gsdb.get_bonus_cache(connection_id=1)
+check("get_bonus_cache(1): 3 записи", len(cache1) == 3)
+check("get_bonus_cache(1): содержит iPhone 15 Pro",
+      any(r[0] == "iPhone 15 Pro" for r in cache1))
+
+cache2 = gsdb.get_bonus_cache(connection_id=2)
+check("get_bonus_cache(2): 1 запись", len(cache2) == 1)
+
+cache_all = gsdb.get_bonus_cache()
+check("get_bonus_cache(): все 4 записи", len(cache_all) == 4)
+
+# get_bonus_for_model — найден
+bonus = gsdb.get_bonus_for_model("iPhone 15 Pro", "Сеть А")
+check("get_bonus_for_model: найден → float", isinstance(bonus, float))
+check("get_bonus_for_model: значение 500.0", abs(bonus - 500.0) < 0.01)
+
+# get_bonus_for_model — не найден → None
+miss = gsdb.get_bonus_for_model("Nokia 3310", "Сеть А")
+check("get_bonus_for_model: несущ. → None", miss is None)
+
+# upsert_bonus_cache — обновление существующей записи (UPSERT)
+gsdb.upsert_bonus_cache(1, "iPhone 15 Pro", "Сеть А", 550.0, 89999.0)
+bonus_upd = gsdb.get_bonus_for_model("iPhone 15 Pro", "Сеть А")
+check("upsert_bonus_cache UPSERT: бонус обновлён до 550.0",
+      bonus_upd is not None and abs(bonus_upd - 550.0) < 0.01)
+cache_after_upsert = gsdb.get_bonus_cache(connection_id=1)
+check("upsert_bonus_cache UPSERT: количество записей не изменилось",
+      len(cache_after_upsert) == 3)
+
+# clear_bonus_cache — удаляет все записи соединения
+gsdb.clear_bonus_cache(connection_id=2)
+check("clear_bonus_cache(2): записи удалены",
+      len(gsdb.get_bonus_cache(connection_id=2)) == 0)
+check("clear_bonus_cache(2): conn_id=1 не затронут",
+      len(gsdb.get_bonus_cache(connection_id=1)) == 3)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 31: Кросс-магазинная продажа
+# ─────────────────────────────────────────────────────────
+section("Сценарий 31: Кросс-магазинная продажа")
+
+csdb = make_db("crossshop.db")
+csdb.add_user(1400001, "Продавец", "Кросс", shop_name="Магазин А")
+uid_cs = csdb.get_user_id(1400001)
+pid_cs  = csdb.add_product("Товар Кросс", "Категория", 1000.0)
+pid_cs2 = csdb.add_product("Другой Товар", "Категория", 2000.0)
+
+# Инвентарь в ДРУГОМ магазине (не в магазине пользователя)
+csdb.add_inventory("Магазин Б", pid_cs,  50)
+csdb.add_inventory("Магазин Б", pid_cs2, 20)
+
+# Продажа из чужого магазина
+sale_cross = csdb.add_sale(pid_cs, "Магазин Б", 3, uid_cs, 1000.0)
+check("cross-shop sale: продажа проведена", sale_cross is not None and sale_cross > 0)
+
+inv_after = csdb.get_inventory("Магазин Б", pid_cs)
+check("cross-shop sale: остаток уменьшился (50-3=47)", inv_after == 47)
+
+# Продавца нет в магазине Б — продажа всё равно работает
+sale_cross2 = csdb.add_sale(pid_cs2, "Магазин Б", 5, uid_cs, 2000.0)
+check("cross-shop sale: второй товар продан", sale_cross2 is not None)
+check("cross-shop sale: остаток второго товара (20-5=15)",
+      csdb.get_inventory("Магазин Б", pid_cs2) == 15)
+
+# Превышение остатков → None
+sale_over = csdb.add_sale(pid_cs, "Магазин Б", 999, uid_cs, 1000.0)
+check("cross-shop sale: превышение → None", sale_over is None)
+
+# Продажа из магазина без инвентаря → None
+sale_nostock = csdb.add_sale(pid_cs, "Магазин В", 1, uid_cs, 1000.0)
+check("cross-shop sale: нет инвентаря → None", sale_nostock is None)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 32: get_sales_ranking — 8 колонок (gotcha #9)
+# ─────────────────────────────────────────────────────────
+section("Сценарий 32: Рейтинг продавцов — 8 колонок (gotcha #9)")
+
+rkdb = make_db("ranking.db")
+rkdb.add_user(1500001, "Топ",    "Продавец", shop_name="Топ Магазин")
+rkdb.add_user(1500002, "Второй", "Место",    shop_name="Топ Магазин")
+rk_u1 = rkdb.get_user_id(1500001)
+rk_u2 = rkdb.get_user_id(1500002)
+rk_p1 = rkdb.add_product("Prod Top A", "Кат", 500.0)
+rkdb.add_inventory("Топ Магазин", rk_p1, 500)
+
+from datetime import timedelta as _td
+rk_start = (datetime.now() - _td(days=7)).strftime("%Y-%m-%d")
+rk_end   = (datetime.now() + _td(days=1)).strftime("%Y-%m-%d")
+
+rkdb.add_sale(rk_p1, "Топ Магазин", 10, rk_u1, 500.0)
+rkdb.add_sale(rk_p1, "Топ Магазин",  5, rk_u2, 500.0)
+
+ranking = rkdb.get_sales_ranking(start_date=rk_start, end_date=rk_end)
+check("get_sales_ranking: список", isinstance(ranking, list))
+check("get_sales_ranking: ≥2 строки", len(ranking) >= 2)
+if ranking:
+    row0 = ranking[0]
+    check("get_sales_ranking: ≥8 колонок (col 8 = user_db_id)",
+          len(row0) >= 8)
+    check("get_sales_ranking: row[:7] не теряет данных",
+          len(row0[:7]) == 7)
+    check("get_sales_ranking: col[7] — это user_db_id (int)",
+          isinstance(row0[7], int))
+    check("get_sales_ranking: топ-1 — больший оборот",
+          row0[2] >= ranking[1][2] if len(ranking) >= 2 else True)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 33: hints.py — hint_suffix и HINT_TEXTS
+# ─────────────────────────────────────────────────────────
+section("Сценарий 33: Онбординг и подсказки (hints.py)")
+
+from hints import hint_suffix, HINT_TEXTS, maybe_send_welcome
+
+hdb = make_db("hints.db")
+hdb.add_user(1600001, "Новый", "Пользователь")
+h_uid = hdb.get_user_id(1600001)
+
+# HINT_TEXTS содержит ключевые разделы
+for key in ('first_sale', 'first_reports', 'first_products', 'first_dashboard',
+            'first_plans', 'first_contests', 'first_rankings'):
+    check(f"HINT_TEXTS: '{key}' существует", key in HINT_TEXTS)
+    check(f"HINT_TEXTS: '{key}' не пустой", bool(HINT_TEXTS[key]))
+
+# hint_suffix — первый раз возвращает текст
+suffix1 = hint_suffix(hdb, h_uid, 'first_sale')
+check("hint_suffix: первый раз → непустая строка", len(suffix1) > 0)
+check("hint_suffix: содержит <i>", "<i>" in suffix1)
+
+# hint_suffix — повторно → пустая строка
+suffix2 = hint_suffix(hdb, h_uid, 'first_sale')
+check("hint_suffix: повторно → пустая строка", suffix2 == "")
+
+# hint_suffix для второго ключа — свежий (не пересекается)
+suffix3 = hint_suffix(hdb, h_uid, 'first_reports')
+check("hint_suffix: другой ключ → снова не пустой", len(suffix3) > 0)
+
+# Несуществующий ключ — возвращает "" без исключения
+suffix_unknown = hint_suffix(hdb, h_uid, 'nonexistent_key')
+check("hint_suffix: несущ. ключ → пустая строка без исключения",
+      suffix_unknown == "")
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 34: notif_utils — add_read_btn
+# ─────────────────────────────────────────────────────────
+section("Сценарий 34: Кнопка «Прочитано» (notif_utils)")
+
+from notif_utils import add_read_btn
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# Без клавиатуры — создаёт одну строку с кнопкой
+kb_alone = add_read_btn(None)
+check("add_read_btn(None): InlineKeyboardMarkup", isinstance(kb_alone, InlineKeyboardMarkup))
+check("add_read_btn(None): 1 строка", len(kb_alone.inline_keyboard) == 1)
+check("add_read_btn(None): кнопка notif_read",
+      kb_alone.inline_keyboard[0][0].callback_data == "notif_read")
+check("add_read_btn(None): текст кнопки содержит 'Прочитано'",
+      "Прочитано" in kb_alone.inline_keyboard[0][0].text)
+
+# С существующей клавиатурой — добавляет строку в конец
+existing = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="📊 Отчёт", callback_data="some_cb")],
+    [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")],
+])
+kb_with = add_read_btn(existing)
+check("add_read_btn(existing): 3 строки (было 2 + кнопка)", len(kb_with.inline_keyboard) == 3)
+check("add_read_btn(existing): последняя строка — notif_read",
+      kb_with.inline_keyboard[-1][0].callback_data == "notif_read")
+check("add_read_btn(existing): первые строки не затронуты",
+      kb_with.inline_keyboard[0][0].callback_data == "some_cb")
+
+# Идемпотентность — исходная клавиатура не изменилась
+check("add_read_btn: исходная kb не мутирована",
+      len(existing.inline_keyboard) == 2)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 35: filter_utils — полный API
+# ─────────────────────────────────────────────────────────
+section("Сценарий 35: Фильтры (filter_utils)")
+
+from filter_utils import (
+    empty_filter, is_filter_active, filter_active_text,
+    merge_scope_with_filter, has_anything_to_filter,
+    filter_button_text, filter_to_scope_kwargs,
+)
+
+# empty_filter — пустой фильтр
+ef = empty_filter()
+check("empty_filter: dict", isinstance(ef, dict))
+check("empty_filter: не активен", not is_filter_active(ef))
+check("empty_filter: текст пустой", filter_active_text(ef) == "")
+check("filter_button_text: нет активных → содержит 'Фильтр'",
+      "Фильтр" in filter_button_text(ef))
+
+# is_filter_active — с выбранными значениями
+flt_shop = {'shops': ['Магазин А'], 'cities': [], 'networks': []}
+check("is_filter_active: магазин выбран → True", is_filter_active(flt_shop))
+check("filter_active_text: непустой", len(filter_active_text(flt_shop)) > 0)
+check("filter_button_text: активный → содержит '🔍'",
+      "🔍" in filter_button_text(flt_shop))
+
+# merge_scope_with_filter — scope = ceiling, filter = floor
+# Scope: shop-level, filter уточняет по одному магазину
+merged_shop = merge_scope_with_filter(
+    'shop', ['Магазин А', 'Магазин Б'],
+    {'shops': ['Магазин А'], 'cities': [], 'networks': []}
+)
+check("merge_scope_with_filter shop: dict", isinstance(merged_shop, dict))
+check("merge_scope_with_filter shop: содержит shop_names (filter_to_scope_kwargs)",
+      'shop_names' in merged_shop)
+
+# Scope network + пустой фильтр → возвращает scope как есть
+merged_net = merge_scope_with_filter(
+    'network', ['Сеть X'], empty_filter()
+)
+check("merge_scope_with_filter network+empty: dict",
+      isinstance(merged_net, dict))
+
+# filter_to_scope_kwargs с магазином
+kwargs = filter_to_scope_kwargs({'shops': ['Магазин А'], 'cities': [], 'networks': []})
+check("filter_to_scope_kwargs: dict", isinstance(kwargs, dict))
+
+# has_anything_to_filter — нет данных → False
+check("has_anything_to_filter: пустой available → False",
+      not has_anything_to_filter({'shops': [], 'cities': [], 'networks': []}))
+check("has_anything_to_filter: с магазинами → True",
+      has_anything_to_filter({'shops': ['Магазин А'], 'cities': [], 'networks': []}))
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

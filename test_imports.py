@@ -24,6 +24,10 @@ MODULES = [
     'restart_manager',
     'scheduler_module',
     'timezone_utils',
+    'pagination_utils',
+    'filter_utils',
+    'notif_utils',
+    'hints',
     'reports_access_control',
     'handlers',
     'admin_handlers',
@@ -32,6 +36,7 @@ MODULES = [
     'reports_handlers',
     'inventory_handlers',
     'contacts_handlers',
+    'filter_handlers',
     'payment_provider',
     'subscription_router',
     'subscription_handlers',
@@ -46,6 +51,10 @@ MODULES = [
     'plan_notifications',
     'contests_handlers',
     'dashboard_handlers',
+    'integration_handlers',
+    'integration.manager',
+    'integration.auth.google_oauth',
+    'integration.providers.google_sheets',
 ]
 
 passed = 0
