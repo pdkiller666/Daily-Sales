@@ -1811,10 +1811,16 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
             "<b>В какой строке написаны заголовки столбцов?</b>\n"
             "Введи номер строки. Пример: <code>6</code>"
         )
+        _retry_kb = InlineKeyboardBuilder()
+        _retry_kb.row(InlineKeyboardButton(
+            text="🔄 Обновить", callback_data="gs_lkp_retry_hrow"))
+        _retry_kb.row(InlineKeyboardButton(
+            text="⬅️ Назад", callback_data=wiz_back))
+        _retry_markup = _retry_kb.as_markup()
         if is_anchor:
-            await message.edit_text(fallback, parse_mode="HTML")
+            await message.edit_text(fallback, reply_markup=_retry_markup, parse_mode="HTML")
         else:
-            await _fsm_edit(message, state, fallback)
+            await _fsm_edit(message, state, fallback, reply_markup=_retry_markup)
 
 
 @integration_router.message(IntegrationStates.waiting_lookup_step)
@@ -1885,6 +1891,11 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    if raw == "retry_hrow":
+        # Re-attempt loading rows from the sheet (step 1 retry)
+        await _start_lookup_wizard(callback.message, state)
+        return
+
     if raw == "retry_idcol":
         # Re-attempt loading column data from the sheet
         data = await state.get_data()
@@ -1948,12 +1959,21 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
 
     # ── header-row picker (step 1) ────────────────────────────
     if raw == "hrow_manual":
+        data = await state.get_data()
+        wiz_back_cb = data.get('gs_wizard_back_cb', '')
         await state.update_data(gs_lookup_step=0)
         await state.set_state(IntegrationStates.waiting_lookup_step)
+        _man_kb = InlineKeyboardBuilder()
+        _man_kb.row(InlineKeyboardButton(
+            text="🔄 Обновить", callback_data="gs_lkp_retry_hrow"))
+        if wiz_back_cb:
+            _man_kb.row(InlineKeyboardButton(
+                text="⬅️ Назад", callback_data=wiz_back_cb))
         await callback.message.edit_text(
             "🔍 <b>Шаг 1/4 — строка заголовков</b>\n\n"
             "Введи номер строки, в которой написаны заголовки столбцов.\n"
             "Пример: <code>6</code>",
+            reply_markup=_man_kb.as_markup(),
             parse_mode="HTML"
         )
         return
@@ -2009,10 +2029,16 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
     if raw == "idcol_manual":
         await state.update_data(gs_lookup_step=1)
         await state.set_state(IntegrationStates.waiting_lookup_step)
+        _man2_kb = InlineKeyboardBuilder()
+        _man2_kb.row(InlineKeyboardButton(
+            text="🔄 Обновить", callback_data="gs_lkp_retry_idcol"))
+        _man2_kb.row(InlineKeyboardButton(
+            text="⬅️ Назад", callback_data="gs_lkp_bk_hrow"))
         await callback.message.edit_text(
             "🔍 <b>Шаг 2/4 — Колонка с ID строк</b>\n\n"
             "Введи номер колонки, в которой написаны названия магазинов/продавцов.\n"
             "1 = A,  2 = B,  3 = C…\nПример: <code>1</code>",
+            reply_markup=_man2_kb.as_markup(),
             parse_mode="HTML"
         )
         return
