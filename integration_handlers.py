@@ -1383,7 +1383,7 @@ async def _save_export(msg, state: FSMContext, from_message: bool = False):
     anchor_id    = data.get('anchor_msg_id')
 
     from db_utils import get_db as _get_db
-    user_id = msg.from_user.id if hasattr(msg, 'from_user') else msg.chat.id
+    user_id = msg.chat.id
     current_db = await _get_db(user_id, state)
 
     exp_id = current_db.add_integration_export(
