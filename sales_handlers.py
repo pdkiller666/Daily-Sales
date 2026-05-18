@@ -707,7 +707,7 @@ async def sale_srch_prd_start(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data == "sale_srch_prd_cancel")
 async def sale_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
     """Сброс поиска — возвращает полный список товаров категории."""
-    await state.set_state(None)
+    await state.set_state(MultipleSaleStates.adding_items)
     data = await state.get_data()
     shop_name = data.get("shop_name", "")
     home_shop = data.get("sale_home_shop", shop_name)
@@ -721,7 +721,7 @@ async def sale_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
 async def sale_srch_prd_process(message: Message, state: FSMContext):
     """Обрабатывает поисковый запрос товара внутри категории."""
     query = (message.text or "").strip()
-    await state.set_state(None)
+    await state.set_state(MultipleSaleStates.adding_items)
     data = await state.get_data()
     shop_name = data.get("shop_name", "")
     home_shop = data.get("sale_home_shop", shop_name)
