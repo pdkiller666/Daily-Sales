@@ -11,6 +11,7 @@ from database import Database
 from keyboards import InlineKeyboardBuilder
 from utils import format_price, he
 from db_utils import get_db
+from timezone_utils import get_current_user_time
 
 earnings_router = Router()
 
@@ -37,11 +38,12 @@ async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="main_menu")
     builder.adjust(1)
 
-    current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    now = get_current_user_time(user_tz)
+    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_earnings = current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
     all_time_earnings = current_db.get_seller_total_earnings(user_id)
 
-    now = datetime.now()
     worked_days = current_db.get_worked_days_count(user_id, now.year, now.month)
     monthly_salary = current_db.calculate_monthly_salary(user_id, now.year, now.month)
     daily_rate = current_db.get_salary_rate(user_id)
@@ -75,12 +77,13 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    now = get_current_user_time(user_tz)
+    current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
     total_earnings = current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
 
-    now = datetime.now()
     current_month_name = _MONTHS_RU[now.month]
 
     worked_days = current_db.get_worked_days_count(user_id, now.year, now.month)
@@ -194,9 +197,10 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
         return
 
     if callback.data == "earnings_detailed_current":
-        current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        user_tz = current_db.get_user_timezone(callback.from_user.id)
+        now = get_current_user_time(user_tz)
+        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
-        now = datetime.now()
         period_text = f"{_MONTHS_RU[now.month]} {now.year}"
         period_type = "current"
     else:
@@ -360,9 +364,11 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
 @earnings_router.callback_query(F.data == "earnings_select_period")
 async def earnings_select_period(callback: CallbackQuery, state: FSMContext):
     """Выбор периода для просмотра заработка"""
+    current_db = await get_db(callback.from_user.id, state)
     builder = InlineKeyboardBuilder()
 
-    current_date = datetime.now()
+    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    current_date = get_current_user_time(user_tz)
     for i in range(1, 7):
         date = current_date - timedelta(days=30*i)
         month_name = _MONTHS_RU[date.month]
@@ -456,7 +462,8 @@ async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    last_year = datetime.now().year - 1
+    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    last_year = get_current_user_time(user_tz).year - 1
     start_date = datetime(last_year, 1, 1)
     end_date = datetime(last_year, 12, 31, 23, 59, 59)
 
