@@ -591,8 +591,8 @@ async def process_quick_search(message: Message, state: FSMContext):
     )
 
 
-async def _show_sale_product_list(message, shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
-    """Показывает список товаров категории с фильтрацией по запросу."""
+def _build_sale_product_list_content(shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
+    """Строит текст и клавиатуру для списка товаров категории с опциональным фильтром."""
     products = current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
 
@@ -626,11 +626,14 @@ async def _show_sale_product_list(message, shop_name: str, category: str, curren
     builder.adjust(1)
 
     suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
-    await message.edit_text(
-        f"📂 {he(category)}{shop_note}{suffix}\n\nВыберите товар для продажи:",
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
-    )
+    text = f"📂 {he(category)}{shop_note}{suffix}\n\nВыберите товар для продажи:"
+    return text, builder.as_markup()
+
+
+async def _show_sale_product_list(message, shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
+    """Редактирует сообщение бота, показывая список товаров категории."""
+    text, markup = _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
+    await message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @sales_router.callback_query(F.data.startswith("sale_category_"))
@@ -724,44 +727,8 @@ async def sale_srch_prd_process(message: Message, state: FSMContext):
     home_shop = data.get("sale_home_shop", shop_name)
     category = data.get("sale_current_category", "")
     current_db = await get_db(message.from_user.id, state)
-
-    products = current_db.get_all_products()
-    category_products = [p for p in products if p[2] == category]
-    q = query.lower()
-    filtered_pids = [p[0] for p in category_products if q in p[1].lower()] if query else [p[0] for p in category_products]
-
-    available = []
-    for product in category_products:
-        pid, name, price = product[0], product[1], product[3]
-        if query and q not in name.lower():
-            continue
-        qty = current_db.get_inventory(shop_name, pid)
-        if qty > 0:
-            available.append((pid, name, price, qty))
-
-    is_other = shop_name != home_shop
-    shop_note = f" <i>(из «{he(shop_name)}»)</i>" if is_other else ""
-
-    builder = InlineKeyboardBuilder()
-    for pid, name, price, qty in available:
-        color = get_stock_color_indicator(qty)
-        builder.add(InlineKeyboardButton(
-            text=f"{color} {name} - {qty} шт. × {price}₽",
-            callback_data=f"sale_product_{pid}"
-        ))
-    builder.add(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_srch_prd_start"))
-    if query:
-        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="sale_srch_prd_cancel"))
-    builder.add(InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale"))
-    builder.adjust(1)
-
-    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(available)}" if available else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
-    await fsm_edit(
-        state, message,
-        f"📂 {he(category)}{shop_note}{suffix}\n\nВыберите товар для продажи:",
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
-    )
+    text, markup = _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
+    await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
 
 @sales_router.callback_query(F.data.startswith("sale_product_"))
 async def select_sale_product(callback: CallbackQuery, state: FSMContext):
