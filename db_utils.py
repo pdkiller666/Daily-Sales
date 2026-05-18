@@ -2,12 +2,15 @@
 Утилиты для работы с базами данных в мульти-тенантной системе
 """
 import json as _json
+import logging
 import os
 import sqlite3
 import time as _time
 from database import Database
 from tenant_manager import tenant_manager
 from env_manager import env_manager
+
+logger = logging.getLogger(__name__)
 
 # Кеш результатов is_any_admin(): {telegram_id: (result: bool, timestamp: float)}
 # Роли меняются редко — TTL 60 секунд не создаёт проблем, но снимает нагрузку.
@@ -348,8 +351,8 @@ def maybe_refresh_username(db, telegram_id: int, tg_username) -> None:
         stored = user[12] if len(user) > 12 else None
         if stored != tg_username:
             db.update_user(telegram_id, username=tg_username)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("maybe_refresh_username failed for %s: %s", telegram_id, e)
 
 
 def get_db_sync(telegram_id):

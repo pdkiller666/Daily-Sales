@@ -9,6 +9,10 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Сентинел для параметра username в update_user(): позволяет явно
+# передать username=None (→ запись NULL) в отличие от «не передавать» (→ без изменений).
+_UNSET = object()
+
 # Кеш инициализированных БД: create_tables() выполняется только ОДИН РАЗ
 # на каждый путь БД за время жизни процесса. Перезапуск сбрасывает кеш.
 _INITIALIZED_DBS: set = set()
@@ -2618,9 +2622,15 @@ class Database:
             logger.error(f"Ошибка при удалении пользователя: {e}")
             return False
 
-    def update_user(self, telegram_id, first_name=None, last_name=None, middle_name=None, 
-                   phone=None, email=None, trade_network=None, shop_name=None, city=None, username=None):
-        """Обновление данных пользователя"""
+    def update_user(self, telegram_id, first_name=None, last_name=None, middle_name=None,
+                   phone=None, email=None, trade_network=None, shop_name=None, city=None,
+                   username=_UNSET):
+        """Обновление данных пользователя.
+
+        username=_UNSET (default) — поле не трогается.
+        username=None            — явно записывает NULL (пользователь удалил @username).
+        username="somestr"       — обновляет на новое значение.
+        """
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
 
@@ -2651,7 +2661,7 @@ class Database:
         if city is not None:
             updates.append('city = ?')
             params.append(city)
-        if username is not None:
+        if username is not _UNSET:
             updates.append('username = ?')
             params.append(username)
 
