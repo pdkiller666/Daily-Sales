@@ -4132,10 +4132,15 @@ class Database:
                     return 0.0
 
             # ─── Коэффициент смены ────────────────────────────────────────────
+            # Для joint-режима коэффициент НЕ применяется здесь — он применяется
+            # к общему пулу магазина в get_joint_bonus_adjustment().
+            # Для individual-режима коэффициент применяется к личной комиссии.
             coeff_conditions = []
             if year is not None and month is not None:
                 cursor.execute('''
-                    SELECT shop_name, min_sellers, coefficient FROM extra_conditions_schedule
+                    SELECT shop_name, min_sellers, coefficient,
+                           COALESCE(calc_mode, 'individual') as calc_mode
+                    FROM extra_conditions_schedule
                     WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
                       AND year = ? AND month = ?
                       AND (shop_name = ? OR shop_name IS NULL)
@@ -4144,7 +4149,9 @@ class Database:
                 coeff_conditions = cursor.fetchall()
             if not coeff_conditions:
                 cursor.execute('''
-                    SELECT shop_name, min_sellers, coefficient FROM motivation_extra_conditions
+                    SELECT shop_name, min_sellers, coefficient,
+                           COALESCE(calc_mode, 'individual') as calc_mode
+                    FROM motivation_extra_conditions
                     WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
                       AND (shop_name = ? OR shop_name IS NULL)
                     ORDER BY shop_name DESC
@@ -4176,9 +4183,12 @@ class Database:
                     ''', (shop_name, start_of_month))
                 sellers_count = cursor.fetchone()[0]
 
-                for _cond_shop, min_sellers, coefficient in coeff_conditions:
+                for _cond_shop, min_sellers, coefficient, calc_mode in coeff_conditions:
                     if sellers_count >= min_sellers:
-                        final_commission = round(final_commission * coefficient, 2)
+                        if calc_mode != 'joint':
+                            # Раздельный: коэффициент умножается на личную комиссию сразу
+                            final_commission = round(final_commission * coefficient, 2)
+                        # Joint: коэффициент применяется к пулу в get_joint_bonus_adjustment
                         break
 
             conn.close()
@@ -4781,29 +4791,43 @@ class Database:
         """Расчёт корректировки заработка для совместного режима мотивации.
 
         Для магазинов с calc_mode='joint':
-          joint_pool   = SUM(seller_earnings всех продавцов в магазине за период)
-          sellers_cnt  = количество уникальных продавцов магазина за период
-          user_share   = joint_pool / sellers_cnt   (равный раздел пула)
-          adjustment   = user_share - user_individual
+          base_pool    = SUM(commission_amount всех продавцов в магазине за период)
+                         (комиссии записаны БЕЗ коэффициента, т.к. apply_extra_conditions
+                          пропускает его для joint-условий)
+          joint_total  = base_pool × coefficient   (если sellers_count >= min_sellers)
+          adjustment   = joint_total - user_individual
 
-        Каждый продавец получает ровно свою долю общего пула.
-        Если совместных условий нет — возвращает 0.0.
+        Пример: Андрей продал 2 шт → +20₽ в пул, Ольга 1 шт → +10₽ в пул.
+        Пул = 30₽, коэф. 0.7 → joint_total = 21₽. Каждый получает +21₽.
+
+        Если совместных условий нет или min_sellers не достигнут — возвращает 0.0.
         """
         try:
             conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
 
-            # Проверяем: есть ли вообще активные joint условия
+            # Активные joint-условия: shop_name, min_sellers, coefficient
             cursor.execute("""
-                SELECT DISTINCT shop_name FROM motivation_extra_conditions
+                SELECT shop_name, min_sellers, coefficient
+                FROM motivation_extra_conditions
                 WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint' AND is_active = 1
             """)
-            joint_shops_rows = cursor.fetchall()
-            if not joint_shops_rows:
+            joint_conditions = cursor.fetchall()
+            if not joint_conditions:
                 conn.close()
                 return 0.0
 
-            # Находим магазины, где этот пользователь продавал за период
+            # Строим словарь shop_name → (min_sellers, coefficient)
+            # None = условие применяется ко всем магазинам
+            shop_to_cond = {}
+            global_cond  = None
+            for sn, min_s, coeff in joint_conditions:
+                if sn is None:
+                    global_cond = (min_s, coeff)
+                else:
+                    shop_to_cond[sn] = (min_s, coeff)
+
+            # Магазины, где этот пользователь продавал за период
             date_filter = ""
             params_user = [user_id]
             if start_date:
@@ -4819,28 +4843,22 @@ class Database:
             """, params_user)
             user_shops = {r[0] for r in cursor.fetchall()}
 
-            # Определяем набор joint_shop_names (None = все магазины)
-            joint_shop_names = set()
-            has_global_joint = False
-            for (sn,) in joint_shops_rows:
-                if sn is None:
-                    has_global_joint = True
-                else:
-                    joint_shop_names.add(sn)
-
-            if has_global_joint:
-                active_joint_shops = user_shops
-            else:
-                active_joint_shops = user_shops & joint_shop_names
+            # Оставляем только магазины с joint-условием
+            active_joint_shops = {}  # shop → (min_sellers, coefficient)
+            for sn in user_shops:
+                if sn in shop_to_cond:
+                    active_joint_shops[sn] = shop_to_cond[sn]
+                elif global_cond is not None:
+                    active_joint_shops[sn] = global_cond
 
             if not active_joint_shops:
                 conn.close()
                 return 0.0
 
             total_adjustment = 0.0
-            for shop in active_joint_shops:
-                params_pool = []
+            for shop, (min_sellers, coefficient) in active_joint_shops.items():
                 date_clause = ""
+                params_pool = []
                 if start_date:
                     date_clause += " AND s.sale_date >= ?"
                     params_pool.append(start_date)
@@ -4848,25 +4866,32 @@ class Database:
                     date_clause += " AND s.sale_date <= ?"
                     params_pool.append(end_date)
 
-                # Пул всех продавцов в магазине за период
+                # Количество уникальных продавцов в магазине за период
+                cursor.execute(f"""
+                    SELECT COUNT(DISTINCT s.user_id)
+                    FROM sales s
+                    WHERE s.shop_name = ? {date_clause}
+                """, [shop] + params_pool)
+                sellers_count = cursor.fetchone()[0] or 0
+
+                # Если порог продавцов не достигнут — joint не применяется
+                if sellers_count < min_sellers:
+                    continue
+
+                # Базовый пул = сумма комиссий всех продавцов (без коэффициента,
+                # т.к. apply_extra_conditions не применял его для joint)
                 cursor.execute(f"""
                     SELECT COALESCE(SUM(se.commission_amount), 0.0)
                     FROM seller_earnings se
                     JOIN sales s ON se.sale_id = s.id
                     WHERE s.shop_name = ? {date_clause}
                 """, [shop] + params_pool)
-                pool = cursor.fetchone()[0] or 0.0
+                base_pool = cursor.fetchone()[0] or 0.0
 
-                # Количество уникальных продавцов, участвовавших в пуле
-                cursor.execute(f"""
-                    SELECT COUNT(DISTINCT se.user_id)
-                    FROM seller_earnings se
-                    JOIN sales s ON se.sale_id = s.id
-                    WHERE s.shop_name = ? {date_clause}
-                """, [shop] + params_pool)
-                sellers_cnt = cursor.fetchone()[0] or 1
+                # Каждый продавец получает: пул × коэффициент
+                joint_total = round(base_pool * coefficient, 2)
 
-                # Индивидуальный вклад этого пользователя (уже учтён в его seller_earnings)
+                # Личный вклад пользователя (уже учтён в его seller_earnings)
                 cursor.execute(f"""
                     SELECT COALESCE(SUM(se.commission_amount), 0.0)
                     FROM seller_earnings se
@@ -4875,9 +4900,7 @@ class Database:
                 """, [user_id, shop] + params_pool)
                 user_individual = cursor.fetchone()[0] or 0.0
 
-                # Доля пользователя = равная часть пула
-                user_share = pool / sellers_cnt
-                total_adjustment += user_share - user_individual
+                total_adjustment += joint_total - user_individual
 
             conn.close()
             return round(total_adjustment, 2)
