@@ -798,7 +798,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
         )
         return
         
-    u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created = user
+    u_id, t_id, f_name, l_name, m_name, phone, email, network, s_name, city, tz, created, *_rest = user
 
     raw_role = get_user_org_role(callback.from_user.id)
     if env_manager.is_super_admin(callback.from_user.id):

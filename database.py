@@ -61,7 +61,8 @@ class Database:
                 shop_name TEXT,
                 city TEXT,
                 timezone TEXT DEFAULT 'Europe/Moscow',
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                username TEXT
             )
         ''')
         

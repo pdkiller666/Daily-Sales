@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `1811744` · Amvera `bcd4ae2` (2026-05-18, сессия 73). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `5c7104b` · Amvera `bcd4ae2` (2026-05-18, сессия 73+). Оба хэша верифицированы через `git ls-remote`.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -100,6 +100,7 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 | `hints.py` | hint_suffix(), maybe_send_welcome() — onboarding и inline-подсказки |
 | `notif_utils.py` | add_read_btn() — добавляет «✅ Прочитано» ко всем push-уведомлениям |
 | `pagination_utils.py` | paginate(), page_nav_row(), PAGE_SIZE_DEFAULT/SALES/USERS/ORGS |
+| `scripts/post-merge.sh` | post-merge setup: `pip install -r requirements.txt`; зарегистрирован в `.replit [postMerge]`, таймаут 60s — запускается автоматически после каждого мержа задачи-агента |
 
 ---
 
@@ -265,7 +266,7 @@ Amvera статически сканирует `sqlite3.connect('data/...')` →
 
 | Таблица | Назначение |
 |---|---|
-| `users` | telegram_id, first_name, last_name, phone, email, trade_network, shop_name, city, timezone |
+| `users` | telegram_id, first_name, last_name, phone, email, trade_network, shop_name, city, timezone, **username** (индекс 12) |
 | `products` | id, name, category, price, motivation_type, motivation_value |
 | `inventory` | shop_name, product_id, quantity, last_updated |
 | `inventory_history` | shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
@@ -579,6 +580,29 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
    - `get_joint_bonus_adjustment(user_id, start_date, end_date)` — пул = SUM(комиссий всех продавцов в совместных магазинах). Математика: `joint_bonus = SUM(individual*coeff all sellers) = total_qty × motiv × coeff` — каждый получает одинаково.
    - `get_seller_total_earnings` — добавляет корректировку: `base + get_joint_bonus_adjustment(...)`.
    - `view_extra_conditions` — иконка режима 👤/🤝 рядом с каждым условием.
+
+**Сессия 73 (2026-05-18) — ЗАДАЧА #9: ПОИСК ПО @USERNAME В СПИСКЕ ПОЛЬЗОВАТЕЛЕЙ + POST-MERGE SETUP:**
+1. **`database.py`**: добавлена колонка `username TEXT` в `users` (CREATE TABLE + авто-миграция `ALTER TABLE`); `add_user()` и `update_user()` принимают `username=`.
+2. **`admin_handlers.py`**: `_ADMIN_USERS_COLS` расширен на `username` (13-я колонка, индекс 12); поиск в `_build_admin_users_content` теперь включает `@username` в строку сравнения (с `lstrip('@')` для толерантности к вводу); кнопка в списке показывает `@username` если есть, иначе `(магазин)`.
+3. **Все call-сайты `add_user`**: `handlers.py` (5 мест: super-admin, select_city callback, process_city message, shop_bot.db trial copy), `sales_handlers.py`, `reports_handlers.py`, `notifications_handlers.py`, `subscription_handlers.py`, `db_utils.py` (оба get_db и get_db_sync) — везде передаётся `username` (с guard `len > 12` для кортежей).
+4. **`scripts/post-merge.sh`**: создан (`pip install -r requirements.txt`); зарегистрирован в `.replit [postMerge]` с таймаутом 60s — теперь при каждом мерже задачи-агента автоматически устанавливаются зависимости.
+5. GitHub `5c7104b` · Amvera `bcd4ae2`.
+
+**Сессия 71–72 (2026-05-18) — ЗАДАЧА #5: ПОИСК В ИЗБРАННОМ И НЕДАВНИХ (sale flow):**
+1. **`states.py`**: добавлены `SearchStates.sale_favourites` и `SearchStates.sale_recent`.
+2. **`sales_handlers.py`**: добавлены билдеры `_build_fav_list_content(fav_prods, cart, query="")` и `_build_recent_list_content(recent, cart, query="")` — возвращают `(text, markup)`, фильтрация по имени, кнопки 🔍/✖️/🛒/⬅️.
+3. **Рефакторинг** `sale_show_favorites` и `sale_show_recent_handler`: сохраняют `anchor_msg_id` + `sale_srch_list_type` ('fav'/'recent') в FSM; используют новые билдеры.
+4. **5 новых хендлеров**: `slr_fav_srch_start` / `slr_rec_srch_start` (запуск поиска), `slr_srch_cancel` (сброс, восстанавливает `MultipleSaleStates.adding_items`), `slr_fav_srch_process` / `slr_rec_srch_process` (обработка текста, `fsm_edit` + билдер).
+5. GitHub `abb429c` · Amvera `a9b5b3f`.
+
+**Сессия 70 (2026-05-18) — ЗАДАЧА #2 (смержена агентом): ПОМЕСЯЧНАЯ МОТИВАЦИЯ И АРХИВ:**
+- Таблицы `motivation_schedule` (UNIQUE product_id+year+month) и `extra_conditions_schedule`.
+- `get_effective_motivation_matrix(col_months)` — матрица всех товаров с мотивацией по месяцам.
+- `set_motivation_for_month` / `get_motivation_for_month` (fallback на global).
+- `set_extra_condition_for_month` / `get_extra_conditions_for_month`.
+- `commission_handlers.py`: кнопка «📅 По месяцам», хендлеры выбора месяца, матрица (7 столбцов: 6 прошлых + следующий), ячейки `sched_cell_*`, архив `archive_months`.
+- ИСПРАВЛЕН баг: `recalculate_month_earnings` теперь принимает конкретный year/month.
+- GitHub (task agent) `5c7104b` (после мержа).
 
 **Сессия 64 (2026-05-18) — ЗАДАЧА #1: ДИНАМИЧЕСКИЙ ПОИСК ВО ВСЕХ БОЛЬШИХ СПИСКАХ:**
 1. **`states.py`**: добавлена группа `SearchStates` с 12 состояниями: `shop_commission`, `user_catfilt`, `shop_plans`, `user_plans`, `product_plans`, `category_plans`, `product_contests`, `category_contests`, `shop_reports`, `shop_inventory`, `product_inventory`, `shop_contacts`.

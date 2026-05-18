@@ -344,7 +344,7 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
     MAX_SEARCH = 20
 
     if query:
-        q = query.lower()
+        q = query.lower().lstrip('@')
         filtered = [u for u in users
                     if q in f"{u[2] or ''} {u[3] or ''} {u[4] or ''} {u[5] or ''} {u[8] or ''} {('@' + u[12]) if len(u) > 12 and u[12] else ''}".lower()]
         overflow = max(0, len(filtered) - MAX_SEARCH)
