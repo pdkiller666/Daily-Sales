@@ -521,10 +521,20 @@ async def _poll_oauth_token(chat_id: int, status_msg_id: int,
     )
 
 
+def _extract_spreadsheet_id(text: str) -> str:
+    """Extract spreadsheet ID from a full Google Sheets URL or return as-is."""
+    import re
+    text = text.strip()
+    m = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', text)
+    if m:
+        return m.group(1)
+    return text
+
+
 @integration_router.message(IntegrationStates.waiting_spreadsheet_id)
 async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
     """Unified handler for spreadsheet_id — routes to OAuth or service account."""
-    spreadsheet_id = message.text.strip()
+    spreadsheet_id = _extract_spreadsheet_id(message.text or "")
     if not spreadsheet_id:
         await message.answer("❌ Введите ID таблицы.")
         return

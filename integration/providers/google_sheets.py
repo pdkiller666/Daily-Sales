@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 _SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
 ]
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"

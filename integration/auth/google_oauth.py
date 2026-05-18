@@ -9,10 +9,7 @@ logger = logging.getLogger(__name__)
 
 DEVICE_AUTH_URL = "https://oauth2.googleapis.com/device/code"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-SCOPES = " ".join([
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-])
+SCOPES = "https://www.googleapis.com/auth/spreadsheets"
 
 
 def get_client_credentials() -> tuple[str, str]:
