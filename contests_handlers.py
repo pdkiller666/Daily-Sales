@@ -2131,13 +2131,13 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
         return
 
     import json as _json2
-    import sqlite3 as _sqlite3
     shop_f = contest[10]
     metric = contest[4]
     metric_unit = '₽' if metric == 'turnover' else ' шт'
     start_date = contest[8]
     end_date = contest[9]
     status = contest[16]
+    reward_mode = contest[22] if len(contest) > 22 else 'total'
 
     # Определяем список магазинов конкурса
     if shop_f:
@@ -2145,41 +2145,39 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     else:
         shops = current_db.get_all_shops() or []
 
-    # Авто-подсчёт по магазинам из фактических продаж (без корректировок)
-    metric_expr = "SUM(s.sale_price * s.quantity_sold)" if metric == 'turnover' else "SUM(s.quantity_sold)"
-    auto_totals = {}
-    try:
-        _conn = _sqlite3.connect(current_db.db_file)
-        if shops:
-            _placeholders = ','.join(['?' for _ in shops])
-            _rows = _conn.execute(
-                f"SELECT s.shop_name, {metric_expr} FROM sales s"
-                f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
-                f" AND s.shop_name IN ({_placeholders})"
-                f" GROUP BY s.shop_name",
-                [start_date, end_date] + shops
-            ).fetchall()
-        else:
-            _rows = _conn.execute(
-                f"SELECT s.shop_name, {metric_expr} FROM sales s"
-                f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
-                f" GROUP BY s.shop_name",
-                [start_date, end_date]
-            ).fetchall()
-        _conn.close()
-        auto_totals = {r[0]: (r[1] or 0) for r in _rows}
-    except Exception:
-        pass
+    builder = InlineKeyboardBuilder()
+    status_emoji = "🟢 Идёт" if status == 'active' else "🏁 Завершён"
 
+    # ── Конкурс с тирами (per_sale): корректировка не применима ─────────────
+    if reward_mode == 'per_sale':
+        builder.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
+        builder.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
+        builder.adjust(1)
+        await safe_edit_message(
+            callback,
+            f"✏️ <b>Корректировка показателей</b>\n\n"
+            f"🏆 {he(contest[1])}\n"
+            f"📅 {_fmt_date(start_date)} — {_fmt_date(end_date)} · {status_emoji}\n\n"
+            "ℹ️ <b>Корректировка недоступна для конкурсов с тирами бонусов.</b>\n\n"
+            "В таком конкурсе результат рассчитывается по каждой продаже отдельно "
+            "с учётом тира (бонус за единицу × количество). Заменить это единым числом "
+            "по магазину невозможно без искажения логики тиров.\n\n"
+            "Для корректировки внесите нужные продажи вручную через раздел «Продажи».",
+            builder.as_markup()
+        )
+        return
+
+    # ── Конкурс total: авто-итоги с полными фильтрами конкурса ──────────────
+    # compute_contest_shop_auto_totals применяет те же фильтры (товар/категория/город/пользователь)
+    auto_totals = current_db.compute_contest_shop_auto_totals(contest_id)
     manual_results = current_db.get_contest_manual_results(contest_id)
 
-    # Кнопки по магазинам: показываем авто-значение и корректировку (если есть)
-    builder = InlineKeyboardBuilder()
     for shop in shops:
         auto_val = auto_totals.get(shop, 0)
         manual_info = manual_results.get(shop)
         if manual_info:
-            label = f"✏️ {shop}: {format_price(manual_info['value'])}{metric_unit}"
+            corr_str = format_price(manual_info['value']) if metric == 'turnover' else str(int(manual_info['value']))
+            label = f"✏️ {shop}: {corr_str}{metric_unit}"
         else:
             auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
             label = f"🏪 {shop}: {auto_str}{metric_unit}"
@@ -2192,14 +2190,14 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
     builder.adjust(1)
 
-    status_emoji = "🟢 Идёт" if status == 'active' else "🏁 Завершён"
     text = (
         f"✏️ <b>Корректировка показателей</b>\n\n"
         f"🏆 {he(contest[1])}\n"
         f"📅 {_fmt_date(start_date)} — {_fmt_date(end_date)} · {status_emoji}\n"
         f"📊 Метрика: {'Оборот' if metric == 'turnover' else 'Количество'} ({metric_unit})\n\n"
-        "Нажмите на магазин, чтобы скорректировать его фактическое выполнение.\n"
-        "Корректировка применяется <b>сразу</b> и учитывается при расчёте результатов в любой момент.\n\n"
+        "Нажмите на магазин, чтобы скорректировать его показатель.\n"
+        "Авто-значение считается по фактическим продажам <b>с учётом всех фильтров конкурса</b> "
+        "(товар, категория, город). Корректировка применяется сразу.\n\n"
         "<b>Список магазинов</b> (🏪 авто · ✏️ скорректировано):\n"
     )
     if manual_results:
@@ -2257,23 +2255,19 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     metric_unit = '₽' if metric == 'turnover' else ' шт'
     start_date = contest[8]
     end_date = contest[9]
+    reward_mode = contest[22] if len(contest) > 22 else 'total'
 
-    # Авто-значение магазина из фактических продаж
-    metric_expr = "SUM(s.sale_price * s.quantity_sold)" if metric == 'turnover' else "SUM(s.quantity_sold)"
-    auto_val = 0.0
-    try:
-        import sqlite3 as _sqlite3
-        _conn = _sqlite3.connect(current_db.db_file)
-        _row = _conn.execute(
-            f"SELECT {metric_expr} FROM sales s"
-            f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
-            f" AND s.shop_name = ?",
-            [start_date, end_date, shop_name]
-        ).fetchone()
-        _conn.close()
-        auto_val = (_row[0] or 0.0) if _row else 0.0
-    except Exception:
-        pass
+    # per_sale (тиры): корректировка не применима — перенаправляем обратно
+    if reward_mode == 'per_sale':
+        await callback.answer(
+            "Корректировка недоступна для конкурсов с тирами бонусов.",
+            show_alert=True
+        )
+        return
+
+    # Авто-значение магазина с полными фильтрами конкурса (товар/категория/город)
+    auto_totals = current_db.compute_contest_shop_auto_totals(contest_id)
+    auto_val = auto_totals.get(shop_name, 0.0)
 
     # Текущая корректировка (если есть)
     manual_results = current_db.get_contest_manual_results(contest_id)
@@ -2281,7 +2275,7 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
 
     auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
 
-    info_lines = f"\n\n📊 <b>Авто (по продажам):</b> {auto_str}{metric_unit}"
+    info_lines = f"\n\n📊 <b>Авто (по продажам конкурса):</b> {auto_str}{metric_unit}"
     if current_manual:
         corr_str = format_price(current_manual['value']) if metric == 'turnover' else str(int(current_manual['value']))
         editor = he(current_manual['editor']) if current_manual['editor'] else '—'

@@ -4295,6 +4295,55 @@ class Database:
                 conn.close()
             return []
 
+    def compute_contest_shop_auto_totals(self, contest_id) -> dict:
+        """Авто-итоги по магазинам без ручных корректировок, с полными фильтрами конкурса.
+
+        Возвращает {shop_name: auto_total} — те же условия WHERE что и compute_contest_results,
+        но группировка по shop_name вместо user_id. Используется для отображения «авто» в UI корректировок.
+        """
+        try:
+            import json as _json
+            contest = self.get_contest(contest_id)
+            if not contest:
+                return {}
+
+            metric   = contest[4]
+            start    = contest[8]
+            end      = contest[9]
+            shop_f   = contest[10]
+            city_f   = contest[11]
+            user_f   = contest[12]
+            prod_f   = contest[13]
+            cat_f    = contest[14]
+
+            shops      = _json.loads(shop_f)  if shop_f  else None
+            cities     = _json.loads(city_f)  if city_f  else None
+            users      = _json.loads(user_f)  if user_f  else None
+            products   = _json.loads(prod_f)  if prod_f  else None
+            categories = _json.loads(cat_f)   if cat_f   else None
+
+            where, metric_expr, params = self._build_contest_sale_query(
+                start, end, shops, cities, users, products, categories, metric
+            )
+
+            conn = sqlite3.connect(self.db_file)
+            rows = conn.execute(
+                f"SELECT s.shop_name, {metric_expr}"
+                f" FROM sales s"
+                f" JOIN users u ON s.user_id = u.id"
+                f" LEFT JOIN products p ON s.product_id = p.id"
+                f" WHERE {where}"
+                f" GROUP BY s.shop_name",
+                params
+            ).fetchall()
+            conn.close()
+            return {r[0]: (r[1] or 0.0) for r in rows}
+        except Exception as e:
+            logger.error(f"Ошибка compute_contest_shop_auto_totals: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return {}
+
     def get_contests_for_period(self, start_date: str, end_date: str) -> list:
         """Конкурсы, активные или завершённые в заданном периоде (пересечение дат)"""
         try:
