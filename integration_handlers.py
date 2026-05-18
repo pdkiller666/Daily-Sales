@@ -408,6 +408,18 @@ async def _start_device_flow(message, state: FSMContext):
     )
 
 
+@integration_router.message(IntegrationStates.waiting_oauth_poll)
+async def gs_oauth_poll_message(message: Message, state: FSMContext):
+    """User sends a message while OAuth Device Flow is in progress — remind them."""
+    await message.answer(
+        "⏳ <b>Ожидаю авторизации Google...</b>\n\n"
+        "Откройте ссылку выше и введите код на странице Google.\n"
+        "После этого бот продолжит автоматически.\n\n"
+        "Если время истекло — вернитесь в меню: /menu",
+        parse_mode="HTML"
+    )
+
+
 async def _poll_oauth_token(chat_id: int, status_msg_id: int,
                              device_code: str, interval: int,
                              expires_in: int, state: FSMContext, data: dict):

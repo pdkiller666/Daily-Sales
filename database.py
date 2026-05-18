@@ -6272,8 +6272,9 @@ class Database:
             logger.error(f"get_bonus_cache: {e}")
             return []
 
-    def get_bonus_for_model(self, model_name: str, chain: str) -> float:
-        """Get cached bonus for a specific model and store chain."""
+    def get_bonus_for_model(self, model_name: str, chain: str):
+        """Get cached bonus for a specific model and store chain.
+        Returns float if found, None if not in cache."""
         try:
             conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
@@ -6283,10 +6284,10 @@ class Database:
             )
             row = cursor.fetchone()
             conn.close()
-            return float(row[0]) if row else 0.0
+            return float(row[0]) if row else None
         except Exception as e:
             logger.error(f"get_bonus_for_model: {e}")
-            return 0.0
+            return None
 
     def clear_bonus_cache(self, connection_id: int):
         try:
