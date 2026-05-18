@@ -15,6 +15,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from keyboards import back_button
 from states import IntegrationStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
+from message_utils import fsm_edit, delete_message_safe
 
 integration_router = Router()
 logger = logging.getLogger(__name__)
@@ -276,6 +277,7 @@ async def gs_check_secrets(callback: CallbackQuery, state: FSMContext):
 @integration_router.callback_query(F.data == "gs_add_conn")
 async def gs_add_conn(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         "📊 <b>Новое подключение к Google Sheets</b>\n\n"
         "Введите <b>название</b> подключения (например: «Главная таблица»):",
@@ -287,19 +289,7 @@ async def gs_add_conn(callback: CallbackQuery, state: FSMContext):
     await state.set_state(IntegrationStates.waiting_conn_name)
 
 
-@integration_router.message(IntegrationStates.waiting_conn_name)
-async def gs_conn_name(message: Message, state: FSMContext):
-    name = message.text.strip()
-    if not name:
-        await message.answer("❌ Введите название.")
-        return
-    await state.update_data(gs_conn_name=name)
-
-    oauth_ready = bool(
-        os.environ.get("GOOGLE_OAUTH_CLIENT_ID") and
-        os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-    )
-
+def _auth_type_kb(oauth_ready: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     if oauth_ready:
         kb.row(InlineKeyboardButton(
@@ -310,16 +300,33 @@ async def gs_conn_name(message: Message, state: FSMContext):
         text="⚙️ Сервисный аккаунт (JSON-ключ)",
         callback_data="gs_auth_sa"
     ))
+    kb.row(_back("gs_add_conn"))
+    return kb.as_markup()
 
-    await message.answer(
-        f"✅ Название: <b>{name}</b>\n\n"
-        "<b>Способ авторизации:</b>\n\n"
-        "🔑 <b>OAuth</b> — вы входите со своим личным Google-аккаунтом. "
-        "Не требует создания сервисного аккаунта. Нужно один раз перейти по ссылке.\n\n"
-        "⚙️ <b>Сервисный аккаунт</b> — для продвинутых пользователей. "
+
+@integration_router.message(IntegrationStates.waiting_conn_name)
+async def gs_conn_name(message: Message, state: FSMContext):
+    name = (message.text or "").strip()
+    if not name:
+        await delete_message_safe(message)
+        return
+    await state.update_data(gs_conn_name=name)
+
+    oauth_ready = bool(
+        os.environ.get("GOOGLE_OAUTH_CLIENT_ID") and
+        os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    )
+
+    await fsm_edit(
+        state, message,
+        f"📊 <b>Новое подключение к Google Sheets</b>\n\n"
+        f"Название: <b>{name}</b>\n\n"
+        "<b>Выберите способ авторизации:</b>\n\n"
+        "🔑 <b>OAuth</b> — вход через личный Google-аккаунт. "
+        "Один раз перейдите по ссылке и введите код.\n\n"
+        "⚙️ <b>Сервисный аккаунт</b> — для продвинутых. "
         "Нужен JSON-ключ из Google Cloud Console.",
-        reply_markup=kb.as_markup(),
-        parse_mode="HTML"
+        reply_markup=_auth_type_kb(oauth_ready),
     )
 
 
@@ -330,7 +337,10 @@ async def gs_conn_name(message: Message, state: FSMContext):
 @integration_router.callback_query(F.data == "gs_auth_sa")
 async def gs_auth_sa(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await state.update_data(gs_auth_type="service_account")
+    await state.update_data(
+        gs_auth_type="service_account",
+        anchor_msg_id=callback.message.message_id,
+    )
     await callback.message.edit_text(
         "⚙️ <b>Сервисный аккаунт</b>\n\n"
         "Введите <b>ID таблицы Google Sheets</b>.\n"
@@ -349,31 +359,163 @@ async def gs_auth_sa(callback: CallbackQuery, state: FSMContext):
 @integration_router.callback_query(F.data == "gs_auth_oauth")
 async def gs_auth_oauth(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.update_data(
+        gs_auth_type="oauth",
+        anchor_msg_id=callback.message.message_id,
+    )
     await callback.message.edit_text(
         "🔑 <b>OAuth — вход через Google</b>\n\n"
         "Введите <b>ID таблицы Google Sheets</b>.\n"
-        "URL: <code>docs.google.com/spreadsheets/d/<b>ID</b>/edit</code>",
+        "URL: <code>docs.google.com/spreadsheets/d/<b>ID</b>/edit</code>\n\n"
+        "Можно вставить полную ссылку — ID извлечётся автоматически.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("gs_add_conn")]]),
         parse_mode="HTML"
     )
-    await state.update_data(gs_auth_type="oauth")
     await state.set_state(IntegrationStates.waiting_spreadsheet_id)
 
 
-@integration_router.callback_query(F.data == "gs_oauth_start_")
-async def gs_oauth_start_cb(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await _start_device_flow(callback.message, state)
+def _extract_spreadsheet_id(text: str) -> str:
+    """Extract spreadsheet ID from a full Google Sheets URL or return as-is."""
+    import re
+    text = text.strip()
+    m = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', text)
+    if m:
+        return m.group(1)
+    return text
 
 
-async def _start_device_flow(message, state: FSMContext):
-    """Initiate OAuth Device Flow, send code to user, start background polling."""
+async def _edit_anchor(bot, chat_id: int, anchor_id: int,
+                       text: str, reply_markup=None, parse_mode: str = "HTML"):
+    """Edit anchor message in background tasks where state/message are not available."""
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=anchor_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except Exception as e:
+        logger.error(f"_edit_anchor error: {e}")
+        try:
+            await bot.send_message(chat_id, text,
+                                   reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            pass
+
+
+@integration_router.message(IntegrationStates.waiting_spreadsheet_id)
+async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
+    """Unified handler for spreadsheet_id — routes to OAuth or service account."""
+    spreadsheet_id = _extract_spreadsheet_id(message.text or "")
+    if not spreadsheet_id:
+        await delete_message_safe(message)
+        return
+
+    data = await state.get_data()
+    auth_type = data.get('gs_auth_type', 'service_account')
+    name = data.get('gs_conn_name', 'Подключение')
+
+    if auth_type == 'oauth':
+        await state.update_data(gs_spreadsheet_id_pending=spreadsheet_id)
+        await _start_device_flow(message, state)
+    else:
+        # Service account — show loading in anchor, test, show result
+        await fsm_edit(state, message, "⏳ <b>Проверяю подключение…</b>")
+        from integration.providers.google_sheets import GoogleSheetsProvider
+        ok, msg = await GoogleSheetsProvider().test_connection({
+            'spreadsheet_id': spreadsheet_id,
+            'auth_type': 'service_account',
+        })
+        if not ok:
+            data2 = await state.get_data()
+            anchor_id = data2.get('anchor_msg_id')
+            kb = InlineKeyboardMarkup(inline_keyboard=[[_back("gs_auth_sa")]])
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=anchor_id,
+                    text=(
+                        f"❌ <b>Ошибка подключения:</b>\n<code>{msg}</code>\n\n"
+                        "Проверьте:\n• ID таблицы верный\n"
+                        "• Переменная <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> задана"
+                    ),
+                    reply_markup=kb,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+            return
+
+        current_db = await get_db(message.from_user.id, state)
+        conn_id = current_db.add_integration_connection(
+            name=name,
+            config=json.dumps({
+                'spreadsheet_id': spreadsheet_id,
+                'provider': 'google_sheets',
+                'auth_type': 'service_account',
+            }),
+        )
+        data2 = await state.get_data()
+        anchor_id = data2.get('anchor_msg_id')
+        await clear_state_keep_org(state)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Мои подключения",
+                                  callback_data="integration_menu")],
+            [InlineKeyboardButton(text="➕ Добавить экспорт",
+                                  callback_data=f"gs_exports_{conn_id}")],
+        ])
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=anchor_id,
+                text=f"✅ <b>Подключение создано!</b>\n\n{msg}",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+        except Exception:
+            await message.answer(
+                f"✅ <b>Подключение создано!</b>\n\n{msg}",
+                reply_markup=kb, parse_mode="HTML",
+            )
+
+
+async def _start_device_flow(message: Message, state: FSMContext):
+    """
+    Initiate OAuth Device Flow. Deletes user message, edits anchor with code.
+    Background polling task edits the same anchor on completion.
+    """
     from integration.auth.google_oauth import initiate_device_flow
+
+    # Delete the user's spreadsheet ID message
+    await delete_message_safe(message)
+
+    data = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    chat_id = message.chat.id
+
+    # Show loading in anchor while calling Google
+    try:
+        await message.bot.edit_message_text(
+            chat_id=chat_id, message_id=anchor_id,
+            text="⏳ <b>Запускаю авторизацию Google…</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 
     try:
         flow = await initiate_device_flow()
     except ValueError as e:
-        await message.answer(f"❌ {e}")
+        try:
+            await message.bot.edit_message_text(
+                chat_id=chat_id, message_id=anchor_id,
+                text=f"❌ <b>Ошибка запуска OAuth:</b> {e}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("gs_auth_oauth")]]),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
         return
 
     device_code = flow['device_code']
@@ -382,7 +524,6 @@ async def _start_device_flow(message, state: FSMContext):
     expires_in = flow.get('expires_in', 900)
     interval = flow.get('interval', 5)
 
-    data = await state.get_data()
     await state.update_data(
         gs_device_code=device_code,
         gs_oauth_interval=interval,
@@ -390,56 +531,59 @@ async def _start_device_flow(message, state: FSMContext):
     )
     await state.set_state(IntegrationStates.waiting_oauth_poll)
 
-    sent = await message.answer(
+    auth_text = (
         f"🔑 <b>Авторизация Google</b>\n\n"
         f"1. Откройте на телефоне или компьютере:\n"
         f"   <code>{verification_url}</code>\n\n"
         f"2. Введите код:\n"
         f"   <b>{user_code}</b>\n\n"
         f"⏳ Ожидаю авторизации… (до {expires_in // 60} мин)\n\n"
-        f"После авторизации бот продолжит автоматически.",
-        parse_mode="HTML"
+        f"После авторизации бот обновит это сообщение автоматически."
     )
+    try:
+        await message.bot.edit_message_text(
+            chat_id=chat_id, message_id=anchor_id,
+            text=auth_text, parse_mode="HTML",
+        )
+    except Exception:
+        sent = await message.answer(auth_text, parse_mode="HTML")
+        anchor_id = sent.message_id
+        await state.update_data(anchor_msg_id=anchor_id)
 
-    user_id = message.chat.id
     asyncio.create_task(
-        _poll_oauth_token(user_id, sent.message_id, device_code, interval,
-                          expires_in, state, data)
+        _poll_oauth_token(chat_id, anchor_id, device_code, interval,
+                          expires_in, state, data, message.bot)
     )
 
 
 @integration_router.message(IntegrationStates.waiting_oauth_poll)
 async def gs_oauth_poll_message(message: Message, state: FSMContext):
-    """User sends a message while OAuth Device Flow is in progress — remind them."""
-    await message.answer(
-        "⏳ <b>Ожидаю авторизации Google...</b>\n\n"
-        "Откройте ссылку выше и введите код на странице Google.\n"
-        "После этого бот продолжит автоматически.\n\n"
-        "Если время истекло — вернитесь в меню: /menu",
-        parse_mode="HTML"
-    )
+    """User sends a message while OAuth Device Flow is in progress — delete and ignore."""
+    await delete_message_safe(message)
 
 
-async def _poll_oauth_token(chat_id: int, status_msg_id: int,
+async def _poll_oauth_token(chat_id: int, anchor_id: int,
                              device_code: str, interval: int,
-                             expires_in: int, state: FSMContext, data: dict):
-    """Background task: poll Google for OAuth token, save on success."""
+                             expires_in: int, state: FSMContext, data: dict, bot):
+    """Background task: poll Google for OAuth token, edit anchor on result."""
     from integration.auth.google_oauth import poll_for_token
-    from main import bot
 
     deadline = time.time() + expires_in
-    attempt = 0
 
     while time.time() < deadline:
         await asyncio.sleep(interval)
-        attempt += 1
         try:
             token_data = await poll_for_token(device_code)
         except ValueError as e:
-            await bot.send_message(
-                chat_id,
+            await _edit_anchor(
+                bot, chat_id, anchor_id,
                 f"❌ <b>Ошибка авторизации:</b> {e}\n\nПопробуйте подключить снова.",
-                parse_mode="HTML"
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[InlineKeyboardButton(
+                        text="🔄 Попробовать снова",
+                        callback_data="gs_add_conn"
+                    )]]
+                ),
             )
             return
         except Exception as e:
@@ -455,10 +599,12 @@ async def _poll_oauth_token(chat_id: int, status_msg_id: int,
             spreadsheet_id = data.get('gs_spreadsheet_id_pending', '')
 
             if not spreadsheet_id:
-                await bot.send_message(
-                    chat_id,
+                await _edit_anchor(
+                    bot, chat_id, anchor_id,
                     "❌ spreadsheet_id не найден. Начните добавление подключения заново.",
-                    parse_mode="HTML"
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[[_back("integration_menu")]]
+                    ),
                 )
                 return
 
@@ -484,8 +630,8 @@ async def _poll_oauth_token(chat_id: int, status_msg_id: int,
             from integration.providers.google_sheets import GoogleSheetsProvider
             ok, test_msg = await GoogleSheetsProvider().test_connection(conn_config)
 
-            await bot.send_message(
-                chat_id,
+            await _edit_anchor(
+                bot, chat_id, anchor_id,
                 f"✅ <b>Google аккаунт подключён!</b>\n\n"
                 f"{test_msg}\n\n"
                 f"Теперь настройте экспорт данных.",
@@ -503,86 +649,28 @@ async def _poll_oauth_token(chat_id: int, status_msg_id: int,
                         callback_data=f"gs_sync_motiv_{conn_id}"
                     )],
                 ]),
-                parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"OAuth save connection error: {e}")
-            await bot.send_message(
-                chat_id,
-                f"❌ Авторизация прошла, но не удалось сохранить подключение: {e}",
-                parse_mode="HTML"
+            await _edit_anchor(
+                bot, chat_id, anchor_id,
+                f"❌ Авторизация прошла, но не удалось сохранить подключение:\n{e}",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[_back("integration_menu")]]
+                ),
             )
         return
 
-    await bot.send_message(
-        chat_id,
+    await _edit_anchor(
+        bot, chat_id, anchor_id,
         "⏰ <b>Время авторизации истекло.</b>\n\nНачните добавление подключения заново.",
-        parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(
+                text="🔄 Попробовать снова",
+                callback_data="gs_add_conn"
+            )]]
+        ),
     )
-
-
-def _extract_spreadsheet_id(text: str) -> str:
-    """Extract spreadsheet ID from a full Google Sheets URL or return as-is."""
-    import re
-    text = text.strip()
-    m = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', text)
-    if m:
-        return m.group(1)
-    return text
-
-
-@integration_router.message(IntegrationStates.waiting_spreadsheet_id)
-async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
-    """Unified handler for spreadsheet_id — routes to OAuth or service account."""
-    spreadsheet_id = _extract_spreadsheet_id(message.text or "")
-    if not spreadsheet_id:
-        await message.answer("❌ Введите ID таблицы.")
-        return
-
-    data = await state.get_data()
-    auth_type = data.get('gs_auth_type', 'service_account')
-    name = data.get('gs_conn_name', 'Подключение')
-
-    if auth_type == 'oauth':
-        await state.update_data(gs_spreadsheet_id_pending=spreadsheet_id)
-        await _start_device_flow(message, state)
-    else:
-        wait_msg = await message.answer("⏳ Проверяю подключение…")
-        from integration.providers.google_sheets import GoogleSheetsProvider
-        ok, msg = await GoogleSheetsProvider().test_connection({
-            'spreadsheet_id': spreadsheet_id,
-            'auth_type': 'service_account',
-        })
-        await wait_msg.delete()
-        if not ok:
-            await message.answer(
-                f"❌ <b>Ошибка подключения:</b>\n<code>{msg}</code>\n\n"
-                "Проверьте:\n• ID таблицы верный\n"
-                "• Переменная <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> задана\n\n"
-                "Попробуйте снова или /menu для отмены.",
-                parse_mode="HTML"
-            )
-            return
-        current_db = await get_db(message.from_user.id, state)
-        conn_id = current_db.add_integration_connection(
-            name=name,
-            config=json.dumps({
-                'spreadsheet_id': spreadsheet_id,
-                'provider': 'google_sheets',
-                'auth_type': 'service_account',
-            }),
-        )
-        await clear_state_keep_org(state)
-        await message.answer(
-            f"✅ <b>Подключение создано!</b>\n\n{msg}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📋 Мои подключения",
-                                      callback_data="integration_menu")],
-                [InlineKeyboardButton(text="➕ Добавить экспорт",
-                                      callback_data=f"gs_exports_{conn_id}")],
-            ]),
-            parse_mode="HTML"
-        )
 
 
 # ═══════════════════════════════════════════════════════════
