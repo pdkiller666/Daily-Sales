@@ -184,6 +184,10 @@ async def contest_create_start(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.message(ContestStates.entering_title)
 async def contest_title_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     title = message.text.strip()[:100]
     if not title:
         await fsm_edit(
@@ -220,6 +224,10 @@ async def contest_skip_desc(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.message(ContestStates.entering_description)
 async def contest_desc_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     desc = message.text.strip()[:500]
     await state.update_data(ct_description=desc)
     await state.set_state(None)
@@ -578,6 +586,11 @@ async def _show_tier_bonus_step(callback: CallbackQuery, state: FSMContext, tier
 
 @contests_router.message(ContestStates.configuring_tier_bonus)
 async def contest_tier_bonus_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     cancel_kb = InlineKeyboardBuilder().button(
         text="❌ Отмена", callback_data="contests_menu"
     ).as_markup()
@@ -600,6 +613,12 @@ async def contest_tier_bonus_entered(message: Message, state: FSMContext):
     tiers = list(data.get('ct_tiers') or [])
     await state.set_state(None)
 
+    class _FakeCallback:
+        def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+        async def answer(self): pass
+
+    fc = _FakeCallback(message)
+
     if scope == 'product':
         products = data.get('ct_products') or []
         current_db = await get_db(message.from_user.id, state)
@@ -618,17 +637,9 @@ async def contest_tier_bonus_entered(message: Message, state: FSMContext):
 
         if next_prod_idx >= len(products):
             # Все товары тира заполнены
-            class _FakeCallback:
-                def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
-                async def answer(self): pass
-            fc = _FakeCallback(message)
             await _advance_tier_or_finish(fc, state, tiers)
         else:
             # Следующий товар того же тира
-            class _FakeCallback:
-                def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
-                async def answer(self): pass
-            fc = _FakeCallback(message)
             await _show_tier_bonus_step(fc, state, tiers)
     else:
         # flat-бонус
@@ -638,11 +649,6 @@ async def contest_tier_bonus_entered(message: Message, state: FSMContext):
             'bonus_per_unit': bonus,
         })
         await state.update_data(ct_tiers=tiers)
-
-        class _FakeCallback:
-            def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
-            async def answer(self): pass
-        fc = _FakeCallback(message)
         await _advance_tier_or_finish(fc, state, tiers)
 
 
@@ -663,6 +669,10 @@ async def _advance_tier_or_finish(callback, state: FSMContext, tiers: list):
 
 @contests_router.message(ContestStates.entering_target_value)
 async def contest_target_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     cancel_kb = InlineKeyboardBuilder().button(
         text="❌ Отмена", callback_data="contests_menu"
     ).as_markup()
@@ -766,6 +776,10 @@ async def contest_individual_target_skip_shop(callback: CallbackQuery, state: FS
 
 @contests_router.message(ContestStates.entering_individual_target)
 async def contest_individual_target_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     cancel_kb = InlineKeyboardBuilder().button(
         text="❌ Отмена", callback_data="contests_menu"
     ).as_markup()
@@ -831,6 +845,10 @@ async def contest_reward_type_selected(callback: CallbackQuery, state: FSMContex
 
 @contests_router.message(ContestStates.entering_reward_value)
 async def contest_reward_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     cancel_kb = InlineKeyboardBuilder().button(
         text="❌ Отмена", callback_data="contests_menu"
     ).as_markup()
@@ -2028,6 +2046,10 @@ async def contest_edit_menu(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.message(ContestStates.editing_contest_target)
 async def contest_edit_target_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     data = await state.get_data()
     contest_id = data.get('ct_edit_cid')
     raw = message.text.strip().replace(' ', '').replace(',', '.')
@@ -2058,6 +2080,10 @@ async def contest_edit_target_entered(message: Message, state: FSMContext):
 
 @contests_router.message(ContestStates.editing_contest_reward)
 async def contest_edit_reward_entered(message: Message, state: FSMContext):
+    try:
+        await message.delete()
+    except Exception:
+        pass
     data = await state.get_data()
     contest_id = data.get('ct_edit_cid')
     raw = message.text.strip().replace(' ', '').replace(',', '.')
@@ -2219,6 +2245,10 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
 @contests_router.message(ContestStates.entering_manual_result)
 async def contest_manual_value_entered(message: Message, state: FSMContext):
     """Обработка введённого ручного результата"""
+    try:
+        await message.delete()
+    except Exception:
+        pass
     data = await state.get_data()
     contest_id = data.get('ct_manual_cid')
     shop_name = data.get('ct_manual_shop')

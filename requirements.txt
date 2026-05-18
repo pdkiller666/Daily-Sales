@@ -22,3 +22,10 @@ typing_extensions==4.13.2
 tzlocal==5.3.1
 yarl==1.20.0
 pytz==2024.1
+aiofiles
+aiogram
+apscheduler
+openpyxl
+python-dotenv
+pytz
+tzlocal
