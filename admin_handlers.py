@@ -902,7 +902,7 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         try:
             conn = sqlite3.connect('data/main.db')
             cursor = conn.cursor()
-            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at FROM users WHERE telegram_id = ?", (telegram_id,))
+            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username FROM users WHERE telegram_id = ?", (telegram_id,))
             user = cursor.fetchone()
             if user:
                 await state.update_data(admin_delete_db_path='data/main.db')
@@ -915,7 +915,7 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         try:
             conn = sqlite3.connect('data/shop_bot.db')
             cursor = conn.cursor()
-            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at FROM users WHERE telegram_id = ?", (telegram_id,))
+            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username FROM users WHERE telegram_id = ?", (telegram_id,))
             user = cursor.fetchone()
             if user:
                 await state.update_data(admin_delete_db_path='data/shop_bot.db')
@@ -943,7 +943,8 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Пользователь не найден ни в одной базе данных", show_alert=True)
         return
         
-    u_id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at = user
+    u_id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at = user[:12]
+    username = user[12] if len(user) > 12 else None
     
     await state.update_data(admin_edit_user_id=telegram_id)
     await callback.answer()
@@ -983,6 +984,9 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
     
     if middle_name:
         message_text += f" {he(middle_name)}"
+    
+    if username:
+        message_text += f"\n📱 <a href='tg://resolve?domain={he(username)}'>@{he(username)}</a>"
     
     message_text += f"\n📞 Телефон: {phone or 'не указан'}"
     message_text += f"\n📧 Email: {email or 'не указан'}"
