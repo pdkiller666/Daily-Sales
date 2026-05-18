@@ -266,11 +266,11 @@ def _per_shop_breakdown(db_file: str, start_date: str, end_date: str,
         base = '''
             SELECT u.shop_name,
                    COUNT(DISTINCT s.id),
-                   COALESCE(SUM(s.quantity), 0),
-                   COALESCE(SUM(s.total_price), 0.0)
+                   COALESCE(SUM(s.quantity_sold), 0),
+                   COALESCE(SUM(s.quantity_sold * s.sale_price), 0.0)
             FROM sales s
             JOIN users u ON s.user_id = u.id
-            WHERE s.sale_date BETWEEN ? AND ?
+            WHERE date(s.sale_date) BETWEEN ? AND ?
               AND u.shop_name IS NOT NULL AND u.shop_name != ""
         '''
         params = [start_date, end_date]

@@ -1571,10 +1571,17 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-        user = current_db.get_user(callback.from_user.id)
-        user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
+        try:
+            user = current_db.get_user(callback.from_user.id)
+            user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
+        except Exception:
+            user = None
+            user_shop = shop_name or "Неизвестный магазин"
 
-        await callback.answer()
+        try:
+            await callback.answer()
+        except Exception:
+            pass
         try:
             await callback.message.edit_text(
                 message_text,

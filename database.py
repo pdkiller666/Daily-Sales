@@ -4011,7 +4011,7 @@ class Database:
             conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT shop_name, manual_value, edited_at, u.first_name, u.last_name
+                SELECT cmr.shop_name, manual_value, edited_at, u.first_name, u.last_name
                 FROM contest_manual_results cmr
                 LEFT JOIN users u ON cmr.edited_by = u.id
                 WHERE contest_id = ?
