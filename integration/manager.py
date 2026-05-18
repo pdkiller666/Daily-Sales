@@ -151,6 +151,7 @@ class IntegrationManager:
         """Called after a business event. Runs immediate exports in background."""
         try:
             exports = db.get_enabled_exports_by_type(export_type, schedule='immediate')
+            logger.info(f"trigger_export: type={export_type} found={len(exports)} db={db.db_file}")
             for exp in exports:
                 asyncio.create_task(self._run_export(db, exp, event_data))
         except Exception as e:
@@ -202,14 +203,8 @@ class IntegrationManager:
     async def _do_append_row(self, provider, cfg, sheet_name,
                               mapping_json, event_data):
         mapping = json.loads(mapping_json or '{}')
-        headers = await provider.get_headers(cfg, sheet_name)
-        if not headers:
-            row = [str(event_data.get(f, '')) for f in mapping.keys()]
-        else:
-            row = []
-            for header in headers:
-                field = next((k for k, v in mapping.items() if v == header), None)
-                row.append(str(event_data.get(field, '')) if field else '')
+        row = [str(event_data.get(f, '')) for f in mapping.keys()]
+        logger.info(f"_do_append_row: sheet={sheet_name} row={row}")
         await provider.append_row(cfg, sheet_name, row)
 
     async def _do_update_cell(self, provider, cfg, sheet_name,
