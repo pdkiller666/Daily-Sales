@@ -1593,22 +1593,43 @@ def _col_letter(n: int) -> str:
 
 
 def _row_btn_label(row_idx: int, values: list) -> str:
-    """Short label for a row button: 'Строка N: val1 · val2 · val3'."""
-    non_empty = [str(v) for v in values if str(v).strip()][:5]
-    preview   = "  ·  ".join(non_empty)[:48]
-    return f"Строка {row_idx}: {preview}" if preview else f"Строка {row_idx}: (пусто)"
+    """Short label for a row button that fits in a Telegram button on mobile.
+    Format: 'Строка N: val1 · val2 · val3…'  (≤ 40 chars total)
+    """
+    non_empty = [str(v).strip() for v in values if str(v).strip()]
+    prefix    = f"Строка {row_idx}: "
+    budget    = 39 - len(prefix)   # 39 = 40 - 1 reserved for '…'
+    parts     = []
+    used      = 0
+    for val in non_empty[:3]:
+        chunk = val[:12]
+        sep   = " · " if parts else ""
+        if used + len(sep) + len(chunk) > budget:
+            break
+        parts.append(chunk)
+        used += len(sep) + len(chunk)
+    has_more = len(non_empty) > len(parts)
+    preview  = " · ".join(parts) + ("…" if has_more else "")
+    return f"{prefix}{preview}" if preview else f"{prefix}(пусто)"
 
 
 def _col_btn_label(col_idx: int, header: str, first_val: str) -> str:
-    """Short label for a column button: 'A — HeaderName (first_val)'."""
+    """Short label for a column button that fits in a Telegram button on mobile.
+    Format: 'A — Header (sample)'  (≤ 40 chars total)
+    """
     letter = _col_letter(col_idx)
-    parts  = []
-    if header.strip():
-        parts.append(header.strip()[:30])
-    if first_val.strip() and first_val.strip() != header.strip():
-        parts.append(f"({first_val.strip()[:20]})")
-    detail = "  ".join(parts) if parts else "(пусто)"
-    return f"{letter} — {detail}"
+    prefix = f"{letter} — "
+    budget = 40 - len(prefix)
+    h      = header.strip()[:18]
+    s      = first_val.strip()
+    if s and s != header.strip() and h:
+        max_sample = budget - len(h) - 3   # 3 = len(" ()")
+        detail = f"{h} ({s[:max_sample]})" if max_sample >= 4 else h
+    elif s and not h:
+        detail = s[:budget]
+    else:
+        detail = h
+    return f"{prefix}{detail}" if detail else f"{prefix}(пусто)"
 
 
 async def _show_hrow_picker(target, state: FSMContext, rows_data: dict):
