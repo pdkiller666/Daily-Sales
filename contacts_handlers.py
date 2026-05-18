@@ -4,15 +4,17 @@
 import os
 import sqlite3
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 
 from database import Database
 from keyboards import back_button, safe_cb, resolve_cb_name
-from db_utils import get_db
+from db_utils import get_db, is_any_admin
 from env_manager import env_manager as _env
 from utils import he
+from message_utils import fsm_edit
+from states import SearchStates
 
 # Создаем роутер для контактов
 contacts_router = Router()
@@ -151,15 +153,53 @@ async def contacts_by_shop(callback: CallbackQuery, state: FSMContext):
         return
     
     builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="contacts_srch_shop_start"))
     for shop in shops:
         builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("sc_", shop)))
     builder.add(back_button("view_contacts"))
-    builder.adjust(2, 1)
+    builder.adjust(1)
     
     await callback.message.edit_text(
         "🏪 Выберите магазин:",
         reply_markup=builder.as_markup()
     )
+
+
+@contacts_router.callback_query(F.data == "contacts_srch_shop_start")
+async def contacts_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.shop_contacts)
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="contacts_by_shop"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск магазина</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@contacts_router.message(SearchStates.shop_contacts)
+async def contacts_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    shops = current_db.get_all_shops()
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="contacts_srch_shop_start"))
+    for shop in filtered:
+        builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("sc_", shop)))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="contacts_by_shop"))
+    builder.add(back_button("view_contacts"))
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"🏪 Выберите магазин:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
 
 @contacts_router.callback_query(F.data == "contacts_by_city")
 async def contacts_by_city(callback: CallbackQuery, state: FSMContext):

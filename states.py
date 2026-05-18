@@ -146,6 +146,20 @@ class PaymentSystemStates(StatesGroup):
 class QuickSaleStates(StatesGroup):
     searching_product = State()
 
+class SearchStates(StatesGroup):
+    shop_commission    = State()   # commission_handlers — коэффициент смены
+    user_catfilt       = State()   # commission_handlers — фильтр категорий
+    shop_plans         = State()   # sales_plans_handlers — выбор магазина
+    user_plans         = State()   # sales_plans_handlers — выбор продавца
+    product_plans      = State()   # sales_plans_handlers — мультивыбор товаров
+    category_plans     = State()   # sales_plans_handlers — мультивыбор категорий
+    product_contests   = State()   # contests_handlers — товары конкурса
+    category_contests  = State()   # contests_handlers — категории конкурса
+    shop_reports       = State()   # reports_handlers — магазин отчёта за период
+    shop_inventory     = State()   # inventory_handlers — магазин для остатков
+    product_inventory  = State()   # inventory_handlers — товар для остатков
+    shop_contacts      = State()   # contacts_handlers — магазин контактов
+
 class ExcelImportStates(StatesGroup):
     waiting_file       = State()
     confirming_import  = State()

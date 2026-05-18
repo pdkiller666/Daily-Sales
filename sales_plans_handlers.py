@@ -14,6 +14,7 @@ from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit, safe_edit_message
 from hints import hint_suffix
+from states import SearchStates
 
 sales_plans_router = Router()
 
@@ -177,7 +178,6 @@ async def plnwiz_step2(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_target_type=target_type)
 
     current_db = await get_db(callback.from_user.id, state)
-    builder = InlineKeyboardBuilder()
 
     if target_type == 'seller':
         all_users = current_db.get_all_users()
@@ -186,26 +186,160 @@ async def plnwiz_step2(callback: CallbackQuery, state: FSMContext):
         if not sellers:
             await callback.answer("❌ Нет продавцов в системе", show_alert=True)
             return
-        for u in sellers:
-            uid, tg_id, fname, lname = u[0], u[1], u[2], u[3]
-            shop = u[8] or ""
-            label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
-            builder.button(text=label, callback_data=f"plnusr_{uid}")
-        prompt = "📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:"
+        await state.update_data(anchor_msg_id=callback.message.message_id)
+        await _show_plan_user_list(callback, sellers)
     else:
         shops = current_db.get_all_shops()
         if not shops:
             await callback.answer("❌ Нет магазинов в системе", show_alert=True)
             return
-        for shop in shops:
-            builder.button(text=f"🏪 {shop}", callback_data=safe_cb("plnshp_", shop))
-        prompt = "📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:"
+        await state.update_data(anchor_msg_id=callback.message.message_id)
+        await _show_plan_shop_list(callback, shops)
+    await callback.answer()
 
+
+async def _show_plan_shop_list(callback, shops, query=""):
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти магазин", callback_data="plnwiz_srch_shop_start")
+    for shop in filtered:
+        builder.button(text=f"🏪 {shop}", callback_data=safe_cb("plnshp_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
     builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await callback.message.edit_text(
+        f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
-    await callback.message.edit_text(prompt, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+async def _show_plan_user_list(callback, sellers, query=""):
+    filtered = sellers
+    if query:
+        q = query.lower()
+        filtered = [u for u in sellers
+                    if q in f"{u[2]} {u[3]}".lower() or q in (u[8] or "").lower()]
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти продавца", callback_data="plnwiz_srch_user_start")
+    for u in filtered:
+        uid, fname, lname = u[0], u[2], u[3]
+        shop = u[8] or ""
+        label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
+        builder.button(text=label, callback_data=f"plnusr_{uid}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_user_cancel")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await callback.message.edit_text(
+        f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_shop_start")
+async def plnwiz_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.shop_plans)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="plnwiz_srch_shop_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск магазина</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_shop_cancel")
+async def plnwiz_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    shops = current_db.get_all_shops()
+    await _show_plan_shop_list(callback, shops)
+
+
+@sales_plans_router.message(SearchStates.shop_plans)
+async def plnwiz_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    shops = current_db.get_all_shops()
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти магазин", callback_data="plnwiz_srch_shop_start")
+    for shop in filtered:
+        builder.button(text=f"🏪 {shop}", callback_data=safe_cb("plnshp_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_shop_cancel")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_user_start")
+async def plnwiz_srch_user_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.user_plans)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="plnwiz_srch_user_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск продавца</b>\n\nВведите имя или магазин:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_user_cancel")
+async def plnwiz_srch_user_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    all_users = current_db.get_all_users()
+    sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
+    await _show_plan_user_list(callback, sellers)
+
+
+@sales_plans_router.message(SearchStates.user_plans)
+async def plnwiz_srch_user_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    all_users = current_db.get_all_users()
+    sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
+    q = query.lower()
+    filtered = [u for u in sellers
+                if q in f"{u[2]} {u[3]}".lower() or q in (u[8] or "").lower()] if query else sellers
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти продавца", callback_data="plnwiz_srch_user_start")
+    for u in filtered:
+        uid, fname, lname = u[0], u[2], u[3]
+        shop = u[8] or ""
+        label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
+        builder.button(text=label, callback_data=f"plnusr_{uid}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_user_cancel")
+    builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
 
 @sales_plans_router.callback_query(F.data.startswith("plnusr_"))
@@ -339,19 +473,87 @@ async def plnwiz_filter_cat(callback: CallbackQuery, state: FSMContext):
 
 
 async def _render_category_selection(message: Message, categories: list, selected: list,
-                                      back_cb: str = "plnwiz_start"):
+                                      back_cb: str = "plnwiz_start", query: str = ""):
+    filtered = categories
+    if query:
+        q = query.lower()
+        filtered = [c for c in categories if q in c.lower()]
     builder = InlineKeyboardBuilder()
-    for cat in categories:
+    builder.button(text="🔍 Найти категорию", callback_data="plnwiz_srch_cat_start")
+    for cat in filtered:
         icon = "✅" if cat in selected else "◻️"
         builder.button(text=f"{icon} {cat}", callback_data=safe_cb("plncat_", cat))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_cat_cancel")
     builder.button(text="💾 Подтвердить выбор", callback_data="plncatok")
     builder.button(text="⬅️ Назад", callback_data=back_cb)
     builder.adjust(1)
     sel_text = f"Выбрано: {len(selected)}" if selected else "Ничего не выбрано"
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
     await message.edit_text(
-        f"📋 <b>Выбор категорий</b>\n\n{sel_text}\n\nОтметьте нужные категории:",
+        f"📋 <b>Выбор категорий</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные категории:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_cat_start")
+async def plnwiz_srch_cat_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.category_plans)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="plnwiz_srch_cat_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск категории</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_cat_cancel")
+async def plnwiz_srch_cat_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    selected = list(data.get('pln_categories', []))
+    await state.set_state(SalesPlanStates.selecting_categories)
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    await _render_category_selection(callback.message, categories, selected, back_cb=back_cb)
+
+
+@sales_plans_router.message(SearchStates.category_plans)
+async def plnwiz_srch_cat_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    data = await state.get_data()
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    selected = list(data.get('pln_categories', []))
+    current_db = await get_db(message.from_user.id, state)
+    categories = current_db.get_all_categories()
+    q = query.lower()
+    filtered = [c for c in categories if q in c.lower()] if query else categories
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти категорию", callback_data="plnwiz_srch_cat_start")
+    for cat in filtered:
+        icon = "✅" if cat in selected else "◻️"
+        builder.button(text=f"{icon} {cat}", callback_data=safe_cb("plncat_", cat))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_cat_cancel")
+    builder.button(text="💾 Подтвердить выбор", callback_data="plncatok")
+    builder.button(text="⬅️ Назад", callback_data=back_cb)
+    builder.adjust(1)
+    sel_text = f"Выбрано: {len(selected)}" if selected else "Ничего не выбрано"
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📋 <b>Выбор категорий</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные категории:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await state.set_state(SalesPlanStates.selecting_categories)
 
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_categories, F.data.startswith("plncat_"))
@@ -426,20 +628,88 @@ async def plnwiz_filter_prod(callback: CallbackQuery, state: FSMContext):
 
 
 async def _render_product_selection(message: Message, products, selected_ids: list,
-                                     back_cb: str = "plnwiz_start"):
+                                     back_cb: str = "plnwiz_start", query: str = ""):
+    filtered = products
+    if query:
+        q = query.lower()
+        filtered = [p for p in products if q in p[1].lower()]
     builder = InlineKeyboardBuilder()
-    for p in products:
+    builder.button(text="🔍 Найти товар", callback_data="plnwiz_srch_prd_start")
+    for p in filtered:
         icon = "✅" if p[0] in selected_ids else "◻️"
         builder.button(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_prd_cancel")
     builder.button(text="💾 Подтвердить выбор", callback_data="plnprdok")
     builder.button(text="⬅️ Назад", callback_data=back_cb)
     builder.adjust(1)
 
     sel_text = f"Выбрано: {len(selected_ids)} тов." if selected_ids else "Ничего не выбрано"
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
     await message.edit_text(
-        f"📋 <b>Выбор товаров</b>\n\n{sel_text}\n\nОтметьте нужные товары:",
+        f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_prd_start")
+async def plnwiz_srch_prd_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.product_plans)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="plnwiz_srch_prd_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@sales_plans_router.callback_query(F.data == "plnwiz_srch_prd_cancel")
+async def plnwiz_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    selected = list(data.get('pln_products', []))
+    await state.set_state(SalesPlanStates.selecting_products)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    await _render_product_selection(callback.message, products, selected, back_cb=back_cb)
+
+
+@sales_plans_router.message(SearchStates.product_plans)
+async def plnwiz_srch_prd_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    data = await state.get_data()
+    edit_id = data.get('editpln_id')
+    back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
+    selected = list(data.get('pln_products', []))
+    current_db = await get_db(message.from_user.id, state)
+    products = current_db.get_all_products()
+    q = query.lower()
+    filtered = [p for p in products if q in p[1].lower()] if query else products
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти товар", callback_data="plnwiz_srch_prd_start")
+    for p in filtered:
+        icon = "✅" if p[0] in selected else "◻️"
+        builder.button(text=f"{icon} {p[1]}", callback_data=f"plnprd_{p[0]}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_prd_cancel")
+    builder.button(text="💾 Подтвердить выбор", callback_data="plnprdok")
+    builder.button(text="⬅️ Назад", callback_data=back_cb)
+    builder.adjust(1)
+    sel_text = f"Выбрано: {len(selected)} тов." if selected else "Ничего не выбрано"
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await state.set_state(SalesPlanStates.selecting_products)
 
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_"))

@@ -22,6 +22,8 @@ reports_router = Router()
 from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_scope
 from keyboards import safe_cb, resolve_cb_name
 from hints import hint_suffix
+from states import SearchStates
+from message_utils import fsm_edit
 
 logger = logging.getLogger(__name__)
 
@@ -1029,15 +1031,56 @@ async def period_report_shop_select(callback: CallbackQuery, state: FSMContext):
         return
     
     builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="rep_srch_shop_start"))
     for shop in shops:
         builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("period_shop_", shop)))
     builder.add(back_button("reports"))
-    builder.adjust(2, 1)
+    builder.adjust(1)
     
     await callback.message.edit_text(
         "🏪 Выберите магазин для отчета за период:",
         reply_markup=builder.as_markup()
     )
+
+
+@reports_router.callback_query(F.data == "rep_srch_shop_start")
+async def rep_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    if not (is_any_admin(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.shop_reports)
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="period_report_shop"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск магазина</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@reports_router.message(SearchStates.shop_reports)
+async def rep_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    shops = current_db.get_all_shops()
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="rep_srch_shop_start"))
+    for shop in filtered:
+        builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("period_shop_", shop)))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="period_report_shop"))
+    builder.add(back_button("reports"))
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"🏪 Выберите магазин для отчета за период:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
 
 @reports_router.callback_query(F.data.startswith("period_shop_"))
 async def period_report_shop_generate(callback: CallbackQuery, state: FSMContext):

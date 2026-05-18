@@ -15,6 +15,7 @@ from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_butt
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
+from states import SearchStates
 from message_utils import fsm_edit, safe_edit_message
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_DEFAULT
 from notif_utils import add_read_btn
@@ -256,6 +257,52 @@ async def _show_scope_step(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+async def _show_contest_product_list(message, products, selected, query=""):
+    filtered = products
+    if query:
+        q = query.lower()
+        filtered = [p for p in products if q in p[1].lower()]
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти товар", callback_data="ct_srch_prd_start")
+    for p in filtered:
+        icon = "✅" if p[0] in selected else "◻️"
+        builder.button(text=f"{icon} {p[1]}", callback_data=f"ctprd_{p[0]}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_prd_cancel")
+    builder.button(text="💾 Далее", callback_data="ctprd_done")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+    cnt = len(selected)
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await message.edit_text(
+        f"📦 <b>Выберите товары для конкурса</b> (выбрано: {cnt}):{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+async def _show_contest_category_list(message, categories, selected, query=""):
+    filtered = categories
+    if query:
+        q = query.lower()
+        filtered = [c for c in categories if q in c.lower()]
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти категорию", callback_data="ct_srch_cat_start")
+    for c in filtered:
+        icon = "✅" if c in selected else "◻️"
+        builder.button(text=f"{icon} {c}", callback_data=safe_cb("ctcat_", c))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_cat_cancel")
+    builder.button(text="💾 Далее", callback_data="ctcat_done")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+    cnt = len(selected)
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await message.edit_text(
+        f"📂 <b>Выберите категории для конкурса</b> (выбрано: {cnt}):{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
 @contests_router.callback_query(F.data.startswith("ctscp_"))
 async def contest_scope_selected(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
@@ -271,16 +318,9 @@ async def contest_scope_selected(callback: CallbackQuery, state: FSMContext):
         if not products:
             await callback.answer("❌ Нет товаров в системе", show_alert=True)
             return
-        builder = InlineKeyboardBuilder()
-        for p in products:
-            builder.button(text=f"◻️ {p[1]}", callback_data=f"ctprd_{p[0]}")
-        builder.button(text="💾 Далее", callback_data="ctprd_done")
-        builder.button(text="❌ Отмена", callback_data="contests_menu")
-        builder.adjust(1)
-        await callback.message.edit_text(
-            "📦 <b>Выберите товары для конкурса:</b>",
-            reply_markup=builder.as_markup(), parse_mode="HTML"
-        )
+        await state.update_data(anchor_msg_id=callback.message.message_id)
+        selected = (await state.get_data()).get('ct_products') or []
+        await _show_contest_product_list(callback.message, products, selected)
         await callback.answer()
 
     elif scope == 'category':
@@ -288,16 +328,9 @@ async def contest_scope_selected(callback: CallbackQuery, state: FSMContext):
         if not categories:
             await callback.answer("❌ Нет категорий в системе", show_alert=True)
             return
-        builder = InlineKeyboardBuilder()
-        for cat in categories:
-            builder.button(text=f"◻️ {cat}", callback_data=safe_cb("ctcat_", cat))
-        builder.button(text="💾 Далее", callback_data="ctcat_done")
-        builder.button(text="❌ Отмена", callback_data="contests_menu")
-        builder.adjust(1)
-        await callback.message.edit_text(
-            "📂 <b>Выберите категории для конкурса:</b>",
-            reply_markup=builder.as_markup(), parse_mode="HTML"
-        )
+        await state.update_data(anchor_msg_id=callback.message.message_id)
+        selected = (await state.get_data()).get('ct_categories') or []
+        await _show_contest_category_list(callback.message, categories, selected)
         await callback.answer()
 
     else:
@@ -331,17 +364,7 @@ async def contest_toggle_product(callback: CallbackQuery, state: FSMContext):
 
     current_db = await get_db(callback.from_user.id, state)
     products = current_db.get_all_products()
-    builder = InlineKeyboardBuilder()
-    for p in products:
-        icon = "✅" if p[0] in selected else "◻️"
-        builder.button(text=f"{icon} {p[1]}", callback_data=f"ctprd_{p[0]}")
-    builder.button(text="💾 Далее", callback_data="ctprd_done")
-    builder.button(text="❌ Отмена", callback_data="contests_menu")
-    builder.adjust(1)
-    await callback.message.edit_text(
-        f"📦 <b>Выберите товары</b> (выбрано: {len(selected)}):",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
-    )
+    await _show_contest_product_list(callback.message, products, selected)
     await callback.answer()
 
 
@@ -372,18 +395,120 @@ async def contest_toggle_category(callback: CallbackQuery, state: FSMContext):
         selected.append(cat)
     await state.update_data(ct_categories=selected)
 
+    await _show_contest_category_list(callback.message, categories, selected)
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data == "ct_srch_prd_start")
+async def ct_srch_prd_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.product_contests)
     builder = InlineKeyboardBuilder()
-    for c in categories:
+    builder.button(text="❌ Отмена", callback_data="ct_srch_prd_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@contests_router.callback_query(F.data == "ct_srch_prd_cancel")
+async def ct_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    products = current_db.get_all_products()
+    data = await state.get_data()
+    selected = list(data.get('ct_products') or [])
+    await _show_contest_product_list(callback.message, products, selected)
+
+
+@contests_router.message(SearchStates.product_contests)
+async def ct_srch_prd_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    products = current_db.get_all_products()
+    data = await state.get_data()
+    selected = list(data.get('ct_products') or [])
+    q = query.lower()
+    filtered = [p for p in products if q in p[1].lower()] if query else products
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти товар", callback_data="ct_srch_prd_start")
+    for p in filtered:
+        icon = "✅" if p[0] in selected else "◻️"
+        builder.button(text=f"{icon} {p[1]}", callback_data=f"ctprd_{p[0]}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_prd_cancel")
+    builder.button(text="💾 Далее", callback_data="ctprd_done")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+    cnt = len(selected)
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📦 <b>Выберите товары для конкурса</b> (выбрано: {cnt}):{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@contests_router.callback_query(F.data == "ct_srch_cat_start")
+async def ct_srch_cat_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.category_contests)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="ct_srch_cat_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск категории</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@contests_router.callback_query(F.data == "ct_srch_cat_cancel")
+async def ct_srch_cat_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    categories = current_db.get_all_categories()
+    data = await state.get_data()
+    selected = list(data.get('ct_categories') or [])
+    await _show_contest_category_list(callback.message, categories, selected)
+
+
+@contests_router.message(SearchStates.category_contests)
+async def ct_srch_cat_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    categories = current_db.get_all_categories()
+    data = await state.get_data()
+    selected = list(data.get('ct_categories') or [])
+    q = query.lower()
+    filtered = [c for c in categories if q in c.lower()] if query else categories
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти категорию", callback_data="ct_srch_cat_start")
+    for c in filtered:
         icon = "✅" if c in selected else "◻️"
         builder.button(text=f"{icon} {c}", callback_data=safe_cb("ctcat_", c))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_cat_cancel")
     builder.button(text="💾 Далее", callback_data="ctcat_done")
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
-    await callback.message.edit_text(
-        f"📂 <b>Выберите категории</b> (выбрано: {len(selected)}):",
+    cnt = len(selected)
+    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"📂 <b>Выберите категории для конкурса</b> (выбрано: {cnt}):{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
-    await callback.answer()
 
 
 async def _show_metric_step(callback: CallbackQuery, state: FSMContext):

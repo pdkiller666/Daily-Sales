@@ -13,6 +13,7 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
+from states import SearchStates
 
 commission_router = Router()
 
@@ -585,21 +586,81 @@ async def add_coeff_condition(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     shops = current_db.get_all_shops()
 
+    await _show_coeff_shop_list(callback, shops)
+    await callback.answer()
+
+
+async def _show_coeff_shop_list(callback, shops, query=""):
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти магазин", callback_data="coeff_srch_shop_start")
     builder.button(text="🌐 Все магазины", callback_data="coeff_sh_all")
-    for shop in shops:
+    for shop in filtered:
         builder.button(text=f"🏪 {shop}", callback_data=safe_cb("coeff_sh_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="coeff_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
     await callback.message.edit_text(
         "📉 <b>Коэффициент смены — шаг 1/3</b>\n\n"
         "Выберите магазин, для которого будет действовать коэффициент:\n\n"
         "• <b>Все магазины</b> — применять ко всем\n"
-        "• Конкретный магазин — применять только к нему",
+        f"• Конкретный магазин — применять только к нему{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@commission_router.callback_query(F.data == "coeff_srch_shop_start")
+async def coeff_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.shop_commission)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="coeff_srch_shop_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск магазина</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@commission_router.callback_query(F.data == "coeff_srch_shop_cancel")
+async def coeff_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    shops = current_db.get_all_shops()
+    await _show_coeff_shop_list(callback, shops)
+
+
+@commission_router.message(SearchStates.shop_commission)
+async def coeff_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    shops = current_db.get_all_shops()
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти магазин", callback_data="coeff_srch_shop_start")
+    builder.button(text="🌐 Все магазины", callback_data="coeff_sh_all")
+    for shop in filtered:
+        builder.button(text=f"🏪 {shop}", callback_data=safe_cb("coeff_sh_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="coeff_srch_shop_cancel")
+    builder.button(text="⬅️ Назад", callback_data="motivation_extra")
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        "📉 <b>Коэффициент смены — шаг 1/3</b>\n\n"
+        "Выберите магазин, для которого будет действовать коэффициент:\n\n"
+        "• <b>Все магазины</b> — применять ко всем\n"
+        f"• Конкретный магазин — применять только к нему{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
 
 @commission_router.callback_query(F.data.startswith("coeff_sh_"))
@@ -819,21 +880,89 @@ async def add_category_filter(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    await _show_catfilt_user_list(callback, sellers)
+    await callback.answer()
+
+
+async def _show_catfilt_user_list(callback, sellers, query=""):
+    filtered = sellers
+    if query:
+        q = query.lower()
+        filtered = [u for u in sellers
+                    if q in f"{u[2]} {u[3]}".lower() or q in (u[8] or "").lower()]
     builder = InlineKeyboardBuilder()
-    for u in sellers:
-        uid, tg_id, fname, lname = u[0], u[1], u[2], u[3]
+    builder.button(text="🔍 Найти сотрудника", callback_data="catfilt_srch_start")
+    for u in filtered:
+        uid, fname, lname = u[0], u[2], u[3]
         shop = u[8] or ""
         label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
         builder.button(text=label, callback_data=f"catfilt_user_{uid}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="catfilt_srch_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
     await callback.message.edit_text(
         "🔒 <b>Фильтр категорий — выбор продавца</b>\n\n"
-        "Выберите продавца для настройки ограничений по категориям:",
+        f"Выберите продавца для настройки ограничений по категориям:{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@commission_router.callback_query(F.data == "catfilt_srch_start")
+async def catfilt_srch_start(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.user_catfilt)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="catfilt_srch_cancel")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск сотрудника</b>\n\nВведите имя или магазин:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@commission_router.callback_query(F.data == "catfilt_srch_cancel")
+async def catfilt_srch_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    all_users = current_db.get_all_users()
+    sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
+    await _show_catfilt_user_list(callback, sellers)
+
+
+@commission_router.message(SearchStates.user_catfilt)
+async def catfilt_srch_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    all_users = current_db.get_all_users()
+    sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
+    q = query.lower()
+    filtered = [u for u in sellers
+                if q in f"{u[2]} {u[3]}".lower() or q in (u[8] or "").lower()] if query else sellers
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти сотрудника", callback_data="catfilt_srch_start")
+    for u in filtered:
+        uid, fname, lname = u[0], u[2], u[3]
+        shop = u[8] or ""
+        label = f"{fname} {lname}" + (f" ({shop})" if shop else "")
+        builder.button(text=label, callback_data=f"catfilt_user_{uid}")
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="catfilt_srch_cancel")
+    builder.button(text="⬅️ Назад", callback_data="motivation_extra")
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        "🔒 <b>Фильтр категорий — выбор продавца</b>\n\n"
+        f"Выберите продавца для настройки ограничений по категориям:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
 
 @commission_router.callback_query(F.data.startswith("catfilt_user_"))

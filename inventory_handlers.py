@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from database import Database
 from keyboards import back_button, inventory_menu, safe_cb, resolve_cb_name
 from message_utils import safe_edit_message, fsm_edit
-from states import InventoryStates
+from states import InventoryStates, SearchStates
 from utils import format_currency, get_stock_color_indicator, he
 from env_manager import env_manager
 
@@ -81,35 +81,73 @@ async def add_inventory_start(callback: CallbackQuery, state: FSMContext):
             )
             return
         
-        builder = InlineKeyboardBuilder()
-        for product in products:
-            product_id = product[0]
-            name = product[1]
-            category = product[2] or "Без категории"
-            builder.add(InlineKeyboardButton(
-                text=f"{name} ({category})",
-                callback_data=f"add_inv_product_{product_id}"
-            ))
-        builder.add(back_button("manage_inventory"))
-        builder.adjust(1)
-        
-        await callback.message.edit_text(
-            f"🏪 Магазин: {shop_name}\n\n📦 Выберите товар для добавления остатков:",
-            reply_markup=builder.as_markup()
-        )
+        await state.update_data(add_inventory_shop=shop_name, anchor_msg_id=callback.message.message_id)
+        await _show_inv_product_list(callback.message, shop_name, products)
         return
     
+    await state.update_data(action="add_inventory", anchor_msg_id=callback.message.message_id)
+    await _show_inv_shop_list(callback, shops)
+
+
+async def _show_inv_shop_list(callback, shops, query=""):
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
-    for shop in shops:
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="inv_srch_shop_start"))
+    for shop in filtered:
         builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("add_inv_shop_", shop)))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("manage_inventory"))
     builder.adjust(1)
-    
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
     await callback.message.edit_text(
-        "🏪 Выберите магазин для добавления остатков:",
+        f"🏪 Выберите магазин для добавления остатков:{suffix}",
         reply_markup=builder.as_markup()
     )
-    await state.update_data(action="add_inventory")
+
+
+@inventory_router.callback_query(F.data == "inv_srch_shop_start")
+async def inv_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    if not (is_any_admin(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.shop_inventory)
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="add_inventory"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск магазина</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@inventory_router.message(SearchStates.shop_inventory)
+async def inv_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    is_super = env_manager.is_super_admin(message.from_user.id)
+    current_db = await get_db(message.from_user.id, state)
+    if is_super:
+        shops = current_db.get_all_shops()
+    else:
+        user = current_db.get_user(message.from_user.id)
+        shops = [user[8]] if user and user[8] else []
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="inv_srch_shop_start"))
+    for shop in filtered:
+        builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("add_inv_shop_", shop)))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
+    builder.add(back_button("manage_inventory"))
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"🏪 Выберите магазин для добавления остатков:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
 
 @inventory_router.callback_query(F.data.startswith("add_inv_shop_"))
 async def add_inventory_select_shop(callback: CallbackQuery, state: FSMContext):
@@ -129,21 +167,81 @@ async def add_inventory_select_shop(callback: CallbackQuery, state: FSMContext):
         )
         return
     
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await _show_inv_product_list(callback.message, shop_name, products)
+
+
+async def _show_inv_product_list(message, shop_name: str, products: list, query: str = ""):
+    filtered = products
+    if query:
+        q = query.lower()
+        filtered = [p for p in products if q in p[1].lower() or q in (p[2] or "").lower()]
     builder = InlineKeyboardBuilder()
-    for product in products:
+    builder.add(InlineKeyboardButton(text="🔍 Найти товар", callback_data="inv_srch_prd_start"))
+    for product in filtered:
         product_id = product[0]
         name = product[1]
-        category = product[2]
+        category = product[2] or "Без категории"
         builder.add(InlineKeyboardButton(
             text=f"{name} ({category})",
             callback_data=f"add_inv_product_{product_id}"
         ))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("add_inventory"))
     builder.adjust(1)
-    
-    await callback.message.edit_text(
-        f"📦 Магазин: {shop_name}\n\nВыберите товар для добавления остатков:",
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await message.edit_text(
+        f"🏪 Магазин: {shop_name}\n\n📦 Выберите товар для добавления остатков:{suffix}",
         reply_markup=builder.as_markup()
+    )
+
+
+@inventory_router.callback_query(F.data == "inv_srch_prd_start")
+async def inv_srch_prd_start(callback: CallbackQuery, state: FSMContext):
+    if not (is_any_admin(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.product_inventory)
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="add_inventory"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или категорию:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@inventory_router.message(SearchStates.product_inventory)
+async def inv_srch_prd_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    data = await state.get_data()
+    shop_name = data.get('add_inventory_shop', '')
+    products = current_db.get_all_products()
+    q = query.lower()
+    filtered = [p for p in products if q in p[1].lower() or q in (p[2] or "").lower()] if query else products
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔍 Найти товар", callback_data="inv_srch_prd_start"))
+    for product in filtered:
+        pid = product[0]
+        name = product[1]
+        category = product[2] or "Без категории"
+        builder.add(InlineKeyboardButton(
+            text=f"{name} ({category})",
+            callback_data=f"add_inv_product_{pid}"
+        ))
+    if query:
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
+    builder.add(back_button("add_inventory"))
+    builder.adjust(1)
+    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    await fsm_edit(
+        state, message,
+        f"🏪 Магазин: {he(shop_name)}\n\n📦 Выберите товар для добавления остатков:{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
     )
 
 @inventory_router.callback_query(F.data.startswith("add_inv_product_"))
