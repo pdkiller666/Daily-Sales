@@ -187,7 +187,7 @@ async def _show_inv_product_list(message, shop_name: str, products: list, query:
             callback_data=f"add_inv_product_{product_id}"
         ))
     if query:
-        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="inv_srch_prd_reset"))
     builder.add(back_button("add_inventory"))
     builder.adjust(1)
     suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
@@ -206,11 +206,29 @@ async def inv_srch_prd_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(SearchStates.product_inventory)
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="add_inventory"))
+    builder.add(InlineKeyboardButton(text="❌ Отмена", callback_data="inv_srch_prd_reset"))
     await callback.message.edit_text(
         "🔍 <b>Поиск товара</b>\n\nВведите название или категорию:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
+
+
+@inventory_router.callback_query(F.data == "inv_srch_prd_reset")
+async def inv_srch_prd_reset(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    data = await state.get_data()
+    shop_name = data.get('add_inventory_shop', '')
+    products = current_db.get_all_products()
+    if not shop_name or not products:
+        await callback.answer()
+        await callback.message.edit_text(
+            "📦 Товары отсутствуют.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("add_inventory")]])
+        )
+        return
+    await _show_inv_product_list(callback.message, shop_name, products)
+    await callback.answer()
 
 
 @inventory_router.message(SearchStates.product_inventory)
@@ -234,7 +252,7 @@ async def inv_srch_prd_process(message: Message, state: FSMContext):
             callback_data=f"add_inv_product_{pid}"
         ))
     if query:
-        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
+        builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="inv_srch_prd_reset"))
     builder.add(back_button("add_inventory"))
     builder.adjust(1)
     suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
