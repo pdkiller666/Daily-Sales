@@ -8,6 +8,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Deploy (GitHub + Amvera по умолчанию)**: `bash deploy.sh "commit message"`
 - **Deploy только GitHub**: `bash deploy.sh "message" --no-amvera`
 - **Env vars required**: `BOT_TOKEN`, `ADMIN_CHAT_ID`, `GITHUB_TOKEN` (all in Replit Secrets)
+- **Google Sheets OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (in Replit Secrets)
 
 ## Stack
 
@@ -17,7 +18,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ## Where things live
 
 - `main.py` — bot entry, router registration, 7 APScheduler jobs
-- `database.py` — Database class, 156+ methods, all migrations in `create_tables()`
+- `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
 - `dashboard_handlers.py` — `build_admin_dashboard(..., period)`, `build_user_dashboard(...)`, `_plan_summary_line()`
@@ -29,6 +30,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `filter_handlers.py` — `filter_router`: `flt_open_{back_cb}`, `ftog_s/c/n_*`, `flt_reset`
 - `hints.py` — `hint_suffix()`, `maybe_send_welcome()`, `HINT_TEXTS`
 - `notif_utils.py` — `add_read_btn()` adds «✅ Прочитано» to all push notifications
+- `integration/` — Google Sheets integration; `integration/auth/google_oauth.py` (Device Flow); `integration/manager.py` (trigger_export)
 - `data/main.db` — organizations, user_org_mapping
 - `data/shop_bot.db` — personal mode + payments/subscriptions (centralized)
 - `data/tenants/org_*.db` — isolated per-org DBs (Amvera: only `org_huawei.db`)
@@ -66,6 +68,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Manual filters: 🔍 Фильтр in Reports, Rankings, Users, Plans progress; scope=ceiling, filter=floor
 - Push notifications: «✅ Прочитано» on all notifications; scheduled notifications with UTC-correct timing
 - Onboarding & hints: welcome popup (once, role-aware); section hints (once per section); «✅ Понятно!»
+- Google Sheets integration: экспорт продаж в таблицу; авторизация через Device Flow (OAuth 2.0); триггер `trigger_export(db, 'sales', event)` в `complete_sale`; таблицы `integration_connections`, `integration_exports`, `integration_log`, `gs_bonus_cache` в org_*.db
+- Shift sale alerts: push-уведомление коллегам в магазине при каждой продаже (если стоит смена + включена настройка `shift_sale_alerts`)
 
 ## User Preferences
 
@@ -89,6 +93,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 11. `datetime.now()` on Amvera = UTC — use `timezone_utils` for all display; `get_utc_time()` when storing user input
 12. `shift_templates` weekday: 0=Пн, 6=Вс (Python `date.weekday()` convention)
 13. `scheduled_notifications.scheduled_datetime` stored as UTC string
+14. `sales_handlers.py` **не имеет глобального `logger`** — использует `import logging` + `logging.error()`; любой `logger.xxx()` вызовет `NameError` → outer except → удаление продаж!
+15. В `complete_sale` outer `except Exception` удаляет все `processed_sales` через `delete_sale` — любой необработанный exception ПОСЛЕ `add_sale` → потеря продажи. Все вызовы внутри outer try должны быть в `try/except`.
+16. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID в Google Cloud Console выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow (`https://oauth2.googleapis.com/device/code`). Скачанный JSON содержит ключ `"installed"` — это нормально. `client_id` и `client_secret` → в Replit Secrets как `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
 
 ## Pointers
 

@@ -28,6 +28,10 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `f7a76f8` · Amvera `7057da5` (2026-05-18, сессия 96). Оба хэша верифицированы через `git ls-remote`.
 
+**Дополнительные секреты (Google Sheets):**
+- `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
+- `GOOGLE_OAUTH_CLIENT_SECRET` — OAuth client_secret
+
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
 
@@ -61,6 +65,7 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 │  contests_router      ← contests_handlers.py  (конкурсы)        │
 │  dashboard_router     ← dashboard_handlers.py (дашборд-сводка)  │
 │  filter_router        ← filter_handlers.py    (общий фильтр)    │
+│  integration_router   ← integration_handlers.py (Google Sheets) │
 └──────────────────────────────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -101,6 +106,9 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 | `notif_utils.py` | add_read_btn() — добавляет «✅ Прочитано» ко всем push-уведомлениям |
 | `pagination_utils.py` | paginate(), page_nav_row(), PAGE_SIZE_DEFAULT/SALES/USERS/ORGS |
 | `scripts/post-merge.sh` | post-merge setup: `pip install -r requirements.txt`; зарегистрирован в `.replit [postMerge]`, таймаут 60s — запускается автоматически после каждого мержа задачи-агента |
+| `integration/auth/google_oauth.py` | Device Flow OAuth 2.0: `get_client_credentials()` ← env vars; `initiate_device_flow()` → {device_code, user_code, verification_url}; `poll_for_token(device_code)` → access_token; `refresh_access_token(refresh_token)` → новый access_token |
+| `integration/manager.py` | `integration_manager` синглтон; `trigger_export(db, export_type, event_data)` — вызывается из `complete_sale` для типа `'sales'`; читает `integration_connections`+`integration_exports` из той же org DB |
+| `integration_handlers.py` | `integration_router`: настройка подключений GS, авторизация через Device Flow, просмотр/удаление связей |
 
 ---
 
@@ -280,7 +288,11 @@ Amvera статически сканирует `sqlite3.connect('data/...')` →
 | `shift_templates` | user_id, weekday (0=Пн..6=Вс), start_time, end_time — UNIQUE(user_id, weekday) |
 | `sales_plans` | id, plan_type, metric_type, target_value, target_type, user_id, shop_name, filter_type, filter_value, is_active, created_by |
 | `plan_milestone_alerts` | user_id, plan_id, milestone (50/75/100), period_start — UNIQUE(user_id, plan_id, milestone, period_start) |
-| `notification_settings` | low_stock_alerts, daily_reports, sales_alerts, payment_alerts, admin_notifications |
+| `notification_settings` | low_stock_alerts, daily_reports, sales_alerts, payment_alerts, admin_notifications, **shift_sale_alerts** (индекс 11, добавлен миграцией) |
+| `integration_connections` | id, name, provider ('google_sheets'), config (JSON), enabled, created_at, updated_at |
+| `integration_exports` | id, connection_id (FK), export_type, enabled, schedule, target_sheet, operation, mapping (JSON), lookup_config (JSON), extra (JSON), last_run |
+| `integration_log` | id, connection_id, export_id, status, message, created_at |
+| `gs_bonus_cache` | id, connection_id, model_name, chain, bonus, rrp, synced_at — UNIQUE(connection_id, model_name, chain) |
 | `notification_history` | id, user_id, notification_type, message, created_at, is_read |
 | `scheduled_notifications` | id, job_id(UUID), created_by(FK→users.id!), notification_text, recipients_type, scheduled_datetime(**UTC**), status |
 | `contests` | id, title, contest_type, scope, metric, target_value, reward_type, reward_value, start_date, end_date, status, winner_user_id |
@@ -581,6 +593,22 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
    - `get_seller_total_earnings` — добавляет корректировку: `base + get_joint_bonus_adjustment(...)`.
    - `view_extra_conditions` — иконка режима 👤/🤝 рядом с каждым условием.
 
+**Сессия 96 (2026-05-18) — БАГИ ПРОДАЖ + GOOGLE SHEETS OAUTH:**
+
+**Корневые причины бага «продажи не сохраняются»:**
+1. **`callback.answer()` без try/except** в `complete_sale` (до нашего фикса 7cbbd63): если Telegram отвечал «query is too old», outer except перехватывал исключение и удалял все `processed_sales` через `delete_sale`. Исправлено: `callback.answer()` и `get_user()` обёрнуты в try/except.
+2. **`logger` не объявлен в `sales_handlers.py`**: при добавлении дебаг-логов использовали `logger.error()`, тогда как в файле объявлен только `import logging`. `NameError: name 'logger' is not defined` бросался ДО outer try, падал в aiogram error middleware. Исправлено: добавлен `import logging` в начало файла, все вызовы → `logging.error()`.
+3. **Дополнительно исправлено** в той же сессии (коммит 7cbbd63): `_per_shop_breakdown` в `dashboard_handlers.py` использовал несуществующие колонки `s.quantity`/`s.total_price` → пустая сводка; `get_contest_manual_results` — ambiguous `shop_name` в JOIN.
+
+**Диагностический метод:** временное `logging.error("[DEBUG complete_sale] ...")` в каждой ключевой точке хендлера — немедленно обнажило NameError в логах workflow.
+
+**Google Sheets OAuth setup:**
+- Тип OAuth клиента в Google Cloud Console: **«TVs and Limited Input devices»** — единственный тип, поддерживающий Device Flow (POST на `https://oauth2.googleapis.com/device/code`).
+- Скачанный JSON имеет ключ `"installed"` — это нормально для этого типа.
+- `client_id` и `client_secret` → Replit Secrets `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+- `integration/auth/google_oauth.py`: `get_client_credentials()` читает из `os.environ`; `initiate_device_flow()` → user_code + verification_url; `poll_for_token()` — long-polling до подтверждения.
+- GitHub `f7a76f8` · Amvera `7057da5`.
+
 **Сессия 73 (2026-05-18) — ЗАДАЧА #9: ПОИСК ПО @USERNAME В СПИСКЕ ПОЛЬЗОВАТЕЛЕЙ + POST-MERGE SETUP:**
 1. **`database.py`**: добавлена колонка `username TEXT` в `users` (CREATE TABLE + авто-миграция `ALTER TABLE`); `add_user()` и `update_user()` принимают `username=`.
 2. **`admin_handlers.py`**: `_ADMIN_USERS_COLS` расширен на `username` (13-я колонка, индекс 12); поиск в `_build_admin_users_content` теперь включает `@username` в строку сравнения (с `lstrip('@')` для толерантности к вводу); кнопка в списке показывает `@username` если есть, иначе `(магазин)`.
@@ -663,6 +691,10 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 19. **Excel лимит 50000 строк**: `get_sales_report(limit=50000)` во всех download-хендлерах.
 20. **`generate_excel_report` seller detection**: `len(row) >= 11` = admin report (11 cols); `== 9` = user report.
 21. **Telegram лимит сообщения 4096 символов**: guard'ы на уровне магазинов (`> 3600`) и товаров (`> 3700`), сообщение с подсказкой «скачайте Excel».
+22. **`sales_handlers.py` НЕ имеет глобального `logger`** — файл использует `import logging` + `logging.error()`. Если добавить `logger.error()` без объявления `logger = logging.getLogger(...)` → `NameError` вне try/except → outer except удалит все `processed_sales`. Всегда использовать `logging.xxx()`.
+23. **`complete_sale` outer except удаляет продажи** — любой необработанный exception внутри `try:` блока ПОСЛЕ `add_sale` вызовет `delete_sale(sale_id)` для каждого `processed_sales`. Все сетевые вызовы (answer, edit_text, bot.send_message, интеграции) должны быть обёрнуты в `try/except`. Текущее состояние: get_user(), callback.answer(), edit_text, GS-интеграция, notifications — все защищены.
+24. **Google Sheets OAuth**: тип клиента в Google Cloud = **«TVs and Limited Input devices»** (Device Flow). Скачанный JSON будет с ключом `"installed"` — это нормально. `client_id` + `client_secret` → Replit Secrets `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`. Читаются в `integration/auth/google_oauth.py` через `get_client_credentials()` из `os.environ`.
+25. **`notification_settings.shift_sale_alerts`** — индекс 11 (после created_at[9], updated_at[10]); добавлен миграцией `ALTER TABLE`. В `get_notification_settings()` читается как `bool(settings[11]) if len(settings) > 11 else True`.
 
 ---
 
