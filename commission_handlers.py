@@ -135,7 +135,7 @@ async def _render_motiv_products(callback, state, category, products, motivation
     builder.button(text="⬅️ Назад к категориям", callback_data="set_motivation")
     builder.adjust(1)
 
-    extra = f"\n🔍 Результаты для: «{search_query}» — {len(filtered)} шт." if search_query else ""
+    extra = (f"\n🔍 Результаты для: «{search_query}» — {len(filtered)} шт." if filtered else f"\n🔍 По запросу «{search_query}» ничего не найдено, попробуйте другой запрос") if search_query else ""
     await callback.message.edit_text(
         f"📝 <b>Установка мотивации — шаг 2/3</b>\n\n"
         f"📂 Категория: <b>{he(category)}</b>{extra}\n\n"
@@ -601,7 +601,7 @@ async def _show_coeff_shop_list(callback, shops, query=""):
         builder.button(text="✖️ Сбросить поиск", callback_data="coeff_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await callback.message.edit_text(
         "📉 <b>Коэффициент смены — шаг 1/3</b>\n\n"
         "Выберите магазин, для которого будет действовать коэффициент:\n\n"
@@ -652,7 +652,7 @@ async def coeff_srch_shop_process(message: Message, state: FSMContext):
         builder.button(text="✖️ Сбросить поиск", callback_data="coeff_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         "📉 <b>Коэффициент смены — шаг 1/3</b>\n\n"
@@ -901,7 +901,7 @@ async def _show_catfilt_user_list(callback, sellers, query=""):
         builder.button(text="✖️ Сбросить поиск", callback_data="catfilt_srch_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await callback.message.edit_text(
         "🔒 <b>Фильтр категорий — выбор продавца</b>\n\n"
         f"Выберите продавца для настройки ограничений по категориям:{suffix}",
@@ -956,7 +956,7 @@ async def catfilt_srch_process(message: Message, state: FSMContext):
         builder.button(text="✖️ Сбросить поиск", callback_data="catfilt_srch_cancel")
     builder.button(text="⬅️ Назад", callback_data="motivation_extra")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         "🔒 <b>Фильтр категорий — выбор продавца</b>\n\n"

@@ -99,7 +99,7 @@ async def _show_inv_shop_list(callback, shops, query=""):
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("manage_inventory"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await callback.message.edit_text(
         f"🏪 Выберите магазин для добавления остатков:{suffix}",
         reply_markup=builder.as_markup()
@@ -142,7 +142,7 @@ async def inv_srch_shop_process(message: Message, state: FSMContext):
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("manage_inventory"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"🏪 Выберите магазин для добавления остатков:{suffix}",
@@ -190,7 +190,7 @@ async def _show_inv_product_list(message, shop_name: str, products: list, query:
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("add_inventory"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
         f"🏪 Магазин: {shop_name}\n\n📦 Выберите товар для добавления остатков:{suffix}",
         reply_markup=builder.as_markup()
@@ -237,7 +237,7 @@ async def inv_srch_prd_process(message: Message, state: FSMContext):
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="add_inventory"))
     builder.add(back_button("add_inventory"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"🏪 Магазин: {he(shop_name)}\n\n📦 Выберите товар для добавления остатков:{suffix}",

@@ -208,7 +208,7 @@ async def _show_plan_shop_list(callback, shops, query=""):
         builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await callback.message.edit_text(
         f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -232,7 +232,7 @@ async def _show_plan_user_list(callback, sellers, query=""):
         builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_user_cancel")
     builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await callback.message.edit_text(
         f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -279,7 +279,7 @@ async def plnwiz_srch_shop_process(message: Message, state: FSMContext):
         builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_shop_cancel")
     builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите магазин:{suffix}",
@@ -334,7 +334,7 @@ async def plnwiz_srch_user_process(message: Message, state: FSMContext):
         builder.button(text="✖️ Сбросить поиск", callback_data="plnwiz_srch_user_cancel")
     builder.button(text="⬅️ Назад", callback_data="plnwiz_start")
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📋 <b>Новый план — шаг 2/5</b>\n\nВыберите продавца:{suffix}",
@@ -489,7 +489,7 @@ async def _render_category_selection(message: Message, categories: list, selecte
     builder.button(text="⬅️ Назад", callback_data=back_cb)
     builder.adjust(1)
     sel_text = f"Выбрано: {len(selected)}" if selected else "Ничего не выбрано"
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
         f"📋 <b>Выбор категорий</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные категории:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -547,7 +547,7 @@ async def plnwiz_srch_cat_process(message: Message, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data=back_cb)
     builder.adjust(1)
     sel_text = f"Выбрано: {len(selected)}" if selected else "Ничего не выбрано"
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📋 <b>Выбор категорий</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные категории:",
@@ -645,7 +645,7 @@ async def _render_product_selection(message: Message, products, selected_ids: li
     builder.adjust(1)
 
     sel_text = f"Выбрано: {len(selected_ids)} тов." if selected_ids else "Ничего не выбрано"
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
         f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -703,7 +703,7 @@ async def plnwiz_srch_prd_process(message: Message, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data=back_cb)
     builder.adjust(1)
     sel_text = f"Выбрано: {len(selected)} тов." if selected else "Ничего не выбрано"
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📋 <b>Выбор товаров</b>\n\n{sel_text}{suffix}\n\nОтметьте нужные товары:",

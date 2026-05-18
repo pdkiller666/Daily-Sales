@@ -257,6 +257,26 @@ async def _show_scope_step(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+async def _show_contest_shop_list(message, shops, selected, query=""):
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔍 Найти магазин", callback_data="ct_srch_shop_start")
+    for shop in filtered:
+        icon = "✅" if shop in selected else "◻️"
+        builder.button(text=f"{icon} {shop}", callback_data=safe_cb("ctshopchk_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_shop_cancel")
+    builder.button(text="💾 Применить", callback_data="ctshop_done")
+    builder.button(text="❌ Отмена", callback_data="contests_menu")
+    builder.adjust(1)
+    cnt = len(selected)
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
+    await message.edit_text(
+        f"🏪 <b>Выберите магазины для конкурса</b> (выбрано: {cnt}):{suffix}",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
 async def _show_contest_product_list(message, products, selected, query=""):
     filtered = products
     if query:
@@ -273,7 +293,7 @@ async def _show_contest_product_list(message, products, selected, query=""):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
     cnt = len(selected)
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
         f"📦 <b>Выберите товары для конкурса</b> (выбрано: {cnt}):{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -296,7 +316,7 @@ async def _show_contest_category_list(message, categories, selected, query=""):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
     cnt = len(selected)
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await message.edit_text(
         f"📂 <b>Выберите категории для конкурса</b> (выбрано: {cnt}):{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
@@ -447,7 +467,7 @@ async def ct_srch_prd_process(message: Message, state: FSMContext):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
     cnt = len(selected)
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📦 <b>Выберите товары для конкурса</b> (выбрано: {cnt}):{suffix}",
@@ -503,7 +523,7 @@ async def ct_srch_cat_process(message: Message, state: FSMContext):
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
     cnt = len(selected)
-    suffix = f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"📂 <b>Выберите категории для конкурса</b> (выбрано: {cnt}):{suffix}",
@@ -1208,18 +1228,59 @@ async def contest_shop_select(callback: CallbackQuery, state: FSMContext):
         return
     data = await state.get_data()
     selected = data.get('ct_shops') or []
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await _show_contest_shop_list(callback.message, shops, selected)
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data == "ct_srch_shop_start")
+async def ct_srch_shop_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(SearchStates.shop_contests)
+    await fsm_edit(state, callback.message,
+                   "🔍 <b>Поиск магазина</b>\n\nВведите название магазина (или его часть):",
+                   InlineKeyboardMarkup(inline_keyboard=[[
+                       InlineKeyboardButton(text="✖️ Отмена", callback_data="ct_srch_shop_cancel")
+                   ]]))
+    await callback.answer()
+
+
+@contests_router.callback_query(F.data == "ct_srch_shop_cancel")
+async def ct_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(None)
+    current_db = await get_db(callback.from_user.id, state)
+    shops = current_db.get_all_shops()
+    data = await state.get_data()
+    selected = data.get('ct_shops') or []
+    await _show_contest_shop_list(callback.message, shops, selected)
+    await callback.answer()
+
+
+@contests_router.message(SearchStates.shop_contests)
+async def ct_srch_shop_process(message: Message, state: FSMContext):
+    query = (message.text or "").strip()
+    await state.set_state(None)
+    current_db = await get_db(message.from_user.id, state)
+    shops = current_db.get_all_shops()
+    data = await state.get_data()
+    selected = data.get('ct_shops') or []
+    filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
-    for shop in shops:
+    builder.button(text="🔍 Найти магазин", callback_data="ct_srch_shop_start")
+    for shop in filtered:
         icon = "✅" if shop in selected else "◻️"
         builder.button(text=f"{icon} {shop}", callback_data=safe_cb("ctshopchk_", shop))
+    if query:
+        builder.button(text="✖️ Сбросить поиск", callback_data="ct_srch_shop_cancel")
     builder.button(text="💾 Применить", callback_data="ctshop_done")
     builder.button(text="❌ Отмена", callback_data="contests_menu")
     builder.adjust(1)
-    await callback.message.edit_text(
-        "🏪 Выберите магазины для конкурса:",
+    cnt = len(selected)
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
+    await fsm_edit(
+        state, message,
+        f"🏪 <b>Выберите магазины для конкурса</b> (выбрано: {cnt}):{suffix}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
-    await callback.answer()
 
 
 @contests_router.callback_query(F.data.startswith("ctshopchk_"))
@@ -1235,17 +1296,7 @@ async def contest_toggle_shop(callback: CallbackQuery, state: FSMContext):
     else:
         selected.append(shop)
     await state.update_data(ct_shops=selected if selected else None)
-    builder = InlineKeyboardBuilder()
-    for s in shops:
-        icon = "✅" if s in selected else "◻️"
-        builder.button(text=f"{icon} {s}", callback_data=safe_cb("ctshopchk_", s))
-    builder.button(text="💾 Применить", callback_data="ctshop_done")
-    builder.button(text="❌ Отмена", callback_data="contests_menu")
-    builder.adjust(1)
-    await callback.message.edit_text(
-        f"🏪 Магазины (выбрано: {len(selected)}):",
-        reply_markup=builder.as_markup(), parse_mode="HTML"
-    )
+    await _show_contest_shop_list(callback.message, shops, selected)
     await callback.answer()
 
 

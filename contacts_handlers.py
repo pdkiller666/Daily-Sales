@@ -193,7 +193,7 @@ async def contacts_srch_shop_process(message: Message, state: FSMContext):
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="contacts_by_shop"))
     builder.add(back_button("view_contacts"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"🏪 Выберите магазин:{suffix}",

@@ -1074,7 +1074,7 @@ async def rep_srch_shop_process(message: Message, state: FSMContext):
         builder.add(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="period_report_shop"))
     builder.add(back_button("reports"))
     builder.adjust(1)
-    suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if query else ""
+    suffix = (f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered else f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос") if query else ""
     await fsm_edit(
         state, message,
         f"🏪 Выберите магазин для отчета за период:{suffix}",

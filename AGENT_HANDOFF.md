@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-18 (сессия 63)
+> Последнее обновление: 2026-05-18 (сессия 64)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `225c370` · Amvera `8350ba2` (2026-05-18, сессия 63). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `98df9d8` · Amvera `0b13728` (2026-05-18, сессия 64). Оба хэша верифицированы через `git ls-remote`.
 
 **Верификация Amvera:** После каждого пуша `deploy.sh` автоматически проверяет `git ls-remote` и печатает:
 `Amvera verify: ✅ remote hash совпадает (hash)` или `⚠️ расхождение!`
@@ -579,6 +579,17 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
    - `get_joint_bonus_adjustment(user_id, start_date, end_date)` — пул = SUM(комиссий всех продавцов в совместных магазинах). Математика: `joint_bonus = SUM(individual*coeff all sellers) = total_qty × motiv × coeff` — каждый получает одинаково.
    - `get_seller_total_earnings` — добавляет корректировку: `base + get_joint_bonus_adjustment(...)`.
    - `view_extra_conditions` — иконка режима 👤/🤝 рядом с каждым условием.
+
+**Сессия 64 (2026-05-18) — ЗАДАЧА #1: ДИНАМИЧЕСКИЙ ПОИСК ВО ВСЕХ БОЛЬШИХ СПИСКАХ:**
+1. **`states.py`**: добавлена группа `SearchStates` с 12 состояниями: `shop_commission`, `user_catfilt`, `shop_plans`, `user_plans`, `product_plans`, `category_plans`, `product_contests`, `category_contests`, `shop_reports`, `shop_inventory`, `product_inventory`, `shop_contacts`.
+2. **`commission_handlers.py`**: поиск магазина (`coeff_srch_shop_*`, `SearchStates.shop_commission`) + поиск сотрудника в catfilt (`catfilt_srch_*`, `SearchStates.user_catfilt`).
+3. **`reports_handlers.py`**: поиск магазина для периодического отчёта (`rep_srch_shop_*`, `SearchStates.shop_reports`).
+4. **`contacts_handlers.py`**: поиск магазина (`contacts_srch_shop_*`, `SearchStates.shop_contacts`).
+5. **`sales_plans_handlers.py`**: 4 поиска — магазин (`plnwiz_srch_shop_*`), сотрудник (`plnwiz_srch_user_*`), мультиселект категорий (`plnwiz_srch_cat_*`), мультиселект товаров (`plnwiz_srch_prd_*`). Хелперы `_show_plan_shop_list`, `_show_plan_user_list`. `_render_category_selection`/`_render_product_selection` получили параметр `query` и кнопку 🔍.
+6. **`contests_handlers.py`**: поиск товара (`ct_srch_prd_*`, `SearchStates.product_contests`) + поиск категории (`ct_srch_cat_*`, `SearchStates.category_contests`). Хелперы `_show_contest_product_list`, `_show_contest_category_list`.
+7. **`inventory_handlers.py`**: поиск магазина (`inv_srch_shop_*`, `SearchStates.shop_inventory`) + поиск товара (`inv_srch_prd_*`, `SearchStates.product_inventory`), хелпер `_show_inv_product_list`. Однoмагазинный путь в `add_inventory_start` тоже использует `_show_inv_product_list`.
+8. **Паттерн**: везде используется `fsm_edit` + `anchor_msg_id`. После multiselect-поиска — `await state.set_state(SalesPlansStates.selecting_*)` для восстановления стейта toggle-хендлеров.
+9. GitHub `98df9d8` · Amvera `0b13728`.
 
 **Сессия 62 (2026-05-18) — ИСПРАВЛЕНИЕ КОРРЕКТИРОВОК КОНКУРСА:**
 1. **Авто-значение с полными фильтрами** — добавлен метод `compute_contest_shop_auto_totals(contest_id)` в `database.py`. Использует тот же `_build_contest_sale_query()` что и `compute_contest_results` — с фильтрами по товарам/категориям/городам/пользователям. Ранее UI показывал упрощённый `SUM(sale_price * qty)` без фильтров конкурса.
