@@ -222,15 +222,17 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-    # Fallback для сотрудников орг без trade_network: проверяем все магазины в БД
-    if not allow_change and not is_super and shop_name:
+    # Fallback для сотрудников и орг-админов: смотрим магазины с реальными остатками.
+    # Используем inventory (не users), чтобы не зависеть от того, есть ли
+    # зарегистрированные пользователи в каждом магазине.
+    if not allow_change and not is_super:
         try:
-            all_org_shops = current_db.get_all_shops()
-            if len(all_org_shops) > 1 and shop_name in all_org_shops:
+            inv_shops = current_db.get_inventory_shops()
+            if len(inv_shops) > 1:
                 allow_change = True
                 await state.update_data(
                     sale_network=None,
-                    sale_home_shop=shop_name,
+                    sale_home_shop=shop_name or "",
                     sale_allow_change=True,
                 )
         except Exception:
@@ -558,8 +560,8 @@ async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, c
                 ))
         header_line = f"🌐 Сеть: {he(trade_network)}\n"
     else:
-        # Режим организации: все магазины из БД без фильтра по сети
-        all_shops = current_db.get_all_shops()
+        # Режим организации: магазины с реальными остатками в инвентаре
+        all_shops = current_db.get_inventory_shops()
         if not all_shops or len(all_shops) < 2:
             await callback.answer("❌ Нет других магазинов.", show_alert=True)
             return
@@ -657,8 +659,8 @@ async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
         net_shops = current_db.get_shops_by_network(trade_network)
         all_shop_names = [s for s, _ in net_shops]
     else:
-        # Орг-режим: все магазины из БД
-        all_shop_names = current_db.get_all_shops()
+        # Орг-режим: магазины с реальными остатками в инвентаре
+        all_shop_names = current_db.get_inventory_shops()
     shop_name = resolve_cb_name(shop_raw, all_shop_names)
 
     if not shop_name:
