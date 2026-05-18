@@ -103,6 +103,21 @@ class GoogleSheetsProvider(BaseProvider):
             logger.error(f"get_sheets_list error: {e}")
             return []
 
+    async def get_first_rows(self, config: dict, sheet_name: str,
+                              max_rows: int = 15) -> dict:
+        """Return first max_rows non-empty rows as {row_num: [values]} in ONE API call."""
+        try:
+            ws = await _get_ws(config, sheet_name)
+            all_vals = await asyncio.to_thread(ws.get_all_values)
+            result = {}
+            for i, row in enumerate(all_vals[:max_rows], start=1):
+                if any(str(v).strip() for v in row):
+                    result[i] = row
+            return result
+        except Exception as e:
+            logger.error(f"get_first_rows error: {e}")
+            return {}
+
     async def get_headers(self, config: dict, sheet_name: str) -> list:
         try:
             ws = await _get_ws(config, sheet_name)

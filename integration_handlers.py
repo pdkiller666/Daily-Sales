@@ -1627,29 +1627,23 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
 
     data       = await state.get_data()
     sheet_name = data.get('gs_target_sheet', '')
+    anchor_id  = data.get('anchor_msg_id')
     user_id    = message.chat.id
+    # When called from a callback, message IS the anchor — don't delete it
+    is_anchor  = (message.message_id == anchor_id)
 
-    # Try to fetch first 15 rows and present as buttons
+    # Fetch first 15 rows in ONE API call
     rows_data = {}
     try:
         provider, cfg = await _fetch_gs_config(user_id, state)
         if provider:
-            rendered = _render_sheet_macro(sheet_name)
-            for rn in range(1, 16):
-                row_vals = await asyncio.wait_for(
-                    provider.read_row(cfg, rendered, rn), timeout=8.0)
-                if any(str(v).strip() for v in row_vals):
-                    rows_data[rn] = row_vals
+            rendered  = _render_sheet_macro(sheet_name)
+            rows_data = await asyncio.wait_for(
+                provider.get_first_rows(cfg, rendered, max_rows=15), timeout=8.0)
     except Exception:
         rows_data = {}
 
     if rows_data:
-        await state.update_data(gs_ws_rows=rows_data)
-        # Use the anchor message directly (no delete of user message needed here)
-        anchor_id = data.get('anchor_msg_id')
-        from aiogram.types import Message as _M
-        # Build a fake-target compatible with _show_hrow_picker
-        await delete_message_safe(message)
         kb = InlineKeyboardBuilder()
         for rn in sorted(rows_data):
             label = _row_btn_label(rn, rows_data[rn])
@@ -1657,23 +1651,29 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
                 text=label, callback_data=f"gs_lkp_hrow_{rn}"))
         kb.row(InlineKeyboardButton(
             text="✏️ Ввести номер вручную", callback_data="gs_lkp_hrow_manual"))
-        anchor_id = data.get('anchor_msg_id')
-        await _edit_anchor(
-            message.bot, message.chat.id, anchor_id,
+        text = (
             "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
             "Выбери строку, в которой написаны <b>названия столбцов</b> "
-            "(заголовки матрицы — товары, недели, модели):",
-            reply_markup=kb.as_markup(),
+            "(заголовки матрицы — товары, недели, модели):"
         )
+        if is_anchor:
+            await message.edit_text(text, reply_markup=kb.as_markup(),
+                                    parse_mode="HTML")
+        else:
+            await delete_message_safe(message)
+            await _edit_anchor(message.bot, message.chat.id, anchor_id,
+                               text, reply_markup=kb.as_markup())
     else:
-        # Fallback: text input
-        await _fsm_edit(
-            message, state,
+        fallback = (
             "🔍 <b>Настройка матрицы — шаг 1/4</b>\n\n"
             "Не удалось загрузить таблицу автоматически.\n\n"
             "<b>В какой строке написаны заголовки столбцов?</b>\n"
-            "Введи номер строки. Пример: <code>6</code>",
+            "Введи номер строки. Пример: <code>6</code>"
         )
+        if is_anchor:
+            await message.edit_text(fallback, parse_mode="HTML")
+        else:
+            await _fsm_edit(message, state, fallback)
 
 
 @integration_router.message(IntegrationStates.waiting_lookup_step)
