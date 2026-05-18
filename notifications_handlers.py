@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from db_utils import clear_state_keep_org, is_any_admin
+from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username
 from database import Database
 from keyboards import back_button
 from states import NotificationStates
@@ -51,6 +51,7 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
 
+    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
     await callback.answer()
     user_id = user[0]
     # Вычисляем роль один раз — используется и в проверке подписки, и в построении меню

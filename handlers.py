@@ -36,7 +36,7 @@ router = Router()
 # Инициализация базы данных
 db = Database('data/shop_bot.db')
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_role
+from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_role, maybe_refresh_username
 from timezone_utils import format_user_datetime
 
 # Получаем ID администратора
@@ -136,6 +136,7 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
         if _found_db:
+            maybe_refresh_username(_found_db, message.from_user.id, message.from_user.username)
             _found_db.create_tables()
             await maybe_send_welcome(
                 message, _found_db, user[0],

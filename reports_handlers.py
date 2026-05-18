@@ -19,7 +19,7 @@ from reports_access_control import check_excel_export_permission, check_analytic
 # Создаем роутер для отчетов
 reports_router = Router()
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_scope
+from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_scope, maybe_refresh_username
 from keyboards import safe_cb, resolve_cb_name
 from hints import hint_suffix
 from states import SearchStates
@@ -80,6 +80,8 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     if not user:
         await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
         return
+
+    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
 
     # Вычисляем роль и scope один раз — используем далее во всех местах
     is_admin = is_any_admin(callback.from_user.id) or is_super_admin

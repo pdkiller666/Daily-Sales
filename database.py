@@ -699,6 +699,12 @@ class Database:
 
         conn.commit()
 
+        # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
+        cursor.execute('''
+            DELETE FROM motivation_schedule
+            WHERE product_id NOT IN (SELECT id FROM products)
+        ''')
+
         # ── Индексы для ускорения тяжёлых запросов ──────────────────────────
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
@@ -1438,9 +1444,10 @@ class Database:
         return False
 
     def delete_product(self, product_id):
-        """Удаление товара"""
+        """Удаление товара и связанных записей motivation_schedule"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
+        cursor.execute('DELETE FROM motivation_schedule WHERE product_id = ?', (product_id,))
         cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
         conn.commit()
         conn.close()

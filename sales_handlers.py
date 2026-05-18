@@ -14,7 +14,7 @@ from utils import format_currency, get_stock_color_indicator, format_date_displa
 # Создаем роутер для продаж
 sales_router = Router()
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin
+from db_utils import get_db, clear_state_keep_org, is_any_admin, maybe_refresh_username
 from keyboards import safe_cb, resolve_cb_name
 from message_utils import fsm_edit, delete_message_safe
 from hints import hint_suffix
@@ -178,6 +178,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
         )
         return
 
+    maybe_refresh_username(current_db, callback.from_user.id, callback.from_user.username)
     shop_name = user_data[8]
     trade_network = user_data[7]
 
