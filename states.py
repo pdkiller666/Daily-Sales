@@ -186,3 +186,6 @@ class IntegrationStates(StatesGroup):
     waiting_mapping        = State()
     waiting_lookup_step    = State()
     waiting_cron           = State()
+    waiting_oauth_poll     = State()
+    waiting_motiv_sheet    = State()
+    waiting_motiv_rows     = State()

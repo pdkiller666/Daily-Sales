@@ -1,7 +1,8 @@
-"""Integration manager: triggers and schedules exports."""
+"""Integration manager: triggers and schedules exports + OAuth token refresh."""
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime
 
 from apscheduler.triggers.cron import CronTrigger
@@ -11,12 +12,12 @@ from integration.providers.google_sheets import GoogleSheetsProvider
 logger = logging.getLogger(__name__)
 
 AVAILABLE_FIELDS = {
-    'sales': ['date', 'product_name', 'shop_name', 'quantity', 'price', 'total',
-              'seller_name', 'category'],
+    'sales':     ['date', 'product_name', 'shop_name', 'quantity', 'price', 'total',
+                  'seller_name', 'category'],
     'inventory': ['shop_name', 'product_name', 'category', 'quantity', 'last_updated'],
-    'products': ['name', 'category', 'price', 'description'],
-    'staff': ['name', 'shop_name', 'role', 'phone'],
-    'plans': ['type', 'metric', 'target', 'period', 'shop_name', 'seller_name'],
+    'products':  ['name', 'category', 'price', 'description'],
+    'staff':     ['name', 'shop_name', 'role', 'phone'],
+    'plans':     ['type', 'metric', 'target', 'period', 'shop_name', 'seller_name'],
 }
 
 FIELD_LABELS = {
@@ -46,6 +47,106 @@ class IntegrationManager:
             'google_sheets': GoogleSheetsProvider(),
         }
 
+    # ───────────────────────────────────────────────────────
+    #  OAuth token management
+    # ───────────────────────────────────────────────────────
+
+    async def _ensure_valid_token(self, db, conn_id: int, conn_config: dict) -> dict:
+        """
+        Check OAuth token expiry. Refresh if needed and save new token to DB.
+        Returns potentially-updated config dict.
+        """
+        if conn_config.get("auth_type") != "oauth":
+            return conn_config
+
+        tokens = conn_config.get("tokens", {})
+        expiry = tokens.get("expiry", 0)
+
+        if time.time() < expiry - 300:
+            return conn_config
+
+        refresh_token = tokens.get("refresh_token", "")
+        if not refresh_token:
+            raise ValueError("OAuth refresh_token отсутствует — переподключите Google аккаунт")
+
+        logger.info(f"Refreshing OAuth token for connection {conn_id}")
+        from integration.auth.google_oauth import refresh_access_token
+        new_tokens = await refresh_access_token(refresh_token)
+
+        tokens.update(new_tokens)
+        updated_config = dict(conn_config)
+        updated_config["tokens"] = tokens
+
+        db.update_integration_connection(conn_id, config=json.dumps(updated_config))
+        return updated_config
+
+    def save_oauth_tokens(self, db, conn_id: int, token_data: dict):
+        """Merge new OAuth tokens into connection config and save."""
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            return
+        existing = json.loads(conn[3] or '{}')
+        existing["tokens"] = {
+            "access_token":  token_data.get("access_token", ""),
+            "refresh_token": token_data.get("refresh_token", ""),
+            "expiry":        token_data.get("expiry", time.time() + 3600),
+        }
+        db.update_integration_connection(conn_id, config=json.dumps(existing))
+
+    # ───────────────────────────────────────────────────────
+    #  Motivation sync
+    # ───────────────────────────────────────────────────────
+
+    async def sync_motivation_from_sheet(
+        self, db, conn_id: int,
+        sheet_name: str,
+        header_row: int = 6,
+        dns_row: int = 2,
+        mvm_row: int = 3,
+        rrp_row: int = 4,
+        model_start_col: int = 14,
+    ) -> dict:
+        """
+        Read bonus rates from a weekly sheet and cache them in gs_bonus_cache.
+        Returns {'synced': N, 'models': [list], 'sheet': sheet_name}.
+        """
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            raise ValueError("Подключение не найдено")
+
+        conn_config = json.loads(conn[3] or '{}')
+        conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
+
+        provider = self.providers.get("google_sheets")
+        sheet_name = self._render_sheet_name(sheet_name, {})
+
+        bonuses = await provider.read_motivation_rows(
+            conn_config, sheet_name,
+            header_row=header_row,
+            dns_row=dns_row,
+            mvm_row=mvm_row,
+            rrp_row=rrp_row,
+            model_start_col=model_start_col,
+        )
+
+        synced = 0
+        models = []
+        for model_name, rates in bonuses.items():
+            for chain in ("dns", "mvm"):
+                bonus = rates.get(chain, 0.0)
+                rrp = rates.get("rrp", 0.0)
+                db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
+            synced += 1
+            models.append(model_name)
+
+        db.add_integration_log(conn_id, None, 'success',
+                               f'motivation sync: {synced} моделей из "{sheet_name}"')
+        return {'synced': synced, 'models': models, 'sheet': sheet_name}
+
+    # ───────────────────────────────────────────────────────
+    #  Export trigger
+    # ───────────────────────────────────────────────────────
+
     async def trigger_export(self, db, export_type: str, event_data: dict):
         """Called after a business event. Runs immediate exports in background."""
         try:
@@ -62,14 +163,16 @@ class IntegrationManager:
 
         try:
             conn_config = json.loads(conn_config_json or '{}')
-            spreadsheet_id = conn_config.get('spreadsheet_id', '')
             provider_name = conn_config.get('provider', 'google_sheets')
             provider = self.providers.get(provider_name)
             if not provider:
                 raise ValueError(f"Провайдер не найден: {provider_name}")
 
+            conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
+
             sheet_name = self._render_sheet_name(target_sheet or 'Sheet1', event_data)
-            cfg = {'spreadsheet_id': spreadsheet_id}
+
+            cfg = dict(conn_config)
 
             if operation == 'append_row':
                 await self._do_append_row(provider, cfg, sheet_name,
@@ -112,19 +215,23 @@ class IntegrationManager:
     async def _do_update_cell(self, provider, cfg, sheet_name,
                                lookup_json, event_data):
         lookup = json.loads(lookup_json or '{}')
-        row_col = int(lookup.get('row_search_col', 1))
-        row_field = lookup.get('row_search_field', '')
-        col_row = int(lookup.get('col_search_row', 1))
-        col_field = lookup.get('col_search_field', '')
-        upd_op = lookup.get('operation', 'set')
-        val_field = lookup.get('value_field', '')
+        row_col    = int(lookup.get('row_search_col', 1))
+        row_field  = lookup.get('row_search_field', '')
+        col_row    = int(lookup.get('col_search_row', 1))
+        col_field  = lookup.get('col_search_field', '')
+        upd_op     = lookup.get('operation', 'set')
+        val_field  = lookup.get('value_field', '')
+        start_row  = int(lookup.get('data_start_row', 1))
+        start_col  = int(lookup.get('data_start_col', 1))
 
-        row_value = str(event_data.get(row_field, ''))
-        col_value = str(event_data.get(col_field, ''))
-        new_value = event_data.get(val_field, 0)
+        row_value  = str(event_data.get(row_field, ''))
+        col_value  = str(event_data.get(col_field, ''))
+        new_value  = event_data.get(val_field, 0)
 
-        row_idx = await provider.find_row_by_value(cfg, sheet_name, row_col, row_value)
-        col_idx = await provider.find_col_by_value(cfg, sheet_name, col_row, col_value)
+        row_idx = await provider.find_row_by_value(
+            cfg, sheet_name, row_col, row_value, start_row=start_row)
+        col_idx = await provider.find_col_by_value(
+            cfg, sheet_name, col_row, col_value, start_col=start_col)
 
         if row_idx is None:
             raise ValueError(
@@ -142,17 +249,18 @@ class IntegrationManager:
             except (ValueError, TypeError):
                 current_num = 0.0
             delta = float(new_value)
-            new_value = current_num + delta if upd_op == 'increment' else current_num - delta
+            new_value = (current_num + delta if upd_op == 'increment'
+                         else current_num - delta)
 
         await provider.update_cell(cfg, sheet_name, row_idx, col_idx, new_value)
 
     async def _do_replace_sheet(self, provider, cfg, sheet_name, db, export_type):
         data = self._get_replace_data(db, export_type)
         if data:
-            await provider.replace_sheet(cfg, sheet_name, data['headers'], data['rows'])
+            await provider.replace_sheet(cfg, sheet_name,
+                                         data['headers'], data['rows'])
 
     def _get_replace_data(self, db, export_type):
-        """Get data for replace_sheet operation."""
         try:
             if export_type == 'sales':
                 rows_raw = db.get_all_sales_for_export()
@@ -172,10 +280,10 @@ class IntegrationManager:
     def _render_sheet_name(self, template: str, event_data: dict) -> str:
         now = datetime.now()
         macros = {
-            '{year}': str(now.year),
+            '{year}':  str(now.year),
             '{month}': f"{now.month:02d}",
-            '{day}': f"{now.day:02d}",
-            '{week}': str(now.isocalendar()[1]),
+            '{day}':   f"{now.day:02d}",
+            '{week}':  str(now.isocalendar()[1]),
         }
         for macro, value in macros.items():
             template = template.replace(macro, value)
@@ -194,7 +302,7 @@ class IntegrationManager:
             logger.error(f"_notify_admins error: {e}")
 
     async def schedule_exports(self, scheduler, get_db_paths_fn):
-        """Called at bot startup to register cron-scheduled export jobs."""
+        """Register cron-scheduled export jobs at bot startup."""
         try:
             db_paths = get_db_paths_fn()
             for path in db_paths:
@@ -205,7 +313,7 @@ class IntegrationManager:
                     exports = db.get_all_enabled_cron_exports()
                     for exp in exports:
                         export_id = exp[0]
-                        cron_str = exp[3]
+                        cron_str  = exp[3]
                         if not cron_str or cron_str == 'immediate':
                             continue
                         job_id = f'gs_export_{path}_{export_id}'
@@ -217,7 +325,7 @@ class IntegrationManager:
                             replace_existing=True,
                             misfire_grace_time=300,
                         )
-                        logger.info(f"Scheduled integration export job: {job_id} cron={cron_str}")
+                        logger.info(f"Scheduled export job: {job_id} cron={cron_str}")
                 except Exception as e:
                     logger.error(f"schedule_exports DB {path}: {e}")
         except Exception as e:

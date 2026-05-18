@@ -1,16 +1,20 @@
-"""Handlers for Google Sheets integration setup wizard."""
+"""Handlers for Google Sheets integration: OAuth Device Flow + export wizard + motivation sync."""
+import asyncio
 import json
 import logging
+import os
+import time
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (CallbackQuery, Message,
+                           InlineKeyboardMarkup, InlineKeyboardButton)
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from keyboards import back_button
 from states import IntegrationStates
-from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS
+from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
 
 integration_router = Router()
 logger = logging.getLogger(__name__)
@@ -23,9 +27,9 @@ EXPORT_TYPE_LABELS = {
     'plans':     '📋 Планы',
 }
 OPERATION_LABELS = {
-    'append_row':    '➕ Добавить строку (append_row)',
-    'update_cell':   '✏️ Обновить ячейку (update_cell)',
-    'replace_sheet': '🔄 Заменить лист (replace_sheet)',
+    'append_row':    '➕ Добавить строку',
+    'update_cell':   '✏️ Обновить ячейку (матрица)',
+    'replace_sheet': '🔄 Заменить весь лист',
 }
 SCHEDULE_LABELS = {
     'immediate': '⚡ Немедленно (по событию)',
@@ -34,7 +38,6 @@ SCHEDULE_LABELS = {
 }
 
 def _back(cb): return back_button(cb)
-
 
 # ═══════════════════════════════════════════════════════════
 #  MAIN MENU
@@ -49,15 +52,30 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     connections = current_db.get_integration_connections()
+
+    oauth_ready = bool(
+        os.environ.get("GOOGLE_OAUTH_CLIENT_ID") and
+        os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    )
+
     text = "📊 <b>Интеграция с Google Sheets</b>\n\n"
+    if not oauth_ready:
+        text += (
+            "⚠️ <b>OAuth не настроен.</b> Для подключения через личный Google-аккаунт "
+            "системный администратор должен задать секреты:\n"
+            "• <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
+            "• <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n\n"
+        )
+
     if connections:
         text += f"Подключений: {len(connections)}\n\n"
         for c in connections:
+            cfg = json.loads(c[3] or '{}')
+            auth_icon = "🔑" if cfg.get("auth_type") == "oauth" else "⚙️"
             status = "✅" if c[4] else "❌"
-            text += f"{status} <b>{c[1]}</b> (id={c[0]})\n"
+            text += f"{status} {auth_icon} <b>{c[1]}</b>\n"
     else:
         text += "Подключений нет. Создайте первое!\n"
-        text += "\nДля работы нужно задать секрет <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> в Replit Secrets."
 
     kb = InlineKeyboardBuilder()
     for c in connections:
@@ -71,15 +89,18 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
 
 
 # ═══════════════════════════════════════════════════════════
-#  ADD CONNECTION WIZARD
+#  ADD CONNECTION — STEP 1: NAME
 # ═══════════════════════════════════════════════════════════
 
 @integration_router.callback_query(F.data == "gs_add_conn")
 async def gs_add_conn(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(
-        "📊 <b>Новое подключение к Google Sheets</b>\n\nВведите название подключения (например: «Главная таблица»):",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("integration_menu")]]),
+        "📊 <b>Новое подключение к Google Sheets</b>\n\n"
+        "Введите <b>название</b> подключения (например: «Главная таблица»):",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_back("integration_menu")]]
+        ),
         parse_mode="HTML"
     )
     await state.set_state(IntegrationStates.waiting_conn_name)
@@ -92,58 +113,273 @@ async def gs_conn_name(message: Message, state: FSMContext):
         await message.answer("❌ Введите название.")
         return
     await state.update_data(gs_conn_name=name)
+
+    oauth_ready = bool(
+        os.environ.get("GOOGLE_OAUTH_CLIENT_ID") and
+        os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    )
+
+    kb = InlineKeyboardBuilder()
+    if oauth_ready:
+        kb.row(InlineKeyboardButton(
+            text="🔑 OAuth — мой аккаунт Google (рекомендуется)",
+            callback_data="gs_auth_oauth"
+        ))
+    kb.row(InlineKeyboardButton(
+        text="⚙️ Сервисный аккаунт (JSON-ключ)",
+        callback_data="gs_auth_sa"
+    ))
+
     await message.answer(
         f"✅ Название: <b>{name}</b>\n\n"
+        "<b>Способ авторизации:</b>\n\n"
+        "🔑 <b>OAuth</b> — вы входите со своим личным Google-аккаунтом. "
+        "Не требует создания сервисного аккаунта. Нужно один раз перейти по ссылке.\n\n"
+        "⚙️ <b>Сервисный аккаунт</b> — для продвинутых пользователей. "
+        "Нужен JSON-ключ из Google Cloud Console.",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+#  PATH A: SERVICE ACCOUNT
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data == "gs_auth_sa")
+async def gs_auth_sa(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(gs_auth_type="service_account")
+    await callback.message.edit_text(
+        "⚙️ <b>Сервисный аккаунт</b>\n\n"
         "Введите <b>ID таблицы Google Sheets</b>.\n"
-        "Его можно найти в URL: <code>docs.google.com/spreadsheets/d/<b>ID</b>/edit</code>",
+        "URL: <code>docs.google.com/spreadsheets/d/<b>ID</b>/edit</code>\n\n"
+        "Убедитесь, что сервисный аккаунт добавлен в таблицу как <b>редактор</b>.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("gs_add_conn")]]),
         parse_mode="HTML"
     )
     await state.set_state(IntegrationStates.waiting_spreadsheet_id)
 
 
+# ═══════════════════════════════════════════════════════════
+#  PATH B: OAUTH DEVICE FLOW
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data == "gs_auth_oauth")
+async def gs_auth_oauth(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text(
+        "🔑 <b>OAuth — вход через Google</b>\n\n"
+        "Введите <b>ID таблицы Google Sheets</b>.\n"
+        "URL: <code>docs.google.com/spreadsheets/d/<b>ID</b>/edit</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("gs_add_conn")]]),
+        parse_mode="HTML"
+    )
+    await state.update_data(gs_auth_type="oauth")
+    await state.set_state(IntegrationStates.waiting_spreadsheet_id)
+
+
+@integration_router.callback_query(F.data == "gs_oauth_start_")
+async def gs_oauth_start_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await _start_device_flow(callback.message, state)
+
+
+async def _start_device_flow(message, state: FSMContext):
+    """Initiate OAuth Device Flow, send code to user, start background polling."""
+    from integration.auth.google_oauth import initiate_device_flow
+
+    try:
+        flow = await initiate_device_flow()
+    except ValueError as e:
+        await message.answer(f"❌ {e}")
+        return
+
+    device_code = flow['device_code']
+    user_code = flow['user_code']
+    verification_url = flow.get('verification_url', 'https://google.com/device')
+    expires_in = flow.get('expires_in', 900)
+    interval = flow.get('interval', 5)
+
+    data = await state.get_data()
+    await state.update_data(
+        gs_device_code=device_code,
+        gs_oauth_interval=interval,
+        gs_oauth_expires=time.time() + expires_in,
+    )
+    await state.set_state(IntegrationStates.waiting_oauth_poll)
+
+    sent = await message.answer(
+        f"🔑 <b>Авторизация Google</b>\n\n"
+        f"1. Откройте на телефоне или компьютере:\n"
+        f"   <code>{verification_url}</code>\n\n"
+        f"2. Введите код:\n"
+        f"   <b>{user_code}</b>\n\n"
+        f"⏳ Ожидаю авторизации… (до {expires_in // 60} мин)\n\n"
+        f"После авторизации бот продолжит автоматически.",
+        parse_mode="HTML"
+    )
+
+    user_id = message.chat.id
+    asyncio.create_task(
+        _poll_oauth_token(user_id, sent.message_id, device_code, interval,
+                          expires_in, state, data)
+    )
+
+
+async def _poll_oauth_token(chat_id: int, status_msg_id: int,
+                             device_code: str, interval: int,
+                             expires_in: int, state: FSMContext, data: dict):
+    """Background task: poll Google for OAuth token, save on success."""
+    from integration.auth.google_oauth import poll_for_token
+    from main import bot
+
+    deadline = time.time() + expires_in
+    attempt = 0
+
+    while time.time() < deadline:
+        await asyncio.sleep(interval)
+        attempt += 1
+        try:
+            token_data = await poll_for_token(device_code)
+        except ValueError as e:
+            await bot.send_message(
+                chat_id,
+                f"❌ <b>Ошибка авторизации:</b> {e}\n\nПопробуйте подключить снова.",
+                parse_mode="HTML"
+            )
+            return
+        except Exception as e:
+            logger.error(f"OAuth poll error: {e}")
+            continue
+
+        if token_data is None:
+            continue
+
+        # Success — save connection
+        try:
+            name = data.get('gs_conn_name', 'Google Sheets')
+            spreadsheet_id = data.get('gs_spreadsheet_id_pending', '')
+
+            if not spreadsheet_id:
+                await bot.send_message(
+                    chat_id,
+                    "❌ spreadsheet_id не найден. Начните добавление подключения заново.",
+                    parse_mode="HTML"
+                )
+                return
+
+            conn_config = {
+                'spreadsheet_id': spreadsheet_id,
+                'provider': 'google_sheets',
+                'auth_type': 'oauth',
+                'tokens': {
+                    'access_token':  token_data.get('access_token', ''),
+                    'refresh_token': token_data.get('refresh_token', ''),
+                    'expiry':        token_data.get('expiry', time.time() + 3600),
+                },
+            }
+
+            from db_utils import get_db as _get_db
+            current_db = await _get_db(chat_id, state)
+            conn_id = current_db.add_integration_connection(
+                name=name,
+                config=json.dumps(conn_config),
+            )
+            await clear_state_keep_org(state)
+
+            from integration.providers.google_sheets import GoogleSheetsProvider
+            ok, test_msg = await GoogleSheetsProvider().test_connection(conn_config)
+
+            await bot.send_message(
+                chat_id,
+                f"✅ <b>Google аккаунт подключён!</b>\n\n"
+                f"{test_msg}\n\n"
+                f"Теперь настройте экспорт данных.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📋 Мои подключения",
+                        callback_data="integration_menu"
+                    )],
+                    [InlineKeyboardButton(
+                        text="➕ Добавить экспорт",
+                        callback_data=f"gs_exports_{conn_id}"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🔄 Синхронизировать мотивацию",
+                        callback_data=f"gs_sync_motiv_{conn_id}"
+                    )],
+                ]),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"OAuth save connection error: {e}")
+            await bot.send_message(
+                chat_id,
+                f"❌ Авторизация прошла, но не удалось сохранить подключение: {e}",
+                parse_mode="HTML"
+            )
+        return
+
+    await bot.send_message(
+        chat_id,
+        "⏰ <b>Время авторизации истекло.</b>\n\nНачните добавление подключения заново.",
+        parse_mode="HTML"
+    )
+
+
 @integration_router.message(IntegrationStates.waiting_spreadsheet_id)
-async def gs_spreadsheet_id(message: Message, state: FSMContext):
+async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
+    """Unified handler for spreadsheet_id — routes to OAuth or service account."""
     spreadsheet_id = message.text.strip()
     if not spreadsheet_id:
         await message.answer("❌ Введите ID таблицы.")
         return
 
     data = await state.get_data()
+    auth_type = data.get('gs_auth_type', 'service_account')
     name = data.get('gs_conn_name', 'Подключение')
 
-    await message.answer("⏳ Проверяю подключение…")
-
-    from integration.providers.google_sheets import GoogleSheetsProvider
-    provider = GoogleSheetsProvider()
-    ok, msg = await provider.test_connection({'spreadsheet_id': spreadsheet_id})
-
-    if not ok:
+    if auth_type == 'oauth':
+        await state.update_data(gs_spreadsheet_id_pending=spreadsheet_id)
+        await _start_device_flow(message, state)
+    else:
+        wait_msg = await message.answer("⏳ Проверяю подключение…")
+        from integration.providers.google_sheets import GoogleSheetsProvider
+        ok, msg = await GoogleSheetsProvider().test_connection({
+            'spreadsheet_id': spreadsheet_id,
+            'auth_type': 'service_account',
+        })
+        await wait_msg.delete()
+        if not ok:
+            await message.answer(
+                f"❌ <b>Ошибка подключения:</b>\n<code>{msg}</code>\n\n"
+                "Проверьте:\n• ID таблицы верный\n"
+                "• Переменная <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> задана\n\n"
+                "Попробуйте снова или /menu для отмены.",
+                parse_mode="HTML"
+            )
+            return
+        current_db = await get_db(message.from_user.id, state)
+        conn_id = current_db.add_integration_connection(
+            name=name,
+            config=json.dumps({
+                'spreadsheet_id': spreadsheet_id,
+                'provider': 'google_sheets',
+                'auth_type': 'service_account',
+            }),
+        )
+        await clear_state_keep_org(state)
         await message.answer(
-            f"❌ <b>Ошибка подключения:</b>\n<code>{msg}</code>\n\nПроверьте:\n"
-            "• ID таблицы верный\n"
-            "• Сервисный аккаунт добавлен в таблицу с правами редактора\n"
-            "• Переменная <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> задана в секретах\n\n"
-            "Попробуйте ввести ID снова или /menu для отмены.",
+            f"✅ <b>Подключение создано!</b>\n\n{msg}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои подключения",
+                                      callback_data="integration_menu")],
+                [InlineKeyboardButton(text="➕ Добавить экспорт",
+                                      callback_data=f"gs_exports_{conn_id}")],
+            ]),
             parse_mode="HTML"
         )
-        return
-
-    current_db = await get_db(message.from_user.id, state)
-    conn_id = current_db.add_integration_connection(
-        name=name,
-        config=json.dumps({'spreadsheet_id': spreadsheet_id, 'provider': 'google_sheets'}),
-    )
-    await clear_state_keep_org(state)
-    await message.answer(
-        f"✅ <b>Подключение создано!</b>\n\n"
-        f"🔗 {msg}\n\n"
-        "Теперь можно добавить экспорт данных.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Мои подключения", callback_data="integration_menu")],
-            [InlineKeyboardButton(text=f"➕ Добавить экспорт", callback_data=f"gs_exports_{conn_id}")],
-        ]),
-        parse_mode="HTML"
-    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -163,9 +399,21 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
     exports = current_db.get_integration_exports(conn_id)
     cfg = json.loads(conn[3] or '{}')
     status_icon = "✅" if conn[4] else "❌"
+    auth_label = ("🔑 OAuth (личный аккаунт)"
+                  if cfg.get("auth_type") == "oauth"
+                  else "⚙️ Сервисный аккаунт")
+    tokens_ok = ""
+    if cfg.get("auth_type") == "oauth":
+        expiry = cfg.get("tokens", {}).get("expiry", 0)
+        if expiry:
+            from datetime import datetime
+            exp_dt = datetime.fromtimestamp(expiry).strftime("%d.%m %H:%M")
+            tokens_ok = f"\nТокен до: {exp_dt}"
+
     text = (
         f"⚙️ <b>{conn[1]}</b>\n\n"
         f"Статус: {status_icon} {'Активно' if conn[4] else 'Отключено'}\n"
+        f"Авторизация: {auth_label}{tokens_ok}\n"
         f"Таблица: <code>{cfg.get('spreadsheet_id', '—')}</code>\n"
         f"Экспортов: {len(exports)}\n"
     )
@@ -178,13 +426,20 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
     enabled = bool(conn[4])
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(
-        text=f"{'❌ Отключить' if enabled else '✅ Включить'}",
+        text="❌ Отключить" if enabled else "✅ Включить",
         callback_data=f"gs_toggle_conn_{conn_id}"
     ))
     kb.row(InlineKeyboardButton(text="📋 Экспорты", callback_data=f"gs_exports_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🔍 Тест подключения", callback_data=f"gs_test_conn_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="📢 Журнал ошибок", callback_data=f"gs_log_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="🗑 Удалить подключение", callback_data=f"gs_del_conn_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="🔄 Синхронизировать мотивацию",
+                                callback_data=f"gs_sync_motiv_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📊 Кэш мотивации",
+                                callback_data=f"gs_show_motiv_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📢 Журнал событий", callback_data=f"gs_log_{conn_id}"))
+    if cfg.get("auth_type") == "oauth":
+        kb.row(InlineKeyboardButton(text="🔑 Переавторизовать Google",
+                                    callback_data=f"gs_reauth_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"gs_del_conn_{conn_id}"))
     kb.row(_back("integration_menu"))
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
@@ -212,33 +467,242 @@ async def gs_test_conn(callback: CallbackQuery, state: FSMContext):
     if not conn:
         return
     cfg = json.loads(conn[3] or '{}')
+    try:
+        cfg = await integration_manager._ensure_valid_token(current_db, conn_id, cfg)
+    except Exception:
+        pass
     from integration.providers.google_sheets import GoogleSheetsProvider
     ok, msg = await GoogleSheetsProvider().test_connection(cfg)
     icon = "✅" if ok else "❌"
-    await callback.message.answer(f"{icon} {msg}")
+    await callback.message.answer(f"{icon} {msg}", parse_mode="HTML")
+
+
+@integration_router.callback_query(F.data.startswith("gs_reauth_"))
+async def gs_reauth(callback: CallbackQuery, state: FSMContext):
+    conn_id = int(callback.data.split("_")[2])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    conn = current_db.get_integration_connection(conn_id)
+    if not conn:
+        return
+    cfg = json.loads(conn[3] or '{}')
+    await state.update_data(
+        gs_conn_name=conn[1],
+        gs_auth_type='oauth',
+        gs_spreadsheet_id_pending=cfg.get('spreadsheet_id', ''),
+        gs_reauth_conn_id=conn_id,
+    )
+    await _start_device_flow(callback.message, state)
 
 
 @integration_router.callback_query(F.data.startswith("gs_del_conn_"))
 async def gs_del_conn_confirm(callback: CallbackQuery, state: FSMContext):
+    if "_ok_" in callback.data:
+        conn_id = int(callback.data.split("_ok_")[1])
+        current_db = await get_db(callback.from_user.id, state)
+        current_db.delete_integration_connection(conn_id)
+        await callback.answer("✅ Удалено")
+        await integration_menu(callback, state)
+        return
     conn_id = int(callback.data.split("_")[3])
     await callback.answer()
     await callback.message.edit_text(
-        "🗑 <b>Удалить подключение?</b>\n\nВсе экспорты этого подключения тоже будут удалены.",
+        "🗑 <b>Удалить подключение?</b>\n\nВсе экспорты и кэш мотивации будут удалены.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"gs_del_conn_ok_{conn_id}")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"gs_conn_{conn_id}")],
+            [InlineKeyboardButton(text="✅ Да, удалить",
+                                  callback_data=f"gs_del_conn_ok_{conn_id}")],
+            [InlineKeyboardButton(text="❌ Отмена",
+                                  callback_data=f"gs_conn_{conn_id}")],
         ]),
         parse_mode="HTML"
     )
 
 
-@integration_router.callback_query(F.data.startswith("gs_del_conn_ok_"))
-async def gs_del_conn_ok(callback: CallbackQuery, state: FSMContext):
-    conn_id = int(callback.data.split("_")[4])
+@integration_router.callback_query(F.data.startswith("gs_log_"))
+async def gs_log(callback: CallbackQuery, state: FSMContext):
+    conn_id = int(callback.data.split("_")[2])
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    current_db.delete_integration_connection(conn_id)
-    await callback.answer("✅ Удалено")
-    await integration_menu(callback, state)
+    logs = current_db.get_integration_logs(conn_id, limit=10)
+    if not logs:
+        await callback.message.answer("📢 Журнал пуст.")
+        return
+    lines = []
+    for log in logs:
+        icon = "✅" if log[3] == "success" else "❌"
+        lines.append(f"{icon} {log[5][:16]} — {log[4][:80]}")
+    await callback.message.answer(
+        "📢 <b>Последние события:</b>\n\n" + "\n".join(lines),
+        parse_mode="HTML"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+#  MOTIVATION SYNC
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data.startswith("gs_sync_motiv_"))
+async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
+    conn_id = int(callback.data.split("_")[3])
+    await callback.answer()
+
+    current_db = await get_db(callback.from_user.id, state)
+    conn = current_db.get_integration_connection(conn_id)
+    if not conn:
+        await callback.answer("❌ Подключение не найдено", show_alert=True)
+        return
+
+    await state.update_data(gs_motiv_conn_id=conn_id)
+    now_week = __import__('datetime').datetime.now().isocalendar()[1]
+
+    await callback.message.edit_text(
+        f"🔄 <b>Синхронизация мотивации</b>\n\n"
+        f"Укажите <b>название листа</b>, где менеджер прописывает бонусы.\n\n"
+        f"Поддерживаются макросы:\n"
+        f"• <code>w{{week}}</code> → текущая неделя (сейчас: <code>w{now_week}</code>)\n"
+        f"• <code>{{year}}</code>, <code>{{month}}</code>\n\n"
+        f"Пример: <code>w{{week}}</code>\n\n"
+        f"Введите название листа:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]
+        ),
+        parse_mode="HTML"
+    )
+    await state.set_state(IntegrationStates.waiting_motiv_sheet)
+
+
+@integration_router.message(IntegrationStates.waiting_motiv_sheet)
+async def gs_motiv_sheet_input(message: Message, state: FSMContext):
+    sheet = message.text.strip()
+    if not sheet:
+        await message.answer("❌ Введите название листа.")
+        return
+    await state.update_data(gs_motiv_sheet=sheet)
+    await message.answer(
+        f"✅ Лист: <code>{sheet}</code>\n\n"
+        f"<b>Параметры структуры листа</b>\n\n"
+        f"Введите через пробел 4 числа:\n"
+        f"<code>строка_заголовков  строка_DNS  строка_MVM  первый_столбец_моделей</code>\n\n"
+        f"Для вашего листа w{{week}} стандартные значения:\n"
+        f"<code>6 2 3 14</code>\n\n"
+        f"Отправьте <code>6 2 3 14</code> или введите свои значения:",
+        parse_mode="HTML"
+    )
+    await state.set_state(IntegrationStates.waiting_motiv_rows)
+
+
+@integration_router.message(IntegrationStates.waiting_motiv_rows)
+async def gs_motiv_rows_input(message: Message, state: FSMContext):
+    parts = message.text.strip().split()
+    if len(parts) != 4:
+        await message.answer("❌ Введите ровно 4 числа через пробел.")
+        return
+    try:
+        header_row, dns_row, mvm_row, model_start_col = [int(p) for p in parts]
+    except ValueError:
+        await message.answer("❌ Все значения должны быть целыми числами.")
+        return
+
+    data = await state.get_data()
+    conn_id = data.get('gs_motiv_conn_id')
+    sheet = data.get('gs_motiv_sheet', 'w{week}')
+
+    wait_msg = await message.answer("⏳ Читаю лист и синхронизирую мотивацию…")
+
+    current_db = await get_db(message.from_user.id, state)
+    try:
+        result = await integration_manager.sync_motivation_from_sheet(
+            current_db, conn_id, sheet,
+            header_row=header_row,
+            dns_row=dns_row,
+            mvm_row=mvm_row,
+            rrp_row=dns_row - 0 + 2 if dns_row == 2 else 4,
+            model_start_col=model_start_col,
+        )
+        synced = result['synced']
+        actual_sheet = result['sheet']
+        models = result['models']
+
+        await wait_msg.delete()
+        models_preview = ", ".join(models[:8])
+        if len(models) > 8:
+            models_preview += f" … ещё {len(models) - 8}"
+
+        await message.answer(
+            f"✅ <b>Мотивация синхронизирована!</b>\n\n"
+            f"📋 Лист: <code>{actual_sheet}</code>\n"
+            f"🔢 Моделей: <b>{synced}</b>\n"
+            f"📦 {models_preview}\n\n"
+            f"Просмотреть кэш: кнопка «📊 Кэш мотивации» в подключении.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Кэш мотивации",
+                                      callback_data=f"gs_show_motiv_{conn_id}")],
+                [InlineKeyboardButton(text="⬅️ К подключению",
+                                      callback_data=f"gs_conn_{conn_id}")],
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await wait_msg.delete()
+        await message.answer(
+            f"❌ <b>Ошибка синхронизации:</b>\n<code>{e}</code>\n\n"
+            f"Проверьте название листа и параметры структуры.",
+            parse_mode="HTML"
+        )
+    finally:
+        await clear_state_keep_org(state)
+
+
+@integration_router.callback_query(F.data.startswith("gs_show_motiv_"))
+async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
+    conn_id = int(callback.data.split("_")[3])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    cache = current_db.get_bonus_cache(conn_id)
+
+    if not cache:
+        await callback.message.edit_text(
+            "📊 <b>Кэш мотивации пуст</b>\n\n"
+            "Нажмите «🔄 Синхронизировать мотивацию» чтобы загрузить данные из таблицы.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Синхронизировать",
+                                      callback_data=f"gs_sync_motiv_{conn_id}")],
+                [_back(f"gs_conn_{conn_id}")],
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    by_model = {}
+    synced_at = cache[0][4] if cache else "—"
+    for row in cache:
+        model, chain, bonus, rrp, sat = row
+        if model not in by_model:
+            by_model[model] = {}
+        by_model[model][chain] = bonus
+        by_model[model]['rrp'] = rrp
+        synced_at = sat
+
+    lines = [f"📊 <b>Кэш мотивации</b> (обновлено: {synced_at[:16]})\n"]
+    lines.append(f"{'Модель':<20} {'DNS':>6} {'МВМ':>6}")
+    lines.append("─" * 35)
+    for model, rates in sorted(by_model.items()):
+        dns = rates.get('dns', 0)
+        mvm = rates.get('mvm', 0)
+        dns_str = f"{int(dns):,}" if dns else "—"
+        mvm_str = f"{int(mvm):,}" if mvm else "—"
+        lines.append(f"{model:<20} {dns_str:>6} {mvm_str:>6}")
+
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔄 Обновить",
+                                callback_data=f"gs_sync_motiv_{conn_id}"))
+    kb.row(_back(f"gs_conn_{conn_id}"))
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -257,9 +721,10 @@ async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
     else:
         for e in exports:
             icon = "✅" if e[2] else "❌"
-            sched = e[3] or 'immediate'
-            text += f"{icon} {EXPORT_TYPE_LABELS.get(e[1], e[1])} | {e[4]} | {OPERATION_LABELS.get(e[5], e[5])[:20]}\n"
-            text += f"   📅 {SCHEDULE_LABELS.get(sched, sched)}\n\n"
+            sched_label = SCHEDULE_LABELS.get(e[3], e[3] or 'immediate')
+            text += (f"{icon} {EXPORT_TYPE_LABELS.get(e[1], e[1])} | "
+                     f"{e[4]} | {OPERATION_LABELS.get(e[5], e[5])[:20]}\n")
+            text += f"   📅 {sched_label}\n\n"
 
     kb = InlineKeyboardBuilder()
     for e in exports:
@@ -267,12 +732,80 @@ async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
             text=f"⚙️ {EXPORT_TYPE_LABELS.get(e[1], e[1])} → {e[4]}",
             callback_data=f"gs_exp_{e[0]}"
         ))
-    kb.row(InlineKeyboardButton(
-        text="➕ Добавить экспорт",
-        callback_data=f"gs_add_exp_{conn_id}"
-    ))
+    kb.row(InlineKeyboardButton(text="➕ Добавить экспорт",
+                                callback_data=f"gs_add_exp_{conn_id}"))
     kb.row(_back(f"gs_conn_{conn_id}"))
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+# ═══════════════════════════════════════════════════════════
+#  EXPORT DETAIL
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data.regexp(r'^gs_exp_\d+$'))
+async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    try:
+        exp_id = int(parts[2])
+    except (IndexError, ValueError):
+        return
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    exp = current_db.get_integration_export(exp_id)
+    if not exp:
+        await callback.answer("❌ Не найдено", show_alert=True)
+        return
+
+    conn_id = exp[1]
+    icon = "✅" if exp[2] else "❌"
+    lookup = json.loads(exp[8] or '{}')
+    mapping = json.loads(exp[7] or '{}')
+    text = (
+        f"⚙️ <b>Экспорт #{exp_id}</b>\n\n"
+        f"Тип: {EXPORT_TYPE_LABELS.get(exp[3], exp[3])}\n"
+        f"Лист: <code>{exp[5]}</code>\n"
+        f"Операция: {OPERATION_LABELS.get(exp[6], exp[6])}\n"
+        f"Статус: {icon} {'Вкл' if exp[2] else 'Выкл'}\n"
+        f"Расписание: {SCHEDULE_LABELS.get(exp[4], exp[4] or 'immediate')}\n"
+        f"Последний запуск: {exp[10] or 'не запускался'}\n"
+    )
+    if mapping:
+        text += f"\nМаппинг: {json.dumps(mapping, ensure_ascii=False)[:100]}\n"
+    if lookup:
+        text += f"Поиск: {json.dumps(lookup, ensure_ascii=False)[:100]}\n"
+
+    kb = InlineKeyboardBuilder()
+    new_enabled = 0 if exp[2] else 1
+    kb.row(InlineKeyboardButton(
+        text="❌ Отключить" if exp[2] else "✅ Включить",
+        callback_data=f"gs_exp_toggle_{exp_id}_{conn_id}"
+    ))
+    kb.row(InlineKeyboardButton(text="🗑 Удалить",
+                                callback_data=f"gs_exp_del_{exp_id}_{conn_id}"))
+    kb.row(_back(f"gs_exports_{conn_id}"))
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@integration_router.callback_query(F.data.startswith("gs_exp_toggle_"))
+async def gs_exp_toggle(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    exp_id, conn_id = int(parts[3]), int(parts[4])
+    current_db = await get_db(callback.from_user.id, state)
+    exp = current_db.get_integration_export(exp_id)
+    if exp:
+        current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
+        await callback.answer("✅ Изменено")
+    await gs_exp_detail(callback, state)
+
+
+@integration_router.callback_query(F.data.startswith("gs_exp_del_"))
+async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    exp_id, conn_id = int(parts[3]), int(parts[4])
+    current_db = await get_db(callback.from_user.id, state)
+    current_db.delete_integration_export(exp_id)
+    await callback.answer("✅ Удалён")
+    await gs_exports_list(callback, state)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -307,7 +840,10 @@ async def gs_exp_type(callback: CallbackQuery, state: FSMContext):
         kb.row(InlineKeyboardButton(text=v, callback_data=f"gs_exp_op_{k}"))
     kb.row(_back(f"gs_add_exp_{conn_id}"))
     await callback.message.edit_text(
-        f"✅ Тип: {EXPORT_TYPE_LABELS[exp_type]}\n\n<b>Способ записи в таблицу:</b>",
+        f"✅ Тип: {EXPORT_TYPE_LABELS[exp_type]}\n\n<b>Способ записи в таблицу:</b>\n\n"
+        "📌 <b>Обновить ячейку</b> — для матриц «магазин × товар» (инкремент/установка).\n"
+        "➕ <b>Добавить строку</b> — лог-запись каждого события.\n"
+        "🔄 <b>Заменить лист</b> — полная замена данных по расписанию.",
         reply_markup=kb.as_markup(), parse_mode="HTML"
     )
 
@@ -322,10 +858,12 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
     conn_id = data.get('gs_conn_id')
     await callback.message.edit_text(
         f"✅ Операция: {OPERATION_LABELS[operation]}\n\n"
-        "Введите <b>название листа</b> в таблице (поддерживаются макросы: "
+        "Введите <b>название листа</b> (поддерживаются макросы: "
         "<code>{year}</code> <code>{month}</code> <code>{week}</code> <code>{day}</code>).\n"
-        "Пример: <code>Продажи {year}-{month}</code>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_exp_type_{conn_id}_{exp_type}")]]),
+        "Пример: <code>w{week}</code>",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_back(f"gs_exp_type_{conn_id}_{exp_type}")]]
+        ),
         parse_mode="HTML"
     )
     await state.set_state(IntegrationStates.waiting_export_sheet)
@@ -359,19 +897,19 @@ async def _start_mapping_wizard(message: Message, state: FSMContext, exp_type: s
 async def _ask_next_mapping_field(message, state: FSMContext):
     data = await state.get_data()
     fields = data.get('gs_mapping_fields', [])
-    idx = data.get('gs_mapping_idx', 0)
+    idx    = data.get('gs_mapping_idx', 0)
     if idx >= len(fields):
         await _ask_schedule(message, state)
         return
     field = fields[idx]
     label = FIELD_LABELS.get(field, field)
-    done = len(data.get('gs_mapping', {}))
+    done  = len(data.get('gs_mapping', {}))
     total = len(fields)
     await message.answer(
-        f"📋 <b>Настройка маппинга ({done}/{total})</b>\n\n"
+        f"📋 <b>Маппинг столбцов ({done}/{total})</b>\n\n"
         f"Поле: <b>{label}</b> (<code>{field}</code>)\n\n"
-        f"Введите <b>заголовок столбца</b> в вашей таблице для этого поля.\n"
-        f"Или введите <code>skip</code> чтобы пропустить.",
+        f"Введите <b>заголовок столбца</b> в вашей таблице.\n"
+        f"Или <code>skip</code> — пропустить.",
         parse_mode="HTML"
     )
     await state.set_state(IntegrationStates.waiting_mapping)
@@ -381,13 +919,12 @@ async def _ask_next_mapping_field(message, state: FSMContext):
 async def gs_mapping_field(message: Message, state: FSMContext):
     text = message.text.strip()
     data = await state.get_data()
-    fields = data.get('gs_mapping_fields', [])
-    idx = data.get('gs_mapping_idx', 0)
+    fields  = data.get('gs_mapping_fields', [])
+    idx     = data.get('gs_mapping_idx', 0)
     mapping = data.get('gs_mapping', {})
 
     if text.lower() != 'skip' and text:
-        field = fields[idx]
-        mapping[field] = text
+        mapping[fields[idx]] = text
 
     await state.update_data(gs_mapping=mapping, gs_mapping_idx=idx + 1)
     await _ask_next_mapping_field(message, state)
@@ -397,25 +934,32 @@ async def _start_lookup_wizard(message: Message, state: FSMContext):
     await state.update_data(gs_lookup={}, gs_lookup_step=0)
     await state.set_state(IntegrationStates.waiting_lookup_step)
     await message.answer(
-        "🔍 <b>Настройка поиска строки</b>\n\n"
-        "Шаг 1/6: В какой <b>колонке</b> искать строку? Введите номер (1 = A, 2 = B, …):",
+        "🔍 <b>Настройка поиска ячейки (update_cell)</b>\n\n"
+        "Используется для матриц: бот ищет строку по ID магазина и столбец по названию товара.\n\n"
+        "<b>Шаг 1/7:</b> В какой <b>колонке</b> искать строку?\n"
+        "Введите номер (1 = A, 2 = B…)\n"
+        "Пример для вашей таблицы: <code>1</code> (Shop ID в колонке A)",
         parse_mode="HTML"
     )
 
 
 LOOKUP_STEPS = [
-    ("row_search_col",   "🔍 Шаг 1/6: В какой <b>колонке</b> искать строку? (номер: 1=A, 2=B…)"),
-    ("row_search_field", "🔍 Шаг 2/6: Какое <b>поле данных</b> использовать для поиска строки?\n"
-                         "Доступные: date, product_name, shop_name, quantity, price, total, seller_name, category"),
-    ("col_search_row",   "🔍 Шаг 3/6: В какой <b>строке</b> искать столбец? (номер, обычно 1 — строка заголовков)"),
-    ("col_search_field", "🔍 Шаг 4/6: Какое <b>поле данных</b> использовать для поиска столбца?\n"
-                         "Пример: product_name (найдёт столбец с именем товара)"),
-    ("operation",        "🔍 Шаг 5/6: <b>Операция</b> над ячейкой:\n"
+    ("row_search_col",   "🔍 <b>Шаг 1/7:</b> Номер <b>колонки</b> для поиска строки (1=A, 2=B…)"),
+    ("row_search_field", "🔍 <b>Шаг 2/7:</b> Поле данных для поиска строки\n"
+                         "Доступные: shop_name, seller_name, product_name\n"
+                         "Пример: <code>shop_name</code>"),
+    ("col_search_row",   "🔍 <b>Шаг 3/7:</b> Номер <b>строки</b> с заголовками столбцов\n"
+                         "Пример для w{week}: <code>6</code>"),
+    ("col_search_field", "🔍 <b>Шаг 4/7:</b> Поле данных для поиска столбца\n"
+                         "Пример: <code>product_name</code>"),
+    ("operation",        "🔍 <b>Шаг 5/7:</b> Операция над ячейкой\n"
                          "• <code>set</code> — установить значение\n"
-                         "• <code>increment</code> — прибавить\n"
+                         "• <code>increment</code> — прибавить (продажи)\n"
                          "• <code>decrement</code> — вычесть"),
-    ("value_field",      "🔍 Шаг 6/6: Какое <b>поле данных</b> взять как значение?\n"
-                         "Пример: quantity, total, price"),
+    ("value_field",      "🔍 <b>Шаг 6/7:</b> Поле данных — значение для записи\n"
+                         "Пример: <code>quantity</code>"),
+    ("data_start_row",   "🔍 <b>Шаг 7/7:</b> С какой строки начинаются данные? (строки до неё — заголовки)\n"
+                         "Пример для w{week}: <code>7</code>"),
 ]
 
 
@@ -423,11 +967,11 @@ LOOKUP_STEPS = [
 async def gs_lookup_step(message: Message, state: FSMContext):
     text = message.text.strip()
     data = await state.get_data()
-    step = data.get('gs_lookup_step', 0)
+    step   = data.get('gs_lookup_step', 0)
     lookup = data.get('gs_lookup', {})
 
     key = LOOKUP_STEPS[step][0]
-    if key == 'row_search_col' or key == 'col_search_row':
+    if key in ('row_search_col', 'col_search_row', 'data_start_row'):
         try:
             lookup[key] = int(text)
         except ValueError:
@@ -447,9 +991,12 @@ async def gs_lookup_step(message: Message, state: FSMContext):
 
 async def _ask_schedule(message, state: FSMContext):
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['immediate'], callback_data="gs_sched_immediate"))
-    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['cron'],      callback_data="gs_sched_cron"))
-    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['disabled'],  callback_data="gs_sched_disabled"))
+    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['immediate'],
+                                callback_data="gs_sched_immediate"))
+    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['cron'],
+                                callback_data="gs_sched_cron"))
+    kb.row(InlineKeyboardButton(text=SCHEDULE_LABELS['disabled'],
+                                callback_data="gs_sched_disabled"))
     await message.answer(
         "📅 <b>Расписание экспорта:</b>",
         reply_markup=kb.as_markup(), parse_mode="HTML"
@@ -464,7 +1011,7 @@ async def gs_sched(callback: CallbackQuery, state: FSMContext):
     if sched == 'cron':
         await callback.message.edit_text(
             "🕒 <b>Введите cron-расписание</b>\n\n"
-            "Формат: <code>мин час день месяц день_нед</code>\n"
+            "Формат: <code>мин час день месяц нед</code>\n"
             "Примеры:\n"
             "• <code>0 22 * * *</code> — каждый день в 22:00\n"
             "• <code>0 9 * * 1</code> — каждый понедельник в 09:00\n"
@@ -479,9 +1026,8 @@ async def gs_sched(callback: CallbackQuery, state: FSMContext):
 @integration_router.message(IntegrationStates.waiting_cron)
 async def gs_cron_input(message: Message, state: FSMContext):
     cron_str = message.text.strip()
-    parts = cron_str.split()
-    if len(parts) != 5:
-        await message.answer("❌ Неверный формат. Нужно 5 частей через пробел (мин час день месяц нед).")
+    if len(cron_str.split()) != 5:
+        await message.answer("❌ Неверный формат. Нужно 5 частей через пробел.")
         return
     await state.update_data(gs_schedule=cron_str)
     await _save_export(message, state)
@@ -489,207 +1035,55 @@ async def gs_cron_input(message: Message, state: FSMContext):
 
 async def _save_export(msg, state: FSMContext):
     data = await state.get_data()
-    conn_id       = data.get('gs_conn_id')
-    exp_type      = data.get('gs_exp_type', 'sales')
-    operation     = data.get('gs_exp_op', 'append_row')
-    target_sheet  = data.get('gs_target_sheet', 'Sheet1')
-    schedule      = data.get('gs_schedule', 'immediate')
-    mapping       = data.get('gs_mapping', {})
-    lookup        = data.get('gs_lookup', {})
+    conn_id      = data.get('gs_conn_id')
+    exp_type     = data.get('gs_exp_type', 'sales')
+    operation    = data.get('gs_exp_op', 'append_row')
+    target_sheet = data.get('gs_target_sheet', 'Sheet1')
+    schedule     = data.get('gs_schedule', 'immediate')
+    mapping      = data.get('gs_mapping', {})
+    lookup       = data.get('gs_lookup', {})
 
     from db_utils import get_db as _get_db
-    current_db = await _get_db(msg.from_user.id if hasattr(msg, 'from_user') else
-                                msg.chat.id, state)
+    user_id = msg.from_user.id if hasattr(msg, 'from_user') else msg.chat.id
+    current_db = await _get_db(user_id, state)
+
     exp_id = current_db.add_integration_export(
         connection_id=conn_id,
         export_type=exp_type,
-        operation=operation,
+        schedule=schedule,
         target_sheet=target_sheet,
-        schedule=schedule if schedule != 'disabled' else None,
-        enabled=1 if schedule != 'disabled' else 0,
-        mapping=json.dumps(mapping, ensure_ascii=False) if mapping else None,
-        lookup_config=json.dumps(lookup, ensure_ascii=False) if lookup else None,
+        operation=operation,
+        mapping=json.dumps(mapping, ensure_ascii=False),
+        lookup_config=json.dumps(lookup, ensure_ascii=False),
     )
     await clear_state_keep_org(state)
 
+    op_label = OPERATION_LABELS.get(operation, operation)
+    sched_label = SCHEDULE_LABELS.get(schedule, schedule)
+
     summary = (
-        f"✅ <b>Экспорт создан!</b>\n\n"
-        f"Тип: {EXPORT_TYPE_LABELS.get(exp_type, exp_type)}\n"
-        f"Операция: {OPERATION_LABELS.get(operation, operation)}\n"
-        f"Лист: <code>{target_sheet}</code>\n"
-        f"Расписание: {SCHEDULE_LABELS.get(schedule, schedule)}\n"
+        f"✅ <b>Экспорт настроен!</b>\n\n"
+        f"📊 Тип: {EXPORT_TYPE_LABELS.get(exp_type, exp_type)}\n"
+        f"📋 Лист: <code>{target_sheet}</code>\n"
+        f"✏️ Операция: {op_label}\n"
+        f"📅 Расписание: {sched_label}\n"
     )
-    if mapping:
-        summary += "\nМаппинг:\n" + "\n".join(f"  • {k} → {v}" for k, v in mapping.items())
+    if operation == 'update_cell' and lookup:
+        summary += (
+            f"\n<b>Поиск строки:</b> колонка {lookup.get('row_search_col','?')}, "
+            f"поле «{lookup.get('row_search_field','?')}»\n"
+            f"<b>Поиск столбца:</b> строка {lookup.get('col_search_row','?')}, "
+            f"поле «{lookup.get('col_search_field','?')}»\n"
+            f"<b>Операция:</b> {lookup.get('operation','set')} "
+            f"поле «{lookup.get('value_field','?')}»\n"
+            f"<b>Данные с строки:</b> {lookup.get('data_start_row', 1)}\n"
+        )
 
     await msg.answer(
         summary,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📋 К списку экспортов",
+            [InlineKeyboardButton(text="📋 Экспорты",
                                   callback_data=f"gs_exports_{conn_id}")],
         ]),
-        parse_mode="HTML"
-    )
-
-
-# ═══════════════════════════════════════════════════════════
-#  EXPORT DETAIL
-# ═══════════════════════════════════════════════════════════
-
-@integration_router.callback_query(F.data.startswith("gs_exp_"))
-async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
-    if "_" not in callback.data.replace("gs_exp_", ""):
-        return
-    try:
-        exp_id = int(callback.data.split("_")[2])
-    except (IndexError, ValueError):
-        return
-    await callback.answer()
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        await callback.answer("❌ Не найдено", show_alert=True)
-        return
-
-    conn_id = exp[1]
-    status = "✅" if exp[2] else "❌"
-    mapping = json.loads(exp[6] or '{}')
-    lookup = json.loads(exp[7] or '{}')
-    last_run = exp[9] or "Никогда"
-
-    text = (
-        f"📊 <b>Экспорт #{exp_id}</b>\n\n"
-        f"Тип: {EXPORT_TYPE_LABELS.get(exp[0], exp[0])}\n"
-        f"Статус: {status}\n"
-        f"Операция: {OPERATION_LABELS.get(exp[5], exp[5])}\n"
-        f"Лист: <code>{exp[4]}</code>\n"
-        f"Расписание: {SCHEDULE_LABELS.get(exp[3], exp[3] or 'immediate')}\n"
-        f"Последний запуск: {last_run}\n"
-    )
-    if mapping:
-        text += "\n<b>Маппинг:</b>\n" + "\n".join(f"  • {k} → {v}" for k, v in mapping.items())
-    if lookup:
-        text += f"\n<b>Lookup:</b> строка по {lookup.get('row_search_field','?')} в кол.{lookup.get('row_search_col','?')}"
-
-    enabled = bool(exp[2])
-    kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(
-        text="❌ Отключить" if enabled else "✅ Включить",
-        callback_data=f"gs_toggle_exp_{exp_id}"
-    ))
-    kb.row(InlineKeyboardButton(text="▶️ Тест (запустить сейчас)", callback_data=f"gs_run_exp_{exp_id}"))
-    kb.row(InlineKeyboardButton(text="🔍 Проверить маппинг", callback_data=f"gs_check_map_{exp_id}"))
-    kb.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"gs_del_exp_{exp_id}"))
-    kb.row(_back(f"gs_exports_{conn_id}"))
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
-
-
-@integration_router.callback_query(F.data.startswith("gs_toggle_exp_"))
-async def gs_toggle_exp(callback: CallbackQuery, state: FSMContext):
-    exp_id = int(callback.data.split("_")[3])
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        await callback.answer("❌ Не найдено", show_alert=True)
-        return
-    current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
-    await callback.answer("✅ Изменено")
-    await gs_exp_detail(callback, state)
-
-
-@integration_router.callback_query(F.data.startswith("gs_run_exp_"))
-async def gs_run_exp(callback: CallbackQuery, state: FSMContext):
-    exp_id = int(callback.data.split("_")[3])
-    await callback.answer("⏳ Запускаю…")
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        return
-    conn = current_db.get_integration_connection(exp[1])
-    if not conn:
-        return
-    export_row = (
-        exp_id, exp[1], exp[0], exp[3], exp[4], exp[5], exp[6], exp[7],
-        conn[3]
-    )
-    from integration.manager import integration_manager
-    import asyncio
-    asyncio.create_task(integration_manager._run_export(current_db, export_row, {}))
-    await callback.message.answer("▶️ Экспорт запущен в фоне. Проверьте журнал через минуту.")
-
-
-@integration_router.callback_query(F.data.startswith("gs_check_map_"))
-async def gs_check_map(callback: CallbackQuery, state: FSMContext):
-    exp_id = int(callback.data.split("_")[3])
-    await callback.answer("⏳ Читаю заголовки…")
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        return
-    conn = current_db.get_integration_connection(exp[1])
-    if not conn:
-        return
-    cfg = json.loads(conn[3] or '{}')
-    mapping = json.loads(exp[6] or '{}')
-
-    from integration.providers.google_sheets import GoogleSheetsProvider
-    headers = await GoogleSheetsProvider().get_headers(cfg, exp[4])
-    if not headers:
-        await callback.message.answer("❌ Не удалось прочитать заголовки. Проверьте название листа и доступ.")
-        return
-
-    text = f"📋 <b>Проверка маппинга</b>\nЛист: <code>{exp[4]}</code>\n\nЗаголовки в таблице:\n"
-    text += ", ".join(f"<code>{h}</code>" for h in headers) + "\n\n"
-    text += "<b>Ваш маппинг:</b>\n"
-    for field, col_header in mapping.items():
-        found = col_header in headers
-        icon = "✅" if found else "❌"
-        text += f"  {icon} {field} → {col_header}\n"
-
-    missing = [v for v in mapping.values() if v not in headers]
-    if missing:
-        text += f"\n⚠️ Не найдены столбцы: {', '.join(missing)}"
-    else:
-        text += "\n✅ Все столбцы найдены!"
-
-    await callback.message.answer(text, parse_mode="HTML")
-
-
-@integration_router.callback_query(F.data.startswith("gs_del_exp_"))
-async def gs_del_exp(callback: CallbackQuery, state: FSMContext):
-    exp_id = int(callback.data.split("_")[3])
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        await callback.answer("❌ Не найдено", show_alert=True)
-        return
-    conn_id = exp[1]
-    current_db.delete_integration_export(exp_id)
-    await callback.answer("✅ Удалено")
-    # Redirect to export list
-    callback.data = f"gs_exports_{conn_id}"
-    await gs_exports_list(callback, state)
-
-
-# ═══════════════════════════════════════════════════════════
-#  ERROR LOG
-# ═══════════════════════════════════════════════════════════
-
-@integration_router.callback_query(F.data.startswith("gs_log_"))
-async def gs_log(callback: CallbackQuery, state: FSMContext):
-    conn_id = int(callback.data.split("_")[2])
-    await callback.answer()
-    current_db = await get_db(callback.from_user.id, state)
-    logs = current_db.get_integration_logs(conn_id, limit=15)
-    text = "📢 <b>Журнал интеграции</b>\n\n"
-    if not logs:
-        text += "Записей нет."
-    else:
-        for log in logs:
-            icon = "✅" if log[3] == 'success' else "❌"
-            text += f"{icon} <b>exp#{log[2]}</b> [{log[4][:80]}]\n<i>{log[5]}</i>\n\n"
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]),
         parse_mode="HTML"
     )

@@ -748,6 +748,19 @@ class Database:
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS gs_bonus_cache (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER,
+                model_name    TEXT NOT NULL,
+                chain         TEXT NOT NULL,
+                bonus         REAL NOT NULL DEFAULT 0,
+                rrp           REAL,
+                synced_at     TEXT DEFAULT (datetime('now')),
+                UNIQUE(connection_id, model_name, chain)
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -6215,6 +6228,76 @@ class Database:
         except Exception as e:
             logger.error(f"get_integration_logs: {e}")
             return []
+
+    # ── gs_bonus_cache ─────────────────────────────────────────────────────
+
+    def upsert_bonus_cache(self, connection_id: int, model_name: str,
+                           chain: str, bonus: float, rrp: float = 0.0):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO gs_bonus_cache (connection_id, model_name, chain, bonus, rrp, synced_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(connection_id, model_name, chain)
+                   DO UPDATE SET bonus=excluded.bonus, rrp=excluded.rrp,
+                                 synced_at=datetime('now')''',
+                (connection_id, model_name, chain, bonus, rrp)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"upsert_bonus_cache: {e}")
+
+    def get_bonus_cache(self, connection_id: int = None) -> list:
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            if connection_id is not None:
+                cursor.execute(
+                    '''SELECT model_name, chain, bonus, rrp, synced_at
+                       FROM gs_bonus_cache WHERE connection_id = ?
+                       ORDER BY model_name, chain''',
+                    (connection_id,)
+                )
+            else:
+                cursor.execute(
+                    '''SELECT model_name, chain, bonus, rrp, synced_at
+                       FROM gs_bonus_cache ORDER BY model_name, chain'''
+                )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_bonus_cache: {e}")
+            return []
+
+    def get_bonus_for_model(self, model_name: str, chain: str) -> float:
+        """Get cached bonus for a specific model and store chain."""
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT bonus FROM gs_bonus_cache WHERE model_name=? AND chain=?',
+                (model_name, chain)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return float(row[0]) if row else 0.0
+        except Exception as e:
+            logger.error(f"get_bonus_for_model: {e}")
+            return 0.0
+
+    def clear_bonus_cache(self, connection_id: int):
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM gs_bonus_cache WHERE connection_id = ?',
+                           (connection_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"clear_bonus_cache: {e}")
 
     def get_all_admins_telegram_ids(self) -> list:
         """Return telegram_ids of all admin/owner users."""
