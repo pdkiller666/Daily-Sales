@@ -2396,16 +2396,6 @@ class Database:
                     except Exception:
                         pass
 
-                # Если в магазине есть multi_seller_coeff — проверяем, не изменилось ли
-                # число продавцов в этом месяце (новый продавец → пересчитать всем).
-                try:
-                    self._maybe_retrigger_shop_coeff(
-                        shop_name=shop_name, user_id=user_id,
-                        year=_sale_year, month=_sale_month
-                    )
-                except Exception as _retrig_err:
-                    logger.warning(f"_maybe_retrigger_shop_coeff: {_retrig_err}")
-
                 return sale_id
 
             except sqlite3.OperationalError as e:
@@ -3704,80 +3694,6 @@ class Database:
             if 'conn' in locals():
                 try: conn.close()
                 except: pass
-
-    def _maybe_retrigger_shop_coeff(self, shop_name, user_id, year, month):
-        """Если для магазина настроен multi_seller_coeff — проверяет, изменилось ли
-        число продавцов в текущем месяце после добавления новой продажи.
-        Если да (т.е. user_id делает продажу в этом магазине впервые за месяц) —
-        пересчитывает все seller_earnings магазина за этот месяц, чтобы коэффициент
-        применился корректно ко всем ранее записанным продажам.
-
-        Вызывается только после add_sale, не блокирует транзакцию."""
-        try:
-            import calendar as _cal
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
-            conn.execute('PRAGMA busy_timeout=10000')
-            cursor = conn.cursor()
-
-            # Есть ли вообще multi_seller_coeff для этого магазина?
-            cursor.execute('''
-                SELECT 1 FROM motivation_extra_conditions
-                WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
-                  AND (shop_name = ? OR shop_name IS NULL)
-                LIMIT 1
-            ''', (shop_name,))
-            has_coeff = cursor.fetchone()
-            if not has_coeff:
-                # Проверяем расписание на текущий месяц
-                cursor.execute('''
-                    SELECT 1 FROM extra_conditions_schedule
-                    WHERE condition_type = 'multi_seller_coeff' AND is_active = 1
-                      AND year = ? AND month = ?
-                      AND (shop_name = ? OR shop_name IS NULL)
-                    LIMIT 1
-                ''', (year, month, shop_name))
-                has_coeff = cursor.fetchone()
-
-            if not has_coeff:
-                conn.close()
-                return
-
-            _, last_day = _cal.monthrange(year, month)
-            month_start = f"{year}-{month:02d}-01"
-            month_end   = f"{year}-{month:02d}-{last_day:02d}"
-
-            # Сколько продавцов делали продажи в магазине за месяц ДО текущей продажи
-            # (т.е. исключаем текущего пользователя — смотрим, был ли он уже в этом месяце)
-            cursor.execute('''
-                SELECT COUNT(DISTINCT user_id) FROM sales
-                WHERE shop_name = ? AND date(sale_date) BETWEEN date(?) AND date(?)
-                  AND user_id != ?
-            ''', (shop_name, month_start, month_end, user_id))
-            sellers_before = cursor.fetchone()[0]
-
-            # Был ли этот пользователь уже в этом магазине в этом месяце раньше?
-            cursor.execute('''
-                SELECT COUNT(*) FROM sales
-                WHERE shop_name = ? AND user_id = ?
-                  AND date(sale_date) BETWEEN date(?) AND date(?)
-            ''', (shop_name, user_id, month_start, month_end))
-            user_sales_this_month = cursor.fetchone()[0]
-
-            conn.close()
-
-            # Пересчёт нужен только если это первая продажа пользователя в магазине
-            # за этот месяц (sellers_before + 1 = новое количество)
-            # и это действительно меняет число продавцов (т.е. не 0→1 при одном продавце)
-            is_new_seller_this_month = (user_sales_this_month <= 1)
-            if is_new_seller_this_month and sellers_before >= 1:
-                # Число продавцов изменилось — пересчитываем весь магазин за месяц
-                logger.info(
-                    f"_maybe_retrigger_shop_coeff: новый продавец {user_id} в {shop_name} "
-                    f"{year}-{month:02d}, sellers_before={sellers_before} → пересчёт"
-                )
-                self.recalculate_month_earnings(product_id=None, year=year, month=month)
-        except Exception as e:
-            logger.warning(f"_maybe_retrigger_shop_coeff ({shop_name}): {e}")
 
     def set_motivation_for_month(self, product_id, year, month, motivation_type, motivation_value,
                                   admin_telegram_id=None):
