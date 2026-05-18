@@ -533,20 +533,23 @@ async def _start_device_flow(message: Message, state: FSMContext):
 
     auth_text = (
         f"🔑 <b>Авторизация Google</b>\n\n"
-        f"1. Откройте на телефоне или компьютере:\n"
-        f"   <code>{verification_url}</code>\n\n"
-        f"2. Введите код:\n"
-        f"   <b>{user_code}</b>\n\n"
+        f"1. Нажмите кнопку ниже — откроется страница Google\n\n"
+        f"2. Введите этот код (нажмите чтобы скопировать):\n"
+        f"<code>{user_code}</code>\n\n"
         f"⏳ Ожидаю авторизации… (до {expires_in // 60} мин)\n\n"
         f"После авторизации бот обновит это сообщение автоматически."
     )
+    auth_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Открыть google.com/device", url=verification_url)],
+    ])
     try:
         await message.bot.edit_message_text(
             chat_id=chat_id, message_id=anchor_id,
             text=auth_text, parse_mode="HTML",
+            reply_markup=auth_kb,
         )
     except Exception:
-        sent = await message.answer(auth_text, parse_mode="HTML")
+        sent = await message.answer(auth_text, parse_mode="HTML", reply_markup=auth_kb)
         anchor_id = sent.message_id
         await state.update_data(anchor_msg_id=anchor_id)
 
