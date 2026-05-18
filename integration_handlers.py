@@ -1066,23 +1066,18 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
 #  EXPORT LIST
 # ═══════════════════════════════════════════════════════════
 
-@integration_router.callback_query(F.data.startswith("gs_exports_"))
-async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
-    conn_id = int(callback.data.split("_")[2])
-    await callback.answer()
-    current_db = await get_db(callback.from_user.id, state)
-    exports = current_db.get_integration_exports(conn_id)
+def _build_exports_list_content(exports: list, conn_id: int):
+    """Return (text, markup) for the exports list screen."""
     text = "📋 <b>Экспорты</b>\n\n"
     if not exports:
         text += "Экспортов нет.\n"
     else:
         for e in exports:
-            icon = "✅" if e[2] else "❌"
+            icon       = "✅" if e[2] else "❌"
             sched_label = SCHEDULE_LABELS.get(e[3], e[3] or 'immediate')
             text += (f"{icon} {EXPORT_TYPE_LABELS.get(e[1], e[1])} | "
                      f"{e[4]} | {OPERATION_LABELS.get(e[5], e[5])[:20]}\n")
             text += f"   📅 {sched_label}\n\n"
-
     kb = InlineKeyboardBuilder()
     for e in exports:
         kb.row(InlineKeyboardButton(
@@ -1092,7 +1087,17 @@ async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
     kb.row(InlineKeyboardButton(text="➕ Добавить экспорт",
                                 callback_data=f"gs_add_exp_{conn_id}"))
     kb.row(_back(f"gs_conn_{conn_id}"))
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    return text, kb.as_markup()
+
+
+@integration_router.callback_query(F.data.startswith("gs_exports_"))
+async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
+    conn_id = int(callback.data.split("_")[2])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    exports    = current_db.get_integration_exports(conn_id)
+    text, markup = _build_exports_list_content(exports, conn_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1212,7 +1217,10 @@ async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     current_db.delete_integration_export(exp_id)
     await callback.answer("✅ Удалён")
-    await gs_exports_list(callback, state)
+    # Use helper directly — callback.data here is gs_exp_del_N_M, not gs_exports_M
+    exports = current_db.get_integration_exports(conn_id)
+    text, markup = _build_exports_list_content(exports, conn_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════════════
