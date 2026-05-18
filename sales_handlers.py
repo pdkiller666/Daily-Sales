@@ -428,7 +428,7 @@ async def slr_rec_srch_start(callback: CallbackQuery, state: FSMContext):
 @sales_router.callback_query(F.data == "slr_srch_cancel")
 async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
     """Сброс поиска — возвращает полный список Избранного или Недавних."""
-    await state.set_state(None)
+    await state.set_state(MultipleSaleStates.adding_items)
     data = await state.get_data()
     list_type = data.get("sale_srch_list_type", "fav")
     current_db = await get_db(callback.from_user.id, state)
