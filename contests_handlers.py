@@ -1680,7 +1680,7 @@ async def contest_view(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📊 Текущие результаты", callback_data=f"ct_results_{cid}")
-    builder.button(text="✏️ Ручной ввод результатов", callback_data=f"ct_manual_{cid}")
+    builder.button(text="✏️ Скорректировать показатели", callback_data=f"ct_manual_{cid}")
     if status == 'active':
         builder.button(text="✏️ Редактировать", callback_data=f"ct_edit_{cid}")
         builder.button(text="✅ Завершить конкурс", callback_data=f"ct_finish_{cid}")
@@ -1780,6 +1780,7 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Обновить результаты", callback_data=f"ct_results_{cid}")
+    builder.button(text="✏️ Скорректировать показатели", callback_data=f"ct_manual_{cid}")
     if winners_list and status == 'finished':
         builder.button(text="📢 Разослать итоги победителям", callback_data=f"ct_notify_win_{cid}")
     builder.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{cid}")
@@ -2116,7 +2117,7 @@ async def contest_edit_reward_entered(message: Message, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ct_manual_"))
 async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
-    """Список магазинов для ручного ввода результатов конкурса"""
+    """Корректировка фактических показателей конкурса по магазинам"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
@@ -2130,9 +2131,13 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
         return
 
     import json as _json2
+    import sqlite3 as _sqlite3
     shop_f = contest[10]
     metric = contest[4]
     metric_unit = '₽' if metric == 'turnover' else ' шт'
+    start_date = contest[8]
+    end_date = contest[9]
+    status = contest[16]
 
     # Определяем список магазинов конкурса
     if shop_f:
@@ -2140,43 +2145,81 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     else:
         shops = current_db.get_all_shops() or []
 
+    # Авто-подсчёт по магазинам из фактических продаж (без корректировок)
+    metric_expr = "SUM(s.sale_price * s.quantity_sold)" if metric == 'turnover' else "SUM(s.quantity_sold)"
+    auto_totals = {}
+    try:
+        _conn = _sqlite3.connect(current_db.db_file)
+        if shops:
+            _placeholders = ','.join(['?' for _ in shops])
+            _rows = _conn.execute(
+                f"SELECT s.shop_name, {metric_expr} FROM sales s"
+                f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
+                f" AND s.shop_name IN ({_placeholders})"
+                f" GROUP BY s.shop_name",
+                [start_date, end_date] + shops
+            ).fetchall()
+        else:
+            _rows = _conn.execute(
+                f"SELECT s.shop_name, {metric_expr} FROM sales s"
+                f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
+                f" GROUP BY s.shop_name",
+                [start_date, end_date]
+            ).fetchall()
+        _conn.close()
+        auto_totals = {r[0]: (r[1] or 0) for r in _rows}
+    except Exception:
+        pass
+
     manual_results = current_db.get_contest_manual_results(contest_id)
 
+    # Кнопки по магазинам: показываем авто-значение и корректировку (если есть)
     builder = InlineKeyboardBuilder()
     for shop in shops:
+        auto_val = auto_totals.get(shop, 0)
         manual_info = manual_results.get(shop)
         if manual_info:
             label = f"✏️ {shop}: {format_price(manual_info['value'])}{metric_unit}"
         else:
-            label = f"🏪 {shop}"
+            auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
+            label = f"🏪 {shop}: {auto_str}{metric_unit}"
         builder.button(text=label, callback_data=safe_cb("ct_manset_", f"{contest_id}|{shop}"))
 
-    # Кнопка сброса всех ручных корректировок
     if manual_results:
         builder.button(text="🗑 Сбросить все корректировки",
                        callback_data=f"ct_manreset_{contest_id}")
+    builder.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
     builder.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
     builder.adjust(1)
 
+    status_emoji = "🟢 Идёт" if status == 'active' else "🏁 Завершён"
     text = (
-        f"✏️ <b>Ручной ввод результатов</b>\n\n"
+        f"✏️ <b>Корректировка показателей</b>\n\n"
         f"🏆 {he(contest[1])}\n"
+        f"📅 {_fmt_date(start_date)} — {_fmt_date(end_date)} · {status_emoji}\n"
         f"📊 Метрика: {'Оборот' if metric == 'turnover' else 'Количество'} ({metric_unit})\n\n"
-        "Выберите магазин для ручной корректировки результата.\n"
-        "Это значение заменит рассчитанный результат при подведении итогов.\n\n"
+        "Нажмите на магазин, чтобы скорректировать его фактическое выполнение.\n"
+        "Корректировка применяется <b>сразу</b> и учитывается при расчёте результатов в любой момент.\n\n"
+        "<b>Список магазинов</b> (🏪 авто · ✏️ скорректировано):\n"
     )
     if manual_results:
-        text += "✏️ <b>Уже установлены:</b>\n"
+        text += "\n<b>Активные корректировки:</b>\n"
         for sn, info in manual_results.items():
-            text += f"  • {he(sn)}: {format_price(info['value'])}{metric_unit} "
-            text += f"(👤 {he(info['editor'])} · {info['edited_at'][:10]})\n"
+            auto_val = auto_totals.get(sn, 0)
+            auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
+            corr_str = format_price(info['value']) if metric == 'turnover' else str(int(info['value']))
+            editor = he(info['editor']) if info['editor'] else '—'
+            text += (
+                f"  • {he(sn)}: авто {auto_str} → ✏️ {corr_str}{metric_unit}"
+                f" (👤 {editor} · {info['edited_at'][:10]})\n"
+            )
 
     await safe_edit_message(callback, text, builder.as_markup())
 
 
 @contests_router.callback_query(F.data.startswith("ct_manset_"))
 async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
-    """Выбран магазин — запрашиваем значение"""
+    """Выбран магазин — запрашиваем скорректированное значение"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
@@ -2185,18 +2228,13 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     raw = callback.data[len("ct_manset_"):]
     current_db = await get_db(callback.from_user.id, state)
 
-    # Парсим contest_id|shop_name через resolve_cb_name
-    # raw может быть хэшем если имя магазина длинное — восстанавливаем через все магазины
-    # Формат: "{contest_id}|{shop}" — но safe_cb хэширует всё целиком
-    # Восстанавливаем: ищем среди всех вариантов "cid|shop"
+    # Восстанавливаем contest_id|shop_name через resolve_cb_name
     all_shops = current_db.get_all_shops() or []
-    # Получаем все конкурсы чтобы получить contest_id
     all_contests = []
     try:
-        conn_tmp = __import__('sqlite3').connect(current_db.db_file)
-        cur_tmp = conn_tmp.cursor()
-        cur_tmp.execute("SELECT id FROM contests")
-        all_contests = [str(r[0]) for r in cur_tmp.fetchall()]
+        import sqlite3 as _sqlite3
+        conn_tmp = _sqlite3.connect(current_db.db_file)
+        all_contests = [str(r[0]) for r in conn_tmp.execute("SELECT id FROM contests").fetchall()]
         conn_tmp.close()
     except Exception:
         pass
@@ -2211,15 +2249,46 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     contest_id_str, shop_name = resolved.split('|', 1)
     contest_id = int(contest_id_str)
     contest = current_db.get_contest(contest_id)
-    metric = contest[4] if contest else 'turnover'
-    metric_unit = '₽' if metric == 'turnover' else ' шт'
+    if not contest:
+        await callback.answer("❌ Конкурс не найден", show_alert=True)
+        return
 
-    # Текущее значение (авто или ручное)
+    metric = contest[4]
+    metric_unit = '₽' if metric == 'turnover' else ' шт'
+    start_date = contest[8]
+    end_date = contest[9]
+
+    # Авто-значение магазина из фактических продаж
+    metric_expr = "SUM(s.sale_price * s.quantity_sold)" if metric == 'turnover' else "SUM(s.quantity_sold)"
+    auto_val = 0.0
+    try:
+        import sqlite3 as _sqlite3
+        _conn = _sqlite3.connect(current_db.db_file)
+        _row = _conn.execute(
+            f"SELECT {metric_expr} FROM sales s"
+            f" WHERE date(s.sale_date) BETWEEN date(?) AND date(?)"
+            f" AND s.shop_name = ?",
+            [start_date, end_date, shop_name]
+        ).fetchone()
+        _conn.close()
+        auto_val = (_row[0] or 0.0) if _row else 0.0
+    except Exception:
+        pass
+
+    # Текущая корректировка (если есть)
     manual_results = current_db.get_contest_manual_results(contest_id)
     current_manual = manual_results.get(shop_name)
-    current_note = ""
+
+    auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
+
+    info_lines = f"\n\n📊 <b>Авто (по продажам):</b> {auto_str}{metric_unit}"
     if current_manual:
-        current_note = f"\n✏️ <i>Текущая корректировка: {format_price(current_manual['value'])}{metric_unit}</i>"
+        corr_str = format_price(current_manual['value']) if metric == 'turnover' else str(int(current_manual['value']))
+        editor = he(current_manual['editor']) if current_manual['editor'] else '—'
+        info_lines += (
+            f"\n✏️ <b>Текущая корректировка:</b> {corr_str}{metric_unit}"
+            f"\n   👤 {editor} · {current_manual['edited_at'][:10]}"
+        )
 
     await state.update_data(
         ct_manual_cid=contest_id,
@@ -2229,15 +2298,17 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ContestStates.entering_manual_result)
 
     cancel_kb = InlineKeyboardBuilder()
-    cancel_kb.button(text="🗑 Удалить корректировку",
-                     callback_data=f"ct_mandel_{contest_id}")
-    cancel_kb.button(text="❌ Отмена", callback_data=f"ct_manual_{contest_id}")
+    if current_manual:
+        cancel_kb.button(text="🗑 Снять корректировку (вернуть авто)",
+                         callback_data=f"ct_mandel_{contest_id}")
+    cancel_kb.button(text="⬅️ Назад", callback_data=f"ct_manual_{contest_id}")
     cancel_kb.adjust(1)
 
     await callback.message.edit_text(
-        f"✏️ <b>Ручной ввод результата</b>\n\n"
-        f"🏪 Магазин: <b>{he(shop_name)}</b>{current_note}\n\n"
-        f"Введите новое значение ({metric_unit.strip()}):",
+        f"✏️ <b>Корректировка показателя</b>\n\n"
+        f"🏪 <b>{he(shop_name)}</b>{info_lines}\n\n"
+        f"Введите скорректированное значение ({metric_unit.strip()}):\n"
+        f"<i>Оно сразу заменит авто-подсчёт в результатах конкурса.</i>",
         reply_markup=cancel_kb.as_markup(), parse_mode="HTML"
     )
 
@@ -2283,11 +2354,12 @@ async def contest_manual_value_entered(message: Message, state: FSMContext):
     metric_unit = '₽' if metric == 'turnover' else ' шт'
 
     if ok:
+        val_str = format_price(value) if metric == 'turnover' else str(int(value))
         await fsm_edit(
             state, message,
-            f"✅ <b>Результат установлен вручную</b>\n\n"
-            f"🏪 {he(shop_name)}: <b>{format_price(value)}{metric_unit}</b>\n\n"
-            "Это значение будет использовано при подведении итогов конкурса.",
+            f"✅ <b>Показатель скорректирован</b>\n\n"
+            f"🏪 {he(shop_name)}: <b>{val_str}{metric_unit}</b>\n\n"
+            "Корректировка применена. Результаты конкурса обновлены.",
             reply_markup=back_kb.as_markup()
         )
     else:
@@ -2297,7 +2369,7 @@ async def contest_manual_value_entered(message: Message, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ct_mandel_"))
 async def contest_manual_delete(callback: CallbackQuery, state: FSMContext):
-    """Удалить ручную корректировку для магазина"""
+    """Снять корректировку — вернуть авто-подсчёт для магазина"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
@@ -2312,18 +2384,21 @@ async def contest_manual_delete(callback: CallbackQuery, state: FSMContext):
     current_db.delete_contest_manual_result(contest_id, shop_name)
 
     back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="✏️ К списку магазинов", callback_data=f"ct_manual_{contest_id}")
+    back_kb.button(text="✏️ К корректировкам", callback_data=f"ct_manual_{contest_id}")
+    back_kb.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
     back_kb.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
     back_kb.adjust(1)
     await callback.message.edit_text(
-        f"🗑 <b>Корректировка удалена</b>\n\n🏪 {he(shop_name)}",
+        f"✅ <b>Корректировка снята</b>\n\n"
+        f"🏪 {he(shop_name)}\n\n"
+        "Показатель магазина теперь рассчитывается автоматически по фактическим продажам.",
         reply_markup=back_kb.as_markup(), parse_mode="HTML"
     )
 
 
 @contests_router.callback_query(F.data.startswith("ct_manreset_"))
 async def contest_manual_reset_all(callback: CallbackQuery, state: FSMContext):
-    """Сбросить все ручные корректировки конкурса"""
+    """Сбросить все корректировки — все магазины вернутся на авто-подсчёт"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён", show_alert=True)
         return
@@ -2332,15 +2407,18 @@ async def contest_manual_reset_all(callback: CallbackQuery, state: FSMContext):
     contest_id = int(callback.data[len("ct_manreset_"):])
     current_db = await get_db(callback.from_user.id, state)
     manual = current_db.get_contest_manual_results(contest_id)
+    count = len(manual)
     for shop_name in list(manual.keys()):
         current_db.delete_contest_manual_result(contest_id, shop_name)
 
     back_kb = InlineKeyboardBuilder()
-    back_kb.button(text="✏️ Ручной ввод", callback_data=f"ct_manual_{contest_id}")
+    back_kb.button(text="✏️ Корректировки", callback_data=f"ct_manual_{contest_id}")
+    back_kb.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
     back_kb.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
     back_kb.adjust(1)
     await callback.message.edit_text(
-        "🗑 <b>Все ручные корректировки сброшены</b>\n\n"
-        "Результаты теперь рассчитываются автоматически.",
+        f"✅ <b>Все корректировки сброшены</b>\n\n"
+        f"Снято корректировок: {count}\n\n"
+        "Все магазины теперь считаются автоматически по фактическим продажам.",
         reply_markup=back_kb.as_markup(), parse_mode="HTML"
     )
