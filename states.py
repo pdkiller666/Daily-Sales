@@ -162,6 +162,8 @@ class SearchStates(StatesGroup):
     shop_contests      = State()   # contests_handlers — магазин конкурса
     product_sale       = State()   # sales_handlers — товар внутри категории (cross-shop)
     org_users          = State()   # admin_handlers — поиск по сотрудникам
+    sale_favourites    = State()   # sales_handlers — поиск в Избранном
+    sale_recent        = State()   # sales_handlers — поиск в Недавних
 
 class ExcelImportStates(StatesGroup):
     waiting_file       = State()

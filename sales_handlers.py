@@ -260,6 +260,77 @@ def _sale_list_screen_kb(items_kb_rows: list, cart: list) -> InlineKeyboardMarku
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _build_fav_list_content(fav_prods: list, cart: list, query: str = "") -> tuple:
+    """Строит (text, markup) для экрана Избранное с опциональным поиском."""
+    if query:
+        q = query.lower()
+        filtered = [p for p in fav_prods if q in (p[1] or "").lower()]
+    else:
+        filtered = fav_prods
+
+    rows = [[InlineKeyboardButton(text=f"⭐ {p[1]}", callback_data=f"sale_product_{p[0]}")]
+            for p in filtered]
+
+    search_row = [InlineKeyboardButton(text="🔍 Найти", callback_data="slr_fav_srch_start")]
+    if query:
+        search_row.append(InlineKeyboardButton(text="✖️ Сбросить", callback_data="slr_srch_cancel"))
+    rows.append(search_row)
+    if cart:
+        rows.append([
+            InlineKeyboardButton(text=f"🛒 Корзина ({len(cart)})", callback_data="view_cart"),
+            InlineKeyboardButton(text="✅ Завершить", callback_data="complete_sale"),
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="sale_back_to_cats")])
+
+    total = len(fav_prods)
+    if query:
+        if not filtered:
+            suffix = f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос"
+            text = f"⭐ <b>Избранное</b> · {total} товаров{suffix}"
+        else:
+            suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}"
+            text = f"⭐ <b>Избранное</b> · {total} товаров{suffix}\n\nВыберите товар:"
+    else:
+        text = f"⭐ <b>Избранное</b> · {total} товаров\n\nВыберите товар:"
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _build_recent_list_content(recent: list, cart: list, query: str = "") -> tuple:
+    """Строит (text, markup) для экрана Недавние с опциональным поиском."""
+    if query:
+        q = query.lower()
+        filtered = [(pid, pname, pprice, pcat) for pid, pname, pprice, pcat in recent
+                    if q in (pname or "").lower()]
+    else:
+        filtered = recent
+
+    rows = [[InlineKeyboardButton(text=f"🔄 {pname}", callback_data=f"sale_product_{pid}")]
+            for pid, pname, pprice, pcat in filtered]
+
+    search_row = [InlineKeyboardButton(text="🔍 Найти", callback_data="slr_rec_srch_start")]
+    if query:
+        search_row.append(InlineKeyboardButton(text="✖️ Сбросить", callback_data="slr_srch_cancel"))
+    rows.append(search_row)
+    if cart:
+        rows.append([
+            InlineKeyboardButton(text=f"🛒 Корзина ({len(cart)})", callback_data="view_cart"),
+            InlineKeyboardButton(text="✅ Завершить", callback_data="complete_sale"),
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ К категориям", callback_data="sale_back_to_cats")])
+
+    total = len(recent)
+    if query:
+        if not filtered:
+            suffix = f"\n\n🔍 По запросу «{he(query)}» ничего не найдено, попробуйте другой запрос"
+            text = f"🔄 <b>Недавние</b> · {total} товаров{suffix}"
+        else:
+            suffix = f"\n\n🔍 «{he(query)}» — найдено: {len(filtered)}"
+            text = f"🔄 <b>Недавние</b> · {total} товаров{suffix}\n\nВыберите товар:"
+    else:
+        text = f"🔄 <b>Недавние</b> · {total} товаров\n\nВыберите товар:"
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @sales_router.callback_query(F.data == "sale_show_favorites")
 async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
     """Подэкран: список избранных товаров."""
@@ -277,6 +348,8 @@ async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     cart = data.get("sale_cart", [])
+    await state.update_data(anchor_msg_id=callback.message.message_id,
+                            sale_srch_list_type="fav")
 
     if not fav_prods:
         await callback.message.edit_text(
@@ -286,13 +359,8 @@ async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    rows = [[InlineKeyboardButton(text=f"⭐ {p[1]}", callback_data=f"sale_product_{p[0]}")]
-            for p in fav_prods]
-    await callback.message.edit_text(
-        f"⭐ <b>Избранное</b> · {len(fav_prods)} товаров\n\nВыберите товар:",
-        reply_markup=_sale_list_screen_kb(rows, cart),
-        parse_mode="HTML"
-    )
+    text, markup = _build_fav_list_content(fav_prods, cart)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @sales_router.callback_query(F.data == "sale_show_recent")
@@ -310,6 +378,8 @@ async def sale_show_recent_handler(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     cart = data.get("sale_cart", [])
+    await state.update_data(anchor_msg_id=callback.message.message_id,
+                            sale_srch_list_type="recent")
 
     if not recent:
         await callback.message.edit_text(
@@ -319,13 +389,118 @@ async def sale_show_recent_handler(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    rows = [[InlineKeyboardButton(text=f"🔄 {pname}", callback_data=f"sale_product_{pid}")]
-            for pid, pname, pprice, pcat in recent]
+    text, markup = _build_recent_list_content(recent, cart)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+@sales_router.callback_query(F.data == "slr_fav_srch_start")
+async def slr_fav_srch_start(callback: CallbackQuery, state: FSMContext):
+    """Запуск поиска в Избранном."""
+    await state.update_data(anchor_msg_id=callback.message.message_id,
+                            sale_srch_list_type="fav")
+    await state.set_state(SearchStates.sale_favourites)
     await callback.message.edit_text(
-        f"🔄 <b>Недавние</b> · {len(recent)} товаров\n\nВыберите товар:",
-        reply_markup=_sale_list_screen_kb(rows, cart),
+        "🔍 <b>Поиск в Избранном</b>\n\nВведите название товара или его часть:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖️ Отмена", callback_data="slr_srch_cancel")]
+        ]),
         parse_mode="HTML"
     )
+    await callback.answer()
+
+
+@sales_router.callback_query(F.data == "slr_rec_srch_start")
+async def slr_rec_srch_start(callback: CallbackQuery, state: FSMContext):
+    """Запуск поиска в Недавних."""
+    await state.update_data(anchor_msg_id=callback.message.message_id,
+                            sale_srch_list_type="recent")
+    await state.set_state(SearchStates.sale_recent)
+    await callback.message.edit_text(
+        "🔍 <b>Поиск в Недавних</b>\n\nВведите название товара или его часть:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖️ Отмена", callback_data="slr_srch_cancel")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@sales_router.callback_query(F.data == "slr_srch_cancel")
+async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
+    """Сброс поиска — возвращает полный список Избранного или Недавних."""
+    await state.set_state(None)
+    data = await state.get_data()
+    list_type = data.get("sale_srch_list_type", "fav")
+    current_db = await get_db(callback.from_user.id, state)
+    user_row = current_db.get_user(callback.from_user.id)
+    cart = data.get("sale_cart", [])
+    await callback.answer()
+
+    if not user_row:
+        await callback.message.edit_text("❌ Пользователь не найден", parse_mode="HTML")
+        return
+
+    u_db_id = user_row[0]
+    if list_type == "recent":
+        recent = current_db.get_user_recent_products(u_db_id, limit=8) or []
+        if not recent:
+            await callback.message.edit_text(
+                "🔄 <b>Недавние</b>\n\nПока нет истории продаж.",
+                reply_markup=_sale_list_screen_kb([], cart),
+                parse_mode="HTML"
+            )
+        else:
+            text, markup = _build_recent_list_content(recent, cart)
+            await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    else:
+        fav_ids = current_db.get_favorite_products(u_db_id) or []
+        fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+        fav_prods = [p for p in fav_prods if p]
+        if not fav_prods:
+            await callback.message.edit_text(
+                "⭐ <b>Избранное</b>\n\nСписок пуст — добавляйте товары через карточку товара.",
+                reply_markup=_sale_list_screen_kb([], cart),
+                parse_mode="HTML"
+            )
+        else:
+            text, markup = _build_fav_list_content(fav_prods, cart)
+            await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+@sales_router.message(SearchStates.sale_favourites)
+async def slr_fav_srch_process(message: Message, state: FSMContext):
+    """Поиск по Избранному."""
+    query = (message.text or "").strip()
+    await state.set_state(MultipleSaleStates.adding_items)
+    current_db = await get_db(message.from_user.id, state)
+    user_row = current_db.get_user(message.from_user.id)
+    if not user_row:
+        return
+    data = await state.get_data()
+    cart = data.get("sale_cart", [])
+    u_db_id = user_row[0]
+    fav_ids = current_db.get_favorite_products(u_db_id) or []
+    fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+    fav_prods = [p for p in fav_prods if p]
+    text, markup = _build_fav_list_content(fav_prods, cart, query)
+    await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
+
+
+@sales_router.message(SearchStates.sale_recent)
+async def slr_rec_srch_process(message: Message, state: FSMContext):
+    """Поиск по Недавним."""
+    query = (message.text or "").strip()
+    await state.set_state(MultipleSaleStates.adding_items)
+    current_db = await get_db(message.from_user.id, state)
+    user_row = current_db.get_user(message.from_user.id)
+    if not user_row:
+        return
+    data = await state.get_data()
+    cart = data.get("sale_cart", [])
+    u_db_id = user_row[0]
+    recent = current_db.get_user_recent_products(u_db_id, limit=8) or []
+    text, markup = _build_recent_list_content(recent, cart, query)
+    await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
 
 
 @sales_router.callback_query(F.data == "sale_back_to_cats")
