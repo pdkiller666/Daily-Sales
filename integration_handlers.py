@@ -84,8 +84,189 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
             callback_data=f"gs_conn_{c[0]}"
         ))
     kb.row(InlineKeyboardButton(text="➕ Добавить подключение", callback_data="gs_add_conn"))
+    if not oauth_ready:
+        kb.row(InlineKeyboardButton(
+            text="📖 Как подключить? (инструкция)",
+            callback_data="gs_guide_1"
+        ))
+    else:
+        kb.row(InlineKeyboardButton(
+            text="📖 Инструкция по настройке",
+            callback_data="gs_guide_1"
+        ))
     kb.row(_back("admin_management"))
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+# ═══════════════════════════════════════════════════════════
+#  SETUP GUIDE (6 шагов для супер-администратора)
+# ═══════════════════════════════════════════════════════════
+
+_GUIDE_TOTAL = 6
+
+def _guide_kb(step: int, back_to: str = "integration_menu") -> InlineKeyboardMarkup:
+    """Navigation keyboard for setup guide steps."""
+    rows = []
+    nav = []
+    if step > 1:
+        nav.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"gs_guide_{step - 1}"))
+    if step < _GUIDE_TOTAL:
+        nav.append(InlineKeyboardButton(text="Далее ▶️", callback_data=f"gs_guide_{step + 1}"))
+    else:
+        nav.append(InlineKeyboardButton(text="✅ Проверить секреты", callback_data="gs_check_secrets"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🏠 В меню интеграций", callback_data=back_to)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+_GUIDE_STEPS = {
+    1: (
+        "📖 <b>Настройка Google Sheets — Шаг 1 из 6</b>\n"
+        "<b>Создайте проект в Google Cloud</b>\n\n"
+        "1. Откройте <a href=\"https://console.cloud.google.com\">console.cloud.google.com</a>\n"
+        "   (можно войти с <b>любого</b> Google-аккаунта)\n\n"
+        "2. Вверху нажмите на название проекта → <b>Новый проект</b>\n\n"
+        "3. Название: <code>DailySalesBot</code> → <b>Создать</b>\n\n"
+        "4. Убедитесь, что новый проект выбран в верхнем меню\n\n"
+        "✅ Готово → нажмите <b>Далее</b>"
+    ),
+    2: (
+        "📖 <b>Настройка Google Sheets — Шаг 2 из 6</b>\n"
+        "<b>Включите нужные API</b>\n\n"
+        "В поиске вверху найдите и включите два API:\n\n"
+        "1. Введите <b>Google Sheets API</b> → откройте → нажмите <b>Включить</b>\n\n"
+        "2. Введите <b>Google Drive API</b> → откройте → нажмите <b>Включить</b>\n\n"
+        "⚠️ Оба API обязательны — без Drive API бот не сможет искать файлы.\n\n"
+        "✅ Оба включены → нажмите <b>Далее</b>"
+    ),
+    3: (
+        "📖 <b>Настройка Google Sheets — Шаг 3 из 6</b>\n"
+        "<b>Настройте экран согласия OAuth</b>\n\n"
+        "1. Левое меню → <b>API и сервисы → Экран согласия OAuth</b>\n\n"
+        "2. Выберите <b>Внешний (External)</b> → <b>Создать</b>\n\n"
+        "3. Заполните:\n"
+        "   • Название приложения: <code>DailySalesBot</code>\n"
+        "   • Email поддержки: ваш email\n"
+        "   • Email разработчика: ваш email\n\n"
+        "4. Нажимайте <b>Сохранить и продолжить</b> до шага <b>Тестовые пользователи</b>\n\n"
+        "5. ⚠️ <b>Добавьте тестового пользователя</b> — введите email того Google-аккаунта,\n"
+        "   у которого есть доступ к таблице (например: <code>promo.brn.tarasov.i@gmail.com</code>)\n\n"
+        "6. <b>Сохранить и продолжить</b> → <b>Вернуться на панель</b>\n\n"
+        "⚠️ Без этого шага Google заблокирует авторизацию!\n\n"
+        "✅ Готово → нажмите <b>Далее</b>"
+    ),
+    4: (
+        "📖 <b>Настройка Google Sheets — Шаг 4 из 6</b>\n"
+        "<b>Создайте OAuth-ключи приложения</b>\n\n"
+        "1. Левое меню → <b>API и сервисы → Учётные данные (Credentials)</b>\n\n"
+        "2. Нажмите <b>+ Создать учётные данные → OAuth 2.0 Client ID</b>\n\n"
+        "3. Тип приложения: <b>«Телевизоры и устройства с ограниченным вводом»</b>\n"
+        "   (TV and Limited Input devices)\n"
+        "   ⚠️ Именно этот тип — он позволяет авторизоваться без браузера на сервере\n\n"
+        "4. Название: <code>DailySalesBot</code> → <b>Создать</b>\n\n"
+        "5. Откроется окно — скопируйте:\n"
+        "   • <b>Client ID</b> (длинная строка, оканчивается на <code>.apps.googleusercontent.com</code>)\n"
+        "   • <b>Client Secret</b> (короткая строка)\n\n"
+        "💾 Сохраните оба значения — они понадобятся на следующем шаге.\n\n"
+        "✅ Ключи скопированы → нажмите <b>Далее</b>"
+    ),
+    5: (
+        "📖 <b>Настройка Google Sheets — Шаг 5 из 6</b>\n"
+        "<b>Добавьте секреты в Replit</b>\n\n"
+        "1. В Replit откройте панель <b>🔒 Secrets</b> (иконка замка слева)\n\n"
+        "2. Добавьте два секрета:\n\n"
+        "   Ключ: <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
+        "   Значение: вставьте <b>Client ID</b> из шага 4\n\n"
+        "   Ключ: <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n"
+        "   Значение: вставьте <b>Client Secret</b> из шага 4\n\n"
+        "3. После добавления секретов — <b>перезапустите бота</b>\n"
+        "   (вкладка Workflows → Start application → Restart)\n\n"
+        "✅ Секреты добавлены, бот перезапущен → нажмите <b>Далее</b>"
+    ),
+    6: (
+        "📖 <b>Настройка Google Sheets — Шаг 6 из 6</b>\n"
+        "<b>Подключите таблицу через бота</b>\n\n"
+        "1. Вернитесь в <b>📊 Google Sheets</b> → <b>➕ Добавить подключение</b>\n\n"
+        "2. Введите название, например: <code>Таблица Huawei</code>\n\n"
+        "3. Выберите <b>🔑 OAuth — мой аккаунт Google</b>\n\n"
+        "4. Введите ID таблицы из URL:\n"
+        "   URL: <code>docs.google.com/spreadsheets/d/<b>ВОТ_ЭТО</b>/edit</code>\n\n"
+        "5. Бот пришлёт ссылку и код, например:\n"
+        "   🔗 <code>https://google.com/device</code>\n"
+        "   🔑 Код: <code>ABCD-EFGH</code>\n\n"
+        "6. Откройте ссылку → войдите в аккаунт с доступом к таблице\n"
+        "   → введите код → нажмите <b>Разрешить</b>\n\n"
+        "7. Бот напишет <b>«✅ Google аккаунт подключён!»</b> — готово!\n\n"
+        "После подключения настройте экспорт и синхронизацию мотивации.\n\n"
+        "👇 Нажмите <b>Проверить секреты</b>, чтобы убедиться что всё готово:"
+    ),
+}
+
+
+@integration_router.callback_query(F.data.regexp(r'^gs_guide_\d+$'))
+async def gs_guide_step(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    try:
+        step = int(callback.data.split("_")[2])
+    except (IndexError, ValueError):
+        step = 1
+    step = max(1, min(step, _GUIDE_TOTAL))
+    text = _GUIDE_STEPS[step]
+    header = f"<i>Шаг {step} из {_GUIDE_TOTAL}</i>\n\n" if "Шаг" not in text[:20] else ""
+    await callback.message.edit_text(
+        header + text,
+        reply_markup=_guide_kb(step),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@integration_router.callback_query(F.data == "gs_check_secrets")
+async def gs_check_secrets(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+    ok_id = bool(client_id and len(client_id) > 10)
+    ok_secret = bool(client_secret and len(client_secret) > 4)
+
+    id_icon = "✅" if ok_id else "❌"
+    sec_icon = "✅" if ok_secret else "❌"
+
+    if ok_id and ok_secret:
+        status_text = (
+            "🎉 <b>Всё готово!</b>\n\n"
+            f"{id_icon} <code>GOOGLE_OAUTH_CLIENT_ID</code> — задан\n"
+            f"{sec_icon} <code>GOOGLE_OAUTH_CLIENT_SECRET</code> — задан\n\n"
+            "Теперь нажмите <b>➕ Добавить подключение</b> и выберите\n"
+            "<b>🔑 OAuth — мой аккаунт Google</b>."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить подключение", callback_data="gs_add_conn")],
+            [InlineKeyboardButton(text="🏠 В меню интеграций", callback_data="integration_menu")],
+        ])
+    else:
+        missing = []
+        if not ok_id:
+            missing.append("• <code>GOOGLE_OAUTH_CLIENT_ID</code>")
+        if not ok_secret:
+            missing.append("• <code>GOOGLE_OAUTH_CLIENT_SECRET</code>")
+        status_text = (
+            "⚠️ <b>Секреты не найдены</b>\n\n"
+            f"{id_icon} <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
+            f"{sec_icon} <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n\n"
+            "Не хватает:\n" + "\n".join(missing) + "\n\n"
+            "Вернитесь к <b>Шагу 5</b> — добавьте секреты в Replit Secrets\n"
+            "и перезапустите бота, затем нажмите «Проверить снова»."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Проверить снова", callback_data="gs_check_secrets")],
+            [InlineKeyboardButton(text="◀️ Шаг 5", callback_data="gs_guide_5")],
+            [InlineKeyboardButton(text="🏠 В меню интеграций", callback_data="integration_menu")],
+        ])
+
+    await callback.message.edit_text(status_text, reply_markup=kb, parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════════════
