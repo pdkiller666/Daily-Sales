@@ -723,22 +723,13 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
 #  CONNECTION DETAIL
 # ═══════════════════════════════════════════════════════════
 
-@integration_router.callback_query(F.data.startswith("gs_conn_"))
-async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
-    conn_id = int(callback.data.split("_")[2])
-    current_db = await get_db(callback.from_user.id, state)
-    conn = current_db.get_integration_connection(conn_id)
-    if not conn:
-        await callback.answer("❌ Подключение не найдено", show_alert=True)
-        return
-    await callback.answer()
-
-    exports = current_db.get_integration_exports(conn_id)
+def _build_conn_detail_content(conn, conn_id: int, exports: list):
+    """Return (text, markup) for the connection detail screen."""
     cfg = json.loads(conn[3] or '{}')
     status_icon = "✅" if conn[4] else "❌"
-    auth_label = ("🔑 OAuth (личный аккаунт)"
-                  if cfg.get("auth_type") == "oauth"
-                  else "⚙️ Сервисный аккаунт")
+    auth_label  = ("🔑 OAuth (личный аккаунт)"
+                   if cfg.get("auth_type") == "oauth"
+                   else "⚙️ Сервисный аккаунт")
     tokens_ok = ""
     if cfg.get("auth_type") == "oauth":
         expiry = cfg.get("tokens", {}).get("expiry", 0)
@@ -746,7 +737,6 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
             from datetime import datetime
             exp_dt = datetime.fromtimestamp(expiry).strftime("%d.%m %H:%M")
             tokens_ok = f"\nТокен до: {exp_dt}"
-
     text = (
         f"⚙️ <b>{conn[1]}</b>\n\n"
         f"Статус: {status_icon} {'Активно' if conn[4] else 'Отключено'}\n"
@@ -759,7 +749,6 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
         for e in exports:
             e_icon = "✅" if e[2] else "❌"
             text += f"  {e_icon} {EXPORT_TYPE_LABELS.get(e[1], e[1])} → {e[4] or '?'} ({e[5]})\n"
-
     enabled = bool(conn[4])
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(
@@ -778,21 +767,39 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
                                     callback_data=f"gs_reauth_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"gs_del_conn_{conn_id}"))
     kb.row(_back("integration_menu"))
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    return text, kb.as_markup()
+
+
+@integration_router.callback_query(F.data.startswith("gs_conn_"))
+async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
+    conn_id    = int(callback.data.split("_")[2])
+    current_db = await get_db(callback.from_user.id, state)
+    conn       = current_db.get_integration_connection(conn_id)
+    if not conn:
+        await callback.answer("❌ Подключение не найдено", show_alert=True)
+        return
+    await callback.answer()
+    exports      = current_db.get_integration_exports(conn_id)
+    text, markup = _build_conn_detail_content(conn, conn_id, exports)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_toggle_conn_"))
 async def gs_toggle_conn(callback: CallbackQuery, state: FSMContext):
-    conn_id = int(callback.data.split("_")[3])
+    conn_id    = int(callback.data.split("_")[3])
     current_db = await get_db(callback.from_user.id, state)
-    conn = current_db.get_integration_connection(conn_id)
+    conn       = current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Не найдено", show_alert=True)
         return
-    new_enabled = 1 if not conn[4] else 0
-    current_db.update_integration_connection(conn_id, enabled=new_enabled)
+    current_db.update_integration_connection(conn_id, enabled=0 if conn[4] else 1)
     await callback.answer("✅ Изменено")
-    await gs_conn_detail(callback, state)
+    # Re-fetch updated conn and render — cannot call gs_conn_detail(callback) directly
+    # because callback.data is gs_toggle_conn_N, not gs_conn_N
+    conn         = current_db.get_integration_connection(conn_id)
+    exports      = current_db.get_integration_exports(conn_id)
+    text, markup = _build_conn_detail_content(conn, conn_id, exports)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_test_conn_"))
@@ -1104,24 +1111,12 @@ async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
 #  EXPORT DETAIL
 # ═══════════════════════════════════════════════════════════
 
-@integration_router.callback_query(F.data.regexp(r'^gs_exp_\d+$'))
-async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
-    parts = callback.data.split("_")
-    try:
-        exp_id = int(parts[2])
-    except (IndexError, ValueError):
-        await callback.answer()
-        return
-    current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
-    if not exp:
-        await callback.answer("❌ Не найдено", show_alert=True)
-        return
-    await callback.answer()
-
-    # get_integration_export returns:
-    # [0]=export_type [1]=connection_id [2]=enabled [3]=schedule [4]=target_sheet
-    # [5]=operation [6]=mapping [7]=lookup_config [8]=extra [9]=last_run
+def _build_exp_detail_content(exp, exp_id: int):
+    """Return (text, markup) for the export detail screen.
+    exp = get_integration_export row:
+    [0]=export_type [1]=connection_id [2]=enabled [3]=schedule [4]=target_sheet
+    [5]=operation [6]=mapping [7]=lookup_config [8]=extra [9]=last_run
+    """
     export_type  = exp[0]
     conn_id      = exp[1]
     enabled      = exp[2]
@@ -1132,7 +1127,7 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
     lookup       = json.loads(exp[7] or '{}')
     last_run     = exp[9]
 
-    icon = "✅" if enabled else "❌"
+    icon    = "✅" if enabled else "❌"
     aliases = lookup.get('aliases', {})
 
     text = (
@@ -1145,8 +1140,7 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
         f"Последний запуск: {last_run or 'не запускался'}\n"
     )
     if operation == 'append_row' and mapping:
-        fields_str = ', '.join(mapping.keys())
-        text += f"\nПоля: {fields_str}\n"
+        text += f"\nПоля: {', '.join(mapping.keys())}\n"
     if operation == 'update_cell' and lookup:
         text += (
             f"\n🔍 <b>Матрица:</b>\n"
@@ -1162,7 +1156,7 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
         for bot_v, sheet_v in list(aliases.items())[:4]:
             text += f"  <code>{bot_v}</code> → <code>{sheet_v}</code>\n"
         if len(aliases) > 4:
-            text += f"  ...ещё {len(aliases)-4}\n"
+            text += f"  ...ещё {len(aliases) - 4}\n"
 
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(
@@ -1179,19 +1173,43 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
         callback_data=f"gs_exp_del_confirm_{exp_id}_{conn_id}"
     ))
     kb.row(_back(f"gs_exports_{conn_id}"))
-    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    return text, kb.as_markup()
+
+
+@integration_router.callback_query(F.data.regexp(r'^gs_exp_\d+$'))
+async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    try:
+        exp_id = int(parts[2])
+    except (IndexError, ValueError):
+        await callback.answer()
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    exp = current_db.get_integration_export(exp_id)
+    if not exp:
+        await callback.answer("❌ Не найдено", show_alert=True)
+        return
+    await callback.answer()
+    text, markup = _build_exp_detail_content(exp, exp_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_exp_toggle_"))
 async def gs_exp_toggle(callback: CallbackQuery, state: FSMContext):
-    parts = callback.data.split("_")
-    exp_id, conn_id = int(parts[3]), int(parts[4])
+    parts  = callback.data.split("_")
+    exp_id = int(parts[3])
     current_db = await get_db(callback.from_user.id, state)
     exp = current_db.get_integration_export(exp_id)
-    if exp:
-        current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
-        await callback.answer("✅ Изменено")
-    await gs_exp_detail(callback, state)
+    if not exp:
+        await callback.answer("❌ Не найдено", show_alert=True)
+        return
+    current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
+    await callback.answer("✅ Изменено")
+    # Re-fetch updated exp and render — cannot call gs_exp_detail(callback) directly
+    # because callback.data is gs_exp_toggle_N_M, not gs_exp_N
+    exp = current_db.get_integration_export(exp_id)
+    text, markup = _build_exp_detail_content(exp, exp_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_exp_del_confirm_"))
