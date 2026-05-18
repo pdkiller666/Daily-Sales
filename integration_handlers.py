@@ -1083,32 +1083,65 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
 
-    conn_id = exp[1]
-    icon = "✅" if exp[2] else "❌"
-    lookup = json.loads(exp[8] or '{}')
-    mapping = json.loads(exp[7] or '{}')
+    # get_integration_export returns:
+    # [0]=export_type [1]=connection_id [2]=enabled [3]=schedule [4]=target_sheet
+    # [5]=operation [6]=mapping [7]=lookup_config [8]=extra [9]=last_run
+    export_type  = exp[0]
+    conn_id      = exp[1]
+    enabled      = exp[2]
+    schedule     = exp[3]
+    target_sheet = exp[4]
+    operation    = exp[5]
+    mapping      = json.loads(exp[6] or '{}')
+    lookup       = json.loads(exp[7] or '{}')
+    last_run     = exp[9]
+
+    icon = "✅" if enabled else "❌"
+    aliases = lookup.get('aliases', {})
+
     text = (
         f"⚙️ <b>Экспорт #{exp_id}</b>\n\n"
-        f"Тип: {EXPORT_TYPE_LABELS.get(exp[3], exp[3])}\n"
-        f"Лист: <code>{exp[5]}</code>\n"
-        f"Операция: {OPERATION_LABELS.get(exp[6], exp[6])}\n"
-        f"Статус: {icon} {'Вкл' if exp[2] else 'Выкл'}\n"
-        f"Расписание: {SCHEDULE_LABELS.get(exp[4], exp[4] or 'immediate')}\n"
-        f"Последний запуск: {exp[10] or 'не запускался'}\n"
+        f"Тип: {EXPORT_TYPE_LABELS.get(export_type, export_type)}\n"
+        f"Лист: <code>{target_sheet}</code>\n"
+        f"Операция: {OPERATION_LABELS.get(operation, operation)}\n"
+        f"Статус: {icon} {'Вкл' if enabled else 'Выкл'}\n"
+        f"Расписание: {SCHEDULE_LABELS.get(schedule, schedule or 'immediate')}\n"
+        f"Последний запуск: {last_run or 'не запускался'}\n"
     )
-    if mapping:
-        text += f"\nМаппинг: {json.dumps(mapping, ensure_ascii=False)[:100]}\n"
-    if lookup:
-        text += f"Поиск: {json.dumps(lookup, ensure_ascii=False)[:100]}\n"
+    if operation == 'append_row' and mapping:
+        fields_str = ', '.join(mapping.keys())
+        text += f"\nПоля: {fields_str}\n"
+    if operation == 'update_cell' and lookup:
+        text += (
+            f"\n🔍 <b>Матрица:</b>\n"
+            f"Строки: кол.{lookup.get('row_search_col','?')} → "
+            f"«{lookup.get('row_search_field','?')}»\n"
+            f"Столбцы: стр.{lookup.get('col_search_row','?')} → "
+            f"«{lookup.get('col_search_field','?')}»\n"
+            f"Действие: {lookup.get('operation','set')} "
+            f"«{lookup.get('value_field','?')}»\n"
+        )
+    if aliases:
+        text += f"\n📝 Псевдонимов: {len(aliases)}\n"
+        for bot_v, sheet_v in list(aliases.items())[:4]:
+            text += f"  <code>{bot_v}</code> → <code>{sheet_v}</code>\n"
+        if len(aliases) > 4:
+            text += f"  ...ещё {len(aliases)-4}\n"
 
     kb = InlineKeyboardBuilder()
-    new_enabled = 0 if exp[2] else 1
     kb.row(InlineKeyboardButton(
-        text="❌ Отключить" if exp[2] else "✅ Включить",
+        text="❌ Отключить" if enabled else "✅ Включить",
         callback_data=f"gs_exp_toggle_{exp_id}_{conn_id}"
     ))
-    kb.row(InlineKeyboardButton(text="🗑 Удалить",
-                                callback_data=f"gs_exp_del_{exp_id}_{conn_id}"))
+    if operation == 'update_cell':
+        kb.row(InlineKeyboardButton(
+            text="📝 Псевдонимы",
+            callback_data=f"gs_alias_edit_{exp_id}_{conn_id}"
+        ))
+    kb.row(InlineKeyboardButton(
+        text="🗑 Удалить",
+        callback_data=f"gs_exp_del_confirm_{exp_id}_{conn_id}"
+    ))
     kb.row(_back(f"gs_exports_{conn_id}"))
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
@@ -1125,6 +1158,22 @@ async def gs_exp_toggle(callback: CallbackQuery, state: FSMContext):
     await gs_exp_detail(callback, state)
 
 
+@integration_router.callback_query(F.data.startswith("gs_exp_del_confirm_"))
+async def gs_exp_del_confirm(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    exp_id, conn_id = int(parts[4]), int(parts[5])
+    await callback.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Да, удалить",
+                              callback_data=f"gs_exp_del_{exp_id}_{conn_id}")],
+        [_back(f"gs_exp_{exp_id}")],
+    ])
+    await callback.message.edit_text(
+        f"⚠️ <b>Удалить экспорт #{exp_id}?</b>\n\nЭто действие нельзя отменить.",
+        reply_markup=kb, parse_mode="HTML"
+    )
+
+
 @integration_router.callback_query(F.data.startswith("gs_exp_del_"))
 async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
@@ -1133,6 +1182,75 @@ async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
     current_db.delete_integration_export(exp_id)
     await callback.answer("✅ Удалён")
     await gs_exports_list(callback, state)
+
+
+# ═══════════════════════════════════════════════════════════
+#  ALIAS EDIT (update_cell exports)
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data.startswith("gs_alias_edit_"))
+async def gs_alias_edit(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    exp_id, conn_id = int(parts[3]), int(parts[4])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    exp = current_db.get_integration_export(exp_id)
+    lookup = json.loads(exp[7] or '{}') if exp else {}
+    aliases = lookup.get('aliases', {})
+
+    current_text = '\n'.join(f"{k} → {v}" for k, v in aliases.items()) or "(псевдонимов нет)"
+    await state.update_data(alias_exp_id=exp_id, alias_conn_id=conn_id,
+                            anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        f"📝 <b>Псевдонимы — Экспорт #{exp_id}</b>\n\n"
+        f"<b>Текущие:</b>\n<code>{current_text}</code>\n\n"
+        "Введи соответствия — <b>по одному в строке</b>:\n"
+        "<code>Название в боте → Значение в таблице</code>\n\n"
+        "<b>Примеры:</b>\n"
+        "<code>Хуавей DNS → 2905</code>\n"
+        "<code>Nova 14 → Nova 14i</code>\n\n"
+        "Разделители: <code>→</code>  <code>-&gt;</code>  <code>:</code>\n"
+        "Чтобы удалить все псевдонимы — отправь <code>clear</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_exp_{exp_id}")]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(IntegrationStates.waiting_alias_edit)
+
+
+@integration_router.message(IntegrationStates.waiting_alias_edit)
+async def gs_alias_input(message: Message, state: FSMContext):
+    text = message.text.strip()
+    data = await state.get_data()
+    exp_id   = data.get('alias_exp_id')
+    anchor_id = data.get('anchor_msg_id')
+    await delete_message_safe(message)
+    current_db = await get_db(message.chat.id, state)
+    exp = current_db.get_integration_export(exp_id)
+    if not exp:
+        await _edit_anchor(message.bot, message.chat.id, anchor_id, "❌ Экспорт не найден.")
+        await clear_state_keep_org(state)
+        return
+    lookup = json.loads(exp[7] or '{}')
+    if text.lower() == 'clear':
+        lookup['aliases'] = {}
+        result = "✅ Все псевдонимы удалены."
+    else:
+        aliases = _parse_aliases(text)
+        lookup['aliases'] = aliases
+        result = f"✅ Сохранено псевдонимов: {len(aliases)}"
+        if aliases:
+            result += '\n' + '\n'.join(f"  <code>{k}</code> → <code>{v}</code>"
+                                       for k, v in aliases.items())
+    current_db.update_integration_export(
+        exp_id, lookup_config=json.dumps(lookup, ensure_ascii=False))
+    conn_id = data.get('alias_conn_id')
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Изменить ещё",
+                              callback_data=f"gs_alias_edit_{exp_id}_{conn_id}")],
+        [_back(f"gs_exp_{exp_id}")],
+    ])
+    await _edit_anchor(message.bot, message.chat.id, anchor_id, result, reply_markup=kb)
+    await clear_state_keep_org(state)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1261,37 +1379,100 @@ async def gs_mapping_field(message: Message, state: FSMContext):
     await _ask_next_mapping_field(message, state)
 
 
+# ── lookup wizard helpers ────────────────────────────────
+
+def _parse_aliases(text: str) -> dict:
+    """Parse alias lines: 'bot_value → sheet_value' (→, ->, :)."""
+    aliases = {}
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        for sep in ['→', '->', ':']:
+            if sep in line:
+                parts = line.split(sep, 1)
+                bot_val   = parts[0].strip()
+                sheet_val = parts[1].strip()
+                if bot_val and sheet_val:
+                    aliases[bot_val] = sheet_val
+                break
+    return aliases
+
+
+LOOKUP_BTN_STEPS = {
+    'row_search_field': {
+        'prompt': (
+            "🔍 <b>Шаг 3/6 — Поле для строк</b>\n\n"
+            "Какое значение из продажи искать в <b>строках</b> таблицы?\n"
+            "Пример: магазин ↔ строка с кодом магазина"
+        ),
+        'options': [
+            ('shop_name',    '🏪 Название магазина'),
+            ('seller_name',  '👤 Имя продавца'),
+            ('product_name', '📦 Название товара'),
+        ],
+        'next': 'col_search_field',
+    },
+    'col_search_field': {
+        'prompt': (
+            "🔍 <b>Шаг 4/6 — Поле для столбцов</b>\n\n"
+            "Какое значение из продажи искать в <b>заголовках столбцов</b>?\n"
+            "Пример: товар ↔ колонка с названием модели"
+        ),
+        'options': [
+            ('product_name', '📦 Название товара'),
+            ('category',     '📂 Категория'),
+            ('shop_name',    '🏪 Название магазина'),
+        ],
+        'next': 'operation',
+    },
+    'operation': {
+        'prompt': (
+            "🔍 <b>Шаг 5/6 — Действие с ячейкой</b>\n\n"
+            "Что делать с ячейкой при каждой продаже?"
+        ),
+        'options': [
+            ('increment', '➕ Прибавить (продажи)'),
+            ('decrement', '➖ Вычесть (возврат)'),
+            ('set',       '= Установить значение'),
+        ],
+        'next': 'value_field',
+    },
+    'value_field': {
+        'prompt': (
+            "🔍 <b>Шаг 6/6 — Записываемое значение</b>\n\n"
+            "Какое число из продажи записывать в ячейку?"
+        ),
+        'options': [
+            ('quantity', '🔢 Количество товаров'),
+            ('total',    '💰 Сумма продажи (руб.)'),
+            ('price',    '💲 Цена единицы'),
+        ],
+        'next': None,
+    },
+}
+
+
+def _lookup_btn_kb(field_key: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for val, label in LOOKUP_BTN_STEPS[field_key]['options']:
+        cb = f"gs_lkp_{field_key}_{val}"
+        kb.row(InlineKeyboardButton(text=label, callback_data=cb))
+    return kb.as_markup()
+
+
 async def _start_lookup_wizard(message: Message, state: FSMContext):
     await state.update_data(gs_lookup={}, gs_lookup_step=0)
     await state.set_state(IntegrationStates.waiting_lookup_step)
     await _fsm_edit(
         message, state,
-        "🔍 <b>Настройка поиска ячейки (update_cell)</b>\n\n"
-        "Используется для матриц: бот ищет строку по ID магазина и столбец по названию товара.\n\n"
-        "<b>Шаг 1/7:</b> В какой <b>колонке</b> искать строку?\n"
-        "Введите номер (1 = A, 2 = B…)\n"
-        "Пример для вашей таблицы: <code>1</code> (Shop ID в колонке A)",
+        "🔍 <b>Настройка матрицы (шаг 1/6)</b>\n\n"
+        "Бот будет находить ячейку пересечения строки (магазин/продавец) "
+        "и столбца (товар) и обновлять значение.\n\n"
+        "<b>В какой строке написаны заголовки столбцов?</b>\n"
+        "Введи номер строки.\n"
+        "Пример для w21: <code>6</code>",
     )
-
-
-LOOKUP_STEPS = [
-    ("row_search_col",   "🔍 <b>Шаг 1/7:</b> Номер <b>колонки</b> для поиска строки (1=A, 2=B…)"),
-    ("row_search_field", "🔍 <b>Шаг 2/7:</b> Поле данных для поиска строки\n"
-                         "Доступные: shop_name, seller_name, product_name\n"
-                         "Пример: <code>shop_name</code>"),
-    ("col_search_row",   "🔍 <b>Шаг 3/7:</b> Номер <b>строки</b> с заголовками столбцов\n"
-                         "Пример для w{week}: <code>6</code>"),
-    ("col_search_field", "🔍 <b>Шаг 4/7:</b> Поле данных для поиска столбца\n"
-                         "Пример: <code>product_name</code>"),
-    ("operation",        "🔍 <b>Шаг 5/7:</b> Операция над ячейкой\n"
-                         "• <code>set</code> — установить значение\n"
-                         "• <code>increment</code> — прибавить (продажи)\n"
-                         "• <code>decrement</code> — вычесть"),
-    ("value_field",      "🔍 <b>Шаг 6/7:</b> Поле данных — значение для записи\n"
-                         "Пример: <code>quantity</code>"),
-    ("data_start_row",   "🔍 <b>Шаг 7/7:</b> С какой строки начинаются данные? (строки до неё — заголовки)\n"
-                         "Пример для w{week}: <code>7</code>"),
-]
 
 
 @integration_router.message(IntegrationStates.waiting_lookup_step)
@@ -1301,23 +1482,109 @@ async def gs_lookup_step(message: Message, state: FSMContext):
     step   = data.get('gs_lookup_step', 0)
     lookup = data.get('gs_lookup', {})
 
-    key = LOOKUP_STEPS[step][0]
-    if key in ('row_search_col', 'col_search_row', 'data_start_row'):
+    if step == 0:
         try:
-            lookup[key] = int(text)
+            lookup['col_search_row'] = int(text)
         except ValueError:
-            await _fsm_edit(message, state, "❌ Введите целое число.")
+            await _fsm_edit(message, state,
+                            "❌ Нужно целое число. Пример: <code>6</code>")
             return
+        step = 1
+        await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
+        await _fsm_edit(
+            message, state,
+            "🔍 <b>Шаг 2/6 — Колонка с идентификаторами строк</b>\n\n"
+            "В какой <b>колонке</b> хранятся названия магазинов/продавцов?\n"
+            "1 = A,  2 = B,  3 = C…\n"
+            "Пример для w21: <code>1</code> (колонка A)"
+        )
+    elif step == 1:
+        try:
+            lookup['row_search_col'] = int(text)
+        except ValueError:
+            await _fsm_edit(message, state,
+                            "❌ Нужно целое число. Пример: <code>1</code>")
+            return
+        lookup['data_start_row'] = lookup.get('col_search_row', 1) + 1
+        step = 2
+        await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
+        await _fsm_edit(
+            message, state,
+            LOOKUP_BTN_STEPS['row_search_field']['prompt'],
+            reply_markup=_lookup_btn_kb('row_search_field'),
+        )
     else:
-        lookup[key] = text
+        await delete_message_safe(message)
 
-    step += 1
-    await state.update_data(gs_lookup=lookup, gs_lookup_step=step)
 
-    if step >= len(LOOKUP_STEPS):
-        await _ask_schedule(message, state)
+@integration_router.callback_query(F.data.startswith("gs_lkp_"))
+async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data[len("gs_lkp_"):]
+
+    if raw == "skip_aliases":
+        await callback.answer()
+        await state.set_state(None)
+        await _ask_schedule(callback.message, state)
+        return
+
+    field_key = None
+    value = None
+    for key in LOOKUP_BTN_STEPS:
+        if raw.startswith(key + "_"):
+            field_key = key
+            value = raw[len(key) + 1:]
+            break
+
+    if field_key is None:
+        await callback.answer()
+        return
+
+    await callback.answer()
+    data = await state.get_data()
+    lookup = data.get('gs_lookup', {})
+    lookup[field_key] = value
+
+    next_key = LOOKUP_BTN_STEPS[field_key]['next']
+
+    if next_key is not None:
+        await state.update_data(gs_lookup=lookup)
+        await callback.message.edit_text(
+            LOOKUP_BTN_STEPS[next_key]['prompt'],
+            reply_markup=_lookup_btn_kb(next_key),
+            parse_mode="HTML"
+        )
     else:
-        await _fsm_edit(message, state, LOOKUP_STEPS[step][1])
+        await state.update_data(gs_lookup=lookup)
+        await state.set_state(IntegrationStates.waiting_lookup_aliases)
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="gs_lkp_skip_aliases"))
+        await callback.message.edit_text(
+            "📝 <b>Псевдонимы — необязательно</b>\n\n"
+            "Если название магазина или товара <b>в боте отличается</b> от того, "
+            "что написано в таблице — задай соответствие.\n\n"
+            "Формат — <b>по одной паре в строке</b>:\n"
+            "<code>Название в боте → Значение в таблице</code>\n\n"
+            "<b>Например:</b>\n"
+            "<code>Хуавей DNS → 2905</code>\n"
+            "<code>Nova 14 → Nova 14i</code>\n\n"
+            "Разделители: <code>→</code>  или  <code>-&gt;</code>  или  <code>:</code>\n\n"
+            "Если названия <b>совпадают</b> — нажми «Пропустить».\n"
+            "Псевдонимы можно добавить или изменить позже в настройках экспорта.",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
+
+
+@integration_router.message(IntegrationStates.waiting_lookup_aliases)
+async def gs_lookup_alias_input(message: Message, state: FSMContext):
+    text = message.text.strip()
+    data = await state.get_data()
+    lookup = data.get('gs_lookup', {})
+    aliases = _parse_aliases(text)
+    lookup['aliases'] = aliases
+    await state.update_data(gs_lookup=lookup)
+    await state.set_state(None)
+    await _ask_schedule(message, state)
 
 
 async def _ask_schedule(message, state: FSMContext):

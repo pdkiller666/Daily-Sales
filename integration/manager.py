@@ -210,31 +210,51 @@ class IntegrationManager:
     async def _do_update_cell(self, provider, cfg, sheet_name,
                                lookup_json, event_data):
         lookup = json.loads(lookup_json or '{}')
-        row_col    = int(lookup.get('row_search_col', 1))
-        row_field  = lookup.get('row_search_field', '')
-        col_row    = int(lookup.get('col_search_row', 1))
-        col_field  = lookup.get('col_search_field', '')
-        upd_op     = lookup.get('operation', 'set')
-        val_field  = lookup.get('value_field', '')
-        start_row  = int(lookup.get('data_start_row', 1))
-        start_col  = int(lookup.get('data_start_col', 1))
+        row_col   = int(lookup.get('row_search_col', 1))
+        row_field = lookup.get('row_search_field', '')
+        col_row   = int(lookup.get('col_search_row', 1))
+        col_field = lookup.get('col_search_field', '')
+        upd_op    = lookup.get('operation', 'set')
+        val_field = lookup.get('value_field', '')
+        start_row = int(lookup.get('data_start_row', col_row + 1))
+        start_col = int(lookup.get('data_start_col', 1))
+        aliases   = lookup.get('aliases', {})
 
-        row_value  = str(event_data.get(row_field, ''))
-        col_value  = str(event_data.get(col_field, ''))
-        new_value  = event_data.get(val_field, 0)
+        row_raw = str(event_data.get(row_field, ''))
+        col_raw = str(event_data.get(col_field, ''))
+
+        row_value = aliases.get(row_raw, row_raw)
+        col_value = aliases.get(col_raw, col_raw)
+        new_value = event_data.get(val_field, 0)
 
         row_idx = await provider.find_row_by_value(
             cfg, sheet_name, row_col, row_value, start_row=start_row)
+
+        if row_idx is None:
+            avail = await provider.read_col(cfg, sheet_name, row_col)
+            avail_vals = [str(v) for v in avail[start_row - 1:] if v][:8]
+            alias_hint = (f" (псевдоним: «{row_raw}»→«{row_value}»)"
+                          if row_raw != row_value else "")
+            raise ValueError(
+                f"⚠️ Строка не найдена в листе «{sheet_name}»\n"
+                f"Искал: «{row_value}»{alias_hint} (колонка {row_col})\n"
+                f"Значения в таблице: {', '.join(avail_vals) or '(пусто)'}\n\n"
+                f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
+            )
+
         col_idx = await provider.find_col_by_value(
             cfg, sheet_name, col_row, col_value, start_col=start_col)
 
-        if row_idx is None:
-            raise ValueError(
-                f"Строка не найдена: «{row_value}» в колонке {row_col} листа «{sheet_name}»"
-            )
         if col_idx is None:
+            avail = await provider.read_row(cfg, sheet_name, col_row)
+            avail_vals = [str(v) for v in avail if v][:8]
+            alias_hint = (f" (псевдоним: «{col_raw}»→«{col_value}»)"
+                          if col_raw != col_value else "")
             raise ValueError(
-                f"Столбец не найден: «{col_value}» в строке {col_row} листа «{sheet_name}»"
+                f"⚠️ Столбец не найден в листе «{sheet_name}»\n"
+                f"Искал: «{col_value}»{alias_hint} (строка {col_row})\n"
+                f"Заголовки в таблице: {', '.join(avail_vals) or '(пусто)'}\n\n"
+                f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
             )
 
         if upd_op in ('increment', 'decrement'):
