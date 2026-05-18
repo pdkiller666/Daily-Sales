@@ -1361,13 +1361,17 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
     conn_id  = data.get('gs_conn_id')
 
     sheets = []
+    api_error = False
     try:
         provider, cfg = await _fetch_gs_config(callback.from_user.id, state)
         if provider:
             sheets = await asyncio.wait_for(
                 provider.get_sheets_list(cfg), timeout=6.0)
+        else:
+            api_error = True
     except Exception:
         sheets = []
+        api_error = True
 
     back_btn = _back(f"gs_exp_type_{conn_id}_{exp_type}")
 
@@ -1385,12 +1389,16 @@ async def gs_exp_op(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     else:
+        retry_cb = f"gs_exp_op_{operation}"
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="🔄 Попробовать снова", callback_data=retry_cb))
+        kb.row(InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="gs_sheet_manual"))
+        kb.row(back_btn)
+        warn = "\n\n⚠️ <i>Не удалось получить список листов — проверьте авторизацию Google.</i>" if api_error else ""
         await callback.message.edit_text(
-            f"✅ Операция: <b>{OPERATION_LABELS[operation]}</b>\n\n"
-            "Введите <b>название листа</b> (поддерживаются макросы: "
-            "<code>{year}</code> <code>{month}</code> <code>{week}</code> <code>{day}</code>).\n"
-            "Пример: <code>w{week}</code>",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_btn]]),
+            f"✅ Операция: <b>{OPERATION_LABELS[operation]}</b>{warn}\n\n"
+            "Введите <b>название листа</b> или нажмите «Ввести вручную».",
+            reply_markup=kb.as_markup(),
             parse_mode="HTML"
         )
         await state.set_state(IntegrationStates.waiting_export_sheet)
