@@ -1444,6 +1444,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
     processed_sales = []
     failed = False
 
+    logger.error(f"[DEBUG complete_sale] STARTED: tg_id={callback.from_user.id}, shop={shop_name!r}, cart={sale_cart}, db={getattr(current_db, 'db_file', '?')}")
     try:
         # Сначала проверяем остатки для всех товаров
         for item in sale_cart:
@@ -1451,8 +1452,10 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             quantity = item['quantity']
 
             current_stock = current_db.get_inventory(shop_name, product_id)
+            logger.error(f"[DEBUG complete_sale] STOCK CHECK: product_id={product_id}, shop={shop_name!r}, stock={current_stock}, need={quantity}")
 
             if current_stock < quantity:
+                logger.error(f"[DEBUG complete_sale] INSUFFICIENT STOCK — returning early")
                 try:
                     await callback.answer(
                         f"❌ Недостаточно товара '{item['product_name']}' на складе! "
@@ -1472,7 +1475,9 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
             # Регистрируем продажу
             try:
+                logger.error(f"[DEBUG complete_sale] CALLING add_sale: product_id={product_id}, shop={shop_name!r}, qty={quantity}, user_id={user_id}, price={price}")
                 sale_id = current_db.add_sale(product_id, shop_name, quantity, user_id, price)
+                logger.error(f"[DEBUG complete_sale] add_sale RETURNED: sale_id={sale_id}")
 
                 if sale_id and sale_id > 0:
                     processed_sales.append(sale_id)
@@ -1489,10 +1494,12 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                         'expected_earning': item.get('expected_earning', 0)
                     })
                 else:
+                    logger.error(f"[DEBUG complete_sale] add_sale FAILED (returned None/0) — failed=True")
                     failed = True
                     break
 
             except Exception as sale_error:
+                logger.error(f"[DEBUG complete_sale] add_sale EXCEPTION: {sale_error!r}")
                 failed = True
                 break
 
@@ -1654,14 +1661,19 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         except Exception as _notif_err:
             logging.error(f"Ошибка уведомлений коллег по смене: {_notif_err}")
 
+        logger.error(f"[DEBUG complete_sale] SUCCESS — processed_sales={processed_sales}, calling clear_state")
         await clear_state_keep_org(state)
+        logger.error(f"[DEBUG complete_sale] DONE — state cleared OK")
 
     except Exception as e:
+        import traceback
+        logger.error(f"[DEBUG complete_sale] OUTER EXCEPT — e={e!r}, processed_sales={processed_sales}\n{traceback.format_exc()}")
 
         # Откатываем все продажи в случае общей ошибки
         for sale_id in processed_sales:
             try:
                 current_db.delete_sale(sale_id)
+                logger.error(f"[DEBUG complete_sale] ROLLED BACK sale_id={sale_id}")
             except Exception:
                 pass
 
