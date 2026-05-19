@@ -521,7 +521,7 @@ async def subscription_limits(callback: CallbackQuery):
             user_db = _DB(user_db_path)
             db_user_id = user_db.get_user_id(telegram_id)
         except Exception:
-            user_db = _get_db()
+            user_db = Database('data/shop_bot.db')  # sync fallback — no await needed
             db_user_id = user_db.get_user_id(telegram_id)
 
         text += "<b>📋 Ваши лимиты:</b>\n"

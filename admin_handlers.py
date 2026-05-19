@@ -921,7 +921,7 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
     # 1. Ищем в текущем контексте администратора (тенант для org-admin, shop_bot.db для личного)
     try:
         ctx_db = await get_db(callback.from_user.id, state)
-        user = ctx_db.get_user(telegram_id)
+        user = await ctx_db.get_user(telegram_id)
         if user:
             await state.update_data(admin_delete_db_path=ctx_db.db_file)
     except Exception as e:
@@ -1143,7 +1143,7 @@ async def adm_role_set_user(callback: CallbackQuery, state: FSMContext):
         try:
             from integration.manager import integration_manager as _int_mgr
             _cur_db = await get_db(callback.from_user.id, state)
-            _u = _cur_db.get_user(telegram_id)
+            _u = await _cur_db.get_user(telegram_id)
             _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
                 'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
                 'shop_name': _u[8] if _u and len(_u) > 8 else '',
@@ -1187,7 +1187,7 @@ async def adm_role_set_owner(callback: CallbackQuery, state: FSMContext):
         try:
             from integration.manager import integration_manager as _int_mgr
             _cur_db = await get_db(callback.from_user.id, state)
-            _u = _cur_db.get_user(telegram_id)
+            _u = await _cur_db.get_user(telegram_id)
             _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
                 'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
                 'shop_name': _u[8] if _u and len(_u) > 8 else '',
@@ -1258,7 +1258,7 @@ async def adm_scope_all(callback: CallbackQuery, state: FSMContext):
         try:
             from integration.manager import integration_manager as _int_mgr
             _cur_db = await get_db(callback.from_user.id, state)
-            _u = _cur_db.get_user(telegram_id)
+            _u = await _cur_db.get_user(telegram_id)
             _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
                 'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
                 'shop_name': _u[8] if _u and len(_u) > 8 else '',

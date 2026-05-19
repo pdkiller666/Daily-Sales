@@ -443,7 +443,8 @@ async def edit_inventory_category_selected(callback: CallbackQuery, state: FSMCo
     """Отображение товаров выбранной категории для редактирования"""
     category_raw = callback.data.replace("edit_inv_category_", "")
     current_db_tmp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_tmp.get_all_categories() or [])
+    _tmp_cats = await current_db_tmp.get_all_categories()
+    category = resolve_cb_name(category_raw, _tmp_cats or [])
     
     data = await state.get_data()
     user_shop = data.get('user_shop')
@@ -832,7 +833,8 @@ async def view_user_category_items(callback: CallbackQuery, state: FSMContext):
     """Отображение товаров выбранной категории для пользователя"""
     category_raw = callback.data.replace("view_user_category_", "")
     current_db_tmp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_tmp.get_all_categories() or [])
+    _tmp_cats = await current_db_tmp.get_all_categories()
+    category = resolve_cb_name(category_raw, _tmp_cats or [])
     
     data = await state.get_data()
     user_shop = data.get('user_shop')

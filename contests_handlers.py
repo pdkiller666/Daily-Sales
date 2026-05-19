@@ -130,7 +130,7 @@ async def contests_menu(callback: CallbackQuery, state: FSMContext):
     builder.adjust(1)
 
     _ct_db = await get_db(callback.from_user.id, state)
-    _ct_user = _ct_db.get_user(callback.from_user.id)
+    _ct_user = await _ct_db.get_user(callback.from_user.id)
     _ct_hint = hint_suffix(_ct_db, _ct_user[0], 'first_contests') if _ct_user else ""
 
     await safe_edit_message(

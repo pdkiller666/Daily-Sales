@@ -127,7 +127,7 @@ async def sales_plans_menu(callback: CallbackQuery, state: FSMContext):
     builder.adjust(1)
 
     _sp_db = await get_db(callback.from_user.id, state)
-    _sp_user = _sp_db.get_user(callback.from_user.id)
+    _sp_user = await _sp_db.get_user(callback.from_user.id)
     _sp_hint = hint_suffix(_sp_db, _sp_user[0], 'first_plans') if _sp_user else ""
 
     await callback.message.edit_text(

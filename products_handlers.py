@@ -218,7 +218,8 @@ async def select_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     category_raw = callback.data.replace("select_category_", "")
     current_db_temp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_temp.get_all_categories() or [])
+    _tmp_cats = await current_db_temp.get_all_categories()
+    category = resolve_cb_name(category_raw, _tmp_cats or [])
     await state.update_data(category=category)
     
     data = await state.get_data()
@@ -503,7 +504,8 @@ async def rename_category_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     category_raw = callback.data.replace("rename_category_", "")
     current_db_temp = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db_temp.get_all_categories() or [])
+    _tmp_cats = await current_db_temp.get_all_categories()
+    category = resolve_cb_name(category_raw, _tmp_cats or [])
     await state.update_data(old_category=category)
     
     await state.update_data(anchor_msg_id=callback.message.message_id)
@@ -1096,7 +1098,8 @@ async def new_inventory_shop_selected(callback: CallbackQuery, state: FSMContext
     """Выбор магазина для остатков"""
     shop_raw = callback.data.replace("new_inv_shop_", "")
     current_db_temp = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db_temp.get_all_shops() or [])
+    _tmp_shops = await current_db_temp.get_all_shops()
+    shop_name = resolve_cb_name(shop_raw, _tmp_shops or [])
     data = await state.get_data()
     product_name = data.get('inventory_product_name', 'Товар')
     

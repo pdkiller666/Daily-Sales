@@ -1122,7 +1122,8 @@ async def period_report_shop_generate(callback: CallbackQuery, state: FSMContext
     await callback.answer()
     shop_raw = callback.data.replace("period_shop_", "")
     current_db_r = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db_r.get_all_shops() or [])
+    _tmp_shops_r = await current_db_r.get_all_shops()
+    shop_name = resolve_cb_name(shop_raw, _tmp_shops_r or [])
     await generate_period_report(callback, state, shop_name=shop_name)
 
 

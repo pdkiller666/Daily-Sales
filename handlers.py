@@ -546,7 +546,7 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
         welcome_text += f"🏢 Организация: <b>{he(user_data.get('org_name'))}</b>\n"
 
     _inv_db = await get_db(callback.from_user.id, state)
-    _inv_user = _inv_db.get_user(callback.from_user.id)
+    _inv_user = await _inv_db.get_user(callback.from_user.id)
 
     try:
         from integration.manager import integration_manager as _int_mgr
@@ -730,7 +730,7 @@ async def process_city(message: Message, state: FSMContext):
     welcome_text += trial_days_info
 
     _reg_db = await get_db(message.from_user.id, state)
-    _reg_user = _reg_db.get_user(message.from_user.id)
+    _reg_user = await _reg_db.get_user(message.from_user.id)
 
     try:
         from integration.manager import integration_manager as _int_mgr
