@@ -33,10 +33,10 @@ from hints import maybe_send_welcome, hint_suffix
 # Создаем роутер
 router = Router()
 
-# Инициализация базы данных
-db = Database('data/shop_bot.db')
-
 from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_role, maybe_refresh_username, wrap_db
+
+# Инициализация базы данных (wrap_db — обязателен для async await вызовов)
+db = wrap_db(Database('data/shop_bot.db'))
 from timezone_utils import format_user_datetime
 
 # Получаем ID администратора

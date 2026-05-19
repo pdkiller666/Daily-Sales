@@ -15,7 +15,7 @@ from utils import format_currency, get_stock_color_indicator, format_date_displa
 # Создаем роутер для продаж
 sales_router = Router()
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin, maybe_refresh_username
+from db_utils import get_db, clear_state_keep_org, is_any_admin, maybe_refresh_username, wrap_db
 from keyboards import safe_cb, resolve_cb_name
 from message_utils import fsm_edit, delete_message_safe
 from hints import hint_suffix
@@ -1877,7 +1877,7 @@ async def edit_sales_page(callback: CallbackQuery, state: FSMContext):
 
 async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegram_id: int = None):
     """Вспомогательная функция для отображения меню редактирования продажи"""
-    current_db = await get_db(telegram_id, state) if telegram_id else Database('data/shop_bot.db')
+    current_db = await get_db(telegram_id, state) if telegram_id else wrap_db(Database('data/shop_bot.db'))
     # Получаем данные о продаже
     sale = await current_db.get_sale_by_id(sale_id)
     if not sale:
