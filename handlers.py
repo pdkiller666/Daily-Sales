@@ -1390,12 +1390,7 @@ _HELP_TEXTS: dict[str, str] = {
     "subscription": (
         "💳 <b>Подписка и тарифы</b>\n\n"
         "<b>Тарифные планы:</b>\n"
-        "• <b>Бесплатный</b> — до 50 товаров, 1 магазин, 100 продаж/мес\n"
-        "• <b>Базовый</b> (500₽/мес) — 200 товаров, 3 магазина, 500 продаж, "
-        "Excel-экспорт + аналитика + уведомления\n"
-        "• <b>Стандарт</b> (1 200₽/3 мес) — 500 товаров, 10 магазинов, 1500 продаж, "
-        "+ Google Sheets интеграция\n"
-        "• <b>Премиум</b> (4 000₽/год) — без ограничений, все функции\n\n"
+        "Актуальные условия и цены смотрите в разделе «💳 Подписка».\n\n"
         "<b>🎁 Пробный период:</b>\n"
         "14 дней бесплатно на уровне Премиум сразу после регистрации — "
         "попробуйте все функции без ограничений.\n\n"
@@ -1489,6 +1484,93 @@ async def help_callback(callback: CallbackQuery, state: FSMContext):
         reply_markup=_help_menu_kb(is_admin, is_super),
         parse_mode="HTML",
     )
+
+
+def _fmt_plan_duration(days: int) -> str:
+    """Форматирует количество дней в читаемый срок подписки."""
+    if days <= 0:
+        return ""
+    if days % 365 == 0:
+        y = days // 365
+        return f"{y} {'год' if y == 1 else 'лет'}"
+    if days % 30 == 0:
+        m = days // 30
+        if m == 1:
+            return "1 месяц"
+        if m in (2, 3, 4):
+            return f"{m} месяца"
+        return f"{m} месяцев"
+    return f"{days} дней"
+
+
+def _fmt_limit(val: int) -> str:
+    return "∞" if val == -1 else str(val)
+
+
+@router.callback_query(F.data == "help_cat_subscription")
+async def help_cat_subscription_callback(callback: CallbackQuery, state: FSMContext):
+    """Справка по подписке — тарифы берутся актуально из БД."""
+    await callback.answer()
+    try:
+        db = Database("data/shop_bot.db")
+        plans = db.get_subscription_plans()
+        # columns: [0]=id [1]=name [2]=duration_days [3]=price [4]=description
+        #          [5]=is_active [6]=max_products [7]=max_shops [8]=max_sales_per_month
+        #          [9]=can_export_reports [10]=can_view_analytics [11]=can_use_notifications
+        #          [12]=can_use_integrations
+        lines = ["💳 <b>Подписка и тарифы</b>\n\n<b>Тарифные планы:</b>"]
+        for p in plans:
+            name         = p[1]
+            duration     = p[2]
+            price        = p[3]
+            max_prod     = p[6]
+            max_shops    = p[7]
+            max_sales    = p[8]
+            can_export   = bool(p[9])
+            can_notif    = bool(p[11])
+            can_integr   = bool(p[12])
+
+            if price == 0:
+                price_str = "Бесплатно"
+                dur_str   = ""
+            else:
+                price_str = f"{int(price):,}₽".replace(",", "\u202f")
+                dur_str   = f" / {_fmt_plan_duration(duration)}"
+
+            features = []
+            if can_export:
+                features.append("Excel-экспорт")
+            if can_notif:
+                features.append("уведомления")
+            if can_integr:
+                features.append("Google Sheets")
+            feat_str = (", " + ", ".join(features)) if features else ""
+
+            prod_str  = _fmt_limit(max_prod)
+            shop_str  = _fmt_limit(max_shops)
+            sales_str = _fmt_limit(max_sales)
+
+            lines.append(
+                f"• <b>{name}</b> — {price_str}{dur_str}\n"
+                f"  {prod_str} товаров · {shop_str} маг. · {sales_str} продаж/мес{feat_str}"
+            )
+
+        text = "\n".join(lines)
+        text += (
+            "\n\n<b>🎁 Пробный период:</b>\n"
+            "14 дней бесплатно на уровне Премиум сразу после регистрации — "
+            "попробуйте все функции без ограничений.\n\n"
+            "<b>Способы оплаты:</b>\n"
+            "• <b>СБП</b>: переведите сумму → загрузите скриншот чека → "
+            "администратор подтверждает вручную\n"
+            "• <b>YooKassa</b>: автоматическая онлайн-оплата картой\n\n"
+            "<b>Промокоды:</b>\n"
+            "Введите промокод при оформлении подписки для получения скидки."
+        )
+    except Exception:
+        text = _HELP_TEXTS.get("subscription", "💳 <b>Подписка и тарифы</b>\n\nИнформация временно недоступна.")
+
+    await callback.message.edit_text(text, reply_markup=_help_cat_kb(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("help_cat_"))
