@@ -1,3 +1,4 @@
+import asyncio
 """
 Административные обработчики для управления заявками на оплату
 """
@@ -230,19 +231,20 @@ async def confirm_payment_request(callback: CallbackQuery):
 
     if success:
         try:
-            import sqlite3
-            conn = sqlite3.connect('data/shop_bot.db')
-            cursor = conn.cursor()
-
-            cursor.execute('''
-                SELECT pr.user_id, pr.plan_type, u.telegram_id, u.first_name, u.last_name
-                FROM payment_requests pr
-                JOIN users u ON pr.user_id = u.id
-                WHERE pr.id = ?
-            ''', (request_id,))
-
-            result = cursor.fetchone()
-            conn.close()
+            def _fetch_request_user():
+                import sqlite3 as _sql
+                c = _sql.connect('data/shop_bot.db')
+                cur = c.cursor()
+                cur.execute('''
+                    SELECT pr.user_id, pr.plan_type, u.telegram_id, u.first_name, u.last_name
+                    FROM payment_requests pr
+                    JOIN users u ON pr.user_id = u.id
+                    WHERE pr.id = ?
+                ''', (request_id,))
+                res = cur.fetchone()
+                c.close()
+                return res
+            result = await asyncio.to_thread(_fetch_request_user)
 
             if result:
                 user_id, plan_type, user_telegram_id, first_name, last_name = result
@@ -362,19 +364,20 @@ async def reject_payment_request(callback: CallbackQuery):
         await callback.answer("❌ Произошла ошибка при отклонении заявки")
         return
 
-    import sqlite3
-    conn = sqlite3.connect('data/shop_bot.db')
-    cursor = conn.cursor()
-
-    cursor.execute('''
-        SELECT pr.user_id, pr.plan_type, u.telegram_id, u.first_name, u.last_name
-        FROM payment_requests pr
-        JOIN users u ON pr.user_id = u.id
-        WHERE pr.id = ? AND pr.status = 'pending'
-    ''', (request_id,))
-
-    result = cursor.fetchone()
-    conn.close()
+    def _fetch_reject_user():
+        import sqlite3 as _sql
+        c = _sql.connect('data/shop_bot.db')
+        cur = c.cursor()
+        cur.execute('''
+            SELECT pr.user_id, pr.plan_type, u.telegram_id, u.first_name, u.last_name
+            FROM payment_requests pr
+            JOIN users u ON pr.user_id = u.id
+            WHERE pr.id = ? AND pr.status = 'pending'
+        ''', (request_id,))
+        res = cur.fetchone()
+        c.close()
+        return res
+    result = await asyncio.to_thread(_fetch_reject_user)
 
     db = _get_payments_db()
     admin_user_id = await db.get_user_id(callback.from_user.id)

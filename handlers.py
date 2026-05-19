@@ -1,6 +1,7 @@
 """
 Обработчики команд и колбэков бота
 """
+import asyncio
 import os
 import sqlite3
 import logging
@@ -994,11 +995,13 @@ async def start_profile_edit(callback: CallbackQuery, state: FSMContext):
 # ── Выбор магазина из списка (собственный профиль, admin) ─────────────────────
 
 async def _apply_user_field(telegram_id: int, db_file: str, field: str, value: str) -> None:
-    """Обновляет поле пользователя в org/personal БД."""
-    conn = sqlite3.connect(db_file)
-    conn.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (value, telegram_id))
-    conn.commit()
-    conn.close()
+    """Обновляет поле пользователя в org/personal БД (через asyncio.to_thread — не блокирует event loop)."""
+    def _do():
+        conn = sqlite3.connect(db_file)
+        conn.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (value, telegram_id))
+        conn.commit()
+        conn.close()
+    await asyncio.to_thread(_do)
 
 @router.callback_query(F.data.startswith("prof_shop_pick_"))
 async def prof_shop_pick(callback: CallbackQuery, state: FSMContext):
@@ -1125,18 +1128,11 @@ async def process_profile_edit(message: Message, state: FSMContext):
 
     current_db = await get_db(message.from_user.id, state)
     try:
-        conn = sqlite3.connect(current_db.db_file)
-        cursor = conn.cursor()
-        cursor.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (new_value, message.from_user.id))
-        conn.commit()
-        conn.close()
-        
-        # Также обновляем в main.db для синхронизации
-        main_conn = sqlite3.connect('data/main.db')
-        main_cursor = main_conn.cursor()
-        main_cursor.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (new_value, message.from_user.id))
-        main_conn.commit()
-        main_conn.close()
+        await asyncio.gather(
+            _apply_user_field(message.from_user.id, current_db.db_file, field, new_value),
+            _apply_user_field(message.from_user.id, 'data/main.db', field, new_value),
+            return_exceptions=True,
+        )
         
         await fsm_edit(state, message, "✅ Данные обновлены!",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("user_profile")]]))
@@ -1152,17 +1148,11 @@ async def process_profile_timezone(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     
     try:
-        conn = sqlite3.connect(current_db.db_file)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET timezone = ? WHERE telegram_id = ?", (new_tz, callback.from_user.id))
-        conn.commit()
-        conn.close()
-        
-        main_conn = sqlite3.connect('data/main.db')
-        main_cursor = main_conn.cursor()
-        main_cursor.execute("UPDATE users SET timezone = ? WHERE telegram_id = ?", (new_tz, callback.from_user.id))
-        main_conn.commit()
-        main_conn.close()
+        await asyncio.gather(
+            _apply_user_field(callback.from_user.id, current_db.db_file, 'timezone', new_tz),
+            _apply_user_field(callback.from_user.id, 'data/main.db', 'timezone', new_tz),
+            return_exceptions=True,
+        )
         
         await callback.message.edit_text(f"✅ Часовой пояс изменен на {new_tz}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("user_profile")]]))
         await clear_state_keep_org(state)

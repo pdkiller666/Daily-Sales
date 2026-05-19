@@ -565,14 +565,15 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     scale        = _get_dashboard_scale(scope_type, scope_values)
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
-    low_stock      = _low_stock_count(current_db.db_file, scope_type=scope_type, scope_values=scope_values)
-    today_earnings = _today_total_earnings(current_db.db_file, today, scope_type=scope_type, scope_values=scope_values)
-
-    # ── Параллельные запросы к БД (asyncio.gather) ───────────────────────────
+    # ── Параллельные запросы к БД + sync-функции через to_thread ────────────
     _base_tasks = [
         current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs),
         current_db.get_plans_progress(),
         current_db.get_contests(status='active'),
+        asyncio.to_thread(_low_stock_count, current_db.db_file,
+                          scope_type=scope_type, scope_values=scope_values),
+        asyncio.to_thread(_today_total_earnings, current_db.db_file, today,
+                          scope_type=scope_type, scope_values=scope_values),
     ]
     _salary_tasks = (
         [
@@ -601,16 +602,18 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         ]
 
     active_contests = _r(2, []) or []
+    low_stock       = _r(3, 0) or 0
+    today_earnings  = _r(4, 0.0) or 0.0
 
     salary = worked_days = daily_rate = 0.0
     motivations = contest_rewards = 0.0
     if user_id:
-        daily_rate     = _r(3, 0.0) or 0.0
-        worked_days    = _r(4, 0) or 0
+        daily_rate     = _r(5, 0.0) or 0.0
+        worked_days    = _r(6, 0) or 0
         salary         = daily_rate * worked_days
-        _earn          = _r(5, {}) or {}
+        _earn          = _r(7, {}) or {}
         motivations    = _earn.get('total_earnings', 0.0)
-        contest_rewards = _r(6, 0.0) or 0.0
+        contest_rewards = _r(8, 0.0) or 0.0
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
