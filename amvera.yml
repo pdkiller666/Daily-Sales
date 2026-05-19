@@ -4,9 +4,6 @@ meta:
     name: pip
     version: "3.11"
 
-build:
-  quickBuild: false
-
 run:
   persistenceMount: /app/data
   command: python main.py
