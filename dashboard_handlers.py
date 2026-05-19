@@ -670,8 +670,9 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
 
     # ── Разбивка по магазинам (wide / org) ───────────────────────────────────
     if scale in ('wide', 'org'):
-        shop_rows = _per_shop_breakdown(
-            current_db.db_file, start_date, today, scope_type, scope_values, limit=7
+        shop_rows = await asyncio.to_thread(
+            _per_shop_breakdown,
+            current_db.db_file, start_date, today, scope_type, scope_values, 7
         )
         if shop_rows:
             if scale == 'org':
@@ -692,7 +693,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     # ── Остатки ───────────────────────────────────────────────────────────────
     text += "⚠️ <b>Остатки</b>\n"
     if scale == 'single' and low_stock:
-        items = _low_stock_items(current_db.db_file, scope_type, scope_values, limit=5)
+        items = await asyncio.to_thread(_low_stock_items, current_db.db_file, scope_type, scope_values, 5)
         if items:
             for iname, iqty in items:
                 text += f"  • {he(iname)}: <b>{iqty} шт.</b>\n"
@@ -730,8 +731,8 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     # ── Команда сегодня ───────────────────────────────────────────────────────
     text += "👥 <b>Команда сегодня</b>\n"
     if scale == 'single':
-        staff_on_shift = _on_shift_details(
-            current_db.db_file, today, scope_type=scope_type, scope_values=scope_values
+        staff_on_shift = await asyncio.to_thread(
+            _on_shift_details, current_db.db_file, today, scope_type, scope_values
         )
         if staff_on_shift:
             text += f"• На смене: <b>{len(staff_on_shift)} чел.</b>\n"
@@ -741,7 +742,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         else:
             text += "• Никто ещё не отмечен\n"
     elif scale == 'wide':
-        by_shop = _staff_by_shop_with_names(current_db.db_file, today, scope_type, scope_values)
+        by_shop = await asyncio.to_thread(_staff_by_shop_with_names, current_db.db_file, today, scope_type, scope_values)
         total_staff = sum(len(names) for _, names in by_shop)
         if total_staff:
             text += f"• На смене: <b>{total_staff} чел.</b>\n"
@@ -756,7 +757,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         else:
             text += "• Никто ещё не отмечен\n"
     else:
-        by_shop = _staff_by_shop_with_names(current_db.db_file, today, scope_type, scope_values)
+        by_shop = await asyncio.to_thread(_staff_by_shop_with_names, current_db.db_file, today, scope_type, scope_values)
         total_staff = sum(len(names) for _, names in by_shop)
         if total_staff:
             text += f"• На смене: <b>{total_staff} чел.</b>\n"

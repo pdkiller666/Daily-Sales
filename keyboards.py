@@ -2,7 +2,7 @@
 Модуль для создания клавиатур и кнопок
 """
 import os
-import sqlite3
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from calendar import monthrange
@@ -16,33 +16,22 @@ def main_menu(chat_id: int, user_shop: str = None):
     """Главное меню"""
     is_super_admin = env_manager.is_super_admin(chat_id)
     from db_utils import is_any_admin
-    is_main_admin = is_any_admin(chat_id)
-    
-    from tenant_manager import tenant_manager
-    conn = sqlite3.connect(tenant_manager.main_db_path)
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT role FROM user_org_mapping WHERE telegram_id = ?", (chat_id,))
-        mapping = cursor.fetchone()
-    finally:
-        conn.close()
-    
-    is_org_admin = mapping and mapping[0] in ['owner', 'admin']
-    
+    is_main_admin = is_any_admin(chat_id)  # уже кеширован (TTL 60s), без sqlite3.connect
+
     buttons = [
         [
             InlineKeyboardButton(text="💰 ПРОДАЖА", callback_data="new_sale"),
         ],
     ]
 
-    if is_org_admin or is_main_admin:
+    if is_main_admin:
         buttons.append([InlineKeyboardButton(text="⚙️ Управление орг.", callback_data="admin_management")])
     
     # Системная панель доступна только главному супер-администратору
     if is_super_admin:
         buttons.append([InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")])
 
-    if not (is_org_admin or is_main_admin):
+    if not is_main_admin:
         buttons.append([InlineKeyboardButton(text="📦 ОСТАТКИ", callback_data="user_inventory_menu")])
         buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 

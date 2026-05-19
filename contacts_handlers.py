@@ -1,6 +1,7 @@
 """
 Обработчики для просмотра контактов пользователей
 """
+import asyncio
 import os
 import sqlite3
 from aiogram import Router, F
@@ -113,7 +114,7 @@ async def show_my_contact(callback: CallbackQuery, state: FSMContext):
 async def show_support_contact(callback: CallbackQuery):
     """Показать контакт поддержки (супер-админ)"""
     await callback.answer()
-    super_admin = get_super_admin_contact()
+    super_admin = await asyncio.to_thread(get_super_admin_contact)
     
     message_text = "🛡️ Контакт поддержки\n\n"
     

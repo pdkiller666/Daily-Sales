@@ -8,6 +8,7 @@
 """
 
 import sqlite3
+import time as _time
 from datetime import datetime
 from env_manager import env_manager
 
@@ -132,28 +133,46 @@ def _has_active_trial(telegram_id) -> bool:
         return False
 
 
+# TTL-кеш для get_plan_limits: {telegram_id: (limits_dict, timestamp)}
+_plan_cache: dict = {}
+_PLAN_CACHE_TTL = 120  # 2 минуты — план меняется редко
+
+
+def invalidate_plan_cache(telegram_id: int) -> None:
+    """Сбросить кеш get_plan_limits() после изменения подписки."""
+    _plan_cache.pop(telegram_id, None)
+
+
 def get_plan_limits(telegram_id):
     """
     Главная функция получения лимитов для пользователя.
     Принимает telegram_id (не внутренний user_id).
+    Результат кешируется на _PLAN_CACHE_TTL секунд.
     """
     if env_manager.is_super_admin(telegram_id):
         return _UNLIMITED
 
+    now = _time.time()
+    cached = _plan_cache.get(telegram_id)
+    if cached and now - cached[1] < _PLAN_CACHE_TTL:
+        return cached[0]
+
     # Пробный период = полный функционал
     if _has_active_trial(telegram_id):
+        _plan_cache[telegram_id] = (_UNLIMITED, now)
         return _UNLIMITED
 
     # Сначала проверяем: в org?
     org_plan = _get_org_plan_for_user(telegram_id)
     if org_plan is not None:
-        limits = _plan_limits_from_shop_bot(org_plan)
-        return limits if limits else _FREE_FALLBACK
+        limits = _plan_limits_from_shop_bot(org_plan) or _FREE_FALLBACK
+    else:
+        # Личный пользователь
+        plan_name = _get_personal_plan(telegram_id)
+        limits = _plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK
 
-    # Личный пользователь
-    plan_name = _get_personal_plan(telegram_id)
-    limits = _plan_limits_from_shop_bot(plan_name)
-    return limits if limits else _FREE_FALLBACK
+    _plan_cache[telegram_id] = (limits, now)
+    return limits
 
 
 def check_product_limit(telegram_id):

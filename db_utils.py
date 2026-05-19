@@ -67,6 +67,31 @@ _ADMIN_CACHE_TTL = 60
 _scope_cache: dict = {}
 _SCOPE_CACHE_TTL = 60
 
+# Единый кеш строки user_org_mapping (role, scope_type, scope_value, custom_title)
+# используется: get_user_org_role, get_user_full_scope, is_org_owner, get_user_custom_title
+_org_mapping_cache: dict = {}
+_ORG_MAPPING_TTL = 60
+
+
+def _get_org_mapping_cached(telegram_id: int):
+    """Возвращает (role, scope_type, scope_value, custom_title) или None (TTL-кеш)."""
+    now = _time.time()
+    cached = _org_mapping_cache.get(telegram_id)
+    if cached and now - cached[1] < _ORG_MAPPING_TTL:
+        return cached[0]
+    try:
+        conn = sqlite3.connect(tenant_manager.main_db_path)
+        row = conn.execute(
+            "SELECT role, scope_type, scope_value, custom_title "
+            "FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
+            (telegram_id,)
+        ).fetchone()
+        conn.close()
+    except Exception:
+        row = None
+    _org_mapping_cache[telegram_id] = (row, now)
+    return row
+
 # ─── Иконки и метки scope ────────────────────────────────────────────────────
 
 SCOPE_ICONS = {'shop': '🏪', 'city': '🏙️', 'network': '🌐'}
@@ -128,17 +153,9 @@ def get_role_display_label(role: str,
 
 
 def get_user_custom_title(telegram_id: int) -> str | None:
-    """Возвращает custom_title пользователя или None."""
-    try:
-        conn = sqlite3.connect(tenant_manager.main_db_path)
-        row = conn.execute(
-            "SELECT custom_title FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
-        return row[0] if row else None
-    except Exception:
-        return None
+    """Возвращает custom_title пользователя или None (TTL-кеш через _org_mapping_cache)."""
+    row = _get_org_mapping_cached(telegram_id)
+    return row[3] if row else None
 
 
 # ─── Основные функции ─────────────────────────────────────────────────────────
@@ -259,26 +276,19 @@ def is_any_admin(telegram_id: int) -> bool:
 
 
 def invalidate_admin_cache(telegram_id: int) -> None:
-    """Сбросить кеш is_any_admin() для пользователя.
+    """Сбросить кеш is_any_admin() и org_mapping для пользователя.
     Вызывать после изменения роли в admin_handlers.
     """
     _admin_cache.pop(telegram_id, None)
+    _org_mapping_cache.pop(telegram_id, None)
 
 
 def get_user_org_role(telegram_id: int) -> str | None:
     """Возвращает роль пользователя в организации: 'owner'/'admin'/'user' или None.
-    Возвращает None если пользователь исключён (is_active=0).
+    Возвращает None если пользователь исключён (is_active=0). TTL-кеш.
     """
-    try:
-        conn = sqlite3.connect(tenant_manager.main_db_path)
-        row = conn.execute(
-            "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
-        return row[0] if row else None
-    except Exception:
-        return None
+    row = _get_org_mapping_cached(telegram_id)
+    return row[0] if row else None
 
 
 def get_user_org_scope(telegram_id: int) -> tuple:
@@ -333,54 +343,35 @@ def get_user_org_scope(telegram_id: int) -> tuple:
 
 
 def invalidate_scope_cache(telegram_id: int) -> None:
-    """Сбросить кеш get_user_org_scope() для пользователя."""
+    """Сбросить кеш get_user_org_scope() и org_mapping для пользователя."""
     _scope_cache.pop(telegram_id, None)
+    _org_mapping_cache.pop(telegram_id, None)
 
 
 def get_user_full_scope(telegram_id: int) -> tuple:
-    """Возвращает (scope_type, scope_values, custom_title) для пользователя."""
-    try:
-        conn = sqlite3.connect(tenant_manager.main_db_path)
-        row = conn.execute(
-            "SELECT role, scope_type, scope_value, custom_title "
-            "FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
-        if not row:
-            return None, [], None
-        role, scope_type, scope_value, custom_title = row
-
-        if role == 'owner' or not scope_type or scope_type == 'all':
-            return None, [], custom_title
-
-        values = []
-        if scope_value:
-            try:
-                parsed = _json.loads(scope_value)
-                values = [str(v) for v in parsed] if isinstance(parsed, list) else [str(parsed)]
-            except Exception:
-                values = [scope_value]
-
-        return scope_type, values, custom_title
-    except Exception:
+    """Возвращает (scope_type, scope_values, custom_title) для пользователя. TTL-кеш."""
+    row = _get_org_mapping_cached(telegram_id)
+    if not row:
         return None, [], None
+    role, scope_type, scope_value, custom_title = row
+    if role == 'owner' or not scope_type or scope_type == 'all':
+        return None, [], custom_title
+    values = []
+    if scope_value:
+        try:
+            parsed = _json.loads(scope_value)
+            values = [str(v) for v in parsed] if isinstance(parsed, list) else [str(parsed)]
+        except Exception:
+            values = [scope_value]
+    return scope_type, values, custom_title
 
 
 def is_org_owner(telegram_id: int) -> bool:
-    """True если пользователь директор (owner) или глобальный суперадмин."""
+    """True если пользователь директор (owner) или глобальный суперадмин. TTL-кеш."""
     if env_manager.is_super_admin(telegram_id):
         return True
-    try:
-        conn = sqlite3.connect(tenant_manager.main_db_path)
-        row = conn.execute(
-            "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
-        return row is not None and row[0] == 'owner'
-    except Exception:
-        return False
+    row = _get_org_mapping_cached(telegram_id)
+    return row is not None and row[0] == 'owner'
 
 
 _NOTPASSED = object()
