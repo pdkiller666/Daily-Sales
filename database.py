@@ -290,6 +290,12 @@ class Database:
             cursor.execute('ALTER TABLE subscription_plans ADD COLUMN can_view_analytics BOOLEAN DEFAULT FALSE')
         if 'can_use_notifications' not in columns:
             cursor.execute('ALTER TABLE subscription_plans ADD COLUMN can_use_notifications BOOLEAN DEFAULT FALSE')
+        if 'can_use_integrations' not in columns:
+            cursor.execute('ALTER TABLE subscription_plans ADD COLUMN can_use_integrations BOOLEAN DEFAULT FALSE')
+            # Сразу включаем для всех платных планов (Бесплатный остаётся 0)
+            cursor.execute(
+                "UPDATE subscription_plans SET can_use_integrations=1 WHERE name != 'Бесплатный'"
+            )
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS promocodes (
@@ -798,17 +804,17 @@ class Database:
         if plans_count == 0:
             # Создаем стандартные планы подписок с лимитами
             default_plans = [
-                ('Бесплатный', 0, 0.0, 'Ограниченный функционал: до 50 товаров, 1 магазин, без экспорта и уведомлений', 50, 1, 100, False, False, False),
-                ('Базовый', 30, 500.0, 'Для малого бизнеса: до 200 товаров, 3 магазина, экспорт отчетов', 200, 3, 500, True, True, True),
-                ('Стандарт', 90, 1200.0, 'Для среднего бизнеса: до 500 товаров, 10 магазинов, расширенная аналитика', 500, 10, 1500, True, True, True),
-                ('Премиум', 365, 4000.0, 'Для крупного бизнеса: безлимит товаров и магазинов, все функции', -1, -1, -1, True, True, True)
+                ('Бесплатный', 0, 0.0, 'Ограниченный функционал: до 50 товаров, 1 магазин, без экспорта и уведомлений', 50, 1, 100, False, False, False, False),
+                ('Базовый', 30, 500.0, 'Для малого бизнеса: до 200 товаров, 3 магазина, экспорт отчетов', 200, 3, 500, True, True, True, True),
+                ('Стандарт', 90, 1200.0, 'Для среднего бизнеса: до 500 товаров, 10 магазинов, расширенная аналитика', 500, 10, 1500, True, True, True, True),
+                ('Премиум', 365, 4000.0, 'Для крупного бизнеса: безлимит товаров и магазинов, все функции', -1, -1, -1, True, True, True, True)
             ]
 
-            for name, duration, price, description, max_products, max_shops, max_sales, can_export, can_analytics, can_notifications in default_plans:
+            for name, duration, price, description, max_products, max_shops, max_sales, can_export, can_analytics, can_notifications, can_integrations in default_plans:
                 cursor.execute('''
-                    INSERT INTO subscription_plans (name, duration_days, price, description, max_products, max_shops, max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (name, duration, price, description, max_products, max_shops, max_sales, can_export, can_analytics, can_notifications))
+                    INSERT INTO subscription_plans (name, duration_days, price, description, max_products, max_shops, max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications, can_use_integrations)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (name, duration, price, description, max_products, max_shops, max_sales, can_export, can_analytics, can_notifications, can_integrations))
         else:
             # Обновляем существующие планы, у которых могут отсутствовать лимиты
             cursor.execute('SELECT name FROM subscription_plans WHERE max_products IS NULL')
@@ -820,28 +826,32 @@ class Database:
                     cursor.execute('''
                         UPDATE subscription_plans SET 
                         max_products=50, max_shops=1, max_sales_per_month=100,
-                        can_export_reports=0, can_view_analytics=0, can_use_notifications=0
+                        can_export_reports=0, can_view_analytics=0, can_use_notifications=0,
+                        can_use_integrations=0
                         WHERE name=?
                     ''', (plan_name,))
                 elif plan_name == 'Базовый':
                     cursor.execute('''
                         UPDATE subscription_plans SET 
                         max_products=200, max_shops=3, max_sales_per_month=500,
-                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1
+                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1,
+                        can_use_integrations=1
                         WHERE name=?
                     ''', (plan_name,))
                 elif plan_name == 'Стандарт':
                     cursor.execute('''
                         UPDATE subscription_plans SET 
                         max_products=500, max_shops=10, max_sales_per_month=1500,
-                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1
+                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1,
+                        can_use_integrations=1
                         WHERE name=?
                     ''', (plan_name,))
                 elif plan_name in ['Премиум', 'VIP']:
                     cursor.execute('''
                         UPDATE subscription_plans SET 
                         max_products=-1, max_shops=-1, max_sales_per_month=-1,
-                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1
+                        can_export_reports=1, can_view_analytics=1, can_use_notifications=1,
+                        can_use_integrations=1
                         WHERE name=?
                     ''', (plan_name,))
 
@@ -1758,7 +1768,7 @@ class Database:
 
         cursor.execute('''
             SELECT max_products, max_shops, max_sales_per_month, 
-                   can_export_reports, can_view_analytics, can_use_notifications
+                   can_export_reports, can_view_analytics, can_use_notifications, can_use_integrations
             FROM subscription_plans 
             WHERE name = ? AND is_active = TRUE
         ''', (plan_type,))
@@ -1773,13 +1783,14 @@ class Database:
                 'max_sales_per_month': result[2],
                 'can_export_reports': bool(result[3]),
                 'can_view_analytics': bool(result[4]),
-                'can_use_notifications': bool(result[5])
+                'can_use_notifications': bool(result[5]),
+                'can_use_integrations': bool(result[6]),
             }
         else:
             # Fallback на бесплатный план если план не найден
             cursor.execute('''
                 SELECT max_products, max_shops, max_sales_per_month,
-                       can_export_reports, can_view_analytics, can_use_notifications
+                       can_export_reports, can_view_analytics, can_use_notifications, can_use_integrations
                 FROM subscription_plans 
                 WHERE name = 'Бесплатный' AND is_active = TRUE
             ''')
@@ -1793,7 +1804,8 @@ class Database:
                     'max_sales_per_month': result[2], 
                     'can_export_reports': bool(result[3]),
                     'can_view_analytics': bool(result[4]),
-                    'can_use_notifications': bool(result[5])
+                    'can_use_notifications': bool(result[5]),
+                    'can_use_integrations': bool(result[6]),
                 }
             else:
                 # Жесткий fallback если в базе ничего нет
@@ -1803,7 +1815,8 @@ class Database:
                     'max_sales_per_month': 100,
                     'can_export_reports': False,
                     'can_view_analytics': False,
-                    'can_use_notifications': False
+                    'can_use_notifications': False,
+                    'can_use_integrations': False,
                 }
 
     def get_subscription_tier_level(self, plan_type):
@@ -3387,7 +3400,8 @@ class Database:
 
             allowed_fields = ['name', 'duration_days', 'price', 'description', 'is_active',
                              'max_products', 'max_shops', 'max_sales_per_month', 
-                             'can_export_reports', 'can_view_analytics', 'can_use_notifications']
+                             'can_export_reports', 'can_view_analytics', 'can_use_notifications',
+                             'can_use_integrations']
 
             for key, value in kwargs.items():
                 if key in allowed_fields:
@@ -3419,7 +3433,7 @@ class Database:
             SELECT id, name, duration_days, price, description, 
                    max_products, max_shops, max_sales_per_month,
                    can_export_reports, can_view_analytics, can_use_notifications,
-                   is_active, created_at
+                   can_use_integrations, is_active, created_at
             FROM subscription_plans WHERE id = ?
         ''', (plan_id,))
 
@@ -3439,15 +3453,16 @@ class Database:
                 'can_export_reports': bool(result[8]),
                 'can_view_analytics': bool(result[9]),
                 'can_use_notifications': bool(result[10]),
-                'is_active': bool(result[11]),
-                'created_at': result[12]
+                'can_use_integrations': bool(result[11]),
+                'is_active': bool(result[12]),
+                'created_at': result[13],
             }
         return None
 
     def create_subscription_plan_with_limits(self, name, duration_days, price, description,
                                            max_products=50, max_shops=1, max_sales_per_month=100,
-                                           can_export_reports=False, can_view_analytics=False, 
-                                           can_use_notifications=False):
+                                           can_export_reports=False, can_view_analytics=False,
+                                           can_use_notifications=False, can_use_integrations=False):
         """Создание нового тарифного плана с лимитами"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
@@ -3455,10 +3470,12 @@ class Database:
         cursor.execute('''
             INSERT INTO subscription_plans 
             (name, duration_days, price, description, max_products, max_shops, 
-             max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (name, duration_days, price, description, max_products, max_shops, 
-              max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications))
+             max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications,
+             can_use_integrations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (name, duration_days, price, description, max_products, max_shops,
+              max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications,
+              can_use_integrations))
 
         plan_id = cursor.lastrowid
         conn.commit()
@@ -3514,7 +3531,8 @@ class Database:
             # Получаем активную подписку пользователя
             cursor.execute('''
                 SELECT sp.max_products, sp.max_shops, sp.max_sales_per_month,
-                       sp.can_export_reports, sp.can_view_analytics, sp.can_use_notifications
+                       sp.can_export_reports, sp.can_view_analytics, sp.can_use_notifications,
+                       sp.can_use_integrations
                 FROM subscriptions s
                 JOIN subscription_plans sp ON s.plan_type = sp.name
                 WHERE s.user_id = ? AND s.end_date > datetime('now')
@@ -3532,7 +3550,8 @@ class Database:
                     'max_sales_per_month': result[2],
                     'can_export_reports': bool(result[3]),
                     'can_view_analytics': bool(result[4]),
-                    'can_use_notifications': bool(result[5])
+                    'can_use_notifications': bool(result[5]),
+                    'can_use_integrations': bool(result[6]),
                 }
             else:
                 # Возвращаем лимиты бесплатного плана по умолчанию
@@ -3542,7 +3561,8 @@ class Database:
                     'max_sales_per_month': 100,
                     'can_export_reports': False,
                     'can_view_analytics': False,
-                    'can_use_notifications': False
+                    'can_use_notifications': False,
+                    'can_use_integrations': False,
                 }
 
         except Exception as e:
@@ -3554,7 +3574,8 @@ class Database:
                 'max_sales_per_month': 100,
                 'can_export_reports': False,
                 'can_view_analytics': False,
-                'can_use_notifications': False
+                'can_use_notifications': False,
+                'can_use_integrations': False,
             }
 
     def clear_all_sales(self):

@@ -21,6 +21,7 @@ _UNLIMITED = {
     'can_export_reports': True,
     'can_view_analytics': True,
     'can_use_notifications': True,
+    'can_use_integrations': True,
 }
 
 _FREE_FALLBACK = {
@@ -30,6 +31,7 @@ _FREE_FALLBACK = {
     'can_export_reports': False,
     'can_view_analytics': False,
     'can_use_notifications': False,
+    'can_use_integrations': False,
 }
 
 
@@ -40,7 +42,7 @@ def _plan_limits_from_shop_bot(plan_name):
         cursor = conn.cursor()
         cursor.execute(
             "SELECT max_products, max_shops, max_sales_per_month, "
-            "can_export_reports, can_view_analytics, can_use_notifications "
+            "can_export_reports, can_view_analytics, can_use_notifications, can_use_integrations "
             "FROM subscription_plans WHERE name = ? AND is_active = 1",
             (plan_name,)
         )
@@ -54,6 +56,7 @@ def _plan_limits_from_shop_bot(plan_name):
                 'can_export_reports': bool(row[3]),
                 'can_view_analytics': bool(row[4]),
                 'can_use_notifications': bool(row[5]),
+                'can_use_integrations': bool(row[6]),
             }
     except Exception:
         pass
@@ -216,6 +219,13 @@ def check_shop_limit(telegram_id):
     return True, None
 
 
+def check_integrations_permission(telegram_id):
+    """Проверка разрешения на Google Sheets и другие интеграции."""
+    if env_manager.is_super_admin(telegram_id):
+        return True
+    return get_plan_limits(telegram_id).get('can_use_integrations', False)
+
+
 def check_export_permission(telegram_id):
     """Проверка разрешения на экспорт отчётов."""
     if env_manager.is_super_admin(telegram_id):
@@ -249,7 +259,8 @@ def get_subscription_warning_message(telegram_id):
             "• Больше товаров и продаж\n"
             "• Экспорта отчётов в Excel\n"
             "• Расширенной аналитики и рейтингов\n"
-            "• Системы уведомлений\n\n"
+            "• Системы уведомлений\n"
+            "• Интеграции с Google Таблицами\n\n"
             "Перейдите в раздел «🔔 Подписка» для оформления."
         )
     return "⚠️ Функция ограничена текущим тарифным планом."

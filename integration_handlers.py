@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
+from subscription_utils import check_integrations_permission
 from keyboards import back_button
 from states import IntegrationStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
@@ -48,6 +49,13 @@ def _back(cb): return back_button(cb)
 async def integration_menu(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Только для администраторов", show_alert=True)
+        return
+    if not check_integrations_permission(callback.from_user.id):
+        await callback.answer(
+            "🔒 Интеграции доступны только на платных тарифах.\n"
+            "Перейдите в «🔔 Подписка» для оформления.",
+            show_alert=True,
+        )
         return
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
