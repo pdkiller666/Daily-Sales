@@ -42,7 +42,7 @@ Workflow: "Start application" → python main.py
 ```
 Telegram API
     ↓
-main.py  — polling, регистрация роутеров, APScheduler (7 задач)
+main.py  — polling, регистрация роутеров, APScheduler (9 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  19 РОУТЕРОВ (handlers)                                          │
@@ -94,7 +94,7 @@ main.py  — polling, регистрация роутеров, APScheduler (7 з
 | `scheduler_module.py` | Синглтон APScheduler — set_scheduler() / get_scheduler() |
 | `timezone_utils.py` | get_user_time(), get_current_user_time(), format_user_datetime(), get_utc_time() |
 | `reports_access_control.py` | Проверка доступа к отчётам по подписке |
-| `subscription_utils.py` | Лимиты подписки, get_plan_limits() |
+| `subscription_utils.py` | Лимиты подписки: `get_plan_limits(tg_id)` → dict; `_has_active_trial()` → bool (триал = `_UNLIMITED`); `check_integrations_permission()` / `check_export_permission()` / `check_analytics_permission()` / `check_notifications_permission()` / `check_product_limit()` / `check_sales_limit()` / `check_shop_limit()`; `get_subscription_warning_message()` показывает сравнение тарифов |
 | `backup_manager.py` | Резервное копирование и восстановление всех БД |
 | `restart_manager.py` | Управление перезапуском бота; restart_data_file = "data/restart_data.json" |
 | `message_utils.py` | fsm_edit(), safe_edit_message() — anchor message pattern |
@@ -308,7 +308,7 @@ Amvera статически сканирует `sqlite3.connect('data/...')` →
 | `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
 | `payment_requests` | заявки на оплату + file_id чека + promocode_id |
 | `payment_settings` | card_number, recipient_name, bank_name, trial_days, trial_plan, **payment_provider** ('sbp'/'yookassa'), **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
-| `subscription_plans` | name, price, duration_days, max_products, max_shops, features |
+| `subscription_plans` | name, price, duration_days, max_products, max_shops, max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications, **can_use_integrations** (0 для Базового!), is_active |
 | `promocodes` | code, discount_percent, max_usage, current_usage, is_active |
 | `yookassa_payments` | yookassa_payment_id (UNIQUE), user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
 
@@ -456,16 +456,18 @@ paginate(items, page=0, per_page) → (page_items, total_pages)
 page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ```
 
-### main.py — APScheduler (7 задач)
+### main.py — APScheduler (9 задач)
 
 | ID задачи | Расписание | Назначение |
 |---|---|---|
 | `send_sales_alerts` | каждую минуту (сек 0) | уведомления о дневных целях продаж |
-| `send_payment_alerts` | каждую минуту (сек 12) | напоминания об окончании подписки |
+| `send_payment_alerts` | каждую минуту (сек 12) | напоминания об окончании подписки + trial reminders 14/7/3/1d |
 | `send_daily_reports` | каждую минуту (сек 24) | ежедневные отчёты |
 | `send_personalized_notifications` | каждую минуту (сек 36) | персонализированные уведомления |
 | `check_scheduled_notifications` | каждую минуту (сек 48) | запланированные рассылки (UTC) |
-| `auto_finish_contests` | каждые 30 минут | автозавершение конкурсов |
+| `send_trial_expired_upsell` | каждый час в :05 | upsell-пуш при истечении триала; dedup threshold=-1 |
+| `auto_finish_contests` | каждый час в :00 | автозавершение конкурсов |
+| `auto_reject_stale_payments` | 10:15 ежедневно | авто-отклонение pending СБП-заявок >72ч |
 | `backup_job` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
 
 **APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются.
@@ -658,6 +660,42 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 6. **Рефакторинг `_FakeCallback`**: 3 дублирующихся класса → 1 общий экземпляр в `contest_tier_bonus_entered`.
 7. GitHub `3f1cf87` · Amvera `8350ba2`.
 
+**Сессии 119–124 (2026-05-19) — МОНЕТИЗАЦИЯ: ПОЛНЫЙ ЦИКЛ:**
+
+**Сессия 119 — `can_use_integrations` в тарифах:**
+1. Добавлена колонка `can_use_integrations` в `subscription_plans` (миграция ALTER TABLE).
+2. Платные планы: Базовый/Стандарт/Премиум → `can_use_integrations=1`; Бесплатный → 0.
+3. `subscription_utils.py`: `check_integrations_permission(tg_id)` проверяет флаг.
+4. `integration_handlers.py`: `integration_menu` закрыт через `check_integrations_permission`.
+5. Все SELECT `subscription_plans` обновлены (7-й столбец = `can_use_integrations`).
+
+**Сессия 120 — Триал = безлимит через `_has_active_trial()`:**
+1. `subscription_utils.py`: `_has_active_trial(tg_id)` → True если `is_trial=1 AND end_date > now`.
+2. `get_plan_limits()`: триал → немедленный return `_UNLIMITED` (минуя lookup плана 'Бизнес').
+3. Устранена путаница: план триала 'Бизнес' не существует в `subscription_plans`, но `_has_active_trial()` перехватывает раньше.
+
+**Сессия 122 — Trial upsell flow:**
+1. `main.py`: `send_trial_expired_upsell(bot)` — ежечасно в :05; dedup через `subscription_reminder_log` (threshold=-1).
+2. `database.py`: `get_recently_expired_trials()` — триалы истёкшие за последние 48ч.
+3. `main.py`: `_TRIAL_FEATURES_LOST` — список потерянных функций; `_sub_markup()` — InlineKeyboardMarkup с «💳 Выбрать тариф» + «✅ Прочитано».
+4. `send_payment_alerts`: расширены trial-specific reminders за 14/7/3/1d (список фич + кнопка).
+5. GitHub `85476dc` · Amvera `ad56380`.
+
+**Сессия 123 — Дифференциация тарифов + авто-отклонение СБП:**
+1. **Тарифная сетка**: Базовый → `can_use_integrations=0` (Google Таблицы только Стандарт+).
+2. `database.py`: always-running migration: `UPDATE subscription_plans SET can_use_integrations=0 WHERE name='Базовый'`.
+3. **trial_plan 'Бизнес' → 'Премиум'**: `database.py` default_settings, `handlers.py` (2 места), `payment_system_admin.py` (2 места); always-running migration обновляет существующие БД.
+4. `subscription_handlers.py`: добавлена строка «• Google Таблицы: ✅/❌» в статус подписки.
+5. `subscription_utils.py`: `get_subscription_warning_message()` показывает сравнение Базовый/Стандарт/Премиум + для Базового без интеграций — конкретное сообщение.
+6. `database.py`: `get_stale_pending_payments(hours=72)` → rows с telegram_id.
+7. `main.py`: `auto_reject_stale_payments(bot)` — ежедневно 10:15; отклоняет pending СБП >72ч + уведомление юзеру через `_sub_markup()`.
+8. GitHub `d3b2529` · Amvera `288b234`.
+
+**Сессия 124 — Upsell-кнопка в интеграциях + квитанция при активации:**
+1. `integration_handlers.py`: при `check_integrations_permission() = False` — редактирует сообщение с таблицей тарифов и кнопкой «💳 Выбрать тариф» (вместо `show_alert=True` без кнопок).
+2. `payment_admin_handlers.py`: `confirm_payment_request` — пользователь получает полную квитанцию (тариф + сумма + дата истечения), данные тянутся из `subscription_plans`.
+3. GitHub `3a9650d` · Amvera `46d94fa`.
+
 **Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.
 2. **`report_my_shop`** — убран `[:3]` у товаров; guard `> 3700` с сообщением «остальные товары в Excel».
@@ -695,6 +733,10 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 23. **`complete_sale` outer except удаляет продажи** — любой необработанный exception внутри `try:` блока ПОСЛЕ `add_sale` вызовет `delete_sale(sale_id)` для каждого `processed_sales`. Все сетевые вызовы (answer, edit_text, bot.send_message, интеграции) должны быть обёрнуты в `try/except`. Текущее состояние: get_user(), callback.answer(), edit_text, GS-интеграция, notifications — все защищены.
 24. **Google Sheets OAuth**: тип клиента в Google Cloud = **«TVs and Limited Input devices»** (Device Flow). Скачанный JSON будет с ключом `"installed"` — это нормально. `client_id` + `client_secret` → Replit Secrets `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`. Читаются в `integration/auth/google_oauth.py` через `get_client_credentials()` из `os.environ`.
 25. **`notification_settings.shift_sale_alerts`** — индекс 11 (после created_at[9], updated_at[10]); добавлен миграцией `ALTER TABLE`. В `get_notification_settings()` читается как `bool(settings[11]) if len(settings) > 11 else True`.
+26. **`subscription_plans.can_use_integrations`** — **Базовый=0, Стандарт/Премиум=1**. Always-running migration в `_initialize_default_data()` принудительно держит Базовый=0. Не менять без проверки migration-блока (строка ~861 в database.py).
+27. **`trial_plan` = 'Премиум'** (не 'Бизнес' — этого плана нет в БД). Триал проверяется через `_has_active_trial()` → `_UNLIMITED`, не через lookup плана. Fallback в handlers.py и payment_system_admin.py: `settings.get('trial_plan', 'Премиум')`.
+28. **`subscription_reminder_log` threshold=-1** — специальный ключ для upsell-сообщения «триал истёк». Остальные ключи: 14, 7, 3, 1 (дней до истечения). `get_recently_expired_trials()` возвращает trials с end_date в последние 48ч.
+29. **`auto_reject_stale_payments`** — ежедневно в 10:15; использует `db.get_stale_pending_payments(hours=72)` и `db.reject_payment_request(req_id, admin_id=0)`. admin_id=0 означает авто-отклонение (не конкретный admin).
 
 ---
 

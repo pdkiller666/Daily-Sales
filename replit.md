@@ -17,7 +17,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ## Where things live
 
-- `main.py` — bot entry, router registration, 7 APScheduler jobs
+- `main.py` — bot entry, router registration, 9 APScheduler jobs
 - `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
@@ -40,6 +40,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Multi-tenancy**: each org gets its own SQLite DB; `get_db()` routes automatically
 - **Anchor message pattern**: all FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` MUST be called AFTER `fsm_edit()`, never before
 - **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — auto-creates missing tables including `shift_templates`, `start_time`/`end_time` in `work_schedule`
+- **Subscription tiers**: Бесплатный (0₽, 50 products/1 shop/100 sales, no features) → Базовый (500₽/30d, 200/3/500, export+analytics+notifications, NO integrations) → Стандарт (1200₽/90d, 500/10/1500, + Google Sheets) → Премиум (4000₽/365d, unlimited all). Migration always enforces `can_use_integrations=0` for Базовый. Default `trial_plan='Премиум'`.
 - **deploy.sh always pushes to both GitHub + Amvera** (default); `--no-amvera` to skip; hash verification runs after every Amvera push; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
 - **Timezone-aware**: `datetime.now()` on Amvera = UTC; all display uses `timezone_utils`; scheduled_notifications stored as UTC (`get_utc_time()` on write, `format_user_datetime()` on display)
 - **Filter system**: `ADMIN_FILTER_KEY="admin_filter"` in FSM data; `flt_open_{back_cb}` opens panel; scope = ceiling, filter = floor (`merge_scope_with_filter`); `admin_filter` preserved by `clear_state_keep_org()`
@@ -60,7 +61,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Dashboard: period toggle (Сегодня/Неделя/Месяц); admin sees staff + earnings + plans; user sees salary + period sales + plans
 - Contests: create, auto-finish, winner calculation via APScheduler; archive clear with confirmation
 - Work schedule: admin marks days, hour-level time pickers, shift templates (⏰ Расписание смен) per weekday
-- Subscriptions/payments: tariff plans, promocodes, Excel export
+- Subscriptions/payments: tariff plans (Бесплатный/Базовый/Стандарт/Премиум), promocodes, Excel export; SBP (manual screenshot) + YooKassa (auto); trial 14d = Премиум-level access via `_has_active_trial()` → `_UNLIMITED`
 - Rankings: sellers / shops / cities; period toggle (7д / месяц / прошлый); user's own position if outside top-10
 - Favorites & Recent: ⭐ Избранное + 🔄 Недавние in product selection
 - Excel import: 📊 Импорт из Excel; openpyxl parse + preview + confirm
@@ -68,8 +69,10 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Manual filters: 🔍 Фильтр in Reports, Rankings, Users, Plans progress; scope=ceiling, filter=floor
 - Push notifications: «✅ Прочитано» on all notifications; scheduled notifications with UTC-correct timing
 - Onboarding & hints: welcome popup (once, role-aware); section hints (once per section); «✅ Понятно!»
-- Google Sheets integration: экспорт продаж в таблицу; авторизация через Device Flow (OAuth 2.0); триггер `trigger_export(db, 'sales', event)` в `complete_sale`; таблицы `integration_connections`, `integration_exports`, `integration_log`, `gs_bonus_cache` в org_*.db
+- Google Sheets integration: экспорт продаж в таблицу; авторизация через Device Flow (OAuth 2.0); триггер `trigger_export(db, 'sales', event)` в `complete_sale`; таблицы `integration_connections`, `integration_exports`, `integration_log`, `gs_bonus_cache` в org_*.db; **только тариф Стандарт+** (can_use_integrations=0 для Базового)
 - Shift sale alerts: push-уведомление коллегам в магазине при каждой продаже (если стоит смена + включена настройка `shift_sale_alerts`)
+- Trial upsell: `send_trial_expired_upsell` (ежечасно :05) + reminders at 14/7/3/1d (`send_payment_alerts`); dedup via `subscription_reminder_log` (threshold -1 = expired)
+- Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
 
 ## User Preferences
 
