@@ -381,8 +381,12 @@ async def process_product_price(message: Message, state: FSMContext):
         )
         await clear_state_keep_org(state)
 
-async def _render_product_list(callback: CallbackQuery, state: FSMContext, page: int = 0):
-    """Рендер страницы N списка товаров по категориям."""
+_PRODL_CATS_PER_PAGE  = 8   # категорий на странице (уровень 1)
+_PRODL_PRODS_PER_PAGE = 10  # товаров на странице  (уровень 2)
+
+
+async def _render_category_list(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Уровень 1: категории кнопками с количеством товаров."""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     products = await current_db.get_all_products()
@@ -394,52 +398,230 @@ async def _render_product_list(callback: CallbackQuery, state: FSMContext, page:
         )
         return
 
-    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row, PAGE_SIZE_DEFAULT
+    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row
 
-    # Группируем по категориям
-    cat_dict: dict[str, list] = {}
+    cat_counts: dict[str, int] = {}
     for p in products:
         cat = p[2] or "Без категории"
-        cat_dict.setdefault(cat, []).append(p)
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
-    cat_list = list(cat_dict.items())
-    page_cats, has_prev, has_next, total_pages, page = _paginate(cat_list, page, PAGE_SIZE_DEFAULT)
+    cat_list = sorted(cat_counts.items())
+    page_cats, has_prev, has_next, total_pages, page = _paginate(cat_list, page, _PRODL_CATS_PER_PAGE)
 
+    total_prods = len(products)
+    total_cats  = len(cat_list)
     pg_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
-    message_text = f"📋 Список товаров ({len(products)} шт.){pg_info}:\n\n"
-    for cat_name, cat_products in page_cats:
-        message_text += f"📂 <b>{he(cat_name)}</b>:\n"
-        for p in cat_products:
-            message_text += f"   • {he(p[1])} — {format_currency(p[3])}\n"
-        message_text += "\n"
+    header = (
+        f"📋 <b>Список товаров</b>{pg_info}\n"
+        f"Итого: <b>{total_prods} шт.</b> в <b>{total_cats} кат.</b>\n\n"
+        f"Выберите категорию:"
+    )
 
     builder = InlineKeyboardBuilder()
+    for cat_name, count in page_cats:
+        builder.button(
+            text=f"📂 {cat_name} ({count})",
+            callback_data=safe_cb("prodl_cat_", cat_name)
+        )
+    builder.adjust(2)
+
     nav = _nav_row("prodl_pg_", page, has_prev, has_next, total_pages)
     if nav:
         builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="🔍 Поиск по названию", callback_data="prodl_srch_start"))
     builder.row(back_button("products"))
 
-    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await state.update_data(prodl_cat_page=page)
+    await callback.message.edit_text(header, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+async def _render_products_in_category(callback: CallbackQuery, state: FSMContext,
+                                        category: str, page: int = 0, sort: str = 'name'):
+    """Уровень 2: товары выбранной категории с пагинацией и сортировкой."""
+    current_db = await get_db(callback.from_user.id, state)
+    products = list(await current_db.get_products_by_category(category))
+
+    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row
+
+    if sort == 'price_asc':
+        products.sort(key=lambda p: p[3] or 0)
+    elif sort == 'price_desc':
+        products.sort(key=lambda p: p[3] or 0, reverse=True)
+    else:
+        products.sort(key=lambda p: (p[1] or '').lower())
+
+    total = len(products)
+    page_prods, has_prev, has_next, total_pages, page = _paginate(products, page, _PRODL_PRODS_PER_PAGE)
+
+    sort_label = {'name': '🔤 A→Я', 'price_asc': '💰 ↑', 'price_desc': '💰 ↓'}.get(sort, '🔤 A→Я')
+    pg_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
+    text = (
+        f"📂 <b>{he(category)}</b> · {total} тов. · {sort_label}{pg_info}\n\n"
+    )
+    for p in page_prods:
+        text += f"• {he(p[1])} — <b>{format_currency(p[3])}</b>\n"
+
+    builder = InlineKeyboardBuilder()
+    sort_opts = [('name', '🔤 A→Я'), ('price_asc', '💰 Цена ↑'), ('price_desc', '💰 Цена ↓')]
+    sort_row = [
+        InlineKeyboardButton(
+            text=f"✅ {lbl}" if sort == key else lbl,
+            callback_data=f"prodl_sort_{key}"
+        )
+        for key, lbl in sort_opts
+    ]
+    builder.row(*sort_row)
+
+    nav = _nav_row("prodl_cp_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="◀ К категориям", callback_data="prodl_back_cats"))
+
+    await state.update_data(prodl_current_cat=category, prodl_sort=sort)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
 @products_router.callback_query(F.data == "list_products")
 async def list_products(callback: CallbackQuery, state: FSMContext):
-    """Список всех товаров"""
+    """Список товаров — уровень 1: категории."""
     if not callback.message:
         await callback.answer("❌ Сообщение слишком старое.", show_alert=True)
         return
-    await _render_product_list(callback, state, page=0)
+    await _render_category_list(callback, state, page=0)
 
 
 @products_router.callback_query(F.data.startswith("prodl_pg_"))
 async def product_list_page(callback: CallbackQuery, state: FSMContext):
-    """Навигация по страницам списка товаров."""
+    """Навигация по страницам списка категорий."""
     await callback.answer()
     try:
         page = int(callback.data.replace("prodl_pg_", ""))
     except ValueError:
         page = 0
-    await _render_product_list(callback, state, page=page)
+    await _render_category_list(callback, state, page=page)
+
+
+@products_router.callback_query(F.data.startswith("prodl_cat_"))
+async def product_open_category(callback: CallbackQuery, state: FSMContext):
+    """Открыть категорию — уровень 2: товары."""
+    await callback.answer()
+    raw = callback.data[len("prodl_cat_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    all_cats = await current_db.get_all_categories() or []
+    category = resolve_cb_name(raw, all_cats)
+    if not category:
+        await callback.answer("❌ Категория не найдена.", show_alert=True)
+        return
+    await _render_products_in_category(callback, state, category, page=0, sort='name')
+
+
+@products_router.callback_query(F.data.startswith("prodl_cp_"))
+async def product_category_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам внутри категории."""
+    await callback.answer()
+    try:
+        page = int(callback.data.replace("prodl_cp_", ""))
+    except ValueError:
+        page = 0
+    data = await state.get_data()
+    category = data.get("prodl_current_cat", "")
+    sort = data.get("prodl_sort", "name")
+    if not category:
+        await _render_category_list(callback, state, page=0)
+        return
+    await _render_products_in_category(callback, state, category, page=page, sort=sort)
+
+
+@products_router.callback_query(F.data.startswith("prodl_sort_"))
+async def product_sort_toggle(callback: CallbackQuery, state: FSMContext):
+    """Смена сортировки внутри категории."""
+    await callback.answer()
+    sort = callback.data.replace("prodl_sort_", "")
+    if sort not in ('name', 'price_asc', 'price_desc'):
+        sort = 'name'
+    data = await state.get_data()
+    category = data.get("prodl_current_cat", "")
+    if not category:
+        await _render_category_list(callback, state, page=0)
+        return
+    await _render_products_in_category(callback, state, category, page=0, sort=sort)
+
+
+@products_router.callback_query(F.data == "prodl_back_cats")
+async def product_back_to_cats(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к списку категорий."""
+    await callback.answer()
+    data = await state.get_data()
+    page = data.get("prodl_cat_page", 0)
+    await _render_category_list(callback, state, page=page)
+
+
+@products_router.callback_query(F.data == "prodl_srch_start")
+async def product_search_start(callback: CallbackQuery, state: FSMContext):
+    """Начать поиск товара по названию."""
+    await callback.answer()
+    await state.set_state(ProductStates.searching_product)
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="prodl_srch_cancel"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск по названию</b>\n\nВведите часть названия товара:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@products_router.callback_query(F.data == "prodl_srch_cancel")
+async def product_search_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отменить поиск, вернуться к категориям."""
+    await state.set_state(None)
+    data = await state.get_data()
+    page = data.get("prodl_cat_page", 0)
+    await _render_category_list(callback, state, page=page)
+
+
+@products_router.message(ProductStates.searching_product)
+async def product_search_input(message: Message, state: FSMContext):
+    """Обработка текста поиска — ищет по всем товарам."""
+    from db_utils import get_db as _get_db
+    query = (message.text or "").strip().lower()
+    if not query:
+        await message.answer("⚠️ Введите хотя бы один символ.")
+        return
+
+    current_db = await _get_db(message.from_user.id, state)
+    products = await current_db.get_all_products()
+
+    matches = [p for p in products if query in (p[1] or '').lower()]
+
+    await state.set_state(None)
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="◀ К категориям", callback_data="prodl_srch_cancel"))
+
+    if not matches:
+        await message.answer(
+            f"🔍 По запросу «<b>{he(query)}</b>» ничего не найдено.",
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+        return
+
+    cat_groups: dict[str, list] = {}
+    for p in matches:
+        cat = p[2] or "Без категории"
+        cat_groups.setdefault(cat, []).append(p)
+
+    text = f"🔍 По запросу «<b>{he(query)}</b>» найдено <b>{len(matches)} тов.</b>:\n\n"
+    for cat_name in sorted(cat_groups):
+        text += f"📂 <b>{he(cat_name)}</b>\n"
+        for p in cat_groups[cat_name]:
+            text += f"  • {he(p[1])} — <b>{format_currency(p[3])}</b>\n"
+        text += "\n"
+
+    if len(text) > 3800:
+        text = text[:3800] + f"\n\n<i>...показаны первые результаты</i>"
+
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 @products_router.callback_query(F.data == "categories_menu")
 async def categories_menu(callback: CallbackQuery, state: FSMContext):

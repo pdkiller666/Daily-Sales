@@ -14,6 +14,7 @@ class ProductStates(StatesGroup):
     waiting_for_category_rename = State()
     waiting_for_bulk_list = State()
     confirming_bulk_import = State()
+    searching_product = State()
 
 class InventoryStates(StatesGroup):
     choosing_product = State()
