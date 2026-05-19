@@ -325,6 +325,17 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             show_admin_management = True
             org_name = data.get("selected_org_name", "Организация")
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
+            if selected_org_db:
+                current_db = await get_db(user_id, state)
+
+            from filter_utils import ADMIN_FILTER_KEY, empty_filter
+            _af = data.get(ADMIN_FILTER_KEY, empty_filter())
+            if _af.get("shops"):
+                users = [u for u in users if u[8] in _af["shops"]]
+            elif _af.get("cities"):
+                users = [u for u in users if u[9] in _af["cities"]]
+            elif _af.get("networks"):
+                users = [u for u in users if u[7] in _af["networks"]]
     else:
         current_db = await get_db(user_id, state)
         all_users = await current_db.get_all_users()
@@ -395,7 +406,7 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
     if show_admin_management:
         try:
             from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
-            if not is_super_user and current_db and uid:
+            if current_db and uid:
                 _sc, _sv = get_user_org_scope(uid)
                 _avail = get_available_filter_values(current_db, _sc, _sv)
                 if has_anything_to_filter(_avail):
