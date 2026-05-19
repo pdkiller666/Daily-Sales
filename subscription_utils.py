@@ -114,12 +114,34 @@ def _get_personal_plan(telegram_id):
     return 'Бесплатный'
 
 
+def _has_active_trial(telegram_id) -> bool:
+    """Возвращает True если у пользователя есть активная пробная подписка (is_trial=1)."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM subscriptions s "
+            "JOIN users u ON s.user_id = u.id "
+            "WHERE u.telegram_id = ? AND s.is_trial = 1 AND s.end_date > ? LIMIT 1",
+            (telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+    except Exception:
+        return False
+
+
 def get_plan_limits(telegram_id):
     """
     Главная функция получения лимитов для пользователя.
     Принимает telegram_id (не внутренний user_id).
     """
     if env_manager.is_super_admin(telegram_id):
+        return _UNLIMITED
+
+    # Пробный период = полный функционал
+    if _has_active_trial(telegram_id):
         return _UNLIMITED
 
     # Сначала проверяем: в org?
