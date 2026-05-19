@@ -221,7 +221,7 @@ class GoogleSheetsProvider(BaseProvider):
         await asyncio.to_thread(ws.clear)
         all_rows = [headers] + rows
         await asyncio.to_thread(
-            ws.update, "A1", all_rows, value_input_option="USER_ENTERED"
+            ws.update, all_rows, "A1", value_input_option="USER_ENTERED"
         )
         return True
 
