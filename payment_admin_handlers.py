@@ -286,12 +286,42 @@ async def confirm_payment_request(callback: CallbackQuery):
                     pass
 
                 try:
+                    # Получаем детали плана для квитанции
+                    _plan_price_str = ''
+                    _end_str = ''
+                    try:
+                        import sqlite3 as _sql3r
+                        from datetime import datetime as _dtr, timedelta as _tdr
+                        _rc = _sql3r.connect('data/shop_bot.db')
+                        _rcur = _rc.cursor()
+                        _rcur.execute(
+                            "SELECT duration_days, price FROM subscription_plans WHERE name = ?",
+                            (plan_name,)
+                        )
+                        _prow = _rcur.fetchone()
+                        _rc.close()
+                        if _prow:
+                            _dur, _price = _prow
+                            if _price and _price > 0:
+                                _plan_price_str = f"💰 <b>Сумма оплаты:</b> {_price:,.0f} ₽\n"
+                            if _dur and _dur > 0:
+                                _exp = _dtr.now() + _tdr(days=_dur)
+                                _end_str = f"📅 <b>Действует до:</b> {_exp.strftime('%d.%m.%Y')}\n"
+                    except Exception:
+                        pass
+
+                    _fname = he(first_name or '')
+                    receipt_text = (
+                        f"✅ <b>{_fname}, подписка активирована!</b>\n\n"
+                        f"📋 <b>Тариф:</b> {he(plan_name)}\n"
+                        f"{_plan_price_str}"
+                        f"{_end_str}"
+                        f"\n🎉 Спасибо за покупку! Все возможности тарифа "
+                        f"доступны прямо сейчас."
+                    )
                     await callback.bot.send_message(
                         chat_id=user_telegram_id,
-                        text=f"✅ <b>Подписка активирована!</b>\n\n"
-                             f"💎 <b>План:</b> {plan_name}\n"
-                             f"🎉 Теперь вам доступны все функции бота!\n\n"
-                             f"Спасибо за покупку!",
+                        text=receipt_text,
                         parse_mode="HTML",
                         reply_markup=add_read_btn()
                     )

@@ -51,10 +51,18 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Только для администраторов", show_alert=True)
         return
     if not check_integrations_permission(callback.from_user.id):
-        await callback.answer(
-            "🔒 Интеграции доступны только на платных тарифах.\n"
-            "Перейдите в «🔔 Подписка» для оформления.",
-            show_alert=True,
+        await callback.answer()
+        await callback.message.edit_text(
+            "🔒 <b>Google Таблицы — тариф «Стандарт» и выше</b>\n\n"
+            "💎 <b>Базовый</b> — экспорт Excel, аналитика, уведомления\n"
+            "💎 <b>Стандарт</b> — всё выше + Google Таблицы\n"
+            "💎 <b>Премиум</b> — безлимит на всё\n\n"
+            "Выберите подходящий тариф прямо сейчас:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Выбрать тариф", callback_data="subscription_plans")],
+                [back_button("main_menu")],
+            ])
         )
         return
     await callback.answer()
