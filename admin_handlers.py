@@ -2,6 +2,7 @@
 Обработчики для административных функций
 """
 import os
+import asyncio
 import sqlite3
 import calendar
 import logging
@@ -31,6 +32,24 @@ from tenant_manager import tenant_manager
 
 # Получаем ID администратора
 ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0').split(',')[0].strip() or 0)
+
+
+async def _db_run(db_path: str, sql: str, params: tuple = (), *, fetch: str = "none"):
+    """Выполняет SQLite-запрос через asyncio.to_thread — не блокирует event loop."""
+    def _do():
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        if fetch == "one":
+            result = cur.fetchone()
+        elif fetch == "all":
+            result = cur.fetchall()
+        else:
+            result = None
+        conn.commit()
+        conn.close()
+        return result
+    return await asyncio.to_thread(_do)
 
 async def _render_orgs_page(callback: CallbackQuery, page: int = 0):
     """Показывает страницу N списка организаций."""
@@ -103,11 +122,7 @@ async def delete_org_confirm(callback: CallbackQuery, state: FSMContext):
 
     org_id = int(callback.data.replace("delete_org_", ""))
 
-    conn = sqlite3.connect('data/main.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM organizations WHERE id = ?", (org_id,))
-    row = cursor.fetchone()
-    conn.close()
+    row = await _db_run('data/main.db', "SELECT name FROM organizations WHERE id = ?", (org_id,), fetch="one")
 
     if not row:
         await callback.answer("❌ Организация не найдена", show_alert=True)
@@ -289,18 +304,18 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
 
     if is_super_user:
         if selected_org_id is None:
-            users = _read_users('data/main.db')
-            _merge_unique(users, _read_users('data/shop_bot.db'))
+            users = await asyncio.to_thread(_read_users, 'data/main.db')
+            _merge_unique(users, await asyncio.to_thread(_read_users, 'data/shop_bot.db'))
             tenants_dir = 'data/tenants'
             if os.path.exists(tenants_dir):
                 for f in os.listdir(tenants_dir):
                     if f.endswith('.db'):
-                        _merge_unique(users, _read_users(os.path.join(tenants_dir, f)))
+                        _merge_unique(users, await asyncio.to_thread(_read_users, os.path.join(tenants_dir, f)))
             back_target = "system_admin_panel"
             show_admin_management = True
             title = "👥 <b>Все пользователи системы</b>"
         elif selected_org_id == 0:
-            users = [u for u in _read_users('data/shop_bot.db') if u[1] == user_id]
+            users = [u for u in await asyncio.to_thread(_read_users, 'data/shop_bot.db') if u[1] == user_id]
             back_target = "admin_management"
             show_admin_management = False
             title = "👤 <b>Личный кабинет</b>"
@@ -554,25 +569,18 @@ async def add_admin_start(callback: CallbackQuery, state: FSMContext):
     users = []
     # 1. main.db
     try:
-        conn = sqlite3.connect('data/main.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT telegram_id, first_name, last_name, shop_name FROM users")
-        users.extend(cursor.fetchall())
-        conn.close()
+        rows_main = await _db_run('data/main.db', "SELECT telegram_id, first_name, last_name, shop_name FROM users", fetch="all")
+        users.extend(rows_main or [])
     except Exception:
         pass
-    
+
     # 2. shop_bot.db
     try:
-        conn = sqlite3.connect('data/shop_bot.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT telegram_id, first_name, last_name, shop_name FROM users")
-        rows = cursor.fetchall()
+        rows_shop = await _db_run('data/shop_bot.db', "SELECT telegram_id, first_name, last_name, shop_name FROM users", fetch="all")
         existing_ids = [u[0] for u in users]
-        for row in rows:
+        for row in (rows_shop or []):
             if row[0] not in existing_ids:
                 users.append(row)
-        conn.close()
     except Exception:
         pass
 
@@ -720,12 +728,8 @@ async def admin_management_menu_handler(callback: CallbackQuery, state: FSMConte
         if selected_org_id is None:
             # Предлагаем выбрать организацию
             try:
-                conn = sqlite3.connect('data/main.db')
-                cursor = conn.cursor()
-                cursor.execute("SELECT id, name FROM organizations WHERE is_active = 1")
-                orgs = cursor.fetchall()
-                conn.close()
-            except Exception as e:
+                orgs = await _db_run('data/main.db', "SELECT id, name FROM organizations WHERE is_active = 1", fetch="all") or []
+            except Exception:
                 orgs = []
             
             builder = InlineKeyboardBuilder()
@@ -748,15 +752,13 @@ async def admin_management_menu_handler(callback: CallbackQuery, state: FSMConte
         _db_path = tenant_manager.get_user_db_path(callback.from_user.id)
         if _db_path != 'data/shop_bot.db':
             try:
-                _conn = sqlite3.connect(tenant_manager.main_db_path)
-                _cur = _conn.cursor()
-                _cur.execute(
+                _row = await _db_run(
+                    tenant_manager.main_db_path,
                     "SELECT m.org_id, o.name FROM user_org_mapping m "
                     "JOIN organizations o ON m.org_id = o.id "
-                    "WHERE m.telegram_id = ?", (callback.from_user.id,)
+                    "WHERE m.telegram_id = ?",
+                    (callback.from_user.id,), fetch="one"
                 )
-                _row = _cur.fetchone()
-                _conn.close()
                 if _row:
                     await state.update_data(selected_org_id=_row[0], selected_org_name=_row[1], selected_org_db=_db_path)
                 else:
@@ -845,11 +847,11 @@ async def generate_invite_handler(callback: CallbackQuery, state: FSMContext):
         org_id = data.get('selected_org_id')
     else:
         # Для обычных админов получаем их организацию
-        conn = sqlite3.connect(tenant_manager.main_db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT org_id FROM user_org_mapping WHERE telegram_id = ?", (user_id,))
-        mapping = cursor.fetchone()
-        conn.close()
+        mapping = await _db_run(
+            tenant_manager.main_db_path,
+            "SELECT org_id FROM user_org_mapping WHERE telegram_id = ?",
+            (user_id,), fetch="one"
+        )
         if mapping:
             org_id = mapping[0]
             
@@ -885,12 +887,8 @@ async def select_org_handler(callback: CallbackQuery, state: FSMContext):
         await state.update_data(selected_org_id=0, selected_org_name="Личный кабинет", selected_org_db="data/shop_bot.db")
         await callback.answer("✅ Выбран Личный кабинет")
     else:
-        conn = sqlite3.connect('data/main.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, db_path FROM organizations WHERE id = ?", (org_id,))
-        org = cursor.fetchone()
-        conn.close()
-        
+        org = await _db_run('data/main.db', "SELECT name, db_path FROM organizations WHERE id = ?", (org_id,), fetch="one")
+
         if not org:
             await callback.answer("❌ Организация не найдена", show_alert=True)
             return
@@ -928,28 +926,21 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
         logging.error(f"Error searching context db: {e}")
 
     # 2. Ищем в main.db (личные пользователи и суп-админ)
+    _user_sql = "SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username FROM users WHERE telegram_id = ?"
     if not user:
         try:
-            conn = sqlite3.connect('data/main.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username FROM users WHERE telegram_id = ?", (telegram_id,))
-            user = cursor.fetchone()
+            user = await _db_run('data/main.db', _user_sql, (telegram_id,), fetch="one")
             if user:
                 await state.update_data(admin_delete_db_path='data/main.db')
-            conn.close()
         except Exception as e:
             logging.error(f"Error searching in main.db: {e}")
 
     # 3. Ищем в shop_bot.db
     if not user:
         try:
-            conn = sqlite3.connect('data/shop_bot.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, created_at, username FROM users WHERE telegram_id = ?", (telegram_id,))
-            user = cursor.fetchone()
+            user = await _db_run('data/shop_bot.db', _user_sql, (telegram_id,), fetch="one")
             if user:
                 await state.update_data(admin_delete_db_path='data/shop_bot.db')
-            conn.close()
         except Exception as e:
             logging.error(f"Error searching in shop_bot.db: {e}")
 
@@ -1801,13 +1792,9 @@ async def admin_delete_user_final(callback: CallbackQuery, state: FSMContext):
         if await current_db.delete_user(telegram_id):
             # Чистим user_org_mapping и запись из main.db
             try:
-                main_conn = sqlite3.connect('data/main.db')
-                main_cursor = main_conn.cursor()
-                main_cursor.execute("DELETE FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,))
+                await _db_run('data/main.db', "DELETE FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,))
                 if current_db.db_file != 'data/main.db':
-                    main_cursor.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
-                main_conn.commit()
-                main_conn.close()
+                    await _db_run('data/main.db', "DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
             except Exception as _e:
                 logging.error(f"Ошибка очистки при удалении {telegram_id}: {_e}")
             await callback.message.edit_text(
@@ -1942,10 +1929,7 @@ async def adm_shop_pick(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("❌ Контекст редактирования потерян.", reply_markup=_back)
         return
     try:
-        conn = sqlite3.connect(db_path)
-        conn.execute("UPDATE users SET shop_name = ? WHERE telegram_id = ?", (shop_name, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET shop_name = ? WHERE telegram_id = ?", (shop_name, telegram_id))
         await callback.message.edit_text(
             f"✅ Магазин обновлён: <b>{he(shop_name)}</b>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]),
@@ -2001,10 +1985,7 @@ async def adm_net_pick(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("❌ Контекст редактирования потерян.", reply_markup=_back)
         return
     try:
-        conn = sqlite3.connect(db_path)
-        conn.execute("UPDATE users SET trade_network = ? WHERE telegram_id = ?", (net_name, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET trade_network = ? WHERE telegram_id = ?", (net_name, telegram_id))
         await callback.message.edit_text(
             f"✅ Торговая сеть обновлена: <b>{he(net_name)}</b>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]),
@@ -2055,11 +2036,7 @@ async def process_admin_edit_name(message: Message, state: FSMContext):
         return
 
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET first_name = ?, last_name = ? WHERE telegram_id = ?", (f_name, l_name, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET first_name = ?, last_name = ? WHERE telegram_id = ?", (f_name, l_name, telegram_id))
         await fsm_edit(state, message, f"✅ Имя пользователя обновлено на: {new_name}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2074,11 +2051,7 @@ async def process_admin_edit_phone(message: Message, state: FSMContext):
     new_value = message.text.strip()
     _edit_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET phone = ? WHERE telegram_id = ?", (new_value, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET phone = ? WHERE telegram_id = ?", (new_value, telegram_id))
         await fsm_edit(state, message, f"✅ Телефон обновлен: {new_value}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2093,11 +2066,7 @@ async def process_admin_edit_email(message: Message, state: FSMContext):
     new_value = message.text.strip()
     _edit_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET email = ? WHERE telegram_id = ?", (new_value, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET email = ? WHERE telegram_id = ?", (new_value, telegram_id))
         await fsm_edit(state, message, f"✅ Email обновлен: {new_value}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2116,11 +2085,7 @@ async def process_admin_edit_network(message: Message, state: FSMContext):
                        reply_markup=_edit_kb)
         return
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET trade_network = ? WHERE telegram_id = ?", (new_value, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET trade_network = ? WHERE telegram_id = ?", (new_value, telegram_id))
         await fsm_edit(state, message, f"✅ Торговая сеть обновлена: {new_value}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2139,11 +2104,7 @@ async def process_admin_edit_shop(message: Message, state: FSMContext):
                        reply_markup=_edit_kb)
         return
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET shop_name = ? WHERE telegram_id = ?", (new_value, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET shop_name = ? WHERE telegram_id = ?", (new_value, telegram_id))
         await fsm_edit(state, message, f"✅ Магазин обновлен: {new_value}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2162,11 +2123,7 @@ async def process_admin_edit_city(message: Message, state: FSMContext):
                        reply_markup=_edit_kb)
         return
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET city = ? WHERE telegram_id = ?", (new_value, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET city = ? WHERE telegram_id = ?", (new_value, telegram_id))
         await fsm_edit(state, message, f"✅ Город обновлен: {new_value}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
     except Exception as e:
@@ -2187,11 +2144,7 @@ async def process_admin_edit_timezone(callback: CallbackQuery, state: FSMContext
     new_tz = callback.data.replace("set_timezone_", "")
     
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET timezone = ? WHERE telegram_id = ?", (new_tz, telegram_id))
-        conn.commit()
-        conn.close()
+        await _db_run(db_path, "UPDATE users SET timezone = ? WHERE telegram_id = ?", (new_tz, telegram_id))
         await callback.answer()
         await callback.message.edit_text(f"✅ Часовой пояс обновлен на: {new_tz}", 
                                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))

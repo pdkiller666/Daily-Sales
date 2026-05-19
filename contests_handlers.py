@@ -1,6 +1,7 @@
 """
 Обработчики модуля «Конкурсы»
 """
+import asyncio
 import json as _json
 import logging
 from datetime import datetime, timedelta
@@ -2419,10 +2420,13 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     all_shops = await current_db.get_all_shops() or []
     all_contests = []
     try:
-        import sqlite3 as _sqlite3
-        conn_tmp = _sqlite3.connect(current_db.db_file)
-        all_contests = [str(r[0]) for r in conn_tmp.execute("SELECT id FROM contests").fetchall()]
-        conn_tmp.close()
+        def _get_contest_ids():
+            import sqlite3 as _sqlite3
+            conn_tmp = _sqlite3.connect(current_db.db_file)
+            result = [str(r[0]) for r in conn_tmp.execute("SELECT id FROM contests").fetchall()]
+            conn_tmp.close()
+            return result
+        all_contests = await asyncio.to_thread(_get_contest_ids)
     except Exception:
         pass
 
