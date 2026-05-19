@@ -1006,7 +1006,7 @@ async def _render_category_selection(
         "\n".join(f"• {c}" for c in selected) if selected else "— (все категории)"
     )
     await message.edit_text(
-        f"🔒 <b>Фильтр категорий для:</b> {username}\n\n"
+        f"🔒 <b>Фильтр категорий для:</b> {he(username)}\n\n"
         "Отметьте категории, с которых продавец получает мотивацию.\n"
         "Остальные категории будут давать 0 комиссии.\n\n"
         f"<b>Выбрано:</b>\n{selected_text}",

@@ -14,13 +14,13 @@ from states import SubscriptionStates
 from env_manager import env_manager
 from notif_utils import add_read_btn
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
-from db_utils import get_user_org_role, clear_state_keep_org
+from db_utils import get_user_org_role, clear_state_keep_org, wrap_db
 
 
 
 def _get_db():
     """Локальная БД для платёжного/подписочного функционала"""
-    return Database('data/shop_bot.db')
+    return wrap_db(Database('data/shop_bot.db'))
 
 async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
     """Уведомление супер-администратора о новой заявке на оплату"""
@@ -32,7 +32,7 @@ async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
             return
         
         # Получаем данные пользователя
-        user = db.get_user_by_id(user_id)
+        user = await db.get_user_by_id(user_id)
         if not user:
             return
         
@@ -70,7 +70,7 @@ async def notify_admins_about_payment_request(bot, user_id, plan_type, amount):
 
 def get_current_subscription_plans():
     """Получение актуальных тарифных планов из базы данных"""
-    db = _get_db()
+    db = Database('data/shop_bot.db')  # sync-функция, нужен прямой доступ
     plans = db.get_subscription_plans()
     plans_dict = {}
     for plan in plans:
@@ -120,8 +120,8 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         else:
             # Личный пользователь — ищем подписку в shop_bot.db
             db = _get_db()
-            user_id = db.get_user_id(telegram_id)
-            subscription = db.get_user_subscription(user_id) if user_id else None
+            user_id = await db.get_user_id(telegram_id)
+            subscription = await db.get_user_subscription(user_id) if user_id else None
             if subscription:
                 plan_type = subscription[2]
                 end_date = subscription[4]
@@ -209,13 +209,13 @@ async def subscription_plans(callback: CallbackQuery):
             ])
         
         # Динамическое отображение лимитов планов из базы данных
-        all_plans = db.get_subscription_plans()
+        all_plans = await db.get_subscription_plans()
         
         if all_plans:
             text += "📋 <b>Сравнение планов:</b>\n\n"
             
             for plan in all_plans:
-                plan_details = db.get_subscription_plan_details(plan[0])
+                plan_details = await db.get_subscription_plan_details(plan[0])
                 if plan_details:
                     text += f"💎 <b>{plan_details['name']}</b>\n"
                     
@@ -266,10 +266,10 @@ async def start_subscription_purchase(callback: CallbackQuery, state: FSMContext
     
     await callback.answer()
     plan_info = plans[plan_key]
-    user_id = db.get_user_id(callback.from_user.id)
+    user_id = await db.get_user_id(callback.from_user.id)
     
     # Проверяем на понижение тарифа
-    is_downgrade, downgrade_info = db.check_subscription_downgrade(user_id, plan_info['name'])
+    is_downgrade, downgrade_info = await db.check_subscription_downgrade(user_id, plan_info['name'])
     
     if is_downgrade:
         from datetime import datetime
@@ -351,7 +351,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
     schedule_date = data.get('schedule_date')
     promocode_data = data.get('promocode_data')
     
-    user_id = db.get_user_id(message.from_user.id)
+    user_id = await db.get_user_id(message.from_user.id)
 
     # Org-пользователь может отсутствовать в shop_bot.db — копируем из tenant DB
     if user_id is None:
@@ -363,13 +363,13 @@ async def process_payment_proof(message: Message, state: FSMContext):
                 org_db = _DB(db_path)
                 u = org_db.get_user(message.from_user.id)
                 if u:
-                    db.add_user(
+                    await db.add_user(
                         telegram_id=u[1], first_name=u[2], last_name=u[3],
                         middle_name=u[4], phone=u[5], email=u[6],
                         trade_network=u[7], shop_name=u[8], city=u[9],
                         username=u[12] if len(u) > 12 else None
                     )
-                    user_id = db.get_user_id(message.from_user.id)
+                    user_id = await db.get_user_id(message.from_user.id)
         except Exception:
             pass
 
@@ -379,7 +379,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
         return
 
     # Дедупликация: не создавать вторую заявку если уже есть активная
-    if db.has_pending_payment_request(user_id):
+    if await db.has_pending_payment_request(user_id):
         await fsm_edit(state, message,
                        "⏳ <b>У вас уже есть активная заявка на оплату</b>\n\n"
                        "Дождитесь рассмотрения текущей заявки администратором.\n"
@@ -397,12 +397,12 @@ async def process_payment_proof(message: Message, state: FSMContext):
 
     # Создаем заявку на оплату (промокод применится в confirm_payment_request)
     try:
-        success = db.create_payment_request(user_id, plan_type, amount, file_id, promo_id)
+        success = await db.create_payment_request(user_id, plan_type, amount, file_id, promo_id)
     except Exception as e:
         import logging
         logging.error(f"process_payment_proof: create_payment_request failed: {e}")
         from keyboards import main_menu
-        user = db.get_user(message.from_user.id)
+        user = await db.get_user(message.from_user.id)
         keyboard = main_menu(message.chat.id, user[8] if user else None)
         await fsm_edit(state, message,
                        "❌ Ошибка при создании заявки. Попробуйте позже.\n\n🏠 Возврат в главное меню:",
@@ -441,7 +441,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
         from keyboards import main_menu
         
         # Отправляем финальное сообщение с главным меню
-        user = db.get_user(message.from_user.id)
+        user = await db.get_user(message.from_user.id)
         keyboard = main_menu(message.chat.id, user[8] if user else None)
         
         final_text = notification_text + "\n\n🏠 Возврат в главное меню:"
@@ -452,7 +452,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
         await notify_admins_about_payment_request(message.bot, user_id, plan_type, amount)
     else:
         from keyboards import main_menu
-        user = db.get_user(message.from_user.id)
+        user = await db.get_user(message.from_user.id)
         keyboard = main_menu(message.chat.id, user[8] if user else None)
         
         await fsm_edit(state, message,
@@ -490,8 +490,8 @@ async def subscription_limits(callback: CallbackQuery):
             end_date = None
         else:
             db = _get_db()
-            user_id_shop = db.get_user_id(telegram_id)
-            subscription = db.get_user_subscription(user_id_shop) if user_id_shop else None
+            user_id_shop = await db.get_user_id(telegram_id)
+            subscription = await db.get_user_subscription(user_id_shop) if user_id_shop else None
             plan_type = subscription[2] if subscription else 'Бесплатный'
             end_date = subscription[4] if subscription else None
 
@@ -583,10 +583,10 @@ async def handle_scheduled_purchase(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer()
     plan_info = plans[plan_key]
-    user_id = db.get_user_id(callback.from_user.id)
+    user_id = await db.get_user_id(callback.from_user.id)
     
     # Получаем информацию о текущей подписке
-    current_subscription = db.get_user_subscription(user_id)
+    current_subscription = await db.get_user_subscription(user_id)
     end_date = current_subscription[4]
     
     from datetime import datetime
@@ -656,7 +656,7 @@ async def process_promocode(message: Message, state: FSMContext):
     plan_info = plans[plan_key]
     original_amount = plan_info['price']
     
-    validation_result = db.validate_promocode(promocode)
+    validation_result = await db.validate_promocode(promocode)
     
     if not validation_result['valid']:
         await fsm_edit(state, message,
@@ -669,7 +669,7 @@ async def process_promocode(message: Message, state: FSMContext):
     
     # Рассчитываем скидку
     discount_percent = validation_result['discount_percent']
-    final_amount = db.calculate_discounted_price(original_amount, discount_percent)
+    final_amount = await db.calculate_discounted_price(original_amount, discount_percent)
     discount_amount = original_amount - final_amount
     
     # Обновляем данные состояния с полной информацией
@@ -742,10 +742,10 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
 
     if provider == 'yookassa':
         # --- ЮKassa: создаём платёж и даём ссылку ---
-        cfg = db.get_yookassa_config()
+        cfg = await db.get_yookassa_config()
         return_url = cfg.get('return_url') or "https://t.me/"
 
-        user_id = db.get_user_id(callback.from_user.id)
+        user_id = await db.get_user_id(callback.from_user.id)
         promocode_data = promocode_applied or {}
         promo_id = promocode_data.get('id')
 
@@ -785,7 +785,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
 
         # Сохраняем запись в БД
         if user_id:
-            db.create_yookassa_payment_record(
+            await db.create_yookassa_payment_record(
                 yookassa_payment_id=yk_payment_id,
                 user_id=user_id,
                 plan_type=plan_info['name'],
@@ -818,7 +818,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
         return
 
     # --- СБП: классический поток (скриншот) ---
-    payment_settings = db.get_payment_settings()
+    payment_settings = await db.get_payment_settings()
 
     text += "📋 <b>Реквизиты для оплаты:</b>\n"
     text += f"💳 Карта: {payment_settings.get('card_number', 'Не указана')}\n"
@@ -853,7 +853,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
     # Формат callback: yk_check_<payment_id>
     yk_payment_id = callback.data[9:]  # убираем "yk_check_"
 
-    cfg = db.get_yookassa_config()
+    cfg = await db.get_yookassa_config()
     from payment_provider import check_yookassa_payment_status
 
     status = check_yookassa_payment_status(
@@ -864,7 +864,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
 
     if status == 'succeeded':
         # --- Автоактивация подписки ---
-        row = db.get_yookassa_payment_by_payment_id(yk_payment_id)
+        row = await db.get_yookassa_payment_by_payment_id(yk_payment_id)
         if row is None:
             await callback.message.edit_text(
                 "❌ Запись о платеже не найдена. Обратитесь к администратору.",
@@ -881,7 +881,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
         # Идемпотентность: если уже подтверждён — не дублировать активацию
         if row[5] == 'succeeded':
             from keyboards import main_menu as _main_menu
-            _u = db.get_user(callback.from_user.id)
+            _u = await db.get_user(callback.from_user.id)
             _kb = _main_menu(callback.message.chat.id, _u[8] if _u else None)
             await callback.message.edit_text(
                 "✅ <b>Подписка уже активирована!</b>\n\n"
@@ -899,18 +899,18 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
         promo_id = row[6]
 
         # Обновляем статус в нашей таблице
-        db.update_yookassa_payment_status(yk_payment_id, 'succeeded')
+        await db.update_yookassa_payment_status(yk_payment_id, 'succeeded')
 
         # Активируем подписку: create_payment_request → confirm_payment_request
         # admin_id=0 означает «авто-подтверждено системой»
         try:
-            req_id = db.create_payment_request(
+            req_id = await db.create_payment_request(
                 user_id, plan_type, amount,
                 f"yookassa:{yk_payment_id}",
                 promo_id,
             )
             if req_id:
-                db.confirm_payment_request(req_id, admin_id=0)
+                await db.confirm_payment_request(req_id, admin_id=0)
         except Exception as e:
             import logging
             logging.error(f"check_yookassa_payment: auto-confirm error: {e}")
@@ -921,7 +921,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
             from utils import he as _he
             super_admin_id = env_manager.get_main_admin_id()
             if super_admin_id:
-                user = db.get_user_by_id(user_id)
+                user = await db.get_user_by_id(user_id)
                 user_name = _he(f"{user[2]} {user[3]}") if user else "—"
                 await callback.bot.send_message(
                     chat_id=super_admin_id,
@@ -938,7 +938,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
             pass
 
         from keyboards import main_menu
-        user = db.get_user(callback.from_user.id)
+        user = await db.get_user(callback.from_user.id)
         kb = main_menu(callback.message.chat.id, user[8] if user else None)
         await callback.message.edit_text(
             "🎉 <b>Оплата подтверждена!</b>\n\n"
@@ -962,7 +962,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
         )
 
     elif status == 'canceled':
-        db.update_yookassa_payment_status(yk_payment_id, 'canceled')
+        await db.update_yookassa_payment_status(yk_payment_id, 'canceled')
         await callback.message.edit_text(
             "❌ <b>Платёж отменён</b>\n\n"
             "Оплата не прошла или была отменена.\n"

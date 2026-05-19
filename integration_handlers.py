@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
+from utils import he
 from subscription_utils import check_integrations_permission
 from keyboards import back_button, home_button
 from states import IntegrationStates
@@ -484,7 +485,7 @@ async def gs_conn_name(message: Message, state: FSMContext):
     await fsm_edit(
         state, message,
         f"📊 <b>Новое подключение к Google Sheets</b>\n\n"
-        f"Название: <b>{name}</b>\n\n"
+        f"Название: <b>{he(name)}</b>\n\n"
         "<b>Выберите способ авторизации:</b>\n\n"
         "🔑 <b>OAuth</b> — вход через личный Google-аккаунт. "
         "Один раз перейдите по ссылке и введите код.\n\n"
@@ -577,7 +578,7 @@ async def _fetch_gs_config(user_id: int, state: FSMContext):
         if not conn_id:
             return None, None
         db = await get_db(user_id, state)
-        conn = db.get_integration_connection(conn_id)
+        conn = await db.get_integration_connection(conn_id)
         if not conn:
             return None, None
         cfg = json.loads(conn[3] or '{}')

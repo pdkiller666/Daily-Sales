@@ -16,6 +16,7 @@ from keyboards import back_button, home_button, generate_calendar
 from pagination_utils import page_nav_row
 from states import NotificationStates
 from env_manager import env_manager
+from utils import he
 from reports_access_control import get_subscription_offer_message
 from notif_utils import add_read_btn
 
@@ -240,7 +241,7 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
                     continue
                 seen_tids.add(tid_int)
                 try:
-                    await bot.send_message(tid_int, f"🔔 <b>Уведомление от администратора</b>\n\n{text}", parse_mode="HTML", reply_markup=add_read_btn())
+                    await bot.send_message(tid_int, f"🔔 <b>Уведомление от администратора</b>\n\n{he(text)}", parse_mode="HTML", reply_markup=add_read_btn())
                     count += 1
                     await path_db.add_notification_to_history(uid_internal, 'admin', text)
                     await asyncio.sleep(0.05)
@@ -312,7 +313,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
             scheduled_datetime=schedule_time_utc.strftime('%Y-%m-%dT%H:%M:%S')
         )
         await message.answer(
-            f"✅ <b>Уведомление запланировано!</b>\n\n📅 Время: {time_text} ({admin_tz})\n💬 Текст: {text}",
+            f"✅ <b>Уведомление запланировано!</b>\n\n📅 Время: {time_text} ({admin_tz})\n💬 Текст: {he(text)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]]),
             parse_mode="HTML"
         )

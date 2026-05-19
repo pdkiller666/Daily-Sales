@@ -10,12 +10,13 @@ from subscription_handlers import get_current_subscription_plans
 from env_manager import env_manager
 from notif_utils import add_read_btn
 from utils import he
+from db_utils import wrap_db
 
 payment_admin_router = Router()
 
 def _get_payments_db():
     """Возвращает БД для платёжных запросов (централизованная)"""
-    return Database('data/shop_bot.db')
+    return wrap_db(Database('data/shop_bot.db'))
 
 async def safe_edit_message(callback, text, reply_markup=None, parse_mode="HTML"):
     """Безопасное редактирование сообщения с обработкой ошибок.
@@ -48,7 +49,7 @@ async def pending_payments_menu(callback: CallbackQuery):
 
     await callback.answer()
     db = _get_payments_db()
-    pending_requests = db.get_pending_payment_requests()
+    pending_requests = await db.get_pending_payment_requests()
 
     text = "💳 <b>Заявки на оплату подписок</b>\n\n"
 
@@ -107,7 +108,7 @@ async def view_payment_request(callback: CallbackQuery):
     request_id = int(callback.data.split('_')[2])
 
     db = _get_payments_db()
-    request_info = db.get_payment_request_by_id(request_id)
+    request_info = await db.get_payment_request_by_id(request_id)
 
     if not request_info:
         await callback.answer("❌ Заявка не найдена или уже обработана", show_alert=True)
@@ -127,8 +128,8 @@ async def view_payment_request(callback: CallbackQuery):
     plan_name = plan_type
 
     text = f"💳 <b>Заявка на оплату #{req_id}</b>\n\n"
-    text += f"👤 <b>Пользователь:</b> {first_name} {last_name}\n"
-    text += f"🏪 <b>Магазин:</b> {shop_name or 'Не указан'}\n"
+    text += f"👤 <b>Пользователь:</b> {he(first_name or '')} {he(last_name or '')}\n"
+    text += f"🏪 <b>Магазин:</b> {he(shop_name) if shop_name else 'Не указан'}\n"
     text += f"💎 <b>План:</b> {plan_name}\n"
     text += f"💰 <b>Сумма:</b> {amount}₽\n"
     text += f"📅 <b>Дата заявки:</b> {created_at[:19]}\n\n"
@@ -154,7 +155,7 @@ async def show_payment_proof(callback: CallbackQuery):
     request_id = int(callback.data.split('_')[3])
 
     db = _get_payments_db()
-    request_info = db.get_payment_request_by_id(request_id)
+    request_info = await db.get_payment_request_by_id(request_id)
 
     if not request_info:
         await callback.answer("❌ Заявка не найдена", show_alert=True)
@@ -216,13 +217,13 @@ async def confirm_payment_request(callback: CallbackQuery):
 
         request_id = int(callback.data.split('_')[2])
         db = _get_payments_db()
-        admin_user_id = db.get_user_id(callback.from_user.id)
+        admin_user_id = await db.get_user_id(callback.from_user.id)
 
         if not admin_user_id:
             await callback.answer("❌ Ошибка: администратор не найден в базе")
             return
 
-        success = db.confirm_payment_request(request_id, admin_user_id)
+        success = await db.confirm_payment_request(request_id, admin_user_id)
     except Exception:
         await callback.answer("❌ Произошла ошибка при подтверждении заявки")
         return
@@ -352,7 +353,7 @@ async def reject_payment_request(callback: CallbackQuery):
 
         request_id = int(callback.data.split('_')[2])
         db = _get_payments_db()
-        admin_user_id = db.get_user_id(callback.from_user.id)
+        admin_user_id = await db.get_user_id(callback.from_user.id)
 
         if not admin_user_id:
             await callback.answer("❌ Ошибка: администратор не найден в базе")
@@ -376,8 +377,8 @@ async def reject_payment_request(callback: CallbackQuery):
     conn.close()
 
     db = _get_payments_db()
-    admin_user_id = db.get_user_id(callback.from_user.id)
-    success = db.reject_payment_request(request_id, admin_user_id)
+    admin_user_id = await db.get_user_id(callback.from_user.id)
+    success = await db.reject_payment_request(request_id, admin_user_id)
 
     if success and result:
         user_id, plan_type, user_telegram_id, first_name, last_name = result
