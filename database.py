@@ -4,6 +4,7 @@
 import sqlite3
 import os
 import logging
+import threading
 import time as _time
 from datetime import datetime, timedelta
 
@@ -22,6 +23,82 @@ _INITIALIZED_DBS: set = set()
 _tz_cache: dict = {}
 _TZ_CACHE_TTL = 300
 
+# ─── Thread-local connection pool ──────────────────────────────────────────
+# asyncio.to_thread() запускает каждый вызов в пуле воркер-потоков.
+# _conn_pool хранит по одному SQLite-соединению на (поток × db_file).
+# Это устраняет overhead открытия нового соединения (~3-10 мс) при каждом
+# вызове метода Database.
+_conn_pool = threading.local()
+
+
+def _get_pooled_conn(db_file: str, timeout: float = 30.0) -> sqlite3.Connection:
+    """Вернуть переиспользуемое соединение для текущего потока.
+
+    Первый вызов открывает соединение и настраивает PRAGMAs.
+    Последующие вызовы из того же потока возвращают уже открытое соединение.
+    """
+    pool = getattr(_conn_pool, 'conns', None)
+    if pool is None:
+        _conn_pool.conns = {}
+        pool = _conn_pool.conns
+
+    conn = pool.get(db_file)
+    if conn is None:
+        conn = sqlite3.connect(db_file, timeout=timeout, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-8000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")
+        conn.execute("PRAGMA busy_timeout=10000")
+        pool[db_file] = conn
+    return conn
+
+
+class _PooledConn:
+    """Тонкая обёртка над sqlite3.Connection из пула.
+
+    close() не закрывает реальное соединение — только откатывает незакрытые
+    транзакции, чтобы следующий вызов из того же потока не видел «грязного» стейта.
+    Все остальные методы проксируются к оригинальному объекту.
+    """
+    __slots__ = ('_c',)
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        object.__setattr__(self, '_c', conn)
+
+    def close(self) -> None:
+        try:
+            c = object.__getattribute__(self, '_c')
+            if c.in_transaction:
+                c.rollback()
+        except Exception:
+            pass
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, '_c'), name)
+
+    def __enter__(self):
+        return object.__getattribute__(self, '_c').__enter__()
+
+    def __exit__(self, *args):
+        return object.__getattribute__(self, '_c').__exit__(*args)
+
+    def cursor(self):
+        return object.__getattribute__(self, '_c').cursor()
+
+    def commit(self):
+        return object.__getattribute__(self, '_c').commit()
+
+    def rollback(self):
+        return object.__getattribute__(self, '_c').rollback()
+
+    def execute(self, *args, **kwargs):
+        return object.__getattribute__(self, '_c').execute(*args, **kwargs)
+
+    def executemany(self, *args, **kwargs):
+        return object.__getattribute__(self, '_c').executemany(*args, **kwargs)
+
 
 class Database:
     def __init__(self, db_file=None):
@@ -33,15 +110,13 @@ class Database:
         # self.create_tables()  # Убираем автоматический вызов здесь, так как мы копируем уже готовую структуру
 
     def get_connection(self):
-        """Получить объект соединения с БД"""
-        conn = sqlite3.connect(self.db_file, timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-8000")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=268435456")
-        conn.execute("PRAGMA busy_timeout=10000")
-        return conn
+        """Получить соединение с БД из thread-local пула.
+
+        Возвращает _PooledConn — обёртку, у которой close() не разрывает
+        соединение, а только откатывает незакрытые транзакции.
+        """
+        raw = _get_pooled_conn(self.db_file)
+        return _PooledConn(raw)
 
     def create_tables(self):
         """Создание таблиц в базе данных.
@@ -51,7 +126,7 @@ class Database:
         """
         if self.db_file in _INITIALIZED_DBS:
             return
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=-8000")
@@ -1043,7 +1118,7 @@ class Database:
             return []
     def get_payment_settings(self):
         """Получение настроек платежной системы"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT key, value FROM payment_settings')
         settings = dict(cursor.fetchall())
@@ -1064,7 +1139,7 @@ class Database:
 
     def update_payment_setting(self, key, value):
         """Обновление настройки платежной системы"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT OR REPLACE INTO payment_settings (key, value, updated_at)
@@ -1079,7 +1154,7 @@ class Database:
 
     def get_payment_provider(self) -> str:
         """Получить активного провайдера оплаты ('sbp' или 'yookassa')."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM payment_settings WHERE key = 'payment_provider'")
         row = cursor.fetchone()
@@ -1092,7 +1167,7 @@ class Database:
 
     def get_yookassa_config(self) -> dict:
         """Получить настройки ЮKassa (shop_id, secret_key, return_url)."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT key, value FROM payment_settings WHERE key IN "
@@ -1133,7 +1208,7 @@ class Database:
         """Сохранить запись о созданном платеже ЮKassa."""
         conn = None
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             cursor.execute(
@@ -1172,7 +1247,7 @@ class Database:
     def get_yookassa_payment_by_payment_id(self, yookassa_payment_id: str):
         """Найти запись платежа ЮKassa по его ID."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT * FROM yookassa_payments WHERE yookassa_payment_id = ?",
@@ -1188,7 +1263,7 @@ class Database:
     def update_yookassa_payment_status(self, yookassa_payment_id: str, status: str) -> None:
         """Обновить статус платежа ЮKassa."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE yookassa_payments SET status=?, updated_at=CURRENT_TIMESTAMP "
@@ -1202,7 +1277,7 @@ class Database:
 
     def get_subscriptions_statistics(self):
         """Статистика подписок"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         # Общее количество подписчиков
@@ -1232,7 +1307,7 @@ class Database:
 
     def get_detailed_payment_statistics(self):
         """Детальная статистика платежей"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         # Общее количество платежей
@@ -1295,7 +1370,7 @@ class Database:
     # Базовые методы пользователей
     def add_user(self, telegram_id, first_name, last_name, middle_name=None, phone=None, email=None, trade_network=None, shop_name=None, city=None, username=None):
         """Добавление нового пользователя"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT OR REPLACE INTO users 
@@ -1307,7 +1382,7 @@ class Database:
 
     def get_user(self, telegram_id):
         """Получение информации о пользователе"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM users WHERE telegram_id = ?', (telegram_id,))
         user = cursor.fetchone()
@@ -1316,7 +1391,7 @@ class Database:
 
     def get_shop_sales_by_date(self, shop_name, start_date, end_date):
         """Получить все продажи магазина за период"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
         query = '''
@@ -1335,7 +1410,7 @@ class Database:
 
     def get_user_id(self, telegram_id):
         """Получение ID пользователя по telegram_id"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
         result = cursor.fetchone()
@@ -1349,7 +1424,7 @@ class Database:
         cached = _tz_cache.get(key)
         if cached and now - cached[1] < _TZ_CACHE_TTL:
             return cached[0]
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT timezone FROM users WHERE telegram_id = ?', (telegram_id,))
         result = cursor.fetchone()
@@ -1361,7 +1436,7 @@ class Database:
     def set_user_timezone(self, telegram_id, timezone):
         """Установка часового пояса пользователя"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('UPDATE users SET timezone = ? WHERE telegram_id = ?', (timezone, telegram_id))
             conn.commit()
@@ -1376,7 +1451,7 @@ class Database:
 
     # Заглушки для остальных методов
     def get_all_shops(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT DISTINCT shop_name FROM users "
@@ -1389,7 +1464,7 @@ class Database:
 
     def get_inventory_shops(self):
         """Возвращает список уникальных магазинов из таблицы inventory"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT shop_name FROM inventory WHERE shop_name IS NOT NULL AND shop_name != ''")
         shops = [row[0] for row in cursor.fetchall()]
@@ -1397,7 +1472,7 @@ class Database:
         return shops
 
     def get_all_cities(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT DISTINCT city FROM users WHERE city IS NOT NULL AND city != '' AND city != 'System'"
@@ -1407,7 +1482,7 @@ class Database:
         return cities
 
     def get_all_trade_networks(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT DISTINCT trade_network FROM users "
@@ -1420,7 +1495,7 @@ class Database:
 
     def get_shops_by_network(self, trade_network: str) -> list:
         """Список (shop_name, city) всех магазинов данной торговой сети."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT DISTINCT shop_name, COALESCE(city, '') FROM users "
@@ -1435,7 +1510,7 @@ class Database:
 
     def get_cities_by_network(self, trade_network: str) -> list:
         """Список городов торговой сети (только непустые)."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT DISTINCT COALESCE(city, '') FROM users "
@@ -1450,7 +1525,7 @@ class Database:
 
     # Методы для работы с товарами
     def get_all_products(self):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM products')
         products = cursor.fetchall()
@@ -1459,7 +1534,7 @@ class Database:
 
     def get_product(self, product_id):
         """Получение товара по ID"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
         product = cursor.fetchone()
@@ -1468,7 +1543,7 @@ class Database:
 
     def get_product_by_name(self, product_name):
         """Получение товара по названию"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM products WHERE name = ?', (product_name,))
         product = cursor.fetchone()
@@ -1477,7 +1552,7 @@ class Database:
 
     def add_product(self, name, category, price):
         """Добавление нового товара"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO products (name, category, price)
@@ -1494,7 +1569,7 @@ class Database:
         items = [{'name': str, 'category': str, 'price': float}, ...]
         Возвращает (added_count, skipped_names) где skipped — уже существующие.
         """
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         added = 0
         skipped = []
@@ -1515,7 +1590,7 @@ class Database:
 
     def update_product(self, product_id, name=None, category=None, price=None):
         """Обновление товара"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         updates = []
@@ -1546,7 +1621,7 @@ class Database:
 
     def delete_product(self, product_id):
         """Удаление товара и связанных записей motivation_schedule"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM motivation_schedule WHERE product_id = ?', (product_id,))
         cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
@@ -1555,7 +1630,7 @@ class Database:
 
     def get_all_categories(self):
         """Получение всех категорий товаров"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT DISTINCT category FROM products ORDER BY category')
         categories = [row[0] for row in cursor.fetchall()]
@@ -1564,7 +1639,7 @@ class Database:
 
     def get_all_users(self, shop_name=None, city=None, trade_network=None,
                       shop_names=None, cities=None, trade_networks=None):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         query = 'SELECT * FROM users WHERE 1=1'
         params = []
@@ -1596,7 +1671,7 @@ class Database:
 
     def get_pending_payment_requests(self):
         """Получение всех ожидающих заявок на оплату с данными пользователей"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status, 
@@ -1614,7 +1689,7 @@ class Database:
     def get_payment_request_by_id(self, request_id):
         """Получение конкретной заявки на оплату по ID"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.status,
@@ -1639,7 +1714,7 @@ class Database:
             if user_id is None:
                 return False
                 
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("PRAGMA busy_timeout = 5000")
 
@@ -1691,7 +1766,7 @@ class Database:
         try:
             from datetime import datetime, timedelta
             end_date = (datetime.now() + timedelta(days=days)).isoformat()
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("PRAGMA busy_timeout = 5000")
             # Двойная проверка: не выдавать повторно
@@ -1714,7 +1789,7 @@ class Database:
     def get_recently_expired_trials(self):
         """Пользователи с пробным периодом, истёкшим до 48 часов назад (для upsell-пуша)."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT u.telegram_id, u.first_name, s.plan_type, s.end_date, u.id
@@ -1734,7 +1809,7 @@ class Database:
     def has_sent_reminder(self, user_id: int, threshold: int, subscription_end: str) -> bool:
         """Проверяет, было ли уже отправлено напоминание для данного порога истечения."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT 1 FROM subscription_reminder_log
@@ -1750,7 +1825,7 @@ class Database:
     def mark_reminder_sent(self, user_id: int, threshold: int, subscription_end: str) -> None:
         """Помечает, что напоминание для данного порога уже было отправлено."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10)
+            conn = self.get_connection()
             conn.execute('''
                 INSERT OR IGNORE INTO subscription_reminder_log (user_id, threshold, subscription_end)
                 VALUES (?, ?, ?)
@@ -1763,7 +1838,7 @@ class Database:
     def clear_reminders(self, user_id: int) -> None:
         """Сбрасывает лог напоминаний пользователя (при продлении подписки)."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10)
+            conn = self.get_connection()
             conn.execute('DELETE FROM subscription_reminder_log WHERE user_id = ?', (user_id,))
             conn.commit()
             conn.close()
@@ -1771,7 +1846,7 @@ class Database:
             logger.error(f"Ошибка в clear_reminders: {e}")
 
     def is_subscription_active(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT COUNT(*) FROM subscriptions 
@@ -1810,7 +1885,7 @@ class Database:
 
 
         # Получаем лимиты из базы данных динамически
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -1868,7 +1943,7 @@ class Database:
 
     def get_subscription_tier_level(self, plan_type):
         """Получение уровня тарифного плана для сравнения (чем больше число, тем лучше план)"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         # Получаем уровень на основе цены и продолжительности
@@ -1928,7 +2003,7 @@ class Database:
 
     def create_scheduled_subscription(self, user_id, plan_type, start_date):
         """Создание отложенной подписки, которая начнется в указанную дату"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         # Проверяем есть ли таблица scheduled_subscriptions
@@ -1954,7 +2029,7 @@ class Database:
         return True
 
     def get_user_subscription(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT * FROM subscriptions 
@@ -1995,7 +2070,7 @@ class Database:
 
     def confirm_payment_request(self, request_id, admin_id):
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем данные заявки перед подтверждением
@@ -2044,7 +2119,7 @@ class Database:
             return False
 
     def get_user_by_id(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
         user = cursor.fetchone()
@@ -2052,7 +2127,7 @@ class Database:
         return user
 
     def get_notification_settings(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM notification_settings WHERE user_id = ?', (user_id,))
         settings = cursor.fetchone()
@@ -2084,7 +2159,7 @@ class Database:
             }
 
     def create_default_notification_settings(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT OR IGNORE INTO notification_settings (user_id)
@@ -2094,7 +2169,7 @@ class Database:
         conn.close()
 
     def update_notification_settings(self, user_id, **settings):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         set_clause = ', '.join([f'{key} = ?' for key in settings.keys()])
         values = list(settings.values()) + [user_id]
@@ -2107,7 +2182,7 @@ class Database:
         conn.close()
 
     def add_notification_to_history(self, user_id, notification_type, message):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO notification_history (user_id, notification_type, message)
@@ -2118,7 +2193,7 @@ class Database:
 
     def has_seen_hint(self, user_id: int, hint_key: str) -> bool:
         """Проверяет, показывалась ли подсказка пользователю ранее."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             'SELECT 1 FROM user_hints_seen WHERE user_id = ? AND hint_key = ?',
@@ -2130,7 +2205,7 @@ class Database:
 
     def mark_hint_seen(self, user_id: int, hint_key: str) -> None:
         """Помечает подсказку как показанную для данного пользователя."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
             'INSERT OR IGNORE INTO user_hints_seen (user_id, hint_key) VALUES (?, ?)',
@@ -2143,7 +2218,7 @@ class Database:
                       old_quantity, new_quantity, old_price, new_price):
         """Записывает строку в журнал изменений продажи."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             conn.execute('''
                 INSERT INTO sales_audit_log
                 (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
@@ -2157,7 +2232,7 @@ class Database:
     def get_sale_audit_log(self, sale_id):
         """Возвращает историю изменений продажи, от новых к старым."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT sal.id, sal.changed_by_user_id,
@@ -2176,7 +2251,7 @@ class Database:
             return []
 
     def get_notification_history(self, user_id, limit=20):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT * FROM notification_history 
@@ -2189,7 +2264,7 @@ class Database:
         return history
 
     def mark_notifications_as_read(self, user_id):
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE notification_history 
@@ -2207,7 +2282,7 @@ class Database:
         """
         from datetime import datetime, timedelta, timezone
         
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         now = datetime.now(timezone.utc)
@@ -2261,7 +2336,7 @@ class Database:
         Returns (rows, total_count).
         """
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             where = 'WHERE user_id = ?'
             params: list = [user_id]
@@ -2293,7 +2368,7 @@ class Database:
         """
         from datetime import datetime, timedelta, timezone
         
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
         if period_type == 'all':
@@ -2323,7 +2398,7 @@ class Database:
 
     def get_users_for_notifications(self, notification_type):
         """Получение пользователей для отправки определенного типа уведомлений"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         field_map = {
@@ -2352,7 +2427,7 @@ class Database:
     # Методы для работы с остатками
     def add_inventory(self, shop_name, product_id, quantity, user_id=None, change_type='manual', change_reason=None):
         """Добавление остатков товара"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         from datetime import datetime
         cursor.execute('''
@@ -2364,7 +2439,7 @@ class Database:
 
     def get_inventory(self, shop_name, product_id):
         """Получение остатков товара в магазине"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT quantity FROM inventory
@@ -2383,7 +2458,7 @@ class Database:
 
         for attempt in range(max_retries):
             try:
-                conn = sqlite3.connect(self.db_file, timeout=30.0)
+                conn = self.get_connection()
                 conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
@@ -2432,7 +2507,7 @@ class Database:
 
     def get_all_inventory(self, shop_name=None):
         """Получение всех остатков с информацией о последнем изменении"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         if shop_name:
@@ -2471,7 +2546,7 @@ class Database:
         for attempt in range(max_retries):
             conn = None
             try:
-                conn = sqlite3.connect(self.db_file, timeout=30.0)
+                conn = self.get_connection()
                 conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
@@ -2577,7 +2652,7 @@ class Database:
                          shop_names=None, cities=None, trade_networks=None):
         """Получение детального отчета по продажам.
         Поддерживает одиночные и множественные (list) фильтры зоны."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         query = '''
@@ -2639,7 +2714,7 @@ class Database:
         При city/trade_network-фильтрах добавляется JOIN с users.
         user_id — внутренний users.id для фильтрации по конкретному продавцу.
         """
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         need_user_join = any([city, trade_network, cities, trade_networks])
@@ -2716,7 +2791,7 @@ class Database:
         notification_settings, notification_history.
         """
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('SELECT COUNT(*) FROM users WHERE telegram_id = ?', (telegram_id,))
@@ -2787,7 +2862,7 @@ class Database:
         username=None            — явно записывает NULL (пользователь удалил @username).
         username="somestr"       — обновляет на новое значение.
         """
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         updates = []
@@ -2837,7 +2912,7 @@ class Database:
 
     def get_users_by_shop(self, shop_name):
         """Получение пользователей конкретного магазина"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM users WHERE shop_name = ?', (shop_name,))
         users = cursor.fetchall()
@@ -2857,7 +2932,7 @@ class Database:
             list of (user_internal_id, telegram_id, first_name)
         """
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT u.id, u.telegram_id, u.first_name
@@ -2879,7 +2954,7 @@ class Database:
 
     def get_users_by_city(self, city):
         """Получение пользователей конкретного города"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM users WHERE city = ?', (city,))
         users = cursor.fetchall()
@@ -2888,7 +2963,7 @@ class Database:
 
     def get_user_sales(self, user_id, limit=10):
         """Получить последние продажи пользователя по всем магазинам"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT s.*, p.name as product_name, p.category
@@ -2904,7 +2979,7 @@ class Database:
 
     def get_user_sales_by_date(self, user_id, start_date, end_date):
         """Получить продажи пользователя за период по всем магазинам"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT s.*, p.name as product_name, p.category
@@ -2919,7 +2994,7 @@ class Database:
 
     def get_sale_by_id(self, sale_id):
         """Получить продажу по ID"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT s.id, s.product_id, s.shop_name, s.quantity_sold, s.sale_price, 
@@ -2943,7 +3018,7 @@ class Database:
 
         for attempt in range(max_retries):
             try:
-                conn = sqlite3.connect(self.db_file, timeout=30.0)
+                conn = self.get_connection()
                 conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
@@ -3045,7 +3120,7 @@ class Database:
     def delete_sale(self, sale_id):
         """Удалить продажу и восстановить остатки"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем данные продажи
@@ -3083,7 +3158,7 @@ class Database:
     def update_sale_date(self, sale_id: int, new_date: str, changed_by: int = None) -> bool:
         """Изменить дату продажи. new_date — строка 'YYYY-MM-DD'."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             conn.execute('PRAGMA busy_timeout = 30000')
             cursor = conn.cursor()
             cursor.execute('SELECT sale_date FROM sales WHERE id = ?', (sale_id,))
@@ -3114,7 +3189,7 @@ class Database:
                           shop_names=None, cities=None, trade_networks=None):
         """Получить рейтинг продавцов.
         Поддерживает одиночные и множественные (list) фильтры зоны."""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         query = '''
@@ -3173,7 +3248,7 @@ class Database:
 
     def get_shop_ranking(self, start_date=None, end_date=None):
         """Получить рейтинг магазинов по продажам и заработку"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         query = '''
@@ -3209,7 +3284,7 @@ class Database:
 
     def get_city_ranking(self, start_date=None, end_date=None):
         """Получить рейтинг городов по продажам и заработку"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         query = '''
@@ -3247,7 +3322,7 @@ class Database:
     def reject_payment_request(self, request_id, admin_id):
         """Отклонение заявки на оплату"""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -3269,7 +3344,7 @@ class Database:
     def get_stale_pending_payments(self, hours: int = 72):
         """Возвращает pending-заявки старше N часов с telegram_id пользователя."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT pr.id, pr.user_id, pr.plan_type, pr.amount,
@@ -3288,7 +3363,7 @@ class Database:
 
     def get_low_stock_items_for_user(self, user_id, shop_name=None, threshold=None):
         """Получение товаров с низкими остатками для конкретного пользователя"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         if threshold is None:
@@ -3331,7 +3406,7 @@ class Database:
     # Методы для работы с подписками и платежами (расширенные)
     def get_subscription_plans(self):
         """Получение всех тарифных планов"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM subscription_plans WHERE is_active = TRUE ORDER BY price')
         plans = cursor.fetchall()
@@ -3340,7 +3415,7 @@ class Database:
 
     def get_all_subscription_plans(self):
         """Получение всех тарифных планов (включая неактивные)"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM subscription_plans ORDER BY price')
         plans = cursor.fetchall()
@@ -3349,7 +3424,7 @@ class Database:
 
     def get_all_active_subscriptions(self):
         """Получение всех активных подписок с данными пользователей"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT s.*, u.first_name, u.last_name, u.email, u.shop_name,
@@ -3365,7 +3440,7 @@ class Database:
 
     def get_all_promocodes(self):
         """Получение всех промокодов"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM promocodes ORDER BY created_at DESC')
         promocodes = cursor.fetchall()
@@ -3374,7 +3449,7 @@ class Database:
 
     def create_promocode(self, code, discount_percent, max_usage):
         """Создание промокода"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO promocodes (code, discount_percent, max_usage)
@@ -3387,7 +3462,7 @@ class Database:
 
     def delete_promocode(self, promocode_id):
         """Удаление промокода"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM promocodes WHERE id = ?', (promocode_id,))
         deleted = cursor.rowcount > 0
@@ -3397,7 +3472,7 @@ class Database:
 
     def update_promocode(self, promocode_id, **kwargs):
         """Обновление промокода"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         valid_fields = ['code', 'discount_percent', 'max_usage', 'is_active']
@@ -3423,7 +3498,7 @@ class Database:
 
     def get_promocode_by_id(self, promocode_id):
         """Получение промокода по ID"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM promocodes WHERE id = ?', (promocode_id,))
         promocode = cursor.fetchone()
@@ -3432,7 +3507,7 @@ class Database:
 
     def validate_promocode(self, code):
         """Проверка промокода на валидность"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT id, code, discount_percent, usage_count, max_usage, is_active
@@ -3480,7 +3555,7 @@ class Database:
 
     def add_subscription_plan(self, name, duration_days, price, description):
         """Добавление нового тарифного плана"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO subscription_plans (name, duration_days, price, description)
@@ -3494,7 +3569,7 @@ class Database:
     def update_subscription_plan(self, plan_id, **kwargs):
         """Обновление тарифного плана с лимитами"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             updates = []
@@ -3528,7 +3603,7 @@ class Database:
 
     def get_subscription_plan_details(self, plan_id):
         """Получение детальной информации о тарифном плане"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -3566,7 +3641,7 @@ class Database:
                                            can_export_reports=False, can_view_analytics=False,
                                            can_use_notifications=False, can_use_integrations=False):
         """Создание нового тарифного плана с лимитами"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -3588,7 +3663,7 @@ class Database:
     def update_subscription_plan_field(self, plan_id, field_name, new_value):
         """Обновление отдельного поля тарифного плана"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Проверяем что план существует
@@ -3627,7 +3702,7 @@ class Database:
     def get_user_subscription_limits(self, user_id):
         """Получение лимитов подписки для пользователя"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем активную подписку пользователя
@@ -3683,7 +3758,7 @@ class Database:
     def clear_all_sales(self):
         """Очистка всех данных продаж (для сброса рейтингов)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Удаляем все записи из таблицы продаж
@@ -3704,7 +3779,7 @@ class Database:
     def delete_subscription_plan(self, plan_id):
         """Удаление тарифного плана с сохранением активных подписок"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем информацию о плане перед удалением
@@ -3742,7 +3817,7 @@ class Database:
     def get_users_with_subscription_plan(self, plan_id):
         """Получение пользователей с определенным тарифным планом"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -3768,7 +3843,7 @@ class Database:
         """Установка мотивации для товара с использованием telegram_id администратора.
         Старая мотивация сохраняется в motivation_history перед перезаписью."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем внутренний ID пользователя по его telegram_id
@@ -3809,7 +3884,7 @@ class Database:
     def get_motivation_history(self, product_id, limit=10):
         """История изменений мотивации для товара"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT mh.motivation_type, mh.motivation_value, mh.changed_at,
@@ -3846,7 +3921,7 @@ class Database:
             month_start = f"{year}-{month:02d}-01"
             month_end   = f"{year}-{month:02d}-{last_day:02d}"
 
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             conn.execute('PRAGMA busy_timeout=30000')
             cursor = conn.cursor()
 
@@ -3883,7 +3958,7 @@ class Database:
                 m_type = motivation_info['motivation_type'] if motivation_info else 'percentage'
                 m_val  = motivation_info['motivation_value'] if motivation_info else 0.0
 
-                conn2 = sqlite3.connect(self.db_file, timeout=30.0)
+                conn2 = self.get_connection()
                 conn2.execute('PRAGMA busy_timeout=30000')
                 cur2 = conn2.cursor()
                 # Обновляем если запись есть, иначе вставляем
@@ -3917,7 +3992,7 @@ class Database:
         """Установить мотивацию на товар для конкретного месяца.
         Сохраняет в motivation_schedule; UNIQUE(product_id, year, month) — перезаписывает."""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             conn.execute('PRAGMA busy_timeout=30000')
             cursor = conn.cursor()
             admin_id = None
@@ -3948,7 +4023,7 @@ class Database:
         """Получить мотивацию для товара на конкретный месяц.
         Сначала проверяет motivation_schedule, при отсутствии — fallback на product_motivations."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT motivation_type, motivation_value
@@ -3979,7 +4054,7 @@ class Database:
     def get_motivation_schedule(self, product_id):
         """Получить все месячные записи мотивации для товара, отсортированные по убыванию."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ms.year, ms.month, ms.motivation_type, ms.motivation_value,
@@ -4001,7 +4076,7 @@ class Database:
     def get_all_motivation_schedules(self):
         """Получить все записи motivation_schedule с именами товаров."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ms.product_id, p.name, ms.year, ms.month,
@@ -4026,7 +4101,7 @@ class Database:
         """Добавить/обновить доп. условие мотивации для конкретного месяца."""
         try:
             import json as _json
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             allowed_str = _json.dumps(allowed_categories, ensure_ascii=False) if allowed_categories else None
             created_by = None
@@ -4065,7 +4140,7 @@ class Database:
     def get_extra_conditions_for_month(self, year, month):
         """Получить доп. условия для конкретного месяца (только из расписания)."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT ecs.id, ecs.condition_type, ecs.description,
@@ -4091,7 +4166,7 @@ class Database:
 
     def get_products_by_category(self, category):
         """Получить все товары в заданной категории"""
-        conn = sqlite3.connect(self.db_file)
+        conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM products WHERE category = ? ORDER BY name', (category,))
         products = cursor.fetchall()
@@ -4103,7 +4178,7 @@ class Database:
     def set_contest_manual_result(self, contest_id, shop_name, manual_value, editor_telegram_id=None):
         """Установить ручную корректировку результата магазина в конкурсе"""
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             editor_id = None
@@ -4131,7 +4206,7 @@ class Database:
     def get_contest_manual_results(self, contest_id):
         """Получить все ручные корректировки для конкурса {shop_name: manual_value}"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT cmr.shop_name, manual_value, edited_at, u.first_name, u.last_name
@@ -4153,7 +4228,7 @@ class Database:
     def delete_contest_manual_result(self, contest_id, shop_name):
         """Удалить ручную корректировку для магазина"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('DELETE FROM contest_manual_results WHERE contest_id=? AND shop_name=?',
                            (contest_id, shop_name))
@@ -4169,7 +4244,7 @@ class Database:
     def get_product_motivation(self, product_id):
         """Получение мотивации для товара"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -4196,7 +4271,7 @@ class Database:
     def get_all_product_motivations(self):
         """Получение всех комиссий по товарам с ФИО администратора"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
@@ -4228,7 +4303,7 @@ class Database:
         """
         from collections import defaultdict
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Все глобальные мотивации
@@ -4297,7 +4372,7 @@ class Database:
     def remove_product_motivation(self, product_id):
         """Удаление мотивации с товара"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('DELETE FROM product_motivations WHERE product_id = ?', (product_id,))
@@ -4319,7 +4394,7 @@ class Database:
             return base_commission
         try:
             import json as _json
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('SELECT category FROM products WHERE id = ?', (product_id,))
@@ -4481,7 +4556,7 @@ class Database:
         """Создать конкурс"""
         conn = None
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
@@ -4522,7 +4597,7 @@ class Database:
         """
         conn = None
         try:
-            conn = sqlite3.connect(self.db_file, timeout=10.0)
+            conn = self.get_connection()
             conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contest_bonuses_table(cursor)
@@ -4554,7 +4629,7 @@ class Database:
         отсортированных по min_plan_pct DESC (наибольший тир первым).
         """
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             self._ensure_contest_bonuses_table(cursor)
             cursor.execute('''
@@ -4591,7 +4666,7 @@ class Database:
         14:category_filter 15:extra_conditions 16:status
         17:notify_on_start 18:notify_on_end 19:created_by 20:created_at"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             if status:
@@ -4613,7 +4688,7 @@ class Database:
     def get_contest(self, contest_id):
         """Получить конкурс по id"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             cursor.execute('SELECT * FROM contests WHERE id = ?', (contest_id,))
@@ -4629,7 +4704,7 @@ class Database:
     def update_contest_status(self, contest_id, status):
         """Обновить статус конкурса"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             cursor.execute(
@@ -4654,7 +4729,7 @@ class Database:
         if not to_update:
             return False
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             sets = ', '.join(f'{k} = ?' for k in to_update)
             vals = list(to_update.values()) + [contest_id]
@@ -4676,7 +4751,7 @@ class Database:
     def delete_contest(self, contest_id):
         """Удалить конкурс"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('DELETE FROM contests WHERE id = ?', (contest_id,))
             conn.commit()
@@ -4692,7 +4767,7 @@ class Database:
     def clear_contests_archive(self):
         """Удалить все завершённые и отменённые конкурсы из архива. Возвращает кол-во удалённых."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM contests WHERE status IN ('finished', 'cancelled')")
             conn.commit()
@@ -4774,7 +4849,7 @@ class Database:
                 start, end, shops, cities, users, products, categories, metric
             )
 
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             if reward_mode == 'per_sale':
@@ -4941,7 +5016,7 @@ class Database:
                 start, end, shops, cities, users, products, categories, metric
             )
 
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             rows = conn.execute(
                 f"SELECT s.shop_name, {metric_expr}"
                 f" FROM sales s"
@@ -4962,7 +5037,7 @@ class Database:
     def get_contests_for_period(self, start_date: str, end_date: str) -> list:
         """Конкурсы, активные или завершённые в заданном периоде (пересечение дат)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             cursor.execute('''
@@ -4986,7 +5061,7 @@ class Database:
         """Добавить доп. условие мотивации"""
         try:
             import json as _json
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             allowed_str = _json.dumps(allowed_categories, ensure_ascii=False) if allowed_categories else None
             cursor.execute('''
@@ -5020,7 +5095,7 @@ class Database:
         Если совместных условий нет или min_sellers не достигнут — возвращает 0.0.
         """
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Активные joint-условия: shop_name, min_sellers, coefficient
@@ -5130,7 +5205,7 @@ class Database:
     def get_extra_conditions(self, active_only=True):
         """Получить все доп. условия мотивации"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             where = "WHERE mec.is_active = 1" if active_only else ""
             cursor.execute(f'''
@@ -5157,7 +5232,7 @@ class Database:
     def delete_extra_condition(self, condition_id):
         """Удалить доп. условие мотивации"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('DELETE FROM motivation_extra_conditions WHERE id = ?', (condition_id,))
             conn.commit()
@@ -5179,7 +5254,7 @@ class Database:
                        filter_value=None, created_by=None):
         """Добавить план продаж"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO sales_plans
@@ -5201,7 +5276,7 @@ class Database:
     def get_sales_plans(self, active_only=True):
         """Получить все планы продаж с именами продавцов"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             where = "WHERE sp.is_active = 1" if active_only else ""
             cursor.execute(f'''
@@ -5227,7 +5302,7 @@ class Database:
     def delete_sales_plan(self, plan_id):
         """Удалить план продаж"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('DELETE FROM sales_plans WHERE id = ?', (plan_id,))
             conn.commit()
@@ -5248,7 +5323,7 @@ class Database:
         if not fields:
             return False
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             set_clause = ', '.join(f"{k} = ?" for k in fields)
             cursor.execute(
@@ -5322,7 +5397,7 @@ class Database:
             where = ' AND '.join(conditions)
             query = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
 
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(query, params)
             result = cursor.fetchone()[0] or 0.0
@@ -5348,7 +5423,7 @@ class Database:
     def get_user_plans_progress(self, telegram_id):
         """Получить планы конкретного продавца по telegram_id с прогрессом"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT id, shop_name FROM users WHERE telegram_id = ?', (telegram_id,))
             row = cursor.fetchone()
@@ -5438,7 +5513,7 @@ class Database:
 
         for attempt in range(max_retries):
             try:
-                conn = sqlite3.connect(self.db_file, timeout=30.0)
+                conn = self.get_connection()
                 conn.execute('PRAGMA busy_timeout = 30000')
                 cursor = conn.cursor()
 
@@ -5481,7 +5556,7 @@ class Database:
     def get_seller_earnings(self, user_id, start_date=None, end_date=None):
         """Получение заработка продавца за период"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             # Проверяем, есть ли записи в таблице заработков
@@ -5561,7 +5636,7 @@ class Database:
     def get_seller_total_earnings(self, user_id, start_date=None, end_date=None):
         """Получение общего заработка продавца за период"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
 
@@ -5643,7 +5718,7 @@ class Database:
     def get_top_sellers_by_earnings(self, start_date=None, end_date=None, limit=10):
         """Получение топа продавцов по заработку"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
 
             query = '''
@@ -5685,7 +5760,7 @@ class Database:
     def add_scheduled_notification(self, job_id, created_by, notification_text, recipients_type, recipients_list, scheduled_datetime):
         """Добавление запланированного уведомления"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             
             import json
@@ -5710,7 +5785,7 @@ class Database:
     def get_scheduled_notifications(self, status='pending'):
         """Получение всех запланированных уведомлений"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             
             if status:
@@ -5741,7 +5816,7 @@ class Database:
     def get_scheduled_notification(self, notification_id):
         """Получение запланированного уведомления по ID"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             
             cursor.execute('''
@@ -5763,7 +5838,7 @@ class Database:
     def delete_scheduled_notification(self, notification_id):
         """Удаление запланированного уведомления"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             
             cursor.execute('DELETE FROM scheduled_notifications WHERE id = ?', (notification_id,))
@@ -5781,7 +5856,7 @@ class Database:
     def update_scheduled_notification_status(self, job_id, status):
         """Обновление статуса запланированного уведомления"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             
             cursor.execute('''
@@ -5805,7 +5880,7 @@ class Database:
     def set_salary_rate(self, user_id, daily_rate, updated_by=None):
         """Установить/обновить дневную ставку продавца"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO salary_settings (user_id, daily_rate, updated_by, updated_at)
@@ -5827,7 +5902,7 @@ class Database:
     def get_salary_rate(self, user_id):
         """Получить дневную ставку продавца (0.0 если не задана)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('SELECT daily_rate FROM salary_settings WHERE user_id = ?', (user_id,))
             row = cursor.fetchone()
@@ -5842,7 +5917,7 @@ class Database:
     def get_all_salary_rates(self):
         """Все продавцы с их дневными ставками: (user_id, first_name, last_name, daily_rate, telegram_id)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT u.id, u.first_name, u.last_name,
@@ -5864,7 +5939,7 @@ class Database:
     def toggle_work_day(self, user_id, work_date, marked_by=None):
         """Переключить рабочий день. True = день стал рабочим, False = удалён."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 'SELECT id FROM work_schedule WHERE user_id = ? AND work_date = ?',
@@ -5896,7 +5971,7 @@ class Database:
     def get_work_schedule(self, user_id, year, month):
         """Множество дат рабочих смен за месяц (строки YYYY-MM-DD)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             month_start = f"{year}-{month:02d}-01"
             month_end = f"{year}-{month:02d}-31"
@@ -5917,7 +5992,7 @@ class Database:
     def get_worked_days_count(self, user_id, year, month):
         """Количество отработанных смен за месяц"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             month_start = f"{year}-{month:02d}-01"
             month_end = f"{year}-{month:02d}-31"
@@ -5942,7 +6017,7 @@ class Database:
         """Сохранить шаблон смены для дня недели (0=Пн … 6=Вс).
         start_time/end_time — строки "10:00" или None (выходной)."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO shift_templates (user_id, weekday, start_time, end_time)
@@ -5961,7 +6036,7 @@ class Database:
     def get_shift_templates(self, user_id: int) -> dict:
         """Вернуть шаблоны смен: {weekday: (start_time, end_time) | None}."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 'SELECT weekday, start_time, end_time FROM shift_templates WHERE user_id = ?',
@@ -5982,7 +6057,7 @@ class Database:
     def get_work_day_time(self, user_id: int, work_date: str):
         """Вернуть (start_time, end_time) для конкретного дня или (None, None)."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 'SELECT start_time, end_time FROM work_schedule WHERE user_id = ? AND work_date = ?',
@@ -6001,7 +6076,7 @@ class Database:
                      start_time=None, end_time=None, marked_by=None) -> None:
         """Добавить рабочий день (INSERT OR IGNORE) с временем смены."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR IGNORE INTO work_schedule
@@ -6018,7 +6093,7 @@ class Database:
     def remove_work_day(self, user_id: int, work_date: str) -> None:
         """Удалить рабочий день."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 'DELETE FROM work_schedule WHERE user_id = ? AND work_date = ?',
@@ -6035,7 +6110,7 @@ class Database:
                           start_time, end_time) -> None:
         """Обновить время смены для уже существующего рабочего дня."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE work_schedule
@@ -6056,7 +6131,7 @@ class Database:
     def add_integration_connection(self, name: str, config: str,
                                    provider: str = 'google_sheets') -> int:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO integration_connections (name, provider, config) VALUES (?, ?, ?)",
@@ -6074,7 +6149,7 @@ class Database:
 
     def get_integration_connections(self) -> list:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, name, provider, config, enabled, created_at FROM integration_connections ORDER BY id"
@@ -6088,7 +6163,7 @@ class Database:
 
     def get_integration_connection(self, connection_id: int):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, name, provider, config, enabled, created_at FROM integration_connections WHERE id = ?",
@@ -6107,7 +6182,7 @@ class Database:
         if not fields:
             return
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             set_clause = ", ".join(f"{k} = ?" for k in fields)
             set_clause += ", updated_at = datetime('now')"
@@ -6124,7 +6199,7 @@ class Database:
 
     def delete_integration_connection(self, connection_id: int):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM integration_exports WHERE connection_id = ?", (connection_id,))
             cursor.execute("DELETE FROM integration_connections WHERE id = ?", (connection_id,))
@@ -6140,7 +6215,7 @@ class Database:
                                enabled: int = 1, mapping=None,
                                lookup_config=None) -> int:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO integration_exports
@@ -6162,7 +6237,7 @@ class Database:
 
     def get_integration_exports(self, connection_id: int = None) -> list:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             if connection_id is not None:
                 cursor.execute(
@@ -6189,7 +6264,7 @@ class Database:
         """Returns (export_type, connection_id, enabled, schedule, target_sheet,
                      operation, mapping, lookup_config, extra, last_run)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''SELECT export_type, connection_id, enabled, schedule, target_sheet,
@@ -6209,7 +6284,7 @@ class Database:
         """Returns rows of (export_id, conn_id, export_type, schedule, target_sheet,
                              operation, mapping, lookup_config, conn_config_json)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             if schedule is not None:
                 cursor.execute(
@@ -6244,7 +6319,7 @@ class Database:
                              operation, mapping, lookup_config, conn_config_json)
            for all exports with a cron schedule (not 'immediate' and not empty)."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''SELECT e.id, e.connection_id, e.export_type, e.schedule,
@@ -6270,7 +6345,7 @@ class Database:
         if not fields:
             return
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             set_clause = ", ".join(f"{k} = ?" for k in fields)
             cursor.execute(
@@ -6286,7 +6361,7 @@ class Database:
 
     def update_integration_export_last_run(self, export_id: int):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE integration_exports SET last_run = datetime('now') WHERE id = ?",
@@ -6301,7 +6376,7 @@ class Database:
 
     def delete_integration_export(self, export_id: int):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM integration_exports WHERE id = ?", (export_id,))
             conn.commit()
@@ -6314,7 +6389,7 @@ class Database:
     def add_integration_log(self, connection_id, export_id, status: str,
                             message: str):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO integration_log (connection_id, export_id, status, message) VALUES (?, ?, ?, ?)",
@@ -6330,7 +6405,7 @@ class Database:
     def get_integration_logs(self, connection_id: int = None,
                              limit: int = 15) -> list:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             if connection_id is not None:
                 cursor.execute(
@@ -6357,7 +6432,7 @@ class Database:
     def upsert_bonus_cache(self, connection_id: int, model_name: str,
                            chain: str, bonus: float, rrp: float = 0.0):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''INSERT INTO gs_bonus_cache (connection_id, model_name, chain, bonus, rrp, synced_at)
@@ -6374,7 +6449,7 @@ class Database:
 
     def get_bonus_cache(self, connection_id: int = None) -> list:
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             if connection_id is not None:
                 cursor.execute(
@@ -6399,7 +6474,7 @@ class Database:
         """Get cached bonus for a specific model and store chain.
         Returns float if found, None if not in cache."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 'SELECT bonus FROM gs_bonus_cache WHERE model_name=? AND chain=?',
@@ -6414,7 +6489,7 @@ class Database:
 
     def clear_bonus_cache(self, connection_id: int):
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute('DELETE FROM gs_bonus_cache WHERE connection_id = ?',
                            (connection_id,))
@@ -6426,7 +6501,7 @@ class Database:
     def get_all_admins_telegram_ids(self) -> list:
         """Return telegram_ids of all admin/owner users."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT telegram_id FROM users WHERE is_active = 1 AND role IN ('admin', 'owner') LIMIT 10"
@@ -6441,7 +6516,7 @@ class Database:
     def get_all_sales_for_export(self) -> list:
         """Return all sales for replace_sheet export."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''SELECT s.sale_date, p.name, p.category, s.shop_name,
@@ -6464,7 +6539,7 @@ class Database:
     def get_all_inventory_for_export(self) -> list:
         """Return all inventory for replace_sheet export."""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 '''SELECT i.shop_name, p.name, p.category, i.quantity, i.last_updated
@@ -6492,7 +6567,7 @@ class Database:
     def get_team_salary_summary(self, year, month):
         """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, salary, shop_name, telegram_id)"""
         try:
-            conn = sqlite3.connect(self.db_file)
+            conn = self.get_connection()
             cursor = conn.cursor()
             month_start = f"{year}-{month:02d}-01"
             month_end = f"{year}-{month:02d}-31"

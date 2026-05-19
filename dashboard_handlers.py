@@ -3,6 +3,7 @@
 Для администратора — сводка по организации сегодня (с учётом зоны ответственности).
 Для продавца — зарплата/мотивация/планы за текущий месяц.
 """
+import asyncio
 import json as _json
 import logging
 import sqlite3
@@ -564,56 +565,52 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     scale        = _get_dashboard_scale(scope_type, scope_values)
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
-    try:
-        summary = await current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs)
-        total_sales   = int(summary[0] or 0) if summary else 0
-        total_qty     = int(summary[1] or 0) if summary else 0
-        total_revenue = float(summary[2] or 0.0) if summary else 0.0
-    except Exception:
-        total_sales = total_qty = 0
-        total_revenue = 0.0
-
     low_stock      = _low_stock_count(current_db.db_file, scope_type=scope_type, scope_values=scope_values)
     today_earnings = _today_total_earnings(current_db.db_file, today, scope_type=scope_type, scope_values=scope_values)
 
-    plans_progress = []
-    try:
-        plans_progress = await current_db.get_plans_progress()
-        if scope_type == 'shop' and len(scope_values) == 1:
-            sv = scope_values[0]
-            plans_progress = [
-                (p, a, pct) for p, a, pct in plans_progress
-                if p[4] == 'seller' or (p[4] == 'shop' and p[6] == sv)
-            ]
-    except Exception:
-        pass
+    # ── Параллельные запросы к БД (asyncio.gather) ───────────────────────────
+    _base_tasks = [
+        current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs),
+        current_db.get_plans_progress(),
+        current_db.get_contests(status='active'),
+    ]
+    _salary_tasks = (
+        [
+            current_db.get_salary_rate(user_id),
+            current_db.get_worked_days_count(user_id, year, month),
+            current_db.get_seller_total_earnings(user_id, start_date=month_start, end_date=today),
+            current_db.get_user_contest_rewards(telegram_id, month_start, today),
+        ]
+        if user_id else []
+    )
+    _results = await asyncio.gather(*_base_tasks, *_salary_tasks, return_exceptions=True)
 
-    active_contests = []
-    try:
-        active_contests = await current_db.get_contests(status='active') or []
-    except Exception:
-        pass
+    _r = lambda i, default=None: _results[i] if not isinstance(_results[i], Exception) else default
+
+    _summary       = _r(0)
+    total_sales    = int(_summary[0] or 0) if _summary else 0
+    total_qty      = int(_summary[1] or 0) if _summary else 0
+    total_revenue  = float(_summary[2] or 0.0) if _summary else 0.0
+
+    plans_progress = _r(1, []) or []
+    if scope_type == 'shop' and len(scope_values) == 1:
+        sv = scope_values[0]
+        plans_progress = [
+            (p, a, pct) for p, a, pct in plans_progress
+            if p[4] == 'seller' or (p[4] == 'shop' and p[6] == sv)
+        ]
+
+    active_contests = _r(2, []) or []
 
     salary = worked_days = daily_rate = 0.0
     motivations = contest_rewards = 0.0
     if user_id:
-        try:
-            daily_rate  = await current_db.get_salary_rate(user_id)
-            worked_days = await current_db.get_worked_days_count(user_id, year, month)
-            salary      = daily_rate * worked_days
-        except Exception:
-            pass
-        try:
-            earnings    = await current_db.get_seller_total_earnings(
-                user_id, start_date=month_start, end_date=today
-            )
-            motivations = earnings.get('total_earnings', 0.0)
-        except Exception:
-            pass
-        try:
-            contest_rewards = await current_db.get_user_contest_rewards(telegram_id, month_start, today)
-        except Exception:
-            pass
+        daily_rate     = _r(3, 0.0) or 0.0
+        worked_days    = _r(4, 0) or 0
+        salary         = daily_rate * worked_days
+        _earn          = _r(5, {}) or {}
+        motivations    = _earn.get('total_earnings', 0.0)
+        contest_rewards = _r(6, 0.0) or 0.0
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -791,44 +788,35 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
     else:
         sales_start = today
 
-    try:
-        daily_rate  = await current_db.get_salary_rate(user_id)
-        worked_days = await current_db.get_worked_days_count(user_id, year, month)
-        salary      = daily_rate * worked_days
-    except Exception:
-        daily_rate = worked_days = salary = 0.0
+    # ── Параллельные запросы к БД (asyncio.gather) ───────────────────────────
+    _ures = await asyncio.gather(
+        current_db.get_salary_rate(user_id),
+        current_db.get_worked_days_count(user_id, year, month),
+        current_db.get_seller_total_earnings(user_id, start_date=month_start, end_date=today),
+        current_db.get_seller_total_earnings(user_id, start_date=sales_start, end_date=today),
+        current_db.get_sales_summary(start_date=sales_start, end_date=today, user_id=user_id),
+        current_db.get_user_contest_rewards(telegram_id, month_start, today),
+        current_db.get_user_plans_progress(telegram_id),
+        current_db.get_contests(status='active'),
+        return_exceptions=True,
+    )
 
-    try:
-        earnings    = await current_db.get_seller_total_earnings(
-            user_id, start_date=month_start, end_date=today
-        )
-        motivations = earnings.get('total_earnings', 0.0)
-    except Exception:
-        motivations = 0.0
+    _ur = lambda i, default=None: _ures[i] if not isinstance(_ures[i], Exception) else default
 
-    try:
-        period_earnings = await current_db.get_seller_total_earnings(
-            user_id, start_date=sales_start, end_date=today
-        )
-        period_motivations = period_earnings.get('total_earnings', 0.0)
-    except Exception:
-        period_motivations = 0.0
-
-    try:
-        period_summary = await current_db.get_sales_summary(
-            start_date=sales_start, end_date=today, user_id=user_id
-        )
-        period_sales = int(period_summary[0] or 0) if period_summary else 0
-        period_qty   = int(period_summary[1] or 0) if period_summary else 0
-        period_rev   = float(period_summary[2] or 0.0) if period_summary else 0.0
-    except Exception:
-        period_sales = period_qty = 0
-        period_rev = 0.0
-
-    try:
-        contest_rewards = await current_db.get_user_contest_rewards(telegram_id, month_start, today)
-    except Exception:
-        contest_rewards = 0.0
+    daily_rate    = _ur(0, 0.0) or 0.0
+    worked_days   = _ur(1, 0) or 0
+    salary        = daily_rate * worked_days
+    _earn_m       = _ur(2, {}) or {}
+    motivations   = _earn_m.get('total_earnings', 0.0)
+    _earn_p       = _ur(3, {}) or {}
+    period_motivations = _earn_p.get('total_earnings', 0.0)
+    _psumm        = _ur(4)
+    period_sales  = int(_psumm[0] or 0) if _psumm else 0
+    period_qty    = int(_psumm[1] or 0) if _psumm else 0
+    period_rev    = float(_psumm[2] or 0.0) if _psumm else 0.0
+    contest_rewards = _ur(5, 0.0) or 0.0
+    plans_progress  = _ur(6, []) or []
+    user_contests   = _ur(7, []) or []
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -855,26 +843,17 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         text += f"• Мотивация: <b>+{period_motivations:,.0f} ₽</b>\n"
     text += "\n"
 
-    # Планы продавца
-    plans_progress = []
-    try:
-        plans_progress = await current_db.get_user_plans_progress(telegram_id)
-    except Exception:
-        pass
-
     if plans_progress:
         text += "📋 <b>Мои планы</b>\n\n"
         for plan_row, actual, pct in plans_progress:
             text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
 
-    # Конкурсы
-    try:
-        user_contests = await current_db.get_contests(status='active') or []
-        if user_contests:
+    if user_contests:
+        try:
             text += await _contest_block(user_contests, today,
-                                       current_db=current_db, telegram_id=telegram_id)
-    except Exception:
-        pass
+                                         current_db=current_db, telegram_id=telegram_id)
+        except Exception:
+            pass
 
     return text
 
