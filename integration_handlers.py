@@ -13,7 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from subscription_utils import check_integrations_permission
-from keyboards import back_button
+from keyboards import back_button, home_button
 from states import IntegrationStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
 from message_utils import fsm_edit, delete_message_safe
@@ -112,6 +112,7 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
             callback_data="gs_guide_1"
         ))
     kb.row(_back("admin_management"))
+    kb.row(home_button())
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 

@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
 
 from database import Database
-from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name
+from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, home_button
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -76,6 +76,7 @@ async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="📈 Топ продавцов", callback_data="top_sellers")
     builder.button(text="⚙️ Доп. условия", callback_data="motivation_extra")
     builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.add(home_button())
     builder.adjust(1)
 
     await callback.message.edit_text(

@@ -119,6 +119,10 @@ def back_button(callback_data: str):
     """Кнопка назад"""
     return InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)
 
+def home_button():
+    """Единая кнопка возврата в главное меню"""
+    return InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+
 def usage_mode_keyboard():
     """Выбор режима использования при регистрации"""
     return InlineKeyboardMarkup(inline_keyboard=[

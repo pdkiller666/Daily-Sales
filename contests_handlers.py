@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button
+from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button, home_button
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -126,6 +126,7 @@ async def contests_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="🏆 Активные конкурсы", callback_data="contest_list_active")
     builder.button(text="📋 Архив конкурсов", callback_data="contest_list_archive")
     builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.add(home_button())
     builder.adjust(1)
 
     _ct_db = await get_db(callback.from_user.id, state)

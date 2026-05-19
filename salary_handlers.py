@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from keyboards import InlineKeyboardBuilder, back_button
+from keyboards import InlineKeyboardBuilder, back_button, home_button
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -181,6 +181,7 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     builder.button(text=f"📊 Сводка ФОТ — {_MONTH_NAMES[now.month - 1]} {now.year}",
                    callback_data=f"slr_sum_{now.year}_{now.month}")
     builder.add(back_button("admin_management"))
+    builder.add(home_button())
     builder.adjust(1)
     await callback.message.edit_text(
         "💼 <b>Оклады и графики работы</b>\n\n"

@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from aiogram.types import InlineKeyboardButton
-from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button
+from keyboards import InlineKeyboardBuilder, safe_cb, resolve_cb_name, back_button, home_button
 from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -123,6 +123,7 @@ async def sales_plans_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="✏️ Редактировать план", callback_data="editpln_start")
     builder.button(text="🗑 Удалить план", callback_data="delpln_start")
     builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.add(home_button())
     builder.adjust(1)
 
     _sp_db = await get_db(callback.from_user.id, state)

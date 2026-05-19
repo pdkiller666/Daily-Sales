@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username
 from database import Database
-from keyboards import back_button
+from keyboards import back_button, home_button
 from states import NotificationStates
 from env_manager import env_manager
 from reports_access_control import get_subscription_offer_message
@@ -102,7 +102,8 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
         keyboard_buttons.append([InlineKeyboardButton(text="📨 Отправить уведомление", callback_data="admin_send_notification")])
     
     keyboard_buttons.append([back_button("user_profile")])
-    
+    keyboard_buttons.append([home_button()])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
