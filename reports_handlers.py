@@ -163,7 +163,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     if is_admin:
         from filter_utils import ADMIN_FILTER_KEY, get_available_filter_values, filter_button_text, has_anything_to_filter, empty_filter
         try:
-            _avail = await asyncio.to_thread(get_available_filter_values, current_db, scope_type, scope_values)
+            _avail = get_available_filter_values(current_db, scope_type, scope_values)
             if has_anything_to_filter(_avail):
                 data_f = await state.get_data()
                 _af = data_f.get(ADMIN_FILTER_KEY, empty_filter())
@@ -1235,7 +1235,7 @@ async def rankings_menu_admin(callback: CallbackQuery, state: FSMContext):
     try:
         current_db = await get_db(callback.from_user.id, state)
         _sc, _sv = get_user_org_scope(callback.from_user.id)
-        _avail = await asyncio.to_thread(get_available_filter_values, current_db, _sc, _sv)
+        _avail = get_available_filter_values(current_db, _sc, _sv)
         if has_anything_to_filter(_avail):
             filter_row = [InlineKeyboardButton(text=filter_button_text(_af), callback_data="flt_open_rankings_menu")]
     except Exception:
