@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username
+from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username, wrap_db
 from database import Database
 from keyboards import back_button, home_button, generate_calendar
 from pagination_utils import page_nav_row
@@ -32,11 +32,11 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     is_super = env_manager.is_super_admin(callback.from_user.id)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     
     # Если супер-админ, создаем запись в БД если её нет
     if is_super and not user:
-        current_db.add_user(
+        await current_db.add_user(
             telegram_id=callback.from_user.id,
             first_name=callback.from_user.first_name or "Admin",
             last_name=callback.from_user.last_name or "",
@@ -46,7 +46,7 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
             phone="000",
             username=callback.from_user.username
         )
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
 
     if not user:
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
@@ -74,8 +74,8 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(message, reply_markup=keyboard, parse_mode="HTML")
         return
 
-    settings = current_db.get_notification_settings(user_id)
-    history = current_db.get_notification_history(user_id)
+    settings = await current_db.get_notification_settings(user_id)
+    history = await current_db.get_notification_history(user_id)
     # item[4] = is_read (item[3] = message — это был баг, всегда давал 0 непрочитанных)
     unread_count = sum(1 for item in history if not item[4])
     
@@ -218,8 +218,8 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
             try:
                 if not os.path.exists(path):
                     continue
-                path_db = Database(path)
-                recipients = path_db.get_users_for_notifications('admin')
+                path_db = wrap_db(Database(path))
+                recipients = await path_db.get_users_for_notifications('admin')
                 if recipients:
                     target_by_db[path] = (path_db, [(r[0], r[1]) for r in recipients if r[1]])
             except Exception as e:
@@ -242,7 +242,7 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
                 try:
                     await bot.send_message(tid_int, f"🔔 <b>Уведомление от администратора</b>\n\n{text}", parse_mode="HTML", reply_markup=add_read_btn())
                     count += 1
-                    path_db.add_notification_to_history(uid_internal, 'admin', text)
+                    await path_db.add_notification_to_history(uid_internal, 'admin', text)
                     await asyncio.sleep(0.05)
                 except Exception as e:
                     logging.error(f"BROADCAST ERROR: Failed to send to {tid_int}: {e}")
@@ -286,14 +286,14 @@ async def process_schedule_time(message: Message, state: FSMContext):
             return
 
         current_db = await get_db(message.from_user.id, state)
-        admin_user = current_db.get_user(message.from_user.id)
+        admin_user = await current_db.get_user(message.from_user.id)
         if not admin_user:
             await message.answer("❌ Профиль администратора не найден.")
             await clear_state_keep_org(state)
             return
 
         # Интерпретируем введённое время в timezone администратора → конвертируем в UTC
-        admin_tz = current_db.get_user_timezone(message.from_user.id)
+        admin_tz = await current_db.get_user_timezone(message.from_user.id)
         schedule_time_utc = get_utc_time(schedule_time_naive, admin_tz)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         if schedule_time_utc <= now_utc:
@@ -303,7 +303,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
         is_super = env_manager.is_super_admin(message.from_user.id)
         recipients_type = 'all' if is_super else 'org'
         job_id = str(uuid.uuid4())
-        current_db.add_scheduled_notification(
+        await current_db.add_scheduled_notification(
             job_id=job_id,
             created_by=admin_user[0],
             notification_text=text,
@@ -328,7 +328,7 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
         return
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    notifications = current_db.get_scheduled_notifications(status='pending')
+    notifications = await current_db.get_scheduled_notifications(status='pending')
 
     if not notifications:
         await callback.message.edit_text(
@@ -339,7 +339,7 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
         return
 
     from timezone_utils import format_user_datetime
-    admin_tz = current_db.get_user_timezone(callback.from_user.id)
+    admin_tz = await current_db.get_user_timezone(callback.from_user.id)
 
     text = "📅 <b>Запланированные уведомления</b>\n\n"
     buttons = []
@@ -376,7 +376,7 @@ async def delete_scheduled_notification(callback: CallbackQuery, state: FSMConte
         await callback.answer("❌ Ошибка в данных", show_alert=True)
         return
     current_db = await get_db(callback.from_user.id, state)
-    deleted = current_db.delete_scheduled_notification(notif_id)
+    deleted = await current_db.delete_scheduled_notification(notif_id)
     if deleted:
         await callback.answer("✅ Уведомление удалено")
     else:
@@ -388,13 +388,13 @@ async def delete_scheduled_notification(callback: CallbackQuery, state: FSMConte
 async def notification_settings_menu(callback: CallbackQuery, state: FSMContext):
     """Меню настроек уведомлений"""
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
     
     user_id = user[0]
-    settings = current_db.get_notification_settings(user_id)
+    settings = await current_db.get_notification_settings(user_id)
     is_admin = is_any_admin(callback.from_user.id)
     
     text = "⚙️ <b>Настройки уведомлений</b>\n\n"
@@ -426,7 +426,7 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
 @notifications_router.callback_query(F.data == "set_notification_time")
 async def set_notification_time_start(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -440,7 +440,7 @@ async def set_notification_time_start(callback: CallbackQuery, state: FSMContext
 @notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale"]))
 async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -466,9 +466,9 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
             await callback.answer("❌ Только для администраторов!", show_alert=True)
             return
     
-    settings = current_db.get_notification_settings(user_id)
+    settings = await current_db.get_notification_settings(user_id)
     new_value = not settings.get(setting_type, False)
-    current_db.update_notification_settings(user_id, **{setting_type: new_value})
+    await current_db.update_notification_settings(user_id, **{setting_type: new_value})
     
     await callback.answer(f"✅ Настройка изменена")
     await notification_settings_menu(callback, state)
@@ -476,7 +476,7 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
 @notifications_router.callback_query(F.data == "set_stock_threshold")
 async def set_stock_threshold_start(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -497,7 +497,7 @@ async def process_stock_threshold(message: Message, state: FSMContext):
             return
         data = await state.get_data()
         current_db = await get_db(message.from_user.id, state)
-        current_db.update_notification_settings(data['user_id'], stock_threshold=threshold)
+        await current_db.update_notification_settings(data['user_id'], stock_threshold=threshold)
         await message.answer(f"✅ Порог установлен: {threshold} шт.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
         await clear_state_keep_org(state)
     except ValueError:
@@ -513,7 +513,7 @@ async def process_notification_time(message: Message, state: FSMContext):
     data = await state.get_data()
     try:
         current_db = await get_db(message.from_user.id, state)
-        current_db.update_notification_settings(data['user_id'], notification_time=time_text)
+        await current_db.update_notification_settings(data['user_id'], notification_time=time_text)
         await message.answer(f"✅ Время установлено: {time_text}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
     except Exception as e:
         logging.error(f"process_notification_time: DB error: {e}")
@@ -647,13 +647,13 @@ async def show_notification_history(callback: CallbackQuery, state: FSMContext):
     from timezone_utils import format_user_datetime
 
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
     user_id = user[0]
-    user_timezone = current_db.get_user_timezone(callback.from_user.id)
+    user_timezone = await current_db.get_user_timezone(callback.from_user.id)
     data = await state.get_data()
 
     period     = data.get('nh_period', 'week')
@@ -686,7 +686,7 @@ async def show_notification_history(callback: CallbackQuery, state: FSMContext):
         end_str      = None
         period_label = "Все время"
 
-    rows, total = current_db.get_notification_history_paged(
+    rows, total = await current_db.get_notification_history_paged(
         user_id, start_str, end_str,
         limit=NOTIF_HIST_PAGE_SIZE,
         offset=page * NOTIF_HIST_PAGE_SIZE,
@@ -759,9 +759,9 @@ async def show_notification_history(callback: CallbackQuery, state: FSMContext):
 @notifications_router.callback_query(F.data == "mark_all_read")
 async def mark_all_notifications_read(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if user:
-        current_db.mark_notifications_as_read(user[0])
+        await current_db.mark_notifications_as_read(user[0])
     await callback.answer("✅ Прочитано")
     await show_notification_history(callback, state)
 
@@ -801,9 +801,9 @@ async def cleanup_notifications_confirm(callback: CallbackQuery):
 async def cleanup_notifications_execute(callback: CallbackQuery, state: FSMContext):
     period = callback.data.split(':')[1]
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if user:
-        count = current_db.delete_old_notifications(user[0], period)
+        count = await current_db.delete_old_notifications(user[0], period)
         await callback.answer(f"✅ Удалено: {count}")
     await state.update_data(nh_period='week', nh_offset=0, nh_page=0,
                              nh_start=None, nh_end=None)

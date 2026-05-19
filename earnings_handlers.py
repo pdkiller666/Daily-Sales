@@ -25,7 +25,7 @@ class EarningsStates(StatesGroup):
 async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
     """Меню просмотра заработка"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -38,15 +38,15 @@ async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⬅️ Назад", callback_data="main_menu")
     builder.adjust(1)
 
-    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    user_tz = await current_db.get_user_timezone(callback.from_user.id)
     now = get_current_user_time(user_tz)
     current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    month_earnings = current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
-    all_time_earnings = current_db.get_seller_total_earnings(user_id)
+    month_earnings = await current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
+    all_time_earnings = await current_db.get_seller_total_earnings(user_id)
 
-    worked_days = current_db.get_worked_days_count(user_id, now.year, now.month)
-    monthly_salary = current_db.calculate_monthly_salary(user_id, now.year, now.month)
-    daily_rate = current_db.get_salary_rate(user_id)
+    worked_days = await current_db.get_worked_days_count(user_id, now.year, now.month)
+    monthly_salary = await current_db.calculate_monthly_salary(user_id, now.year, now.month)
+    daily_rate = await current_db.get_salary_rate(user_id)
 
     text = (
         "💰 <b>Мой заработок</b>\n\n"
@@ -72,23 +72,23 @@ async def my_earnings_menu(callback: CallbackQuery, state: FSMContext):
 async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
     """Заработок за текущий месяц"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    user_tz = await current_db.get_user_timezone(callback.from_user.id)
     now = get_current_user_time(user_tz)
     current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
-    total_earnings = current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
+    earnings = await current_db.get_seller_earnings(user_id, current_month_start.isoformat())
+    total_earnings = await current_db.get_seller_total_earnings(user_id, current_month_start.isoformat())
 
     current_month_name = _MONTHS_RU[now.month]
 
-    worked_days = current_db.get_worked_days_count(user_id, now.year, now.month)
-    monthly_salary = current_db.calculate_monthly_salary(user_id, now.year, now.month)
-    daily_rate = current_db.get_salary_rate(user_id)
+    worked_days = await current_db.get_worked_days_count(user_id, now.year, now.month)
+    monthly_salary = await current_db.calculate_monthly_salary(user_id, now.year, now.month)
+    daily_rate = await current_db.get_salary_rate(user_id)
 
     text = f"📅 <b>Заработок за {current_month_name} {now.year}</b>\n\n"
     text += f"💰 <b>Мотивация:</b> {format_price(total_earnings['total_earnings'])}₽\n"
@@ -140,13 +140,13 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
 async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
     """Заработок за всё время"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    earnings = current_db.get_seller_earnings(user_id)
-    total_earnings = current_db.get_seller_total_earnings(user_id)
+    earnings = await current_db.get_seller_earnings(user_id)
+    total_earnings = await current_db.get_seller_total_earnings(user_id)
 
     text = "📊 <b>Заработок за всё время</b>\n\n"
     text += f"💰 <b>Общий заработок:</b> {format_price(total_earnings['total_earnings'])}₽\n"
@@ -191,20 +191,20 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
 async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
     """Детальный отчет по заработку с пагинацией по дням"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
     if callback.data == "earnings_detailed_current":
-        user_tz = current_db.get_user_timezone(callback.from_user.id)
+        user_tz = await current_db.get_user_timezone(callback.from_user.id)
         now = get_current_user_time(user_tz)
         current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
+        earnings = await current_db.get_seller_earnings(user_id, current_month_start.isoformat())
         period_text = f"{_MONTHS_RU[now.month]} {now.year}"
         period_type = "current"
     else:
-        earnings = current_db.get_seller_earnings(user_id)
+        earnings = await current_db.get_seller_earnings(user_id)
         period_text = "всё время"
         period_type = "all"
 
@@ -273,7 +273,7 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
 async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     """Детальный просмотр продаж за конкретный день"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -284,10 +284,10 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
 
     if period_type == "current":
         current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        earnings = current_db.get_seller_earnings(user_id, current_month_start.isoformat())
+        earnings = await current_db.get_seller_earnings(user_id, current_month_start.isoformat())
         back_callback = "earnings_detailed_current"
     else:
-        earnings = current_db.get_seller_earnings(user_id)
+        earnings = await current_db.get_seller_earnings(user_id)
         back_callback = "earnings_detailed"
 
     day_sales = []
@@ -320,7 +320,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     day_earning = 0
 
     from timezone_utils import format_user_datetime
-    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    user_tz = await current_db.get_user_timezone(callback.from_user.id)
 
     for i, earning in enumerate(day_sales, 1):
         commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
@@ -367,7 +367,7 @@ async def earnings_select_period(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     builder = InlineKeyboardBuilder()
 
-    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    user_tz = await current_db.get_user_timezone(callback.from_user.id)
     current_date = get_current_user_time(user_tz)
     for i in range(1, 7):
         date = current_date - timedelta(days=30*i)
@@ -388,7 +388,7 @@ async def earnings_select_period(callback: CallbackQuery, state: FSMContext):
 async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
     """Заработок за конкретный месяц"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -402,14 +402,14 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
     else:
         end_date = datetime(year, month + 1, 1) - timedelta(seconds=1)
 
-    earnings = current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
-    total_earnings = current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
+    earnings = await current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
+    total_earnings = await current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
 
     month_name = _MONTHS_RU[month]
 
-    worked_days = current_db.get_worked_days_count(user_id, year, month)
-    monthly_salary = current_db.calculate_monthly_salary(user_id, year, month)
-    daily_rate = current_db.get_salary_rate(user_id)
+    worked_days = await current_db.get_worked_days_count(user_id, year, month)
+    monthly_salary = await current_db.calculate_monthly_salary(user_id, year, month)
+    daily_rate = await current_db.get_salary_rate(user_id)
 
     text = f"📅 <b>Заработок за {month_name} {year}</b>\n\n"
     text += f"💰 <b>Мотивация:</b> {format_price(total_earnings['total_earnings'])}₽\n"
@@ -457,18 +457,18 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
 async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
     """Заработок за прошлый год"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    user_tz = current_db.get_user_timezone(callback.from_user.id)
+    user_tz = await current_db.get_user_timezone(callback.from_user.id)
     last_year = get_current_user_time(user_tz).year - 1
     start_date = datetime(last_year, 1, 1)
     end_date = datetime(last_year, 12, 31, 23, 59, 59)
 
-    earnings = current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
-    total_earnings = current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
+    earnings = await current_db.get_seller_earnings(user_id, start_date.isoformat(), end_date.isoformat())
+    total_earnings = await current_db.get_seller_total_earnings(user_id, start_date.isoformat(), end_date.isoformat())
 
     text = f"📅 <b>Заработок за {last_year} год</b>\n\n"
     text += f"💰 <b>Общий заработок:</b> {format_price(total_earnings['total_earnings'])}₽\n"

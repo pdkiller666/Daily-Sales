@@ -76,11 +76,13 @@ def hint_suffix(db, user_id: int, hint_key: str) -> str:
     При первом визите → "\n\n💡 <i>...</i>".
     При повторных визитах → "" (экран остаётся чистым).
     Весь код завёрнут в try/except — подсказки никогда не ломают основной экран.
+    Поддерживает как Database, так и AsyncDatabase (через sync-доступ к _db).
     """
     try:
-        if db.has_seen_hint(user_id, hint_key):
+        _sync = getattr(db, '_db', db)
+        if _sync.has_seen_hint(user_id, hint_key):
             return ""
-        db.mark_hint_seen(user_id, hint_key)
+        _sync.mark_hint_seen(user_id, hint_key)
         text = HINT_TEXTS.get(hint_key, "")
         return f"\n\n{text}" if text else ""
     except Exception:
@@ -92,13 +94,15 @@ async def maybe_send_welcome(message_or_callback, db, user_id: int, is_admin: bo
 
     message_or_callback — aiogram Message или CallbackQuery.
     is_admin — True для владельцев / администраторов организации.
+    Поддерживает как Database, так и AsyncDatabase (через sync-доступ к _db).
     """
     from aiogram.types import Message as _Msg
     hint_key = "welcome_admin" if is_admin else "welcome_user"
     try:
-        if db.has_seen_hint(user_id, hint_key):
+        _sync = getattr(db, '_db', db)
+        if _sync.has_seen_hint(user_id, hint_key):
             return
-        db.mark_hint_seen(user_id, hint_key)
+        _sync.mark_hint_seen(user_id, hint_key)
         text = WELCOME_ADMIN_TEXT if is_admin else WELCOME_USER_TEXT
         if isinstance(message_or_callback, _Msg):
             await message_or_callback.answer(

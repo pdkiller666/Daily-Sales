@@ -335,7 +335,7 @@ async def contest_scope_selected(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     if scope == 'product':
-        products = current_db.get_all_products()
+        products = await current_db.get_all_products()
         if not products:
             await callback.answer("❌ Нет товаров в системе", show_alert=True)
             return
@@ -345,7 +345,7 @@ async def contest_scope_selected(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
     elif scope == 'category':
-        categories = current_db.get_all_categories()
+        categories = await current_db.get_all_categories()
         if not categories:
             await callback.answer("❌ Нет категорий в системе", show_alert=True)
             return
@@ -384,7 +384,7 @@ async def contest_toggle_product(callback: CallbackQuery, state: FSMContext):
     await state.update_data(ct_products=selected)
 
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await _show_contest_product_list(callback.message, products, selected)
     await callback.answer()
 
@@ -403,7 +403,7 @@ async def contest_toggle_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     raw = callback.data[len("ctcat_"):]
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     cat = resolve_cb_name(raw, categories)
     if not cat:
         return
@@ -441,7 +441,7 @@ async def ct_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     data = await state.get_data()
     selected = list(data.get('ct_products') or [])
     await _show_contest_product_list(callback.message, products, selected)
@@ -452,7 +452,7 @@ async def ct_srch_prd_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     data = await state.get_data()
     selected = list(data.get('ct_products') or [])
     q = query.lower()
@@ -497,7 +497,7 @@ async def ct_srch_cat_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     data = await state.get_data()
     selected = list(data.get('ct_categories') or [])
     await _show_contest_category_list(callback.message, categories, selected)
@@ -508,7 +508,7 @@ async def ct_srch_cat_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     data = await state.get_data()
     selected = list(data.get('ct_categories') or [])
     q = query.lower()
@@ -694,7 +694,7 @@ async def _show_tier_bonus_step(callback: CallbackQuery, state: FSMContext, tier
     if scope == 'product':
         products = data.get('ct_products') or []
         current_db = await get_db(callback.from_user.id, state)
-        all_products = current_db.get_all_products()
+        all_products = await current_db.get_all_products()
         prod_map = {p[0]: p[1] for p in all_products}
 
         if prod_idx >= len(products):
@@ -772,7 +772,7 @@ async def contest_tier_bonus_entered(message: Message, state: FSMContext):
     if scope == 'product':
         products = data.get('ct_products') or []
         current_db = await get_db(message.from_user.id, state)
-        all_products = current_db.get_all_products()
+        all_products = await current_db.get_all_products()
         prod_map = {p[0]: p[1] for p in all_products}
 
         pid = products[prod_idx]
@@ -873,7 +873,7 @@ async def contest_individual_targets_start(callback: CallbackQuery, state: FSMCo
     if ct_shops:
         shops = ct_shops
     else:
-        shops = current_db.get_all_shops() or []
+        shops = await current_db.get_all_shops() or []
     if not shops:
         await callback.answer("❌ Нет магазинов в системе", show_alert=True)
         return
@@ -1178,7 +1178,7 @@ async def contest_calendar_day(callback: CallbackQuery, state: FSMContext):
         await state.update_data(ct_end=date_str)
         if edit_cid:
             current_db = await get_db(callback.from_user.id, state)
-            ok = current_db.update_contest(edit_cid, start_date=start_str, end_date=date_str)
+            ok = await current_db.update_contest(edit_cid, start_date=start_str, end_date=date_str)
             await state.update_data(ct_edit_cid=None)
             back_kb = InlineKeyboardBuilder()
             back_kb.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{edit_cid}")
@@ -1228,7 +1228,7 @@ async def contest_shop_all(callback: CallbackQuery, state: FSMContext):
 @contests_router.callback_query(F.data == "ctshop_select")
 async def contest_shop_select(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     if not shops:
         await callback.answer("❌ Нет магазинов в системе", show_alert=True)
         return
@@ -1255,7 +1255,7 @@ async def ct_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     data = await state.get_data()
     selected = data.get('ct_shops') or []
     await _show_contest_shop_list(callback.message, shops, selected)
@@ -1266,7 +1266,7 @@ async def ct_srch_shop_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     data = await state.get_data()
     selected = data.get('ct_shops') or []
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
@@ -1294,7 +1294,7 @@ async def contest_toggle_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     raw = callback.data[len("ctshopchk_"):]
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     shop = resolve_cb_name(raw, shops)
     data = await state.get_data()
     selected = list(data.get('ct_shops') or [])
@@ -1337,7 +1337,7 @@ async def contest_user_all(callback: CallbackQuery, state: FSMContext):
 @contests_router.callback_query(F.data == "ctusr_select")
 async def contest_user_select(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     if not sellers:
         await callback.answer("❌ Нет сотрудников в системе", show_alert=True)
@@ -1373,7 +1373,7 @@ async def contest_toggle_user(callback: CallbackQuery, state: FSMContext):
     await state.update_data(ct_users=selected if selected else None)
 
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     builder = InlineKeyboardBuilder()
     for u in sellers:
@@ -1502,14 +1502,14 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     created_by = user[0] if user else None
 
     reward_mode = data.get('ct_reward_mode', 'total')
     ind_targets = data.get('ct_individual_targets') or {}
     ind_targets_json = _json.dumps({'by_shop': ind_targets}, ensure_ascii=False) if ind_targets else None
 
-    contest_id = current_db.create_contest(
+    contest_id = await current_db.create_contest(
         title=data.get('ct_title'),
         description=data.get('ct_description'),
         contest_type=data.get('ct_contest_type', 'any'),
@@ -1533,7 +1533,7 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
     if contest_id and reward_mode == 'per_sale':
         tiers = data.get('ct_tiers') or []
         if tiers:
-            current_db.save_contest_product_bonuses(contest_id, tiers)
+            await current_db.save_contest_product_bonuses(contest_id, tiers)
 
     await clear_state_keep_org(state)
 
@@ -1550,7 +1550,7 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
     notify_info = ""
     if data.get('ct_notify'):
         sent = 0
-        all_users = current_db.get_all_users()
+        all_users = await current_db.get_all_users()
         user_filter = data.get('ct_users')
         shop_filter = data.get('ct_shops')
         notif_text = (
@@ -1598,7 +1598,7 @@ async def contest_confirm_create(callback: CallbackQuery, state: FSMContext):
 
 async def _render_active_contests(callback: CallbackQuery, state: FSMContext, page: int = 0):
     current_db = await get_db(callback.from_user.id, state)
-    contests = current_db.get_contests(status='active')
+    contests = await current_db.get_contests(status='active')
     await callback.answer()
 
     builder = InlineKeyboardBuilder()
@@ -1668,8 +1668,8 @@ async def contest_active_page(callback: CallbackQuery, state: FSMContext):
 
 async def _render_archive_contests(callback: CallbackQuery, state: FSMContext, page: int = 0):
     current_db = await get_db(callback.from_user.id, state)
-    finished = current_db.get_contests(status='finished')
-    cancelled = current_db.get_contests(status='cancelled')
+    finished = await current_db.get_contests(status='finished')
+    cancelled = await current_db.get_contests(status='cancelled')
     contests = finished + cancelled
     await callback.answer()
 
@@ -1735,8 +1735,8 @@ async def contest_archive_clear_confirm(callback: CallbackQuery, state: FSMConte
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    finished = current_db.get_contests(status='finished')
-    cancelled = current_db.get_contests(status='cancelled')
+    finished = await current_db.get_contests(status='finished')
+    cancelled = await current_db.get_contests(status='cancelled')
     total = len(finished) + len(cancelled)
 
     builder = InlineKeyboardBuilder()
@@ -1760,7 +1760,7 @@ async def contest_archive_clear_do(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    deleted = current_db.clear_contests_archive()
+    deleted = await current_db.clear_contests_archive()
 
     builder = InlineKeyboardBuilder()
     builder.button(text="⬅️ К конкурсам", callback_data="contests_menu")
@@ -1783,7 +1783,7 @@ async def contest_view(callback: CallbackQuery, state: FSMContext):
 
     contest_id = int(callback.data[len("ct_view_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
 
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
@@ -1824,7 +1824,7 @@ async def contest_view(callback: CallbackQuery, state: FSMContext):
     )
 
     if reward_mode == 'per_sale':
-        tier_bonuses = current_db.get_contest_product_bonuses(cid)
+        tier_bonuses = await current_db.get_contest_product_bonuses(cid)
         if tier_bonuses:
             # Группируем по min_plan_pct
             from collections import defaultdict
@@ -1885,7 +1885,7 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
 
     contest_id = int(callback.data[len("ct_results_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
 
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
@@ -1899,7 +1899,7 @@ async def contest_results(callback: CallbackQuery, state: FSMContext):
     status = contest[16]
     reward_mode = contest[22] if len(contest) > 22 else 'total'
 
-    results = current_db.compute_contest_results(contest_id)
+    results = await current_db.compute_contest_results(contest_id)
     metric_unit = '₽' if metric == 'turnover' else ' шт'
 
     text = f"📊 <b>Результаты: {he(title)}</b>\n📅 {_fmt_date(start)} — {_fmt_date(end)}\n\n"
@@ -1987,7 +1987,7 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
 
     contest_id = int(callback.data[len("ct_notify_win_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -1995,7 +1995,7 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
     title = contest[1]
     metric = contest[4]
     reward_mode = contest[22] if len(contest) > 22 else 'total'
-    results = current_db.compute_contest_results(contest_id)
+    results = await current_db.compute_contest_results(contest_id)
     winners = [r for r in results if r['is_winner']]
     sent = 0
     for r in winners:
@@ -2037,10 +2037,10 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
 async def contest_finish_execute(callback: CallbackQuery, state: FSMContext):
     contest_id = int(callback.data[len("ct_finish_ok_"):])
     current_db = await get_db(callback.from_user.id, state)
-    success = current_db.update_contest_status(contest_id, 'finished')
+    success = await current_db.update_contest_status(contest_id, 'finished')
 
     if success:
-        results = current_db.compute_contest_results(contest_id)
+        results = await current_db.compute_contest_results(contest_id)
         winners = [r for r in results if r['is_winner']]
         builder = InlineKeyboardBuilder()
         builder.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
@@ -2085,7 +2085,7 @@ async def contest_finish_confirm(callback: CallbackQuery, state: FSMContext):
 async def contest_cancel_execute(callback: CallbackQuery, state: FSMContext):
     contest_id = int(callback.data[len("ct_cancel_ok_"):])
     current_db = await get_db(callback.from_user.id, state)
-    success = current_db.update_contest_status(contest_id, 'cancelled')
+    success = await current_db.update_contest_status(contest_id, 'cancelled')
     result_text = "✅ <b>Конкурс отменён</b>" if success else "❌ Ошибка при отмене"
     await callback.message.edit_text(
         result_text,
@@ -2144,7 +2144,7 @@ async def contest_edit_target(callback: CallbackQuery, state: FSMContext):
         return
     contest_id = int(callback.data[len("ct_et_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -2170,7 +2170,7 @@ async def contest_edit_reward(callback: CallbackQuery, state: FSMContext):
         return
     contest_id = int(callback.data[len("ct_er_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -2198,7 +2198,7 @@ async def contest_edit_menu(callback: CallbackQuery, state: FSMContext):
         return
     contest_id = int(callback.data[len("ct_edit_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -2256,7 +2256,7 @@ async def contest_edit_target_entered(message: Message, state: FSMContext):
                        reply_markup=cancel_kb.as_markup())
         return
     current_db = await get_db(message.from_user.id, state)
-    ok = current_db.update_contest(contest_id, target_value=value)
+    ok = await current_db.update_contest(contest_id, target_value=value)
     await state.set_state(None)
     await state.update_data(ct_edit_cid=None)
     back_kb = InlineKeyboardBuilder()
@@ -2290,7 +2290,7 @@ async def contest_edit_reward_entered(message: Message, state: FSMContext):
                        reply_markup=cancel_kb.as_markup())
         return
     current_db = await get_db(message.from_user.id, state)
-    ok = current_db.update_contest(contest_id, reward_value=value)
+    ok = await current_db.update_contest(contest_id, reward_value=value)
     await state.set_state(None)
     await state.update_data(ct_edit_cid=None)
     back_kb = InlineKeyboardBuilder()
@@ -2314,7 +2314,7 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
 
     contest_id = int(callback.data[len("ct_manual_"):])
     current_db = await get_db(callback.from_user.id, state)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -2333,7 +2333,7 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
     if shop_f:
         shops = _json2.loads(shop_f)
     else:
-        shops = current_db.get_all_shops() or []
+        shops = await current_db.get_all_shops() or []
 
     builder = InlineKeyboardBuilder()
     status_emoji = "🟢 Идёт" if status == 'active' else "🏁 Завершён"
@@ -2359,8 +2359,8 @@ async def contest_manual_list(callback: CallbackQuery, state: FSMContext):
 
     # ── Конкурс total: авто-итоги с полными фильтрами конкурса ──────────────
     # compute_contest_shop_auto_totals применяет те же фильтры (товар/категория/город/пользователь)
-    auto_totals = current_db.compute_contest_shop_auto_totals(contest_id)
-    manual_results = current_db.get_contest_manual_results(contest_id)
+    auto_totals = await current_db.compute_contest_shop_auto_totals(contest_id)
+    manual_results = await current_db.get_contest_manual_results(contest_id)
 
     for shop in shops:
         auto_val = auto_totals.get(shop, 0)
@@ -2416,7 +2416,7 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     # Восстанавливаем contest_id|shop_name через resolve_cb_name
-    all_shops = current_db.get_all_shops() or []
+    all_shops = await current_db.get_all_shops() or []
     all_contests = []
     try:
         import sqlite3 as _sqlite3
@@ -2435,7 +2435,7 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
 
     contest_id_str, shop_name = resolved.split('|', 1)
     contest_id = int(contest_id_str)
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     if not contest:
         await callback.answer("❌ Конкурс не найден", show_alert=True)
         return
@@ -2455,11 +2455,11 @@ async def contest_manual_set_shop(callback: CallbackQuery, state: FSMContext):
         return
 
     # Авто-значение магазина с полными фильтрами конкурса (товар/категория/город)
-    auto_totals = current_db.compute_contest_shop_auto_totals(contest_id)
+    auto_totals = await current_db.compute_contest_shop_auto_totals(contest_id)
     auto_val = auto_totals.get(shop_name, 0.0)
 
     # Текущая корректировка (если есть)
-    manual_results = current_db.get_contest_manual_results(contest_id)
+    manual_results = await current_db.get_contest_manual_results(contest_id)
     current_manual = manual_results.get(shop_name)
 
     auto_str = format_price(auto_val) if metric == 'turnover' else str(int(auto_val))
@@ -2522,7 +2522,7 @@ async def contest_manual_value_entered(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    ok = current_db.set_contest_manual_result(
+    ok = await current_db.set_contest_manual_result(
         contest_id, shop_name, value, message.from_user.id
     )
     await clear_state_keep_org(state)
@@ -2533,7 +2533,7 @@ async def contest_manual_value_entered(message: Message, state: FSMContext):
     back_kb.button(text="⬅️ К конкурсу", callback_data=f"ct_view_{contest_id}")
     back_kb.adjust(1)
 
-    contest = current_db.get_contest(contest_id)
+    contest = await current_db.get_contest(contest_id)
     metric = contest[4] if contest else 'turnover'
     metric_unit = '₽' if metric == 'turnover' else ' шт'
 
@@ -2565,7 +2565,7 @@ async def contest_manual_delete(callback: CallbackQuery, state: FSMContext):
     await state.set_state(None)
 
     current_db = await get_db(callback.from_user.id, state)
-    current_db.delete_contest_manual_result(contest_id, shop_name)
+    await current_db.delete_contest_manual_result(contest_id, shop_name)
 
     back_kb = InlineKeyboardBuilder()
     back_kb.button(text="✏️ К корректировкам", callback_data=f"ct_manual_{contest_id}")
@@ -2590,10 +2590,10 @@ async def contest_manual_reset_all(callback: CallbackQuery, state: FSMContext):
 
     contest_id = int(callback.data[len("ct_manreset_"):])
     current_db = await get_db(callback.from_user.id, state)
-    manual = current_db.get_contest_manual_results(contest_id)
+    manual = await current_db.get_contest_manual_results(contest_id)
     count = len(manual)
     for shop_name in list(manual.keys()):
-        current_db.delete_contest_manual_result(contest_id, shop_name)
+        await current_db.delete_contest_manual_result(contest_id, shop_name)
 
     back_kb = InlineKeyboardBuilder()
     back_kb.button(text="✏️ Корректировки", callback_data=f"ct_manual_{contest_id}")

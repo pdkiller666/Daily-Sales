@@ -17,7 +17,7 @@ from env_manager import env_manager
 
 inventory_router = Router()
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin
+from db_utils import get_db, clear_state_keep_org, is_any_admin, wrap_db
 
 @inventory_router.callback_query(F.data == "manage_inventory")
 async def manage_inventory_callback(callback: CallbackQuery, state: FSMContext):
@@ -53,9 +53,9 @@ async def add_inventory_start(callback: CallbackQuery, state: FSMContext):
     
     # Для супер-админа показываем все магазины, для обычного админа - только его
     if is_super:
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
     else:
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
         if user and user[8]:
             shops = [user[8]]  # Только магазин текущего пользователя
         else:
@@ -73,7 +73,7 @@ async def add_inventory_start(callback: CallbackQuery, state: FSMContext):
         shop_name = shops[0]
         await state.update_data(add_inventory_shop=shop_name, action="add_inventory")
         
-        products = current_db.get_all_products()
+        products = await current_db.get_all_products()
         if not products:
             await callback.message.edit_text(
                 "📦 Товары отсутствуют. Сначала добавьте товары.",
@@ -129,9 +129,9 @@ async def inv_srch_shop_process(message: Message, state: FSMContext):
     is_super = env_manager.is_super_admin(message.from_user.id)
     current_db = await get_db(message.from_user.id, state)
     if is_super:
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
     else:
-        user = current_db.get_user(message.from_user.id)
+        user = await current_db.get_user(message.from_user.id)
         shops = [user[8]] if user and user[8] else []
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
@@ -155,10 +155,10 @@ async def add_inventory_select_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_raw = callback.data.replace("add_inv_shop_", "")
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
     await state.update_data(add_inventory_shop=shop_name)
     
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     
     if not products:
         await callback.message.edit_text(
@@ -219,7 +219,7 @@ async def inv_srch_prd_reset(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
     shop_name = data.get('add_inventory_shop', '')
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     if not shop_name or not products:
         await callback.answer()
         await callback.message.edit_text(
@@ -238,7 +238,7 @@ async def inv_srch_prd_process(message: Message, state: FSMContext):
     current_db = await get_db(message.from_user.id, state)
     data = await state.get_data()
     shop_name = data.get('add_inventory_shop', '')
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     q = query.lower()
     filtered = [p for p in products if q in p[1].lower() or q in (p[2] or "").lower()] if query else products
     builder = InlineKeyboardBuilder()
@@ -268,7 +268,7 @@ async def add_inventory_select_product(callback: CallbackQuery, state: FSMContex
     product_id = int(callback.data.replace("add_inv_product_", ""))
     current_db = await get_db(callback.from_user.id, state)
     
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
         return
@@ -278,7 +278,7 @@ async def add_inventory_select_product(callback: CallbackQuery, state: FSMContex
     shop_name = data.get('add_inventory_shop')
     
     # Проверяем текущие остатки
-    current_quantity = current_db.get_inventory(shop_name, product_id)
+    current_quantity = await current_db.get_inventory(shop_name, product_id)
     if current_quantity is None:
         current_quantity = 0
     
@@ -303,7 +303,7 @@ async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
     """Единое меню остатков для пользователей"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     
     if not user:
         # Пробуем найти в основной БД
@@ -314,9 +314,9 @@ async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
             from tenant_manager import tenant_manager
             # Если нашли в основной, используем путь к тенанту
             db_path = tenant_manager.get_user_db_path(callback.from_user.id)
-            current_db = Database(db_path)
+            current_db = wrap_db(Database(db_path))
             # Принудительно проверяем существование таблиц
-            current_db.create_tables()
+            await current_db.create_tables()
             
     # Проверяем, является ли пользователь администратором
     is_admin = is_any_admin(callback.from_user.id)
@@ -373,7 +373,7 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
     """Редактирование остатков пользователем в своем магазине"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
 
     # Проверяем, является ли пользователь администратором
     is_admin = is_any_admin(callback.from_user.id)
@@ -400,7 +400,7 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
 
     # Для суп-админа: если shop_name дефолтный "Системный" — предлагаем выбор реального магазина
     if is_super and (not user_shop or user_shop == "Системный"):
-        inv_shops = current_db.get_inventory_shops()
+        inv_shops = await current_db.get_inventory_shops()
         if inv_shops:
             if len(inv_shops) == 1:
                 user_shop = inv_shops[0]
@@ -454,7 +454,7 @@ async def edit_inventory_category_selected(callback: CallbackQuery, state: FSMCo
     
     # Получаем все товары выбранной категории
     current_db = await get_db(callback.from_user.id, state)
-    all_products = current_db.get_all_products()
+    all_products = await current_db.get_all_products()
     category_products = []
     
     for product in all_products:
@@ -465,7 +465,7 @@ async def edit_inventory_category_selected(callback: CallbackQuery, state: FSMCo
             product_name = product[1]
             price = product[3]
             # Проверяем текущие остатки для этого товара в магазине
-            quantity = current_db.get_inventory(user_shop, product_id)
+            quantity = await current_db.get_inventory(user_shop, product_id)
             if quantity is None:
                 quantity = 0
             category_products.append((product_name, quantity, price, product_id))
@@ -504,7 +504,7 @@ async def edit_inventory_item(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.replace("edit_inv_product_", ""))
     
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -512,14 +512,14 @@ async def edit_inventory_item(callback: CallbackQuery, state: FSMContext):
     user_shop = user[8]
 
     # Получаем информацию о товаре
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
         return
 
     await callback.answer()
     # Получаем текущие остатки
-    current_quantity = current_db.get_inventory(user_shop, product_id)
+    current_quantity = await current_db.get_inventory(user_shop, product_id)
     if current_quantity is None:
         current_quantity = 0
     
@@ -578,7 +578,7 @@ async def process_new_quantity(message: Message, state: FSMContext):
     
     data = await state.get_data()
     action = data.get('action')
-    user_id = current_db.get_user_id(message.from_user.id)
+    user_id = await current_db.get_user_id(message.from_user.id)
     
     if action == "add_inventory":
         product_id = data.get('add_inventory_product_id')
@@ -589,13 +589,13 @@ async def process_new_quantity(message: Message, state: FSMContext):
             await clear_state_keep_org(state)
             return
             
-        current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'manual', 'Добавление остатков')
+        await current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'manual', 'Добавление остатков')
 
         _gs_status_add = []
         try:
             from integration.manager import integration_manager as _int_mgr
             from datetime import datetime as _dt
-            _product = current_db.get_product(product_id)
+            _product = await current_db.get_product(product_id)
             _gs_status_add = await _int_mgr.trigger_export_with_result(current_db, 'inventory', {
                 'shop_name': shop_name,
                 'product_name': _product[1] if _product else '',
@@ -627,13 +627,13 @@ async def process_new_quantity(message: Message, state: FSMContext):
             return
         
         try:
-            existing_quantity = current_db.get_inventory(shop_name, product_id)
+            existing_quantity = await current_db.get_inventory(shop_name, product_id)
             if existing_quantity is None:
-                current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'user_edit', f'Установка остатков: {new_quantity} шт.')
+                await current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'user_edit', f'Установка остатков: {new_quantity} шт.')
             else:
                 delta = new_quantity - existing_quantity
                 change_reason = f'Изменение с {existing_quantity} на {new_quantity} шт. ({"+" if delta > 0 else ""}{delta})'
-                current_db.update_inventory(shop_name, product_id, delta, user_id, 'user_edit', change_reason)
+                await current_db.update_inventory(shop_name, product_id, delta, user_id, 'user_edit', change_reason)
             
             _gs_status_edit = []
             try:
@@ -671,7 +671,7 @@ async def process_new_quantity(message: Message, state: FSMContext):
 
 async def _show_edit_inventory_categories(callback: CallbackQuery, state: FSMContext, current_db, user_shop: str):
     """Вспомогательная функция: показывает категории для редактирования остатков"""
-    all_products = current_db.get_all_products()
+    all_products = await current_db.get_all_products()
     if not all_products:
         await callback.message.edit_text(
             f"📦 Остатки в магазине '{user_shop}'\n\n❌ Товары не найдены.\n\nОбратитесь к администратору для добавления товаров.",
@@ -698,7 +698,7 @@ async def _show_edit_inventory_categories(callback: CallbackQuery, state: FSMCon
 
 async def _show_view_inventory_categories(callback: CallbackQuery, state: FSMContext, current_db, user_shop: str):
     """Вспомогательная функция: показывает категории для просмотра остатков"""
-    all_products = current_db.get_all_products()
+    all_products = await current_db.get_all_products()
     if not all_products:
         await callback.message.edit_text(
             f"📦 Остатки в магазине '{user_shop}'\n\n❌ Товары не найдены.\n\nОбратитесь к администратору для добавления товаров.",
@@ -711,7 +711,7 @@ async def _show_view_inventory_categories(callback: CallbackQuery, state: FSMCon
     for product in all_products:
         category = product[2]
         product_id = product[0]
-        quantity = current_db.get_inventory(user_shop, product_id)
+        quantity = await current_db.get_inventory(user_shop, product_id)
         if quantity is None:
             quantity = 0
         categories.add(category)
@@ -744,7 +744,7 @@ async def inv_edit_shop_selected(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_raw = callback.data.replace("inv_edit_shop_", "")
     current_db = await get_db(callback.from_user.id, state)
-    user_shop = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
+    user_shop = resolve_cb_name(shop_raw, await current_db.get_inventory_shops() or [])
     await _show_edit_inventory_categories(callback, state, current_db, user_shop)
 
 
@@ -754,7 +754,7 @@ async def inv_view_shop_selected(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_raw = callback.data.replace("inv_view_shop_", "")
     current_db = await get_db(callback.from_user.id, state)
-    user_shop = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
+    user_shop = resolve_cb_name(shop_raw, await current_db.get_inventory_shops() or [])
     await _show_view_inventory_categories(callback, state, current_db, user_shop)
 
 
@@ -762,7 +762,7 @@ async def inv_view_shop_selected(callback: CallbackQuery, state: FSMContext):
 async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
     """Просмотр остатков пользователем в своем магазине"""
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
 
     # Проверяем, является ли пользователь администратором
     is_admin = is_any_admin(callback.from_user.id)
@@ -789,7 +789,7 @@ async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
 
     # Для суп-админа: если shop_name дефолтный "Системный" — предлагаем выбор реального магазина
     if is_super and (not user_shop or user_shop == "Системный"):
-        inv_shops = current_db.get_inventory_shops()
+        inv_shops = await current_db.get_inventory_shops()
         if inv_shops:
             if len(inv_shops) == 1:
                 user_shop = inv_shops[0]
@@ -843,7 +843,7 @@ async def view_user_category_items(callback: CallbackQuery, state: FSMContext):
     
     current_db = await get_db(callback.from_user.id, state)
     # Получаем все остатки для магазина пользователя с полной информацией
-    inventory = current_db.get_all_inventory(user_shop)
+    inventory = await current_db.get_all_inventory(user_shop)
     category_products = []
     
     for item in inventory:
@@ -859,14 +859,14 @@ async def view_user_category_items(callback: CallbackQuery, state: FSMContext):
     if not category_products:
         # Если в get_all_inventory ничего не нашли (товар только добавлен и остатков еще нет), 
         # ищем в get_all_products
-        all_products = current_db.get_all_products()
+        all_products = await current_db.get_all_products()
         for product in all_products:
             if product[2] == category:
                 product_id = product[0]
                 product_name = product[1]
                 price = product[3]
                 # Проверяем остатки
-                quantity = current_db.get_inventory(user_shop, product_id) or 0
+                quantity = await current_db.get_inventory(user_shop, product_id) or 0
                 category_products.append((product_name, quantity, price))
 
     if not category_products:

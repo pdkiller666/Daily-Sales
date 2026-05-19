@@ -68,8 +68,8 @@ def _progress_bar(pct: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _contest_block(contests: list, today_str: str,
-                   current_db=None, telegram_id: int = None) -> str:
+async def _contest_block(contests: list, today_str: str,
+                         current_db=None, telegram_id: int = None) -> str:
     """Развёрнутый блок конкурсов для дашборда.
 
     contests — список из get_contests(status='active').
@@ -112,7 +112,7 @@ def _contest_block(contests: list, today_str: str,
                 text += f"  💵 Бонус за каждую продажу\n"
                 if current_db is not None and telegram_id is not None:
                     try:
-                        results = current_db.compute_contest_results(c[0])
+                        results = await current_db.compute_contest_results(c[0])
                         user_row = next(
                             (r for r in results if r.get('telegram_id') == telegram_id), None
                         )
@@ -143,7 +143,7 @@ def _contest_block(contests: list, today_str: str,
                 # Прогресс-бар пользователя
                 if current_db is not None and telegram_id is not None:
                     try:
-                        results = current_db.compute_contest_results(c[0])
+                        results = await current_db.compute_contest_results(c[0])
                         user_row = next(
                             (r for r in results if r.get('telegram_id') == telegram_id), None
                         )
@@ -530,10 +530,10 @@ def _today_total_earnings(db_file: str, today: str,
         return 0.0
 
 
-def build_admin_dashboard(current_db, today: str, now_str: str,
-                          user_id: int = 0, telegram_id: int = 0,
-                          scope_type: str = None, scope_values: list = None,
-                          scope_value: str = None, period: str = 'today') -> str:
+async def build_admin_dashboard(current_db, today: str, now_str: str,
+                                user_id: int = 0, telegram_id: int = 0,
+                                scope_type: str = None, scope_values: list = None,
+                                scope_value: str = None, period: str = 'today') -> str:
     """Дашборд администратора с фильтрацией по зоне ответственности.
 
     scope_type: None/'all' — весь орг; 'shop'/'city'/'network' — конкретная зона.
@@ -565,7 +565,7 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
     try:
-        summary = current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs)
+        summary = await current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs)
         total_sales   = int(summary[0] or 0) if summary else 0
         total_qty     = int(summary[1] or 0) if summary else 0
         total_revenue = float(summary[2] or 0.0) if summary else 0.0
@@ -578,7 +578,7 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
     plans_progress = []
     try:
-        plans_progress = current_db.get_plans_progress()
+        plans_progress = await current_db.get_plans_progress()
         if scope_type == 'shop' and len(scope_values) == 1:
             sv = scope_values[0]
             plans_progress = [
@@ -590,7 +590,7 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
     active_contests = []
     try:
-        active_contests = current_db.get_contests(status='active') or []
+        active_contests = await current_db.get_contests(status='active') or []
     except Exception:
         pass
 
@@ -598,20 +598,20 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     motivations = contest_rewards = 0.0
     if user_id:
         try:
-            daily_rate  = current_db.get_salary_rate(user_id)
-            worked_days = current_db.get_worked_days_count(user_id, year, month)
+            daily_rate  = await current_db.get_salary_rate(user_id)
+            worked_days = await current_db.get_worked_days_count(user_id, year, month)
             salary      = daily_rate * worked_days
         except Exception:
             pass
         try:
-            earnings    = current_db.get_seller_total_earnings(
+            earnings    = await current_db.get_seller_total_earnings(
                 user_id, start_date=month_start, end_date=today
             )
             motivations = earnings.get('total_earnings', 0.0)
         except Exception:
             pass
         try:
-            contest_rewards = current_db.get_user_contest_rewards(telegram_id, month_start, today)
+            contest_rewards = await current_db.get_user_contest_rewards(telegram_id, month_start, today)
         except Exception:
             pass
 
@@ -724,8 +724,8 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
 
     # ── Конкурсы ─────────────────────────────────────────────────────────────
     if active_contests:
-        text += _contest_block(active_contests, today,
-                               current_db=current_db, telegram_id=telegram_id)
+        text += await _contest_block(active_contests, today,
+                                    current_db=current_db, telegram_id=telegram_id)
 
     # ── Команда сегодня ───────────────────────────────────────────────────────
     text += "👥 <b>Команда сегодня</b>\n"
@@ -774,8 +774,8 @@ def build_admin_dashboard(current_db, today: str, now_str: str,
     return text
 
 
-def build_user_dashboard(current_db, user_id: int, telegram_id: int,
-                         today: str, now_str: str, period: str = 'today') -> str:
+async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
+                               today: str, now_str: str, period: str = 'today') -> str:
     today_dt  = datetime.strptime(today, '%Y-%m-%d')
     year      = today_dt.year
     month     = today_dt.month
@@ -792,14 +792,14 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         sales_start = today
 
     try:
-        daily_rate  = current_db.get_salary_rate(user_id)
-        worked_days = current_db.get_worked_days_count(user_id, year, month)
+        daily_rate  = await current_db.get_salary_rate(user_id)
+        worked_days = await current_db.get_worked_days_count(user_id, year, month)
         salary      = daily_rate * worked_days
     except Exception:
         daily_rate = worked_days = salary = 0.0
 
     try:
-        earnings    = current_db.get_seller_total_earnings(
+        earnings    = await current_db.get_seller_total_earnings(
             user_id, start_date=month_start, end_date=today
         )
         motivations = earnings.get('total_earnings', 0.0)
@@ -807,7 +807,7 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         motivations = 0.0
 
     try:
-        period_earnings = current_db.get_seller_total_earnings(
+        period_earnings = await current_db.get_seller_total_earnings(
             user_id, start_date=sales_start, end_date=today
         )
         period_motivations = period_earnings.get('total_earnings', 0.0)
@@ -815,7 +815,7 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         period_motivations = 0.0
 
     try:
-        period_summary = current_db.get_sales_summary(
+        period_summary = await current_db.get_sales_summary(
             start_date=sales_start, end_date=today, user_id=user_id
         )
         period_sales = int(period_summary[0] or 0) if period_summary else 0
@@ -826,7 +826,7 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         period_rev = 0.0
 
     try:
-        contest_rewards = current_db.get_user_contest_rewards(telegram_id, month_start, today)
+        contest_rewards = await current_db.get_user_contest_rewards(telegram_id, month_start, today)
     except Exception:
         contest_rewards = 0.0
 
@@ -858,7 +858,7 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
     # Планы продавца
     plans_progress = []
     try:
-        plans_progress = current_db.get_user_plans_progress(telegram_id)
+        plans_progress = await current_db.get_user_plans_progress(telegram_id)
     except Exception:
         pass
 
@@ -869,19 +869,19 @@ def build_user_dashboard(current_db, user_id: int, telegram_id: int,
 
     # Конкурсы
     try:
-        user_contests = current_db.get_contests(status='active') or []
+        user_contests = await current_db.get_contests(status='active') or []
         if user_contests:
-            text += _contest_block(user_contests, today,
-                                   current_db=current_db, telegram_id=telegram_id)
+            text += await _contest_block(user_contests, today,
+                                       current_db=current_db, telegram_id=telegram_id)
     except Exception:
         pass
 
     return text
 
 
-def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
-                           scope_type: str = None, scope_values: list = None,
-                           scope_value: str = None) -> str:
+async def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
+                                 scope_type: str = None, scope_values: list = None,
+                                 scope_value: str = None) -> str:
     """Текст для ежедневного отчёта администратору.
     shop_name — для обратной совместимости; scope_type/scope_values — новый способ."""
     if scope_values is None and scope_value:
@@ -894,7 +894,7 @@ def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
 
     scope_kwargs = _scope_filter_kwargs(scope_type, scope_values)
 
-    summary = current_db.get_sales_summary(
+    summary = await current_db.get_sales_summary(
         start_date=yesterday, end_date=yesterday, **scope_kwargs
     )
     total_sales   = int(summary[0] or 0) if summary else 0
@@ -912,9 +912,9 @@ def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
     return msg
 
 
-def build_user_daily_text(current_db, user_id: int,
-                          yesterday: str, shop_name: str | None) -> str:
-    summary = current_db.get_sales_summary(
+async def build_user_daily_text(current_db, user_id: int,
+                                yesterday: str, shop_name: str | None) -> str:
+    summary = await current_db.get_sales_summary(
         start_date=yesterday, end_date=yesterday, shop_name=shop_name
     )
     total_sales   = int(summary[0] or 0) if summary else 0
@@ -922,7 +922,7 @@ def build_user_daily_text(current_db, user_id: int,
     total_revenue = float(summary[2] or 0.0) if summary else 0.0
 
     try:
-        earnings    = current_db.get_seller_total_earnings(
+        earnings    = await current_db.get_seller_total_earnings(
             user_id, start_date=yesterday, end_date=yesterday
         )
         motivations = earnings.get('total_earnings', 0.0)
@@ -961,25 +961,25 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: 
     # Отвечаем немедленно — кнопка разблокируется, пока строится дашборд
     await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
         return
 
     from timezone_utils import get_current_user_time
-    _user_tz = current_db.get_user_timezone(callback.from_user.id)
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
     _now_local = get_current_user_time(_user_tz)
     today   = date.today().isoformat()
     now_str = _now_local.strftime("%d.%m.%Y · %H:%M")
 
     if is_any_admin(callback.from_user.id) or is_super_admin:
         scope_type, scope_values = get_user_org_scope(callback.from_user.id)
-        text = build_admin_dashboard(
+        text = await build_admin_dashboard(
             current_db, today, now_str, user[0], callback.from_user.id,
             scope_type=scope_type, scope_values=scope_values, period=period
         )
     else:
-        text = build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str, period=period)
+        text = await build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str, period=period)
 
     text += hint_suffix(current_db, user[0], 'first_dashboard')
     await safe_edit_message(callback.message, text, parse_mode="HTML",

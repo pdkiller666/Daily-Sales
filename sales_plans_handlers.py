@@ -183,7 +183,7 @@ async def plnwiz_step2(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     if target_type == 'seller':
-        all_users = current_db.get_all_users()
+        all_users = await current_db.get_all_users()
         sellers = [u for u in all_users
                    if not env_manager.is_super_admin(u[1])]
         if not sellers:
@@ -192,7 +192,7 @@ async def plnwiz_step2(callback: CallbackQuery, state: FSMContext):
         await state.update_data(anchor_msg_id=callback.message.message_id)
         await _show_plan_user_list(callback, sellers)
     else:
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         if not shops:
             await callback.answer("❌ Нет магазинов в системе", show_alert=True)
             return
@@ -263,7 +263,7 @@ async def plnwiz_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     await _show_plan_shop_list(callback, shops)
 
 
@@ -272,7 +272,7 @@ async def plnwiz_srch_shop_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
     builder.button(text="🔍 Найти магазин", callback_data="plnwiz_srch_shop_start")
@@ -311,7 +311,7 @@ async def plnwiz_srch_user_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     await _show_plan_user_list(callback, sellers)
 
@@ -321,7 +321,7 @@ async def plnwiz_srch_user_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     q = query.lower()
     filtered = [u for u in sellers
@@ -353,7 +353,7 @@ async def plnwiz_seller_selected(callback: CallbackQuery, state: FSMContext):
 
     user_id = int(callback.data[len("plnusr_"):])
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     row = next((u for u in all_users if u[0] == user_id), None)
     if not row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
@@ -372,7 +372,7 @@ async def plnwiz_shop_selected(callback: CallbackQuery, state: FSMContext):
 
     raw = callback.data[len("plnshp_"):]
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     shop_name = resolve_cb_name(raw, shops)
     await state.update_data(pln_shop_name=shop_name)
     await _show_period_step(callback)
@@ -427,8 +427,8 @@ async def plnwiz_metric_selected(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_metric=metric)
 
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
-    products = current_db.get_all_products()
+    categories = await current_db.get_all_categories()
+    products = await current_db.get_all_products()
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🌐 Все товары", callback_data="plnflt_all")
@@ -470,7 +470,7 @@ async def plnwiz_filter_cat(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_categories=[], pln_filter_type='category')
     await state.set_state(SalesPlanStates.selecting_categories)
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     await _render_category_selection(callback.message, categories, [])
     await callback.answer()
 
@@ -524,7 +524,7 @@ async def plnwiz_srch_cat_cancel(callback: CallbackQuery, state: FSMContext):
     selected = list(data.get('pln_categories', []))
     await state.set_state(SalesPlanStates.selecting_categories)
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     await _render_category_selection(callback.message, categories, selected, back_cb=back_cb)
 
 
@@ -536,7 +536,7 @@ async def plnwiz_srch_cat_process(message: Message, state: FSMContext):
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     selected = list(data.get('pln_categories', []))
     current_db = await get_db(message.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     q = query.lower()
     filtered = [c for c in categories if q in c.lower()] if query else categories
     builder = InlineKeyboardBuilder()
@@ -564,7 +564,7 @@ async def plnwiz_toggle_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     raw = callback.data[len("plncat_"):]
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     cat = resolve_cb_name(raw, categories)
     if not cat:
         return
@@ -593,7 +593,7 @@ async def plnwiz_categories_confirmed(callback: CallbackQuery, state: FSMContext
     edit_id = data.get('editpln_id')
     if edit_id:
         current_db = await get_db(callback.from_user.id, state)
-        current_db.update_sales_plan(
+        await current_db.update_sales_plan(
             edit_id,
             filter_type='category',
             filter_value=_json.dumps(selected, ensure_ascii=False)
@@ -624,7 +624,7 @@ async def plnwiz_filter_prod(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_products=[], pln_filter_type='product')
     await state.set_state(SalesPlanStates.selecting_products)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await _render_product_selection(callback.message, products, [])
     await callback.answer()
 
@@ -683,7 +683,7 @@ async def plnwiz_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_query='', pln_page=0)
     await state.set_state(SalesPlanStates.selecting_products)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await _render_product_selection(callback.message, products, selected, back_cb=back_cb)
 
 
@@ -696,7 +696,7 @@ async def plnwiz_srch_prd_process(message: Message, state: FSMContext):
     selected = list(data.get('pln_products', []))
     await state.update_data(pln_query=query, pln_page=0)
     current_db = await get_db(message.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await state.set_state(SalesPlanStates.selecting_products)
     anchor = data.get('anchor_msg_id')
 
@@ -727,7 +727,7 @@ async def plnwiz_products_page(callback: CallbackQuery, state: FSMContext):
     back_cb  = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     await state.update_data(pln_page=page)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await _render_product_selection(callback.message, products, selected, back_cb=back_cb,
                                     query=query, page=page)
 
@@ -751,7 +751,7 @@ async def plnwiz_toggle_product(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(pln_products=selected)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     edit_id = data.get('editpln_id')
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     await _render_product_selection(callback.message, products, selected, back_cb=back_cb,
@@ -772,10 +772,10 @@ async def plnwiz_products_confirmed(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     edit_id = data.get('editpln_id')
     if edit_id:
-        current_db.update_sales_plan(
+        await current_db.update_sales_plan(
             edit_id,
             filter_type='product',
             filter_value=_json.dumps(selected)
@@ -859,7 +859,7 @@ async def plnwiz_target_entered(message: Message, state: FSMContext):
     data = await state.get_data()
     current_db = await get_db(message.from_user.id, state)
 
-    plan_id = current_db.add_sales_plan(
+    plan_id = await current_db.add_sales_plan(
         plan_type=data.get('pln_period', 'monthly'),
         metric_type=data.get('pln_metric', 'turnover'),
         target_value=value,
@@ -947,7 +947,7 @@ async def editpln_who_target(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     builder = InlineKeyboardBuilder()
     if target_type == 'seller':
-        all_users = current_db.get_all_users()
+        all_users = await current_db.get_all_users()
         sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
         if not sellers:
             await callback.answer("❌ Нет продавцов в системе", show_alert=True)
@@ -959,7 +959,7 @@ async def editpln_who_target(callback: CallbackQuery, state: FSMContext):
             builder.button(text=label, callback_data=f"epwhousr_{uid}")
         prompt = "✏️ <b>Выберите продавца:</b>"
     else:
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         if not shops:
             await callback.answer("❌ Нет магазинов в системе", show_alert=True)
             return
@@ -981,7 +981,7 @@ async def editpln_who_user_selected(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editpln_id')
     current_db = await get_db(callback.from_user.id, state)
-    current_db.update_sales_plan(plan_id, target_type='seller', user_id=user_id, shop_name=None)
+    await current_db.update_sales_plan(plan_id, target_type='seller', user_id=user_id, shop_name=None)
     await callback.answer("✅ Получатель обновлён")
     callback.data = f"editpln_{plan_id}"
     await editpln_plan_selected(callback, state)
@@ -996,9 +996,9 @@ async def editpln_who_shop_selected(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editpln_id')
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     shop_name = resolve_cb_name(raw, shops)
-    current_db.update_sales_plan(plan_id, target_type='shop', user_id=None, shop_name=shop_name)
+    await current_db.update_sales_plan(plan_id, target_type='shop', user_id=None, shop_name=shop_name)
     await callback.answer("✅ Получатель обновлён")
     callback.data = f"editpln_{plan_id}"
     await editpln_plan_selected(callback, state)
@@ -1033,7 +1033,7 @@ async def editpln_period_set(callback: CallbackQuery, state: FSMContext):
     period_val = 'weekly' if parts[1] == 'w' else 'monthly'
     plan_id = int(parts[2])
     current_db = await get_db(callback.from_user.id, state)
-    current_db.update_sales_plan(plan_id, plan_type=period_val)
+    await current_db.update_sales_plan(plan_id, plan_type=period_val)
     await callback.answer("✅ Период обновлён")
     callback.data = f"editpln_{plan_id}"
     await editpln_plan_selected(callback, state)
@@ -1068,7 +1068,7 @@ async def editpln_metric_set(callback: CallbackQuery, state: FSMContext):
     metric_val = 'turnover' if parts[1] == 't' else 'quantity'
     plan_id = int(parts[2])
     current_db = await get_db(callback.from_user.id, state)
-    current_db.update_sales_plan(plan_id, metric_type=metric_val)
+    await current_db.update_sales_plan(plan_id, metric_type=metric_val)
     await callback.answer("✅ Метрика обновлена")
     callback.data = f"editpln_{plan_id}"
     await editpln_plan_selected(callback, state)
@@ -1084,8 +1084,8 @@ async def editpln_filter_menu(callback: CallbackQuery, state: FSMContext):
     plan_id = int(callback.data[len("epfilter_"):])
     await state.update_data(editpln_id=plan_id)
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
-    products = current_db.get_all_products()
+    categories = await current_db.get_all_categories()
+    products = await current_db.get_all_products()
     builder = InlineKeyboardBuilder()
     builder.button(text="🌐 Все товары", callback_data="epflt_all")
     if categories:
@@ -1109,7 +1109,7 @@ async def editpln_filter_all(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editpln_id')
     current_db = await get_db(callback.from_user.id, state)
-    current_db.update_sales_plan(plan_id, filter_type='all', filter_value=None)
+    await current_db.update_sales_plan(plan_id, filter_type='all', filter_value=None)
     await callback.answer("✅ Фильтр обновлён")
     callback.data = f"editpln_{plan_id}"
     await editpln_plan_selected(callback, state)
@@ -1123,7 +1123,7 @@ async def editpln_filter_cat(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editpln_id')
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
     plan = next((p for p in plans if p[0] == plan_id), None)
     pre_selected = []
     if plan and plan[7] == 'category' and plan[8]:
@@ -1133,7 +1133,7 @@ async def editpln_filter_cat(callback: CallbackQuery, state: FSMContext):
             pre_selected = []
     await state.update_data(pln_categories=pre_selected)
     await state.set_state(SalesPlanStates.selecting_categories)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     await _render_category_selection(
         callback.message, categories, pre_selected, back_cb=f"editpln_{plan_id}"
     )
@@ -1148,7 +1148,7 @@ async def editpln_filter_prod(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editpln_id')
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
     plan = next((p for p in plans if p[0] == plan_id), None)
     pre_selected = []
     if plan and plan[7] == 'product' and plan[8]:
@@ -1158,7 +1158,7 @@ async def editpln_filter_prod(callback: CallbackQuery, state: FSMContext):
             pre_selected = []
     await state.update_data(pln_products=pre_selected)
     await state.set_state(SalesPlanStates.selecting_products)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     await _render_product_selection(
         callback.message, products, pre_selected, back_cb=f"editpln_{plan_id}"
     )
@@ -1182,14 +1182,14 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
     _af_p = _data_p.get(ADMIN_FILTER_KEY, empty_filter())
     _sc_p, _sv_p = get_user_org_scope(callback.from_user.id)
 
-    plans_data_all = current_db.get_plans_progress()
+    plans_data_all = await current_db.get_plans_progress()
 
     # Фильтруем планы по магазину/городу/сети
     if _af_p.get("shops"):
         # Внутренние user_id пользователей в выбранных магазинах
         shop_user_ids = set()
         for sh in _af_p["shops"]:
-            for u in current_db.get_users_by_shop(sh):
+            for u in await current_db.get_users_by_shop(sh):
                 shop_user_ids.add(u[0])  # u[0] = users.id (internal)
         plans_data = [
             (p, a, pct) for p, a, pct in plans_data_all
@@ -1199,11 +1199,11 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
     elif _af_p.get("cities"):
         # Внутренние user_id пользователей в выбранных городах
         city_user_ids = set()
-        for u in current_db.get_users_by_city(_af_p["cities"][0]):
+        for u in await current_db.get_users_by_city(_af_p["cities"][0]):
             city_user_ids.add(u[0])
         if len(_af_p["cities"]) > 1:
             for city in _af_p["cities"][1:]:
-                for u in current_db.get_users_by_city(city):
+                for u in await current_db.get_users_by_city(city):
                     city_user_ids.add(u[0])
         plans_data = [
             (p, a, pct) for p, a, pct in plans_data_all
@@ -1212,7 +1212,7 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
         ]
     elif _af_p.get("networks"):
         # Для сети: фильтруем только seller-планы по пользователям сети
-        all_u = current_db.get_all_users(trade_networks=_af_p["networks"])
+        all_u = await current_db.get_all_users(trade_networks=_af_p["networks"])
         net_user_ids = {u[0] for u in all_u}
         plans_data = [
             (p, a, pct) for p, a, pct in plans_data_all
@@ -1280,7 +1280,7 @@ async def delpln_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
 
     if not plans:
         await callback.message.edit_text(
@@ -1314,7 +1314,7 @@ async def delpln_confirm(callback: CallbackQuery, state: FSMContext):
 
     plan_id = int(callback.data[len("delpln_"):])
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
     plan = next((p for p in plans if p[0] == plan_id), None)
 
     if not plan:
@@ -1342,7 +1342,7 @@ async def delpln_execute(callback: CallbackQuery, state: FSMContext):
 
     plan_id = int(callback.data[len("delpln_ok_"):])
     current_db = await get_db(callback.from_user.id, state)
-    success = current_db.delete_sales_plan(plan_id)
+    success = await current_db.delete_sales_plan(plan_id)
 
     if success:
         _gs_sfx = ""
@@ -1377,7 +1377,7 @@ async def delpln_execute(callback: CallbackQuery, state: FSMContext):
 async def my_plans(callback: CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
-    plans_data = current_db.get_user_plans_progress(callback.from_user.id)
+    plans_data = await current_db.get_user_plans_progress(callback.from_user.id)
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Обновить", callback_data="my_plans")
@@ -1487,7 +1487,7 @@ async def editpln_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
 
     if not plans:
         await callback.message.edit_text(
@@ -1521,7 +1521,7 @@ async def editpln_plan_selected(callback: CallbackQuery, state: FSMContext):
 
     plan_id = int(callback.data[len("editpln_"):])
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
     plan = next((p for p in plans if p[0] == plan_id), None)
 
     if not plan:
@@ -1587,7 +1587,7 @@ async def editpln_field_target(callback: CallbackQuery, state: FSMContext):
 
     plan_id = int(callback.data[len("editpln_target_"):])
     current_db = await get_db(callback.from_user.id, state)
-    plans = current_db.get_sales_plans()
+    plans = await current_db.get_sales_plans()
     plan = next((p for p in plans if p[0] == plan_id), None)
 
     if not plan:
@@ -1641,7 +1641,7 @@ async def editpln_target_entered(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    ok = current_db.update_sales_plan(plan_id, target_value=value)
+    ok = await current_db.update_sales_plan(plan_id, target_value=value)
 
     value_str = f"{format_price(value)}₽" if metric == 'turnover' else f"{int(value)} шт"
 

@@ -36,7 +36,7 @@ router = Router()
 # Инициализация базы данных
 db = Database('data/shop_bot.db')
 
-from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_role, maybe_refresh_username
+from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_role, maybe_refresh_username, wrap_db
 from timezone_utils import format_user_datetime
 
 # Получаем ID администратора
@@ -50,7 +50,7 @@ async def cmd_menu(message: Message, state: FSMContext):
     current_db = await get_db(message.from_user.id, state)
     is_super = env_manager.is_super_admin(message.from_user.id)
     
-    user = current_db.get_user(message.from_user.id)
+    user = await current_db.get_user(message.from_user.id)
     if user:
         await message.answer(
             "🏪 Главное меню:",
@@ -79,8 +79,8 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Если в основной нет, ищем в shop_bot.db
     if not user:
-        shop_db = Database('data/shop_bot.db')
-        user = shop_db.get_user(message.from_user.id)
+        shop_db = wrap_db(Database('data/shop_bot.db'))
+        user = await shop_db.get_user(message.from_user.id)
         if user:
             _found_db = shop_db
 
@@ -88,8 +88,8 @@ async def cmd_start(message: Message, state: FSMContext):
     if not user:
         db_path = tenant_manager.get_user_db_path(message.from_user.id)
         if db_path and db_path != 'data/shop_bot.db':
-            tenant_db = Database(db_path)
-            user = tenant_db.get_user(message.from_user.id)
+            tenant_db = wrap_db(Database(db_path))
+            user = await tenant_db.get_user(message.from_user.id)
             if user:
                 _found_db = tenant_db
     
@@ -312,7 +312,7 @@ async def process_email(message: Message, state: FSMContext):
         email = None
     
     await state.update_data(email=email)
-    existing_networks = db.get_all_trade_networks()
+    existing_networks = await db.get_all_trade_networks()
     
     if existing_networks:
         keyboard = create_registration_selection_keyboard(
@@ -337,7 +337,7 @@ async def select_trade_network(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     network_name = callback.data.replace("select_network_", "")
     await state.update_data(trade_network=network_name)
-    existing_shops = db.get_all_shops()
+    existing_shops = await db.get_all_shops()
     
     if existing_shops:
         keyboard = create_registration_selection_keyboard(
@@ -383,7 +383,7 @@ async def process_trade_network(message: Message, state: FSMContext):
         return
     
     await state.update_data(trade_network=trade_network)
-    existing_shops = db.get_all_shops()
+    existing_shops = await db.get_all_shops()
     
     if existing_shops:
         keyboard = create_registration_selection_keyboard(
@@ -408,7 +408,7 @@ async def select_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_name = callback.data.replace("select_shop_", "")
     await state.update_data(shop_name=shop_name)
-    existing_cities = db.get_all_cities()
+    existing_cities = await db.get_all_cities()
     
     if existing_cities:
         keyboard = create_registration_selection_keyboard(
@@ -454,7 +454,7 @@ async def process_shop_name(message: Message, state: FSMContext):
         return
 
     await state.update_data(shop_name=shop_name)
-    existing_cities = db.get_all_cities()
+    existing_cities = await db.get_all_cities()
     
     if existing_cities:
         keyboard = create_registration_selection_keyboard(
@@ -502,8 +502,8 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
         if success:
             env_manager.add_admin_id(callback.from_user.id)
             tenant_db = await get_db(callback.from_user.id, state)
-            tenant_db.create_tables()
-            tenant_db.add_user(
+            await tenant_db.create_tables()
+            await tenant_db.add_user(
                 telegram_id=callback.from_user.id,
                 first_name=user_data['first_name'],
                 last_name=user_data['last_name'],
@@ -519,8 +519,8 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
         env_manager.add_admin_id(callback.from_user.id)
     elif user_data.get('usage_mode') == 'join':
         tenant_db = await get_db(callback.from_user.id, state)
-        tenant_db.create_tables()
-        tenant_db.add_user(
+        await tenant_db.create_tables()
+        await tenant_db.add_user(
             telegram_id=callback.from_user.id,
             first_name=user_data['first_name'],
             last_name=user_data['last_name'],
@@ -625,8 +625,8 @@ async def process_city(message: Message, state: FSMContext):
                 env_manager.add_admin_id(message.from_user.id)
 
                 tenant_db = await get_db(message.from_user.id, state)
-                tenant_db.create_tables()
-                tenant_db.add_user(
+                await tenant_db.create_tables()
+                await tenant_db.add_user(
                     telegram_id=message.from_user.id,
                     first_name=user_data['first_name'],
                     last_name=user_data['last_name'],
@@ -643,8 +643,8 @@ async def process_city(message: Message, state: FSMContext):
             env_manager.add_admin_id(message.from_user.id)
         elif user_data.get('usage_mode') == 'join':
             tenant_db = await get_db(message.from_user.id, state)
-            tenant_db.create_tables()
-            tenant_db.add_user(
+            await tenant_db.create_tables()
+            await tenant_db.add_user(
                 telegram_id=message.from_user.id,
                 first_name=user_data['first_name'],
                 last_name=user_data['last_name'],
@@ -674,10 +674,10 @@ async def process_city(message: Message, state: FSMContext):
         try:
             from database import Database as ShopDB
             shop_db = ShopDB('data/shop_bot.db')
-            shop_db.create_tables()
-            existing_shop_user = shop_db.get_user(message.from_user.id)
+            await shop_db.create_tables()
+            existing_shop_user = await shop_db.get_user(message.from_user.id)
             if not existing_shop_user:
-                shop_db.add_user(
+                await shop_db.add_user(
                     telegram_id=message.from_user.id,
                     first_name=user_data['first_name'],
                     last_name=user_data['last_name'],
@@ -689,16 +689,16 @@ async def process_city(message: Message, state: FSMContext):
                     city=city,
                     username=message.from_user.username
                 )
-                existing_shop_user = shop_db.get_user(message.from_user.id)
+                existing_shop_user = await shop_db.get_user(message.from_user.id)
             if existing_shop_user:
                 shop_user_id = existing_shop_user[0]
-                existing_sub = shop_db.get_user_subscription(shop_user_id)
+                existing_sub = await shop_db.get_user_subscription(shop_user_id)
                 if not existing_sub:
-                    trial_settings = shop_db.get_payment_settings()
+                    trial_settings = await shop_db.get_payment_settings()
                     trial_days = int(trial_settings.get('trial_days', '14'))
                     trial_plan = trial_settings.get('trial_plan', 'Премиум')
                     if trial_days > 0:
-                        shop_db.create_trial_subscription(shop_user_id, trial_plan, trial_days)
+                        await shop_db.create_trial_subscription(shop_user_id, trial_plan, trial_days)
         except Exception as _trial_err:
             import logging as _log
             _log.error(f"process_city: trial grant error: {_trial_err}")
@@ -770,7 +770,7 @@ async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     
     # Очищаем состояния при возврате в меню, сохраняя выбранную организацию
     await clear_state_keep_org(state)
@@ -816,7 +816,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     # Если нет в основной, пробуем в текущей (тенанте)
     if not user:
         current_db = await get_db(callback.from_user.id, state)
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
     
     if not user:
         await callback.message.edit_text(
@@ -925,7 +925,7 @@ async def start_profile_edit(callback: CallbackQuery, state: FSMContext):
     # Магазин — выбор из существующих в БД + возможность ввести новый
     if field == "shop":
         current_db = await get_db(callback.from_user.id, state)
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         back_kb = [[back_button("edit_profile")]]
         if shops:
             shop_buttons = [
@@ -950,7 +950,7 @@ async def start_profile_edit(callback: CallbackQuery, state: FSMContext):
     # Торговая сеть — выбор из существующих + ввести новую
     if field == "network":
         current_db = await get_db(callback.from_user.id, state)
-        networks = current_db.get_all_trade_networks()
+        networks = await current_db.get_all_trade_networks()
         back_kb = [[back_button("edit_profile")]]
         if networks:
             net_buttons = [
@@ -1008,7 +1008,7 @@ async def prof_shop_pick(callback: CallbackQuery, state: FSMContext):
         return
     shop_raw = callback.data.removeprefix("prof_shop_pick_")
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
     await callback.answer()
     try:
         await _apply_user_field(callback.from_user.id, current_db.db_file, "shop_name", shop_name)
@@ -1044,7 +1044,7 @@ async def prof_net_pick(callback: CallbackQuery, state: FSMContext):
         return
     net_raw = callback.data.removeprefix("prof_net_pick_")
     current_db = await get_db(callback.from_user.id, state)
-    net_name = resolve_cb_name(net_raw, current_db.get_all_trade_networks() or [])
+    net_name = resolve_cb_name(net_raw, await current_db.get_all_trade_networks() or [])
     await callback.answer()
     try:
         await _apply_user_field(callback.from_user.id, current_db.db_file, "trade_network", net_name)
@@ -1512,8 +1512,8 @@ async def help_cat_subscription_callback(callback: CallbackQuery, state: FSMCont
     """Справка по подписке — тарифы берутся актуально из БД."""
     await callback.answer()
     try:
-        db = Database("data/shop_bot.db")
-        plans = db.get_subscription_plans()
+        db = wrap_db(Database("data/shop_bot.db"))
+        plans = await db.get_subscription_plans()
         # columns: [0]=id [1]=name [2]=duration_days [3]=price [4]=description
         #          [5]=is_active [6]=max_products [7]=max_shops [8]=max_sales_per_month
         #          [9]=can_export_reports [10]=can_view_analytics [11]=can_use_notifications

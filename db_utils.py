@@ -1,6 +1,8 @@
 """
 Утилиты для работы с базами данных в мульти-тенантной системе
 """
+import asyncio
+import functools
 import json as _json
 import logging
 import os
@@ -11,6 +13,50 @@ from tenant_manager import tenant_manager
 from env_manager import env_manager
 
 logger = logging.getLogger(__name__)
+
+
+# ─── AsyncDatabase wrapper ────────────────────────────────────────────────────
+
+class AsyncDatabase:
+    """Тонкая async-обёртка над Database.
+
+    Все методы Database становятся корутинами и выполняются в пуле потоков
+    (asyncio.to_thread), освобождая event loop aiogram во время запросов к SQLite.
+
+    Использование:
+        current_db = await get_db(telegram_id, state)   # возвращает AsyncDatabase
+        user       = await current_db.get_user(tid)
+        result     = await current_db.add_sale(...)
+
+    Прямой доступ к атрибутам (не методам) работает синхронно:
+        path = current_db.db_file  # строка, не корутина
+    """
+
+    def __init__(self, db: Database) -> None:
+        # Обходим __setattr__ — пишем прямо в __dict__
+        object.__setattr__(self, '_db', db)
+
+    def __getattr__(self, name: str):
+        attr = getattr(object.__getattribute__(self, '_db'), name)
+        if callable(attr):
+            @functools.wraps(attr)
+            async def _run(*args, **kwargs):
+                return await asyncio.to_thread(attr, *args, **kwargs)
+            return _run
+        return attr
+
+    @property
+    def db_file(self) -> str:
+        return object.__getattribute__(self, '_db').db_file
+
+    def __repr__(self) -> str:
+        return f'AsyncDatabase({self.db_file!r})'
+
+
+def wrap_db(db: Database) -> AsyncDatabase:
+    """Обернуть синхронный Database в AsyncDatabase."""
+    return AsyncDatabase(db)
+
 
 # Кеш результатов is_any_admin(): {telegram_id: (result: bool, timestamp: float)}
 # Роли меняются редко — TTL 60 секунд не создаёт проблем, но снимает нагрузку.
@@ -97,9 +143,10 @@ def get_user_custom_title(telegram_id: int) -> str | None:
 
 # ─── Основные функции ─────────────────────────────────────────────────────────
 
-async def get_db(telegram_id, state=None):
+async def get_db(telegram_id, state=None) -> AsyncDatabase:
     """
     Универсальная функция для получения правильной базы данных для пользователя.
+    Возвращает AsyncDatabase — все методы нужно вызывать через await.
     """
     is_super = env_manager.is_super_admin(telegram_id)
 
@@ -110,7 +157,7 @@ async def get_db(telegram_id, state=None):
             if selected_db and os.path.exists(selected_db):
                 db = Database(selected_db)
                 db.create_tables()
-                return db
+                return AsyncDatabase(db)
         except Exception:
             pass
 
@@ -119,7 +166,7 @@ async def get_db(telegram_id, state=None):
     if path and os.path.exists(path) and path != 'data/shop_bot.db':
         tenant_db = Database(path)
         tenant_db.create_tables()
-        return tenant_db
+        return AsyncDatabase(tenant_db)
 
     shop_db = Database('data/shop_bot.db')
     shop_db.create_tables()
@@ -145,7 +192,7 @@ async def get_db(telegram_id, state=None):
             except Exception:
                 pass
 
-    return shop_db
+    return AsyncDatabase(shop_db)
 
 
 async def clear_state_keep_org(state, extra_keys: list | None = None):
@@ -350,17 +397,21 @@ def maybe_refresh_username(db, telegram_id: int, tg_username, stored_username=_N
     stored_username — передаёт уже известное значение из ранее полученной строки
                       пользователя (user[12]) чтобы избежать лишнего запроса к БД.
                       Если не передан, функция сама вызывает get_user().
+
+    Работает с обоими типами: Database и AsyncDatabase (через sync-доступ к _db).
     """
     try:
+        # Поддержка как Database, так и AsyncDatabase — используем sync-вызовы
+        _sync = object.__getattribute__(db, '_db') if isinstance(db, AsyncDatabase) else db
         if stored_username is _NOTPASSED:
-            user_row = db.get_user(telegram_id)
+            user_row = _sync.get_user(telegram_id)
             if not user_row:
                 return
             stored = user_row[12] if len(user_row) > 12 else None
         else:
             stored = stored_username
         if stored != tg_username:
-            db.update_user(telegram_id, username=tg_username)
+            _sync.update_user(telegram_id, username=tg_username)
     except Exception as e:
         logger.warning("maybe_refresh_username failed for %s: %s", telegram_id, e)
 

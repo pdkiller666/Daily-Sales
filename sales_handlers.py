@@ -55,7 +55,7 @@ async def _show_sale_categories(
     else:
         await state.update_data(shop_name=shop_name, sale_current_shop=shop_name)
 
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
 
     if not categories:
         await callback.message.edit_text(
@@ -80,11 +80,11 @@ async def _show_sale_categories(
 
     # Кнопки «Избранное» и «Недавние» — раскрываются в отдельном экране
     try:
-        user_row = current_db.get_user(callback.from_user.id)
+        user_row = await current_db.get_user(callback.from_user.id)
         if user_row:
             u_db_id = user_row[0]
-            fav_ids  = current_db.get_favorite_products(u_db_id) or []
-            recent   = current_db.get_user_recent_products(u_db_id, limit=8) or []
+            fav_ids  = await current_db.get_favorite_products(u_db_id) or []
+            recent   = await current_db.get_user_recent_products(u_db_id, limit=8) or []
             row_btns = []
             if fav_ids:
                 row_btns.append(InlineKeyboardButton(
@@ -102,7 +102,7 @@ async def _show_sale_categories(
         pass
 
     # Категории по 2 в строку
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     has_no_category = any(not p[2] or p[2] == "Без категории" for p in products)
     cat_buttons = [
         InlineKeyboardButton(text=f"📂 {cat}", callback_data=safe_cb("sale_category_", cat))
@@ -133,7 +133,7 @@ async def _show_sale_categories(
     else:
         header = f"🛒 Новая продажа <b>[{he(shop_name)}]</b>"
 
-    _sale_user = current_db.get_user(callback.from_user.id)
+    _sale_user = await current_db.get_user(callback.from_user.id)
     _sale_hint = hint_suffix(current_db, _sale_user[0], 'first_sale') if _sale_user else ""
     await callback.message.edit_text(
         f"{header}\n\n🔍 Найдите товар по названию или выберите категорию:{_sale_hint}",
@@ -152,15 +152,15 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
         
     current_db = await get_db(callback.from_user.id, state)
-    current_db.create_tables()
+    await current_db.create_tables()
     
     is_super = env_manager.is_super_admin(callback.from_user.id)
     
-    user_data = current_db.get_user(callback.from_user.id)
+    user_data = await current_db.get_user(callback.from_user.id)
     
     # Если супер-админ, создаем запись в БД если её нет
     if is_super and not user_data:
-        current_db.add_user(
+        await current_db.add_user(
             telegram_id=callback.from_user.id,
             first_name=callback.from_user.first_name or "Admin",
             last_name=callback.from_user.last_name or "",
@@ -170,7 +170,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
             phone="000",
             username=callback.from_user.username
         )
-        user_data = current_db.get_user(callback.from_user.id)
+        user_data = await current_db.get_user(callback.from_user.id)
 
     if not user_data:
         await callback.message.edit_text(
@@ -189,7 +189,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
     # Для суп-админа: если shop_name пустой или дефолтный "Системный",
     # предлагаем выбрать реальный магазин из организации
     if is_super and (not shop_name or shop_name == "Системный"):
-        inv_shops = current_db.get_inventory_shops()
+        inv_shops = await current_db.get_inventory_shops()
         if inv_shops:
             if len(inv_shops) == 1:
                 shop_name = inv_shops[0]
@@ -212,7 +212,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
     allow_change = False
     if not is_super and trade_network:
         try:
-            net_shops = current_db.get_shops_by_network(trade_network)
+            net_shops = await current_db.get_shops_by_network(trade_network)
             if len(net_shops) > 1:
                 allow_change = True
                 await state.update_data(
@@ -228,7 +228,7 @@ async def start_sale(callback: CallbackQuery, state: FSMContext):
     # зарегистрированные пользователи в каждом магазине.
     if not allow_change and not is_super:
         try:
-            inv_shops = current_db.get_inventory_shops()
+            inv_shops = await current_db.get_inventory_shops()
             if len(inv_shops) > 1:
                 allow_change = True
                 await state.update_data(
@@ -248,7 +248,7 @@ async def select_sale_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_raw = callback.data.replace("sale_shop_", "")
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_inventory_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_inventory_shops() or [])
     await _show_sale_categories(callback, state, current_db, shop_name)
 
 
@@ -343,15 +343,15 @@ def _build_recent_list_content(recent: list, cart: list, query: str = "") -> tup
 async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
     """Подэкран: список избранных товаров."""
     current_db = await get_db(callback.from_user.id, state)
-    user_row = current_db.get_user(callback.from_user.id)
+    user_row = await current_db.get_user(callback.from_user.id)
     if not user_row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
     await callback.answer()
     u_db_id   = user_row[0]
-    fav_ids   = current_db.get_favorite_products(u_db_id) or []
-    fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+    fav_ids   = await current_db.get_favorite_products(u_db_id) or []
+    fav_prods = [await current_db.get_product(pid) for pid in fav_ids]
     fav_prods = [p for p in fav_prods if p]
 
     data = await state.get_data()
@@ -375,14 +375,14 @@ async def sale_show_favorites(callback: CallbackQuery, state: FSMContext):
 async def sale_show_recent_handler(callback: CallbackQuery, state: FSMContext):
     """Подэкран: недавно проданные товары."""
     current_db = await get_db(callback.from_user.id, state)
-    user_row = current_db.get_user(callback.from_user.id)
+    user_row = await current_db.get_user(callback.from_user.id)
     if not user_row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
     await callback.answer()
     u_db_id = user_row[0]
-    recent  = current_db.get_user_recent_products(u_db_id, limit=8) or []
+    recent  = await current_db.get_user_recent_products(u_db_id, limit=8) or []
 
     data = await state.get_data()
     cart = data.get("sale_cart", [])
@@ -440,7 +440,7 @@ async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     list_type = data.get("sale_srch_list_type", "fav")
     current_db = await get_db(callback.from_user.id, state)
-    user_row = current_db.get_user(callback.from_user.id)
+    user_row = await current_db.get_user(callback.from_user.id)
     cart = data.get("sale_cart", [])
     await callback.answer()
 
@@ -450,7 +450,7 @@ async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
 
     u_db_id = user_row[0]
     if list_type == "recent":
-        recent = current_db.get_user_recent_products(u_db_id, limit=8) or []
+        recent = await current_db.get_user_recent_products(u_db_id, limit=8) or []
         if not recent:
             await callback.message.edit_text(
                 "🔄 <b>Недавние</b>\n\nПока нет истории продаж.",
@@ -461,8 +461,8 @@ async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
             text, markup = _build_recent_list_content(recent, cart)
             await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     else:
-        fav_ids = current_db.get_favorite_products(u_db_id) or []
-        fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+        fav_ids = await current_db.get_favorite_products(u_db_id) or []
+        fav_prods = [await current_db.get_product(pid) for pid in fav_ids]
         fav_prods = [p for p in fav_prods if p]
         if not fav_prods:
             await callback.message.edit_text(
@@ -481,14 +481,14 @@ async def slr_fav_srch_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(MultipleSaleStates.adding_items)
     current_db = await get_db(message.from_user.id, state)
-    user_row = current_db.get_user(message.from_user.id)
+    user_row = await current_db.get_user(message.from_user.id)
     if not user_row:
         return
     data = await state.get_data()
     cart = data.get("sale_cart", [])
     u_db_id = user_row[0]
-    fav_ids = current_db.get_favorite_products(u_db_id) or []
-    fav_prods = [current_db.get_product(pid) for pid in fav_ids]
+    fav_ids = await current_db.get_favorite_products(u_db_id) or []
+    fav_prods = [await current_db.get_product(pid) for pid in fav_ids]
     fav_prods = [p for p in fav_prods if p]
     text, markup = _build_fav_list_content(fav_prods, cart, query)
     await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
@@ -500,13 +500,13 @@ async def slr_rec_srch_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(MultipleSaleStates.adding_items)
     current_db = await get_db(message.from_user.id, state)
-    user_row = current_db.get_user(message.from_user.id)
+    user_row = await current_db.get_user(message.from_user.id)
     if not user_row:
         return
     data = await state.get_data()
     cart = data.get("sale_cart", [])
     u_db_id = user_row[0]
-    recent = current_db.get_user_recent_products(u_db_id, limit=8) or []
+    recent = await current_db.get_user_recent_products(u_db_id, limit=8) or []
     text, markup = _build_recent_list_content(recent, cart, query)
     await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
 
@@ -539,11 +539,11 @@ async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, c
 
     if trade_network:
         # Режим торговой сети: фильтрация по сети
-        net_shops = current_db.get_shops_by_network(trade_network)
+        net_shops = await current_db.get_shops_by_network(trade_network)
         if not net_shops:
             await callback.answer("❌ Нет других магазинов в сети.", show_alert=True)
             return
-        cities = current_db.get_cities_by_network(trade_network)
+        cities = await current_db.get_cities_by_network(trade_network)
         if len(cities) > 1:
             builder.row(InlineKeyboardButton(text="🏙 Выберите город:", callback_data="pg_noop"))
             for city in sorted(cities):
@@ -562,7 +562,7 @@ async def _build_cross_shop_screen(callback: CallbackQuery, state: FSMContext, c
         header_line = f"🌐 Сеть: {he(trade_network)}\n"
     else:
         # Режим организации: магазины с реальными остатками в инвентаре
-        all_shops = current_db.get_inventory_shops()
+        all_shops = await current_db.get_inventory_shops()
         if not all_shops or len(all_shops) < 2:
             await callback.answer("❌ Нет других магазинов.", show_alert=True)
             return
@@ -606,7 +606,7 @@ async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
     current_shop = data.get("shop_name", "")
 
     city_raw = callback.data.replace("sale_cty_", "")
-    all_cities = current_db.get_cities_by_network(trade_network) if trade_network else []
+    all_cities = await current_db.get_cities_by_network(trade_network) if trade_network else []
     city = resolve_cb_name(city_raw, all_cities)
 
     if not city:
@@ -615,7 +615,7 @@ async def sale_filter_by_city(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-    net_shops = current_db.get_shops_by_network(trade_network)
+    net_shops = await current_db.get_shops_by_network(trade_network)
     city_shops = [(s, c) for s, c in net_shops if c == city]
 
     if not city_shops:
@@ -657,11 +657,11 @@ async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
 
     shop_raw = callback.data.replace("sale_net_", "")
     if trade_network:
-        net_shops = current_db.get_shops_by_network(trade_network)
+        net_shops = await current_db.get_shops_by_network(trade_network)
         all_shop_names = [s for s, _ in net_shops]
     else:
         # Орг-режим: магазины с реальными остатками в инвентаре
-        all_shop_names = current_db.get_inventory_shops()
+        all_shop_names = await current_db.get_inventory_shops()
     shop_name = resolve_cb_name(shop_raw, all_shop_names)
 
     if not shop_name:
@@ -671,7 +671,7 @@ async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     # Проверяем: есть ли вообще товары с остатком в выбранном магазине
-    inv_shops_with_stock = current_db.get_inventory_shops()
+    inv_shops_with_stock = await current_db.get_inventory_shops()
     if shop_name not in inv_shops_with_stock:
         # Магазин зарегистрирован, но остатков нет вообще
         home_shop = data.get("sale_home_shop", shop_name)
@@ -729,13 +729,13 @@ async def process_quick_search(message: Message, state: FSMContext):
     data = await state.get_data()
     shop_name = data.get("shop_name", "")
 
-    all_products = current_db.get_all_products()
+    all_products = await current_db.get_all_products()
     query_lower = query.lower()
 
     matching = []
     for p in all_products:
         pid, name, category, price = p[0], p[1], p[2], p[3]
-        qty = current_db.get_inventory(shop_name, pid)
+        qty = await current_db.get_inventory(shop_name, pid)
         if qty > 0 and query_lower in name.lower():
             matching.append((pid, name, category or "Без категории", price, qty))
 
@@ -774,15 +774,15 @@ async def process_quick_search(message: Message, state: FSMContext):
     )
 
 
-def _build_sale_product_list_content(shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
+async def _build_sale_product_list_content(shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
     """Строит текст и клавиатуру для списка товаров категории с опциональным фильтром."""
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
 
     available = []
     for product in category_products:
         pid, name, price = product[0], product[1], product[3]
-        qty = current_db.get_inventory(shop_name, pid)
+        qty = await current_db.get_inventory(shop_name, pid)
         if qty > 0:
             available.append((pid, name, price, qty))
 
@@ -815,7 +815,7 @@ def _build_sale_product_list_content(shop_name: str, category: str, current_db, 
 
 async def _show_sale_product_list(message, shop_name: str, category: str, current_db, home_shop: str, query: str = ""):
     """Редактирует сообщение бота, показывая список товаров категории."""
-    text, markup = _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
+    text, markup = await _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
     await message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
@@ -825,10 +825,10 @@ async def select_sale_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     category_raw = callback.data.replace("sale_category_", "")
     current_db = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db.get_all_categories() or [])
+    category = resolve_cb_name(category_raw, await current_db.get_all_categories() or [])
 
     # Получаем товары этой категории
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
 
     if not category_products:
@@ -845,7 +845,7 @@ async def select_sale_category(callback: CallbackQuery, state: FSMContext):
     # Проверяем доступность хотя бы одного товара
     available_check = False
     for product in category_products:
-        if current_db.get_inventory(shop_name, product[0]) > 0:
+        if await current_db.get_inventory(shop_name, product[0]) > 0:
             available_check = True
             break
 
@@ -910,7 +910,7 @@ async def sale_srch_prd_process(message: Message, state: FSMContext):
     home_shop = data.get("sale_home_shop", shop_name)
     category = data.get("sale_current_category", "")
     current_db = await get_db(message.from_user.id, state)
-    text, markup = _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
+    text, markup = await _build_sale_product_list_content(shop_name, category, current_db, home_shop, query)
     await fsm_edit(state, message, text, reply_markup=markup, parse_mode="HTML")
 
 @sales_router.callback_query(F.data.startswith("sale_product_"))
@@ -919,7 +919,7 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
     product_id = int(callback.data.replace("sale_product_", ""))
     current_db = await get_db(callback.from_user.id, state)
 
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
 
     if not product:
         await callback.answer("❌ Товар не найден!", show_alert=True)
@@ -927,7 +927,7 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     shop_name = data['shop_name']
-    quantity = current_db.get_inventory(shop_name, product_id)
+    quantity = await current_db.get_inventory(shop_name, product_id)
 
     if quantity <= 0:
         # Уточняем сообщение: если выбран другой магазин — говорим какой именно
@@ -943,7 +943,7 @@ async def select_sale_product(callback: CallbackQuery, state: FSMContext):
     await state.update_data(product_id=product_id)
 
     # Получаем информацию о мотивации для товара
-    motivation_info = current_db.get_product_motivation(product_id)
+    motivation_info = await current_db.get_product_motivation(product_id)
     motivation_text = ""
     if motivation_info:
         if motivation_info['motivation_type'] == 'percentage':
@@ -990,7 +990,7 @@ async def process_sale_quantity(message: Message, state: FSMContext):
         shop_name = data['shop_name']
         product_id = data['product_id']
 
-        current_quantity = current_db.get_inventory(shop_name, product_id)
+        current_quantity = await current_db.get_inventory(shop_name, product_id)
 
         if quantity > current_quantity:
             await fsm_edit(state, message,
@@ -1001,11 +1001,11 @@ async def process_sale_quantity(message: Message, state: FSMContext):
         # Сохраняем количество и показываем опции цены
         await state.update_data(quantity=quantity)
 
-        product = current_db.get_product(product_id)
+        product = await current_db.get_product(product_id)
         default_price = product[3]
 
         # Получаем информацию о мотивации и рассчитываем предварительную сумму
-        motivation_info = current_db.get_product_motivation(product_id)
+        motivation_info = await current_db.get_product_motivation(product_id)
         motivation_text = ""
         expected_earning = 0
         
@@ -1059,8 +1059,8 @@ async def quick_qty_select(callback: CallbackQuery, state: FSMContext):
     # «Ввести вручную» — оставляем текстовый ввод, просто убираем кнопки
     if qty_str == "manual":
         await callback.answer()
-        product = current_db.get_product(product_id)
-        max_qty = current_db.get_inventory(shop_name, product_id)
+        product = await current_db.get_product(product_id)
+        max_qty = await current_db.get_inventory(shop_name, product_id)
         await callback.message.edit_text(
             f"✏️ <b>Введите количество вручную</b>\n\n"
             f"🏷 {he(product[1])}\n"
@@ -1079,16 +1079,16 @@ async def quick_qty_select(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Неверное значение", show_alert=True)
         return
 
-    max_qty = current_db.get_inventory(shop_name, product_id)
+    max_qty = await current_db.get_inventory(shop_name, product_id)
     if quantity > max_qty:
         await callback.answer(f"❌ В наличии только {max_qty} шт.", show_alert=True)
         return
 
     await callback.answer()
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     default_price = product[3]
 
-    motivation_info = current_db.get_product_motivation(product_id)
+    motivation_info = await current_db.get_product_motivation(product_id)
     motivation_text = ""
     if motivation_info:
         if motivation_info['motivation_type'] == 'percentage':
@@ -1134,7 +1134,7 @@ async def use_default_price(callback: CallbackQuery, state: FSMContext):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Новая продажа", callback_data="new_sale")]])
         )
         return
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
 
     if not product:
         await callback.message.edit_text(
@@ -1144,7 +1144,7 @@ async def use_default_price(callback: CallbackQuery, state: FSMContext):
         return
 
     # Получаем информацию о мотивации и рассчитываем заработок
-    motivation_info = current_db.get_product_motivation(product_id)
+    motivation_info = await current_db.get_product_motivation(product_id)
     expected_earning = 0
     motivation_text = ""
     
@@ -1202,7 +1202,7 @@ async def custom_price_start(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     product_id = data['product_id']
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
 
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
@@ -1232,7 +1232,7 @@ async def process_custom_price(message: Message, state: FSMContext):
         data = await state.get_data()
         product_id = data['product_id']
         quantity = data['quantity']
-        product = current_db.get_product(product_id)
+        product = await current_db.get_product(product_id)
 
         if not product:
             await fsm_edit(state, message, "❌ Товар не найден! Попробуйте начать продажу заново.",
@@ -1240,7 +1240,7 @@ async def process_custom_price(message: Message, state: FSMContext):
             return
 
         # Получаем информацию о мотивации и рассчитываем заработок
-        motivation_info = current_db.get_product_motivation(product_id)
+        motivation_info = await current_db.get_product_motivation(product_id)
         expected_earning = 0
         motivation_text = ""
         
@@ -1420,7 +1420,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             )
             return
 
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
 
     if not user_id:
         try:
@@ -1431,7 +1431,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
     # Снимок прогресса планов ДО продажи (для определения только что выполненных)
     try:
-        _snap_before = current_db.get_user_plans_progress(callback.from_user.id)
+        _snap_before = await current_db.get_user_plans_progress(callback.from_user.id)
         _plans_before_pct = {p[0]: pct for p, _, pct in _snap_before}
     except Exception:
         _plans_before_pct = {}
@@ -1451,7 +1451,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             product_id = item['product_id']
             quantity = item['quantity']
 
-            current_stock = current_db.get_inventory(shop_name, product_id)
+            current_stock = await current_db.get_inventory(shop_name, product_id)
 
             if current_stock < quantity:
                 try:
@@ -1473,13 +1473,13 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
             # Регистрируем продажу
             try:
-                sale_id = current_db.add_sale(product_id, shop_name, quantity, user_id, price)
+                sale_id = await current_db.add_sale(product_id, shop_name, quantity, user_id, price)
 
                 if sale_id and sale_id > 0:
                     processed_sales.append(sale_id)
 
                     # Получаем новые остатки после продажи
-                    new_quantity = current_db.get_inventory(shop_name, product_id)
+                    new_quantity = await current_db.get_inventory(shop_name, product_id)
 
                     results.append({
                         'name': item['product_name'],
@@ -1502,7 +1502,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             # Откатываем все продажи в случае ошибки
             for sale_id in processed_sales:
                 try:
-                    current_db.delete_sale(sale_id)
+                    await current_db.delete_sale(sale_id)
                 except Exception:
                     pass
 
@@ -1521,7 +1521,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
         # Планы, которые только что перешли через 100%
         try:
-            _snap_after = current_db.get_user_plans_progress(callback.from_user.id)
+            _snap_after = await current_db.get_user_plans_progress(callback.from_user.id)
             _completed_now = [
                 (plan, actual, pct) for plan, actual, pct in _snap_after
                 if pct >= 100 and _plans_before_pct.get(plan[0], 0) < 100
@@ -1530,7 +1530,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             _completed_now = []
 
         try:
-            user = current_db.get_user(callback.from_user.id)
+            user = await current_db.get_user(callback.from_user.id)
             user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
         except Exception:
             user = None
@@ -1590,7 +1590,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
         # Проверяем milestone 50%/75% (100% уже отражён выше)
         try:
-            newly_hit = current_db.check_and_mark_plan_milestones(callback.from_user.id)
+            newly_hit = await current_db.check_and_mark_plan_milestones(callback.from_user.id)
             _PERIOD2 = {'monthly': 'Месяц', 'weekly': 'Неделя', 'daily': 'День', 'quarter': 'Квартал'}
             for _plan, _actual, _pct, _ms in newly_hit:
                 if _ms < 100:
@@ -1634,7 +1634,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             from notif_utils import add_read_btn as _add_read_btn
             from datetime import date as _date
             today_str = _date.today().isoformat()
-            coworkers = current_db.get_shop_coworkers_on_shift(
+            coworkers = await current_db.get_shop_coworkers_on_shift(
                 shop_name, today_str, user_id
             )
             if coworkers:
@@ -1656,7 +1656,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                             parse_mode="HTML",
                             reply_markup=_add_read_btn()
                         )
-                        current_db.add_notification_to_history(
+                        await current_db.add_notification_to_history(
                             cw_uid, 'shift_sale', notif_text
                         )
                     except Exception as _send_err:
@@ -1672,7 +1672,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         # Откатываем все продажи в случае общей ошибки
         for sale_id in processed_sales:
             try:
-                current_db.delete_sale(sale_id)
+                await current_db.delete_sale(sale_id)
             except Exception:
                 pass
 
@@ -1688,7 +1688,7 @@ async def cancel_sale(callback: CallbackQuery, state: FSMContext):
     """Отмена продажи"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
 
     try:
@@ -1751,7 +1751,7 @@ async def edit_sales_today(callback: CallbackQuery, state: FSMContext):
         # Для админа - выбор магазина
         await state.update_data(edit_start_date=today, edit_end_date=today)
 
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         if not shops:
             await callback.message.edit_text(
                 "🏪 Магазины не найдены.",
@@ -1771,7 +1771,7 @@ async def edit_sales_today(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.message.edit_text(
             "❌ Пользователь не найден.",
@@ -1780,7 +1780,7 @@ async def edit_sales_today(callback: CallbackQuery, state: FSMContext):
         return
 
     # Получаем продажи за сегодня
-    sales = current_db.get_user_sales_by_date(user_id, today, today)
+    sales = await current_db.get_user_sales_by_date(user_id, today, today)
 
     if not sales:
         await callback.message.edit_text(
@@ -1797,13 +1797,13 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
     await callback.answer()
     shop_raw = callback.data.replace("admin_edit_shop_sales_", "")
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
     data = await state.get_data()
     start_date = data.get('edit_start_date')
     end_date = data.get('edit_end_date')
 
     # Получаем все продажи магазина за период
-    sales = current_db.get_shop_sales_by_date(shop_name, start_date, end_date)
+    sales = await current_db.get_shop_sales_by_date(shop_name, start_date, end_date)
     
     if not sales:
         await callback.message.edit_text(
@@ -1879,7 +1879,7 @@ async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegr
     """Вспомогательная функция для отображения меню редактирования продажи"""
     current_db = await get_db(telegram_id, state) if telegram_id else Database('data/shop_bot.db')
     # Получаем данные о продаже
-    sale = current_db.get_sale_by_id(sale_id)
+    sale = await current_db.get_sale_by_id(sale_id)
     if not sale:
         await message.edit_text(
             "❌ Продажа не найдена!",
@@ -1901,7 +1901,7 @@ async def render_edit_sale_menu(message, state: FSMContext, sale_id: int, telegr
     await state.update_data(sale_id=sale_id, product_name=product_name, current_quantity=quantity, price=sale_price)
     
     # Получаем telegram_id пользователя, который сделал продажу
-    user_data = current_db.get_user_by_id(user_id_from_sale)
+    user_data = await current_db.get_user_by_id(user_id_from_sale)
     telegram_id = user_data[1] if user_data else None
     
     # Форматируем дату с учетом часового пояса пользователя
@@ -1972,8 +1972,8 @@ async def process_quantity_edit(message: Message, state: FSMContext):
         
         # Обновляем количество в базе данных
         current_db = await get_db(message.from_user.id, state)
-        _editor_id = current_db.get_user_id(message.from_user.id)
-        if current_db.update_sale(sale_id, new_quantity, changed_by=_editor_id):
+        _editor_id = await current_db.get_user_id(message.from_user.id)
+        if await current_db.update_sale(sale_id, new_quantity, changed_by=_editor_id):
             await state.update_data(current_quantity=new_quantity)
             await fsm_edit(
                 state, message,
@@ -2026,8 +2026,8 @@ async def process_price_edit(message: Message, state: FSMContext):
         
         # Обновляем только цену в продаже, не меняя цену товара глобально
         current_db = await get_db(message.from_user.id, state)
-        _editor_id = current_db.get_user_id(message.from_user.id)
-        if current_db.update_sale(sale_id, quantity, sale_price=new_price, changed_by=_editor_id):
+        _editor_id = await current_db.get_user_id(message.from_user.id)
+        if await current_db.update_sale(sale_id, quantity, sale_price=new_price, changed_by=_editor_id):
             await state.update_data(price=new_price)
             await fsm_edit(
                 state, message,
@@ -2081,7 +2081,7 @@ async def delete_sale_confirmed(callback: CallbackQuery, state: FSMContext):
     sale_id = data['sale_id']
 
     current_db = await get_db(callback.from_user.id, state)
-    if current_db.delete_sale(sale_id):
+    if await current_db.delete_sale(sale_id):
         # Убираем удалённую продажу из кеша, чтобы список был актуален
         cached = data.get('edit_sales_cache') or []
         updated_cache = [s for s in cached if s[0] != sale_id]
@@ -2178,8 +2178,8 @@ async def edit_sale_date_quick(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    editor_id  = current_db.get_user_id(callback.from_user.id)
-    if current_db.update_sale_date(sale_id, new_date, changed_by=editor_id):
+    editor_id  = await current_db.get_user_id(callback.from_user.id)
+    if await current_db.update_sale_date(sale_id, new_date, changed_by=editor_id):
         from datetime import datetime
         disp = format_date_display(new_date)
         await callback.message.edit_text(
@@ -2261,8 +2261,8 @@ async def edit_sale_date_calendar_handler(callback: CallbackQuery, state: FSMCon
             await callback.answer("❌ Продажа не найдена!", show_alert=True)
             return
         current_db = await get_db(callback.from_user.id, state)
-        editor_id  = current_db.get_user_id(callback.from_user.id)
-        if current_db.update_sale_date(sale_id, date_str, changed_by=editor_id):
+        editor_id  = await current_db.get_user_id(callback.from_user.id)
+        if await current_db.update_sale_date(sale_id, date_str, changed_by=editor_id):
             disp = format_date_display(date_str)
             await callback.message.edit_text(
                 f"✅ <b>Дата изменена!</b>\n\n"
@@ -2318,7 +2318,7 @@ async def edit_sales_selected_period(callback: CallbackQuery, state: FSMContext)
         # Для админа - выбор магазина
         await state.update_data(edit_start_date=start_date, edit_end_date=end_date)
         
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         builder = InlineKeyboardBuilder()
         for shop in shops:
             builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("admin_edit_shop_sales_", shop)))
@@ -2331,7 +2331,7 @@ async def edit_sales_selected_period(callback: CallbackQuery, state: FSMContext)
         )
         return
 
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.message.edit_text(
             "❌ Пользователь не найден.",
@@ -2340,7 +2340,7 @@ async def edit_sales_selected_period(callback: CallbackQuery, state: FSMContext)
         return
     
     # Получаем продажи за выбранный период
-    sales = current_db.get_user_sales_by_date(user_id, start_date, end_date)
+    sales = await current_db.get_user_sales_by_date(user_id, start_date, end_date)
     
     if not sales:
         period_text = "За выбранный период" if start_date != end_date else f"За {format_date_display(start_date)}"
@@ -2473,7 +2473,7 @@ async def edit_sales_calendar_handler(callback: CallbackQuery, state: FSMContext
                 # Для админа - выбор магазина
                 await state.update_data(edit_start_date=start_date, edit_end_date=date_str)
                 
-                shops = current_db.get_all_shops()
+                shops = await current_db.get_all_shops()
                 builder = InlineKeyboardBuilder()
                 for shop in shops:
                     builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("admin_edit_shop_sales_", shop)))
@@ -2488,12 +2488,12 @@ async def edit_sales_calendar_handler(callback: CallbackQuery, state: FSMContext
                 return
 
             # Получаем пользователя и продажи за период
-            user_id = current_db.get_user_id(callback.from_user.id)
+            user_id = await current_db.get_user_id(callback.from_user.id)
             if not user_id:
                 await callback.answer("❌ Пользователь не найден!", show_alert=True)
                 return
             
-            sales = current_db.get_user_sales_by_date(user_id, start_date, date_str)
+            sales = await current_db.get_user_sales_by_date(user_id, start_date, date_str)
             
             if not sales:
                 await callback.message.edit_text(

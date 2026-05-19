@@ -112,7 +112,7 @@ async def products_callback(callback: CallbackQuery, state: FSMContext):
         return
         
     current_db = await get_db(callback.from_user.id, state)
-    current_db.create_tables()
+    await current_db.create_tables()
     
     is_super = env_manager.is_super_admin(callback.from_user.id)
     is_admin = is_any_admin(callback.from_user.id)
@@ -123,7 +123,7 @@ async def products_callback(callback: CallbackQuery, state: FSMContext):
         return
     
     await callback.answer()
-    _prod_user = current_db.get_user(callback.from_user.id)
+    _prod_user = await current_db.get_user(callback.from_user.id)
     _prod_hint = hint_suffix(current_db, _prod_user[0], 'first_products') if _prod_user else ""
     await callback.message.edit_text(
         f"🛍 <b>Управление товарами</b>\n\nВыберите действие:{_prod_hint}",
@@ -194,7 +194,7 @@ async def process_product_name(message: Message, state: FSMContext):
     await state.update_data(name=name)
     
     current_db = await get_db(message.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     
     if categories:
         builder = InlineKeyboardBuilder()
@@ -329,7 +329,7 @@ async def process_product_price(message: Message, state: FSMContext):
         return
     
     current_db = await get_db(message.from_user.id, state)
-    product_id = current_db.add_product(data['name'], data['category'], price)
+    product_id = await current_db.add_product(data['name'], data['category'], price)
     
     if product_id:
         # Сохраняем ID нового товара для следующих шагов
@@ -384,7 +384,7 @@ async def _render_product_list(callback: CallbackQuery, state: FSMContext, page:
     """Рендер страницы N списка товаров по категориям."""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
 
     if not products:
         await callback.message.edit_text(
@@ -445,7 +445,7 @@ async def categories_menu(callback: CallbackQuery, state: FSMContext):
     """Меню управления категориями"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     
     if not categories:
         await callback.message.edit_text(
@@ -471,10 +471,10 @@ async def edit_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     category_raw = callback.data.replace("edit_category_", "")
     current_db = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db.get_all_categories() or [])
+    category = resolve_cb_name(category_raw, await current_db.get_all_categories() or [])
 
     # Получаем товары в этой категории
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
     
     message_text = f"📂 Категория: {category}\n\n"
@@ -541,12 +541,12 @@ async def process_category_rename(message: Message, state: FSMContext):
     old_category = data['old_category']
     
     current_db = await get_db(message.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     updated_count = 0
     
     for product in products:
         if product[2] == old_category:
-            current_db.update_product(product[0], category=new_category)
+            await current_db.update_product(product[0], category=new_category)
             updated_count += 1
     
     await fsm_edit(state, message,
@@ -563,10 +563,10 @@ async def delete_category_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     category_raw = callback.data.replace("delete_category_", "")
     current_db = await get_db(callback.from_user.id, state)
-    category = resolve_cb_name(category_raw, current_db.get_all_categories() or [])
+    category = resolve_cb_name(category_raw, await current_db.get_all_categories() or [])
 
     # Получаем товары в этой категории
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
     
     await state.update_data(category_to_delete=category)
@@ -612,13 +612,13 @@ async def delete_category_final(callback: CallbackQuery, state: FSMContext):
     
     # Получаем товары в этой категории
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     category_products = [p for p in products if p[2] == category]
     
     # Перемещаем все товары в категорию "Без категории"
     updated_count = 0
     for product in category_products:
-        current_db.update_product(product[0], category="Без категории")
+        await current_db.update_product(product[0], category="Без категории")
         updated_count += 1
     
     await callback.message.edit_text(
@@ -634,7 +634,7 @@ async def edit_product_start(callback: CallbackQuery, state: FSMContext):
     """Начало редактирования товара"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     
     if not products:
         await callback.message.edit_text(
@@ -662,7 +662,7 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     """Выбор товара для редактирования"""
     product_id = int(callback.data.replace("edit_product_choice_", ""))
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     
     if not product:
         await callback.answer("❌ Товар не найден!", show_alert=True)
@@ -743,13 +743,13 @@ async def process_edit_value_product(message: Message, state: FSMContext):
     current_db = await get_db(message.from_user.id, state)
     try:
         if param == "name":
-            current_db.update_product(product_id, name=new_value)
+            await current_db.update_product(product_id, name=new_value)
         elif param == "category":
-            current_db.update_product(product_id, category=new_value)
+            await current_db.update_product(product_id, category=new_value)
         elif param == "price":
-            current_db.update_product(product_id, price=new_value)
+            await current_db.update_product(product_id, price=new_value)
 
-        product = current_db.get_product(product_id)
+        product = await current_db.get_product(product_id)
         if not product:
             await fsm_edit(state, message, "❌ Товар не найден после обновления.",
                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
@@ -787,7 +787,7 @@ async def delete_product_start(callback: CallbackQuery, state: FSMContext):
     """Начало удаления товара"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_all_products()
+    products = await current_db.get_all_products()
     
     if not products:
         await callback.message.edit_text(
@@ -815,7 +815,7 @@ async def confirm_delete_product(callback: CallbackQuery, state: FSMContext):
     """Подтверждение удаления товара"""
     product_id = int(callback.data.replace("confirm_delete_", ""))
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     
     if not product:
         await callback.answer("❌ Товар не найден!", show_alert=True)
@@ -845,11 +845,11 @@ async def final_delete_product(callback: CallbackQuery, state: FSMContext):
     product_id = data['delete_product_id']
     
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     product_name = product[1] if product else "Неизвестный товар"
     
     # Удаляем товар
-    current_db.delete_product(product_id)
+    await current_db.delete_product(product_id)
 
     _gs_sfx = ""
     try:
@@ -885,7 +885,7 @@ async def setup_motivation_new(callback: CallbackQuery, state: FSMContext):
     
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
@@ -953,7 +953,7 @@ async def process_new_motivation_value(message: Message, state: FSMContext):
     motivation_type = data.get('new_motivation_type')
     
     current_db = await get_db(message.from_user.id, state)
-    current_db.set_product_motivation(product_id, motivation_type, value, message.from_user.id)
+    await current_db.set_product_motivation(product_id, motivation_type, value, message.from_user.id)
     
     type_text = "₽" if motivation_type == "fixed" else "%"
     
@@ -978,7 +978,7 @@ async def setup_inventory_new(callback: CallbackQuery, state: FSMContext):
     
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
@@ -996,7 +996,7 @@ async def setup_inventory_new(callback: CallbackQuery, state: FSMContext):
     
     if is_personal_mode:
         # В личном режиме берём магазин из профиля пользователя
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
         if user and user[8]:  # shop_name в позиции 8
             shop_name = user[8]
             await state.update_data(
@@ -1034,7 +1034,7 @@ async def setup_inventory_new(callback: CallbackQuery, state: FSMContext):
             return
     
     # Корпоративный режим — получаем список магазинов
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     
     if not shops:
         # Если магазинов нет, создаём магазин по умолчанию
@@ -1135,7 +1135,7 @@ async def process_new_inventory_quantity(message: Message, state: FSMContext):
     shop_name = data.get('inventory_shop')
     
     current_db = await get_db(message.from_user.id, state)
-    current_db.add_inventory(shop_name, product_id, quantity, message.from_user.id, 'manual', 'Начальные остатки')
+    await current_db.add_inventory(shop_name, product_id, quantity, message.from_user.id, 'manual', 'Начальные остатки')
     
     await fsm_edit(state, message,
                    f"✅ Остатки установлены!\n\n"
@@ -1174,7 +1174,7 @@ async def bulk_import_start(callback: CallbackQuery, state: FSMContext):
         limits = get_plan_limits(callback.from_user.id)
         max_products = limits['max_products']
         if max_products != -1:
-            current_count = len(current_db.get_all_products())
+            current_count = len(await current_db.get_all_products())
             remaining = max_products - current_count
             if remaining <= 0:
                 await callback.answer()
@@ -1244,7 +1244,7 @@ async def process_bulk_list(message: Message, state: FSMContext):
         limits = get_plan_limits(message.from_user.id)
         max_products = limits['max_products']
         if max_products != -1:
-            current_count = len(current_db.get_all_products())
+            current_count = len(await current_db.get_all_products())
             remaining = max_products - current_count
             if remaining <= 0:
                 await fsm_edit(state, message,
@@ -1349,7 +1349,7 @@ async def confirm_bulk_import(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    added, skipped = current_db.add_products_bulk(bulk_products)
+    added, skipped = await current_db.add_products_bulk(bulk_products)
 
     await clear_state_keep_org(state)
 
@@ -1534,7 +1534,7 @@ async def excel_import_confirm(callback: CallbackQuery, state: FSMContext):
 
     current_db = await get_db(callback.from_user.id, state)
     bulk_products = [(p['name'], p['category'], p['price']) for p in excel_data]
-    added, skipped = current_db.add_products_bulk(bulk_products)
+    added, skipped = await current_db.add_products_bulk(bulk_products)
 
     await clear_state_keep_org(state)
     await callback.answer(

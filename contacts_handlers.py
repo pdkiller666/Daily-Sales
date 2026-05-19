@@ -80,7 +80,7 @@ async def show_my_contact(callback: CallbackQuery, state: FSMContext):
     """Показать свой контакт"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     
     if not user:
         await callback.message.edit_text(
@@ -143,7 +143,7 @@ async def contacts_by_shop(callback: CallbackQuery, state: FSMContext):
     """Просмотр контактов по магазинам"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     
     if not shops:
         await callback.message.edit_text(
@@ -183,7 +183,7 @@ async def contacts_srch_shop_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="🔍 Найти магазин", callback_data="contacts_srch_shop_start"))
@@ -206,7 +206,7 @@ async def contacts_by_city(callback: CallbackQuery, state: FSMContext):
     """Просмотр контактов по городам"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    cities = current_db.get_all_cities()
+    cities = await current_db.get_all_cities()
     
     if not cities:
         await callback.message.edit_text(
@@ -232,8 +232,8 @@ async def show_shop_contacts(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     shop_raw = callback.data[3:]
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
-    users = current_db.get_users_by_shop(shop_name)
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
+    users = await current_db.get_users_by_shop(shop_name)
     
     if not users:
         await callback.message.edit_text(
@@ -272,8 +272,8 @@ async def show_city_contacts(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     city_raw = callback.data[3:]
-    city_name = resolve_cb_name(city_raw, current_db.get_all_cities() or [])
-    users = current_db.get_users_by_city(city_name)
+    city_name = resolve_cb_name(city_raw, await current_db.get_all_cities() or [])
+    users = await current_db.get_users_by_city(city_name)
     
     if not users:
         await callback.message.edit_text(
@@ -323,7 +323,7 @@ async def show_all_contacts(callback: CallbackQuery, state: FSMContext):
     """Показать все контакты пользователей"""
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    users = current_db.get_all_users()
+    users = await current_db.get_all_users()
     
     if not users:
         await callback.message.edit_text(

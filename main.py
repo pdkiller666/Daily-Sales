@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from database import Database
+from db_utils import wrap_db
 from notif_utils import add_read_btn
 from handlers import router as main_router
 from products_handlers import products_router
@@ -467,16 +468,16 @@ async def send_daily_reports(bot: Bot):
 
         for path in db_paths:
             await asyncio.sleep(0)
-            current_db = Database(path)
+            current_db = wrap_db(Database(path))
             try:
-                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'daily_report')
+                users = await current_db.get_users_for_notifications('daily_report')
                 for user_data in users:
                     await asyncio.sleep(0)
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
                     if not telegram_id or not notification_time_str:
                         continue
 
-                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
+                    user_timezone = await current_db.get_user_timezone(telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
                         if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str:
@@ -488,19 +489,17 @@ async def send_daily_reports(bot: Bot):
                         if is_any_admin(telegram_id):
                             from db_utils import get_user_org_scope
                             _sct, _scv = get_user_org_scope(telegram_id)
-                            message = await asyncio.to_thread(
-                                build_admin_daily_text,
+                            message = await build_admin_daily_text(
                                 current_db, yesterday, shop_name,
                                 scope_type=_sct, scope_values=_scv
                             )
                         else:
-                            message = await asyncio.to_thread(
-                                build_user_daily_text,
-                                current_db, user_id, telegram_id, yesterday, shop_name
+                            message = await build_user_daily_text(
+                                current_db, user_id, yesterday, shop_name
                             )
                     except Exception as e:
                         logging.error(f"send_daily_reports: ошибка формирования текста для {telegram_id}: {e}")
-                        sales = await asyncio.to_thread(current_db.get_user_sales_by_date, user_id, yesterday, yesterday)
+                        sales = await current_db.get_user_sales_by_date(user_id, yesterday, yesterday)
                         message = f"📊 <b>Ежедневный отчёт за {yesterday}</b>\n\n"
                         if shop_name:
                             message += f"🏪 Магазин: {he(shop_name)}\n\n"
@@ -511,7 +510,7 @@ async def send_daily_reports(bot: Bot):
                             message += "ℹ️ Продаж не было."
 
                     await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                    await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'daily_report', message)
+                    await current_db.add_notification_to_history(user_id, 'daily_report', message)
             except Exception:
                 continue
     except Exception as e:

@@ -36,6 +36,10 @@ class Database:
         """Получить объект соединения с БД"""
         conn = sqlite3.connect(self.db_file, timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-8000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")
         conn.execute("PRAGMA busy_timeout=10000")
         return conn
 
@@ -48,6 +52,11 @@ class Database:
         if self.db_file in _INITIALIZED_DBS:
             return
         conn = sqlite3.connect(self.db_file)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-8000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")
         conn.execute("PRAGMA busy_timeout=10000")
         cursor = conn.cursor()
 

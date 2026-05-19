@@ -68,7 +68,7 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
 
-    connections = current_db.get_integration_connections()
+    connections = await current_db.get_integration_connections()
 
     oauth_ready = bool(
         os.environ.get("GOOGLE_OAUTH_CLIENT_ID") and
@@ -657,7 +657,7 @@ async def gs_spreadsheet_id_handler(message: Message, state: FSMContext):
             return
 
         current_db = await get_db(message.from_user.id, state)
-        conn_id = current_db.add_integration_connection(
+        conn_id = await current_db.add_integration_connection(
             name=name,
             config=json.dumps({
                 'spreadsheet_id': spreadsheet_id,
@@ -832,7 +832,7 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
 
             from db_utils import get_db as _get_db
             current_db = await _get_db(chat_id, state)
-            conn_id = current_db.add_integration_connection(
+            conn_id = await current_db.add_integration_connection(
                 name=name,
                 config=json.dumps(conn_config),
             )
@@ -938,12 +938,12 @@ def _build_conn_detail_content(conn, conn_id: int, exports: list):
 async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
     conn_id    = int(callback.data.split("_")[2])
     current_db = await get_db(callback.from_user.id, state)
-    conn       = current_db.get_integration_connection(conn_id)
+    conn       = await current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Подключение не найдено", show_alert=True)
         return
     await callback.answer()
-    exports      = current_db.get_integration_exports(conn_id)
+    exports      = await current_db.get_integration_exports(conn_id)
     text, markup = _build_conn_detail_content(conn, conn_id, exports)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
@@ -952,16 +952,16 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
 async def gs_toggle_conn(callback: CallbackQuery, state: FSMContext):
     conn_id    = int(callback.data.split("_")[3])
     current_db = await get_db(callback.from_user.id, state)
-    conn       = current_db.get_integration_connection(conn_id)
+    conn       = await current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Не найдено", show_alert=True)
         return
-    current_db.update_integration_connection(conn_id, enabled=0 if conn[4] else 1)
+    await current_db.update_integration_connection(conn_id, enabled=0 if conn[4] else 1)
     await callback.answer("✅ Изменено")
     # Re-fetch updated conn and render — cannot call gs_conn_detail(callback) directly
     # because callback.data is gs_toggle_conn_N, not gs_conn_N
-    conn         = current_db.get_integration_connection(conn_id)
-    exports      = current_db.get_integration_exports(conn_id)
+    conn         = await current_db.get_integration_connection(conn_id)
+    exports      = await current_db.get_integration_exports(conn_id)
     text, markup = _build_conn_detail_content(conn, conn_id, exports)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
@@ -971,7 +971,7 @@ async def gs_test_conn(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
     await callback.answer("⏳ Проверяю…")
     current_db = await get_db(callback.from_user.id, state)
-    conn = current_db.get_integration_connection(conn_id)
+    conn = await current_db.get_integration_connection(conn_id)
     if not conn:
         return
     cfg = json.loads(conn[3] or '{}')
@@ -994,7 +994,7 @@ async def gs_reauth(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[2])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    conn = current_db.get_integration_connection(conn_id)
+    conn = await current_db.get_integration_connection(conn_id)
     if not conn:
         return
     cfg = json.loads(conn[3] or '{}')
@@ -1012,7 +1012,7 @@ async def gs_del_conn_confirm(callback: CallbackQuery, state: FSMContext):
     if "_ok_" in callback.data:
         conn_id = int(callback.data.split("_ok_")[1])
         current_db = await get_db(callback.from_user.id, state)
-        current_db.delete_integration_connection(conn_id)
+        await current_db.delete_integration_connection(conn_id)
         await callback.answer("✅ Удалено")
         await integration_menu(callback, state)
         return
@@ -1035,7 +1035,7 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[2])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    logs = current_db.get_integration_logs(conn_id, limit=10)
+    logs = await current_db.get_integration_logs(conn_id, limit=10)
     back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
     if not logs:
         await callback.message.edit_text(
@@ -1061,7 +1061,7 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
 async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
     current_db = await get_db(callback.from_user.id, state)
-    conn = current_db.get_integration_connection(conn_id)
+    conn = await current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Подключение не найдено", show_alert=True)
         return
@@ -1186,7 +1186,7 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    cache = current_db.get_bonus_cache(conn_id)
+    cache = await current_db.get_bonus_cache(conn_id)
 
     if not cache:
         await callback.message.edit_text(
@@ -1268,7 +1268,7 @@ async def gs_exports_list(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[2])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    exports    = current_db.get_integration_exports(conn_id)
+    exports    = await current_db.get_integration_exports(conn_id)
     text, markup = _build_exports_list_content(exports, conn_id)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
@@ -1351,7 +1351,7 @@ async def gs_exp_detail(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
+    exp = await current_db.get_integration_export(exp_id)
     if not exp:
         await callback.answer("❌ Не найдено", show_alert=True)
         return
@@ -1365,15 +1365,15 @@ async def gs_exp_toggle(callback: CallbackQuery, state: FSMContext):
     parts  = callback.data.split("_")
     exp_id = int(parts[3])
     current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
+    exp = await current_db.get_integration_export(exp_id)
     if not exp:
         await callback.answer("❌ Не найдено", show_alert=True)
         return
-    current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
+    await current_db.update_integration_export(exp_id, enabled=0 if exp[2] else 1)
     await callback.answer("✅ Изменено")
     # Re-fetch updated exp and render — cannot call gs_exp_detail(callback) directly
     # because callback.data is gs_exp_toggle_N_M, not gs_exp_N
-    exp = current_db.get_integration_export(exp_id)
+    exp = await current_db.get_integration_export(exp_id)
     text, markup = _build_exp_detail_content(exp, exp_id)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
@@ -1399,10 +1399,10 @@ async def gs_exp_del(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     exp_id, conn_id = int(parts[3]), int(parts[4])
     current_db = await get_db(callback.from_user.id, state)
-    current_db.delete_integration_export(exp_id)
+    await current_db.delete_integration_export(exp_id)
     await callback.answer("✅ Удалён")
     # Use helper directly — callback.data here is gs_exp_del_N_M, not gs_exports_M
-    exports = current_db.get_integration_exports(conn_id)
+    exports = await current_db.get_integration_exports(conn_id)
     text, markup = _build_exports_list_content(exports, conn_id)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
@@ -1417,7 +1417,7 @@ async def gs_alias_edit(callback: CallbackQuery, state: FSMContext):
     exp_id, conn_id = int(parts[3]), int(parts[4])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    exp = current_db.get_integration_export(exp_id)
+    exp = await current_db.get_integration_export(exp_id)
     lookup = json.loads(exp[7] or '{}') if exp else {}
     aliases = lookup.get('aliases', {})
 
@@ -1448,7 +1448,7 @@ async def gs_alias_input(message: Message, state: FSMContext):
     anchor_id = data.get('anchor_msg_id')
     await delete_message_safe(message)
     current_db = await get_db(message.chat.id, state)
-    exp = current_db.get_integration_export(exp_id)
+    exp = await current_db.get_integration_export(exp_id)
     if not exp:
         await _edit_anchor(message.bot, message.chat.id, anchor_id, "❌ Экспорт не найден.")
         await clear_state_keep_org(state)
@@ -1464,7 +1464,7 @@ async def gs_alias_input(message: Message, state: FSMContext):
         if aliases:
             result += '\n' + '\n'.join(f"  <code>{k}</code> → <code>{v}</code>"
                                        for k, v in aliases.items())
-    current_db.update_integration_export(
+    await current_db.update_integration_export(
         exp_id, lookup_config=json.dumps(lookup, ensure_ascii=False))
     conn_id = data.get('alias_conn_id')
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -2376,7 +2376,7 @@ async def _save_export(msg, state: FSMContext, from_message: bool = False):
     user_id = msg.chat.id
     current_db = await _get_db(user_id, state)
 
-    exp_id = current_db.add_integration_export(
+    exp_id = await current_db.add_integration_export(
         connection_id=conn_id,
         export_type=exp_type,
         schedule=schedule,

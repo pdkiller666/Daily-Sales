@@ -25,7 +25,7 @@ admin_router = Router()
 from db_utils import (get_db, clear_state_keep_org, is_any_admin, is_org_owner,
                        get_user_org_scope, get_role_display_label, get_user_org_role,
                        get_user_full_scope, get_user_custom_title,
-                       invalidate_admin_cache, invalidate_scope_cache)
+                       invalidate_admin_cache, invalidate_scope_cache, wrap_db)
 from keyboards import safe_cb, resolve_cb_name
 from tenant_manager import tenant_manager
 
@@ -312,7 +312,7 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
     else:
         current_db = await get_db(user_id, state)
-        all_users = current_db.get_all_users()
+        all_users = await current_db.get_all_users()
         is_personal_mode = (selected_org_db == "data/shop_bot.db") if selected_org_db else False
 
         if is_personal_mode or selected_org_db is None:
@@ -961,8 +961,8 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
                 if f.endswith('.db'):
                     p = os.path.join(tenants_dir, f)
                     try:
-                        t_db = Database(p)
-                        user = t_db.get_user(telegram_id)
+                        t_db = wrap_db(Database(p))
+                        user = await t_db.get_user(telegram_id)
                         if user:
                             await state.update_data(admin_delete_db_path=p)
                             break
@@ -1557,7 +1557,7 @@ async def adm_kick_confirm(callback: CallbackQuery, state: FSMContext):
 
     user = None
     if db_path and os.path.exists(db_path):
-        user = Database(db_path).get_user(telegram_id)
+        user = await wrap_db(Database(db_path)).get_user(telegram_id)
 
     user_name = f"{he(user[2])} {he(user[3])}" if user else str(telegram_id)
 
@@ -1631,7 +1631,7 @@ async def adm_restore_confirm(callback: CallbackQuery, state: FSMContext):
 
     user = None
     if db_path and os.path.exists(db_path):
-        user = Database(db_path).get_user(telegram_id)
+        user = await wrap_db(Database(db_path)).get_user(telegram_id)
 
     user_name = f"{he(user[2])} {he(user[3])}" if user else str(telegram_id)
 
@@ -1731,7 +1731,7 @@ async def admin_delete_user_confirm(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Данные пользователя не найдены!", show_alert=True)
         return
     
-    user = current_db.get_user(telegram_id)
+    user = await current_db.get_user(telegram_id)
     if not user:
         await callback.answer("❌ Пользователь не найден!", show_alert=True)
         return
@@ -1768,13 +1768,13 @@ async def admin_delete_user_final(callback: CallbackQuery, state: FSMContext):
     
     # Определяем БД для удаления
     if db_path_to_delete and os.path.exists(db_path_to_delete):
-        current_db = Database(db_path_to_delete)
+        current_db = wrap_db(Database(db_path_to_delete))
     else:
         # Пытаемся найти пользователя заново, если путь в стейте пуст
         current_db = None
         # 1. shop_bot.db
-        shop_db = Database('data/shop_bot.db')
-        if shop_db.get_user(telegram_id):
+        shop_db = wrap_db(Database('data/shop_bot.db'))
+        if await shop_db.get_user(telegram_id):
             current_db = shop_db
         # 2. Tenants
         if not current_db:
@@ -1783,8 +1783,8 @@ async def admin_delete_user_final(callback: CallbackQuery, state: FSMContext):
                 for f in os.listdir(tenants_dir):
                     if f.endswith('.db'):
                         p = os.path.join(tenants_dir, f)
-                        t_db = Database(p)
-                        if t_db.get_user(telegram_id):
+                        t_db = wrap_db(Database(p))
+                        if await t_db.get_user(telegram_id):
                             current_db = t_db
                             break
         
@@ -1795,10 +1795,10 @@ async def admin_delete_user_final(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     try:
-        user = current_db.get_user(telegram_id)
+        user = await current_db.get_user(telegram_id)
         user_name = f"{user[2]} {user[3]}" if user else "Неизвестный пользователь"
         
-        if current_db.delete_user(telegram_id):
+        if await current_db.delete_user(telegram_id):
             # Чистим user_org_mapping и запись из main.db
             try:
                 main_conn = sqlite3.connect('data/main.db')
@@ -1868,7 +1868,7 @@ async def admin_edit_user_field(callback: CallbackQuery, state: FSMContext):
     # Магазин — выпадающий список из БД организации
     if callback.data == "admin_edit_shop":
         current_db = await get_db(callback.from_user.id, state)
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         if shops:
             shop_buttons = [
                 [InlineKeyboardButton(text=f"🏪 {s}", callback_data=safe_cb("adm_shop_pick_", s))]
@@ -1892,7 +1892,7 @@ async def admin_edit_user_field(callback: CallbackQuery, state: FSMContext):
     # Торговая сеть — выпадающий список из БД организации
     if callback.data == "admin_edit_network":
         current_db = await get_db(callback.from_user.id, state)
-        networks = current_db.get_all_trade_networks()
+        networks = await current_db.get_all_trade_networks()
         if networks:
             net_buttons = [
                 [InlineKeyboardButton(text=f"🏢 {n}", callback_data=safe_cb("adm_net_pick_", n))]
@@ -1935,7 +1935,7 @@ async def adm_shop_pick(callback: CallbackQuery, state: FSMContext):
     telegram_id = data.get('admin_edit_user_id')
     db_path = data.get('admin_delete_db_path')
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
     await callback.answer()
     _back = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     if not telegram_id or not db_path:
@@ -1994,7 +1994,7 @@ async def adm_net_pick(callback: CallbackQuery, state: FSMContext):
     telegram_id = data.get('admin_edit_user_id')
     db_path = data.get('admin_delete_db_path')
     current_db = await get_db(callback.from_user.id, state)
-    net_name = resolve_cb_name(net_raw, current_db.get_all_trade_networks() or [])
+    net_name = resolve_cb_name(net_raw, await current_db.get_all_trade_networks() or [])
     await callback.answer()
     _back = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     if not telegram_id or not db_path:

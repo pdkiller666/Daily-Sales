@@ -96,7 +96,7 @@ async def set_motivation_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
 
     if not categories:
         await callback.message.edit_text(
@@ -131,15 +131,15 @@ async def set_motivation_category_selected(callback: CallbackQuery, state: FSMCo
 
     raw = callback.data[len("motiv_cat_"):]
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     category = resolve_cb_name(raw, categories)
 
-    products = current_db.get_products_by_category(category)
+    products = await current_db.get_products_by_category(category)
     if not products:
         await callback.answer("❌ Нет товаров в этой категории", show_alert=True)
         return
 
-    all_motivations = current_db.get_all_product_motivations()
+    all_motivations = await current_db.get_all_product_motivations()
     motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
                        for row in all_motivations if row[2]}
 
@@ -204,8 +204,8 @@ async def motiv_cat_back(callback: CallbackQuery, state: FSMContext):
     category = data.get('motiv_category', '')
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    products = current_db.get_products_by_category(category)
-    all_motivations = current_db.get_all_product_motivations()
+    products = await current_db.get_products_by_category(category)
+    all_motivations = await current_db.get_all_product_motivations()
     motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
                        for row in all_motivations if row[2]}
     await _render_motiv_products(callback, state, category, products, motivations_map)
@@ -220,8 +220,8 @@ async def motiv_prod_search_process(message: Message, state: FSMContext):
     await state.set_state(None)
     from message_utils import fsm_edit as _fe
     current_db = await get_db(message.from_user.id, state)
-    products = current_db.get_products_by_category(category)
-    all_motivations = current_db.get_all_product_motivations()
+    products = await current_db.get_products_by_category(category)
+    all_motivations = await current_db.get_all_product_motivations()
     motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
                        for row in all_motivations if row[2]}
 
@@ -242,7 +242,7 @@ async def set_motivation_product_selected(callback: CallbackQuery, state: FSMCon
 
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
 
     if not product:
         await callback.answer("❌ Товар не найден", show_alert=True)
@@ -250,7 +250,7 @@ async def set_motivation_product_selected(callback: CallbackQuery, state: FSMCon
 
     await state.update_data(motivation_product_id=product_id, motivation_product_name=product[1])
 
-    commission_info = current_db.get_product_motivation(product_id)
+    commission_info = await current_db.get_product_motivation(product_id)
     current_text = ""
     if commission_info:
         if commission_info['motivation_type'] == 'percentage':
@@ -259,7 +259,7 @@ async def set_motivation_product_selected(callback: CallbackQuery, state: FSMCon
             current_text = f"\n💰 <i>Текущая: {format_price(commission_info['motivation_value'])} за единицу</i>"
 
     # История изменений
-    history = current_db.get_motivation_history(product_id, limit=3)
+    history = await current_db.get_motivation_history(product_id, limit=3)
     history_text = ""
     if history:
         history_text = "\n\n📜 <b>Последние изменения:</b>\n"
@@ -392,13 +392,13 @@ async def _apply_product_motivation_month(callback, state, year, month, is_curre
     mvalue = data['motivation_pending_value']
 
     current_db = await get_db(callback.from_user.id, state)
-    ok = current_db.set_motivation_for_month(product_id, year, month, mtype, mvalue, callback.from_user.id)
+    ok = await current_db.set_motivation_for_month(product_id, year, month, mtype, mvalue, callback.from_user.id)
 
     today = _date.today()
     is_past_or_current = (year < today.year) or (year == today.year and month <= today.month)
     recalc_note = ""
     if ok and is_past_or_current:
-        current_db.recalculate_month_earnings(product_id, year, month)
+        await current_db.recalculate_month_earnings(product_id, year, month)
         recalc_note = "\n\nЗаработки за этот месяц пересчитаны."
 
     await clear_state_keep_org(state)
@@ -509,7 +509,7 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions = current_db.get_all_product_motivations()
+    commissions = await current_db.get_all_product_motivations()
     
     if not commissions:
         await callback.message.edit_text(
@@ -554,7 +554,7 @@ async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions = current_db.get_all_product_motivations()
+    commissions = await current_db.get_all_product_motivations()
     products_with_commission = [c for c in commissions if c[2] is not None]
     
     if not products_with_commission:
@@ -601,8 +601,8 @@ async def remove_motivation_confirm(callback: CallbackQuery, state: FSMContext):
 
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
-    commission_info = current_db.get_product_motivation(product_id)
+    product = await current_db.get_product(product_id)
+    commission_info = await current_db.get_product_motivation(product_id)
     
     if not product or not commission_info:
         await callback.answer("❌ Товар или мотивация не найдены", show_alert=True)
@@ -636,9 +636,9 @@ async def remove_motivation_final(callback: CallbackQuery, state: FSMContext):
 
     product_id = int(callback.data.split("_")[-1])
     current_db = await get_db(callback.from_user.id, state)
-    product = current_db.get_product(product_id)
+    product = await current_db.get_product(product_id)
     
-    success = current_db.remove_product_motivation(product_id)
+    success = await current_db.remove_product_motivation(product_id)
     
     if success:
         await callback.message.edit_text(
@@ -667,7 +667,7 @@ async def show_top_sellers(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    top_sellers = current_db.get_top_sellers_by_earnings(limit=10)
+    top_sellers = await current_db.get_top_sellers_by_earnings(limit=10)
     
     if not top_sellers:
         await callback.message.edit_text(
@@ -741,7 +741,7 @@ async def add_coeff_condition(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
 
     await _show_coeff_shop_list(callback, shops)
     await callback.answer()
@@ -789,7 +789,7 @@ async def coeff_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     await _show_coeff_shop_list(callback, shops)
 
 
@@ -798,7 +798,7 @@ async def coeff_srch_shop_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     builder = InlineKeyboardBuilder()
     builder.button(text="🔍 Найти магазин", callback_data="coeff_srch_shop_start")
@@ -833,7 +833,7 @@ async def coeff_shop_selected(callback: CallbackQuery, state: FSMContext):
         shop_label = "Все магазины"
     else:
         current_db = await get_db(callback.from_user.id, state)
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
         shop_name = resolve_cb_name(raw, shops)
         shop_label = shop_name or raw
 
@@ -1022,7 +1022,7 @@ async def add_category_filter(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users
                if not env_manager.is_super_admin(u[1])]
 
@@ -1086,7 +1086,7 @@ async def catfilt_srch_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     await _show_catfilt_user_list(callback, sellers)
 
@@ -1096,7 +1096,7 @@ async def catfilt_srch_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     sellers = [u for u in all_users if not env_manager.is_super_admin(u[1])]
     q = query.lower()
     filtered = [u for u in sellers
@@ -1132,14 +1132,14 @@ async def catfilt_user_selected(callback: CallbackQuery, state: FSMContext):
     user_id = int(callback.data[len("catfilt_user_"):])
     current_db = await get_db(callback.from_user.id, state)
 
-    all_users = current_db.get_all_users()
+    all_users = await current_db.get_all_users()
     user_row = next((u for u in all_users if u[0] == user_id), None)
     if not user_row:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
     username = f"{user_row[2]} {user_row[3]}"
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
 
     if not categories:
         await callback.message.edit_text(
@@ -1151,7 +1151,7 @@ async def catfilt_user_selected(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    conditions = current_db.get_extra_conditions()
+    conditions = await current_db.get_extra_conditions()
     existing = next((c for c in conditions
                      if c[1] == 'category_filter' and c[6] == user_id), None)
     preselected = []
@@ -1179,7 +1179,7 @@ async def catfilt_toggle_category(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     raw = callback.data[len("ctg_"):]
     current_db = await get_db(callback.from_user.id, state)
-    categories = current_db.get_all_categories()
+    categories = await current_db.get_all_categories()
     cat = resolve_cb_name(raw, categories)
 
     data = await state.get_data()
@@ -1252,12 +1252,12 @@ async def catfilt_allow_all(callback: CallbackQuery, state: FSMContext):
     username = data.get('catfilt_username', '')
     current_db = await get_db(callback.from_user.id, state)
 
-    conditions = current_db.get_extra_conditions()
+    conditions = await current_db.get_extra_conditions()
     for c in conditions:
         if c[1] == 'category_filter' and c[6] == user_id:
-            current_db.delete_extra_condition(c[0])
+            await current_db.delete_extra_condition(c[0])
 
-    current_db.recalculate_month_earnings(None)
+    await current_db.recalculate_month_earnings(None)
 
     await clear_state_keep_org(state)
     await callback.message.edit_text(
@@ -1281,7 +1281,7 @@ async def view_extra_conditions(callback: CallbackQuery, state: FSMContext):
 
     import json as _json
     current_db = await get_db(callback.from_user.id, state)
-    conditions = current_db.get_extra_conditions()
+    conditions = await current_db.get_extra_conditions()
 
     if not conditions:
         await callback.message.edit_text(
@@ -1340,7 +1340,7 @@ async def del_extra_start(callback: CallbackQuery, state: FSMContext):
 
     import json as _json
     current_db = await get_db(callback.from_user.id, state)
-    conditions = current_db.get_extra_conditions()
+    conditions = await current_db.get_extra_conditions()
 
     if not conditions:
         await callback.message.edit_text(
@@ -1414,10 +1414,10 @@ async def del_extra_execute(callback: CallbackQuery, state: FSMContext):
 
     cond_id = int(callback.data[len("xdok_"):])
     current_db = await get_db(callback.from_user.id, state)
-    success = current_db.delete_extra_condition(cond_id)
+    success = await current_db.delete_extra_condition(cond_id)
 
     if success:
-        current_db.recalculate_month_earnings(None)
+        await current_db.recalculate_month_earnings(None)
         await callback.message.edit_text(
             "✅ <b>Условие удалено</b>",
             reply_markup=InlineKeyboardBuilder().button(
@@ -1455,7 +1455,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
         desc = data.get('coeff_pending_desc', '')
 
         if is_global:
-            cond_id = current_db.add_extra_condition(
+            cond_id = await current_db.add_extra_condition(
                 condition_type='multi_seller_coeff',
                 shop_name=shop_name,
                 min_sellers=min_s,
@@ -1465,7 +1465,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
             )
             ok = bool(cond_id)
         else:
-            ok = current_db.set_extra_condition_for_month(
+            ok = await current_db.set_extra_condition_for_month(
                 condition_type='multi_seller_coeff', year=year, month=month,
                 shop_name=shop_name, min_sellers=min_s, coefficient=coeff,
                 description=desc, calc_mode=calc_mode,
@@ -1478,7 +1478,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
             if is_past_or_cur:
                 recalc_year = today.year if is_global else year
                 recalc_month = today.month if is_global else month
-                current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
+                await current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
 
         await clear_state_keep_org(state)
         month_label = "Глобально (все периоды)" if is_global else f"{MONTH_NAMES_RU[month]} {year}"
@@ -1506,11 +1506,11 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
         selected = data.get('catfilt_pending_selected', [])
 
         if is_global:
-            conditions = current_db.get_extra_conditions()
+            conditions = await current_db.get_extra_conditions()
             for c in conditions:
                 if c[1] == 'category_filter' and c[6] == user_id:
-                    current_db.delete_extra_condition(c[0])
-            cond_id = current_db.add_extra_condition(
+                    await current_db.delete_extra_condition(c[0])
+            cond_id = await current_db.add_extra_condition(
                 condition_type='category_filter',
                 user_id=user_id,
                 allowed_categories=selected,
@@ -1518,7 +1518,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
             )
             ok = bool(cond_id)
         else:
-            ok = current_db.set_extra_condition_for_month(
+            ok = await current_db.set_extra_condition_for_month(
                 condition_type='category_filter', year=year, month=month,
                 user_id=user_id, allowed_categories=selected,
                 description=f"Фильтр категорий для {username}",
@@ -1531,7 +1531,7 @@ async def _save_extra_condition_for_month(callback, state, year, month, is_globa
             if is_past_or_cur:
                 recalc_year = today.year if is_global else year
                 recalc_month = today.month if is_global else month
-                current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
+                await current_db.recalculate_month_earnings(None, recalc_year, recalc_month)
 
         await clear_state_keep_org(state)
         month_label = "Глобально (все периоды)" if is_global else f"{MONTH_NAMES_RU[month]} {year}"
@@ -1666,7 +1666,7 @@ async def _show_schedule_matrix(callback, state, page=0):
     col_months = _months_range(today.year, today.month, past=MATRIX_COL_PAST, future=MATRIX_COL_FUTURE)
 
     current_db = await get_db(callback.from_user.id, state)
-    prod_order, product_names, cell_data = current_db.get_effective_motivation_matrix(col_months)
+    prod_order, product_names, cell_data = await current_db.get_effective_motivation_matrix(col_months)
 
     if not prod_order:
         builder = InlineKeyboardBuilder()
@@ -1768,10 +1768,10 @@ async def sched_cell_edit(callback: CallbackQuery, state: FSMContext):
 
     current_db = await get_db(callback.from_user.id, state)
     # Получаем текущую ставку для этой ячейки (если есть)
-    current_rate = current_db.get_motivation_for_month(prod_id, year, month)
+    current_rate = await current_db.get_motivation_for_month(prod_id, year, month)
 
     # Определяем имя товара
-    prod_rows = current_db.get_all_motivation_schedules()
+    prod_rows = await current_db.get_all_motivation_schedules()
     prod_name = next((r[1] for r in prod_rows if r[0] == prod_id), f"Товар #{prod_id}")
 
     month_label = f"{MONTH_NAMES_RU[month]} {year}"
@@ -1886,12 +1886,12 @@ async def archive_month_view(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
 
     # Эффективные ставки для всех товаров за этот месяц (расписание + fallback глобальные)
-    prod_order, product_names, cell_data = current_db.get_effective_motivation_matrix([(year, month)])
+    prod_order, product_names, cell_data = await current_db.get_effective_motivation_matrix([(year, month)])
 
     # Доп. условия за этот месяц
-    conditions = current_db.get_extra_conditions_for_month(year, month)
+    conditions = await current_db.get_extra_conditions_for_month(year, month)
     # Глобальные доп. условия (для показа если нет месячных)
-    global_conditions = current_db.get_extra_conditions()
+    global_conditions = await current_db.get_extra_conditions()
 
     text = f"📋 <b>Архив мотивации — {month_label}</b>\n\n"
 
@@ -1987,14 +1987,14 @@ async def process_cell_value(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    ok = current_db.set_motivation_for_month(prod_id, year, month, mtype, value, message.from_user.id)
+    ok = await current_db.set_motivation_for_month(prod_id, year, month, mtype, value, message.from_user.id)
 
     today = _date.today()
     recalc_note = ""
     if ok:
         is_past_or_cur = (year < today.year) or (year == today.year and month <= today.month)
         if is_past_or_cur:
-            current_db.recalculate_month_earnings(prod_id, year, month)
+            await current_db.recalculate_month_earnings(prod_id, year, month)
             recalc_note = "\n\nЗаработки за этот месяц пересчитаны."
 
     await clear_state_keep_org(state)

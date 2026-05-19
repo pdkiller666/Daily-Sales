@@ -137,10 +137,10 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
                                   admin_uid: int, target_uid: int,
                                   year: int, month: int, current_db) -> None:
     """Перерисовать административный календарь после изменения."""
-    user = current_db.get_user_by_id(target_uid)
+    user = await current_db.get_user_by_id(target_uid)
     name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
-    daily_rate = current_db.get_salary_rate(target_uid)
-    worked = current_db.get_work_schedule(target_uid, year, month)
+    daily_rate = await current_db.get_salary_rate(target_uid)
+    worked = await current_db.get_work_schedule(target_uid, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
@@ -222,7 +222,7 @@ async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     current_db = await get_db(uid, state)
-    rates = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    rates = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_rates_content(rates, 0)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
@@ -236,7 +236,7 @@ async def salary_rates_page(callback: CallbackQuery, state: FSMContext):
         return
     page = int(callback.data.removeprefix("slr_rates_pg_"))
     current_db = await get_db(uid, state)
-    rates = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    rates = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_rates_content(rates, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
@@ -252,11 +252,11 @@ async def salary_set_user(callback: CallbackQuery, state: FSMContext):
         return
     target_uid = int(callback.data.split("_")[2])
     current_db = await get_db(uid, state)
-    user = current_db.get_user_by_id(target_uid)
+    user = await current_db.get_user_by_id(target_uid)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
-    daily_rate = current_db.get_salary_rate(target_uid)
+    daily_rate = await current_db.get_salary_rate(target_uid)
     name_raw = f"{user[2]} {user[3]}".strip()
     name = he(name_raw)
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
@@ -298,7 +298,7 @@ async def salary_rate_enter(message: Message, state: FSMContext):
                        reply_markup=builder.as_markup())
         return
     current_db = await get_db(uid, state)
-    current_db.set_salary_rate(target_uid, rate, uid)
+    await current_db.set_salary_rate(target_uid, rate, uid)
     name = he(name_raw)
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 К списку ставок", callback_data="slr_rates")
@@ -337,7 +337,7 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     current_db = await get_db(uid, state)
-    users = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     if not users:
         builder = InlineKeyboardBuilder()
         builder.add(back_button("admin_salary_menu"))
@@ -358,7 +358,7 @@ async def salary_sched_page(callback: CallbackQuery, state: FSMContext):
         return
     page = int(callback.data.removeprefix("slr_sched_pg_"))
     current_db = await get_db(uid, state)
-    users = [r for r in current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
+    users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_scheds_content(users, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
@@ -398,12 +398,12 @@ async def salary_toggle_day(callback: CallbackQuery, state: FSMContext):
 
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
     weekday = date_dt.weekday()  # 0=Пн
-    templates = current_db.get_shift_templates(target_uid)
+    templates = await current_db.get_shift_templates(target_uid)
     tmpl = templates.get(weekday)
     start_t = tmpl[0] if tmpl else None
     end_t   = tmpl[1] if tmpl else None
 
-    current_db.add_work_day(target_uid, date_str, start_t, end_t, uid)
+    await current_db.add_work_day(target_uid, date_str, start_t, end_t, uid)
 
     if start_t and end_t:
         await callback.answer(f"✅ {date_str}: {start_t}–{end_t}")
@@ -430,14 +430,14 @@ async def salary_day_subscreen(callback: CallbackQuery, state: FSMContext):
     date_str   = parts[3]
     current_db = await get_db(uid, state)
 
-    start_t, end_t = current_db.get_work_day_time(target_uid, date_str)
+    start_t, end_t = await current_db.get_work_day_time(target_uid, date_str)
     time_info = _time_range_str(start_t, end_t)
 
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
     day_name = _WEEKDAY_NAMES[date_dt.weekday()]
     date_ru  = f"{day_name}, {date_dt.day} {_MONTH_NAMES[date_dt.month - 1]}"
 
-    user = current_db.get_user_by_id(target_uid)
+    user = await current_db.get_user_by_id(target_uid)
     name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
 
     cal_cb = f"slr_cal_{target_uid}_{date_dt.year}_{date_dt.month}"
@@ -470,7 +470,7 @@ async def salary_remove_day(callback: CallbackQuery, state: FSMContext):
     target_uid = int(parts[2])
     date_str   = parts[3]
     current_db = await get_db(uid, state)
-    current_db.remove_work_day(target_uid, date_str)
+    await current_db.remove_work_day(target_uid, date_str)
     await callback.answer(f"⬜ {date_str}: выходной")
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
     await _refresh_admin_calendar(callback, state, uid, target_uid,
@@ -551,7 +551,7 @@ async def salary_edit_date_save(callback: CallbackQuery, state: FSMContext):
 
     start_t = _fmt_h(start_h)
     end_t   = _fmt_h(end_h)
-    current_db.set_work_day_time(target_uid, date_str, start_t, end_t)
+    await current_db.set_work_day_time(target_uid, date_str, start_t, end_t)
     await callback.answer(f"✅ {date_str}: {start_t}–{end_t}")
 
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
@@ -576,8 +576,8 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
     mo  = int(parts[4])
     current_db = await get_db(uid, state)
 
-    templates = current_db.get_shift_templates(target_uid)
-    user = current_db.get_user_by_id(target_uid)
+    templates = await current_db.get_shift_templates(target_uid)
+    user = await current_db.get_user_by_id(target_uid)
     name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
 
     lines = [f"⏰ <b>Шаблон смен: {name}</b>\n",
@@ -645,7 +645,7 @@ async def salary_template_day_off(callback: CallbackQuery, state: FSMContext):
     yr  = int(parts[4])
     mo  = int(parts[5])
     current_db = await get_db(uid, state)
-    current_db.set_shift_template(target_uid, wd, None, None)
+    await current_db.set_shift_template(target_uid, wd, None, None)
     await callback.answer(f"🚫 {_WEEKDAY_NAMES[wd]}: выходной сохранён")
     # Сразу возвращаемся в календарь
     await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
@@ -698,7 +698,7 @@ async def salary_template_day_save(callback: CallbackQuery, state: FSMContext):
 
     start_t = _fmt_h(start_h)
     end_t   = _fmt_h(end_h)
-    current_db.set_shift_template(target_uid, wd, start_t, end_t)
+    await current_db.set_shift_template(target_uid, wd, start_t, end_t)
     await callback.answer(f"✅ {_WEEKDAY_NAMES[wd]}: {start_t}–{end_t} сохранено")
 
     # Сразу возвращаемся в календарь (без промежуточного экрана шаблона)
@@ -716,7 +716,7 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
     current_db = await get_db(uid, state)
-    raw_summary = current_db.get_team_salary_summary(year, month)
+    raw_summary = await current_db.get_team_salary_summary(year, month)
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
     text = f"📊 <b>Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}</b>\n\n"
@@ -769,15 +769,15 @@ def _my_schedule_text(month_name: str, year: int, daily_rate: float,
 async def my_schedule(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
     current_db = await get_db(uid, state)
-    user_id = current_db.get_user_id(uid)
+    user_id = await current_db.get_user_id(uid)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
     await callback.answer()
     now = datetime.now()
     year, month = now.year, now.month
-    daily_rate = current_db.get_salary_rate(user_id)
-    worked = current_db.get_work_schedule(user_id, year, month)
+    daily_rate = await current_db.get_salary_rate(user_id)
+    worked = await current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
@@ -789,15 +789,15 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
 async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
     current_db = await get_db(uid, state)
-    user_id = current_db.get_user_id(uid)
+    user_id = await current_db.get_user_id(uid)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
     await callback.answer()
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
-    daily_rate = current_db.get_salary_rate(user_id)
-    worked = current_db.get_work_schedule(user_id, year, month)
+    daily_rate = await current_db.get_salary_rate(user_id)
+    worked = await current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
     salary = worked_count * daily_rate
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
@@ -812,13 +812,13 @@ async def my_day_detail(callback: CallbackQuery, state: FSMContext):
     """
     uid = callback.from_user.id
     current_db = await get_db(uid, state)
-    user_id = current_db.get_user_id(uid)
+    user_id = await current_db.get_user_id(uid)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
     # my_d_{YYYY-MM-DD}
     date_str = callback.data[5:]
-    start_t, end_t = current_db.get_work_day_time(user_id, date_str)
+    start_t, end_t = await current_db.get_work_day_time(user_id, date_str)
 
     date_dt = datetime.strptime(date_str, '%Y-%m-%d')
     day_name = _WEEKDAY_NAMES[date_dt.weekday()]
@@ -827,7 +827,7 @@ async def my_day_detail(callback: CallbackQuery, state: FSMContext):
     # Если у конкретной смены нет времени — берём из шаблона дня недели
     source = ""
     if not (start_t and end_t):
-        templates = current_db.get_shift_templates(user_id)
+        templates = await current_db.get_shift_templates(user_id)
         tmpl = templates.get(date_dt.weekday())
         if tmpl:
             start_t, end_t = tmpl[0], tmpl[1]

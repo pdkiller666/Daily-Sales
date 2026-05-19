@@ -62,11 +62,11 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
 
     is_super_admin = env_manager.is_super_admin(callback.from_user.id)
 
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
 
     # Если супер-админ, создаем запись в БД если её нет
     if is_super_admin and not user:
-        current_db.add_user(
+        await current_db.add_user(
             telegram_id=callback.from_user.id,
             first_name=callback.from_user.first_name or "Admin",
             last_name=callback.from_user.last_name or "",
@@ -76,7 +76,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
             phone="000",
             username=callback.from_user.username
         )
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
 
     if not user:
         await callback.message.edit_text("❌ Сначала завершите регистрацию через /start")
@@ -94,7 +94,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     # ── Дашборд-сводка ──────────────────────────────────────────────────────
     from dashboard_handlers import build_admin_dashboard, build_user_dashboard
     from timezone_utils import get_current_user_time
-    _user_tz = current_db.get_user_timezone(callback.from_user.id)
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
     today   = date.today().isoformat()
     now_str = get_current_user_time(_user_tz).strftime("%d.%m.%Y · %H:%M")
     try:
@@ -201,7 +201,7 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
@@ -225,7 +225,7 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    sales = current_db.get_sales_report()
+    sales = await current_db.get_sales_report()
     
     if not sales:
         await callback.message.edit_text(
@@ -272,7 +272,7 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
         sale_ids = [sale[0] for sale in sales]
         placeholders = ','.join('?' * len(sale_ids))
         try:
-            conn = current_db.get_connection()
+            conn = await current_db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 f'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings WHERE sale_id IN ({placeholders})',
@@ -339,7 +339,7 @@ async def view_ratings(callback: CallbackQuery, state: FSMContext):
     start_date = today.replace(day=1).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
 
-    ranking = current_db.get_sales_ranking(start_date, end_date)
+    ranking = await current_db.get_sales_ranking(start_date, end_date)
 
     month_name = MONTHS_RU.get(today.month, today.strftime('%B'))
     text = f"🏆 <b>Рейтинг продавцов за {month_name} {today.year}</b>\n\n"
@@ -357,7 +357,7 @@ async def view_ratings(callback: CallbackQuery, state: FSMContext):
             text += f"   🏪 {he(shop_name)}\n"
             text += f"   📦 {quantity} шт. • 💰 {format_currency(total_sum)} • 📈 {format_currency(earnings)}\n\n"
 
-    _vr_user = current_db.get_user(callback.from_user.id)
+    _vr_user = await current_db.get_user(callback.from_user.id)
     if _vr_user:
         text += hint_suffix(current_db, _vr_user[0], 'first_rankings')
 
@@ -373,8 +373,8 @@ async def report_shop_generate(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     shop_raw = callback.data.replace("shop_report_", "")
     current_db = await get_db(callback.from_user.id, state)
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
-    sales = current_db.get_sales_report(shop_name=shop_name)
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
+    sales = await current_db.get_sales_report(shop_name=shop_name)
     
     if not sales:
         await callback.message.edit_text(
@@ -423,7 +423,7 @@ async def report_shop_generate(callback: CallbackQuery, state: FSMContext):
         sale_ids = [sale[0] for sale in sales]
         placeholders = ','.join('?' * len(sale_ids))
         try:
-            conn = current_db.get_connection()
+            conn = await current_db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 f'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings WHERE sale_id IN ({placeholders})',
@@ -470,15 +470,15 @@ async def report_shop_generate(callback: CallbackQuery, state: FSMContext):
 async def report_my_shop(callback: CallbackQuery, state: FSMContext):
     """Отчет по всем продажам пользователя"""
     current_db = await get_db(callback.from_user.id, state)
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
 
     await callback.answer("⏳ Загрузка...")
     # Получаем все продажи пользователя независимо от магазина
-    user_id = current_db.get_user_id(callback.from_user.id)
-    sales = current_db.get_user_sales(user_id, limit=1000)  # Увеличиваем лимит для полного отчета
+    user_id = await current_db.get_user_id(callback.from_user.id)
+    sales = await current_db.get_user_sales(user_id, limit=1000)  # Увеличиваем лимит для полного отчета
     
     if not sales:
         await callback.message.edit_text(
@@ -535,7 +535,7 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
         sale_ids = [sale[0] for sale in sales]
         placeholders = ','.join('?' * len(sale_ids))
         try:
-            conn = current_db.get_connection()
+            conn = await current_db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 f'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings WHERE sale_id IN ({placeholders})',
@@ -641,7 +641,7 @@ async def report_city_select(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    cities = current_db.get_all_cities()
+    cities = await current_db.get_all_cities()
     
     if not cities:
         await callback.message.edit_text(
@@ -667,9 +667,9 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     city_raw = callback.data.replace("city_report_", "")
     current_db = await get_db(callback.from_user.id, state)
-    city_name = resolve_cb_name(city_raw, current_db.get_all_cities() or [])
+    city_name = resolve_cb_name(city_raw, await current_db.get_all_cities() or [])
 
-    users_in_city = current_db.get_users_by_city(city_name)
+    users_in_city = await current_db.get_users_by_city(city_name)
     if not users_in_city:
         await callback.message.edit_text(
             f"🏙️ В городе '{city_name}' нет зарегистрированных пользователей.",
@@ -681,7 +681,7 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
 
     all_sales = []
     for shop in shops_in_city:
-        all_sales.extend(current_db.get_sales_report(shop_name=shop))
+        all_sales.extend(await current_db.get_sales_report(shop_name=shop))
 
     if not all_sales:
         await callback.message.edit_text(
@@ -728,7 +728,7 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
         sale_ids = [sale[0] for sale in all_sales]
         placeholders = ','.join('?' * len(sale_ids))
         try:
-            conn = current_db.get_connection()
+            conn = await current_db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 f'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings WHERE sale_id IN ({placeholders})',
@@ -845,21 +845,21 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
 
     _user_id_for_period = None
     if user_shop_only:
-        user = current_db.get_user(callback.from_user.id)
+        user = await current_db.get_user(callback.from_user.id)
         if not user:
             await callback.answer("❌ Пользователь не найден!", show_alert=True)
             return
         _user_id_for_period = user[0]  # внутренний DB id — фильтруем только свои продажи
 
     if city_filter:
-        users_in_city = current_db.get_users_by_city(city_filter)
+        users_in_city = await current_db.get_users_by_city(city_filter)
         city_shops = list(set(u[8] for u in users_in_city if u[8]))
         sales = []
         for cs in city_shops:
-            sales.extend(current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=cs))
+            sales.extend(await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=cs))
     elif user_shop_only and _user_id_for_period:
         # Сотрудник: только его продажи (по user_id, а не по магазину)
-        sales = current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
+        sales = await current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
     else:
         # Применяем ручной фильтр если установлен (только для полного admin-отчёта без shop_name/city_filter)
         if not shop_name and not city_filter:
@@ -868,11 +868,11 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                 _af = data.get(ADMIN_FILTER_KEY, empty_filter())
                 _sc, _sv = get_user_org_scope(callback.from_user.id)
                 _fkw = merge_scope_with_filter(_sc, _sv, _af)
-                sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, **_fkw)
+                sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, **_fkw)
             except Exception:
-                sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
+                sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
         else:
-            sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
+            sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
     
     period_text = f"{format_date_display(start_date)} - {format_date_display(end_date)}"
     
@@ -944,7 +944,7 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         sale_ids = [sale[0] for sale in sales]
         placeholders = ','.join('?' * len(sale_ids))
         try:
-            conn = current_db.get_connection()
+            conn = await current_db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 f'SELECT COALESCE(SUM(commission_amount), 0) FROM seller_earnings WHERE sale_id IN ({placeholders})',
@@ -1048,7 +1048,7 @@ async def period_report_shop_select(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
 
     if not shops:
         await callback.message.edit_text(
@@ -1073,7 +1073,7 @@ async def period_report_shop_page(callback: CallbackQuery, state: FSMContext):
     shops = data.get('rep_period_shops') or []
     if not shops:
         current_db = await get_db(callback.from_user.id, state)
-        shops = current_db.get_all_shops()
+        shops = await current_db.get_all_shops()
     text, markup = _build_shop_picker_content(shops, page)
     await callback.message.edit_text(text, reply_markup=markup)
     await callback.answer()
@@ -1100,7 +1100,7 @@ async def rep_srch_shop_process(message: Message, state: FSMContext):
     query = (message.text or "").strip()
     await state.set_state(None)
     current_db = await get_db(message.from_user.id, state)
-    shops = current_db.get_all_shops()
+    shops = await current_db.get_all_shops()
     filtered = [s for s in shops if query.lower() in s.lower()] if query else shops
     suffix = (f"\n🔍 «{he(query)}» — найдено: {len(filtered)}" if filtered
               else f"\n🔍 По запросу «{he(query)}» ничего не найдено") if query else ""
@@ -1138,7 +1138,7 @@ async def period_report_city_select(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
-    cities = current_db.get_all_cities()
+    cities = await current_db.get_all_cities()
 
     if not cities:
         await callback.message.edit_text(
@@ -1171,7 +1171,7 @@ async def period_report_city_generate(callback: CallbackQuery, state: FSMContext
     await callback.answer()
     city_raw  = callback.data.replace("period_city_", "")
     current_db = await get_db(callback.from_user.id, state)
-    city_name  = resolve_cb_name(city_raw, current_db.get_all_cities() or [])
+    city_name  = resolve_cb_name(city_raw, await current_db.get_all_cities() or [])
     await generate_period_report(callback, state, city_filter=city_name)
 
 
@@ -1293,7 +1293,7 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
     _af_r = _data_r.get(ADMIN_FILTER_KEY, empty_filter())
     _sc_r, _sv_r = get_user_org_scope(callback.from_user.id)
     _fkw_r = merge_scope_with_filter(_sc_r, _sv_r, _af_r)
-    ranking = current_db.get_sales_ranking(start, end, **_fkw_r)
+    ranking = await current_db.get_sales_ranking(start, end, **_fkw_r)
     medals      = ["🥇", "🥈", "🥉"]
 
     if not ranking:
@@ -1307,10 +1307,10 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
     # Строим карту конкурсов за период: user_db_id → [(title, pos, reward, actual, is_winner)]
     contest_map: dict = {}
     try:
-        contests = current_db.get_contests_for_period(start, end)
+        contests = await current_db.get_contests_for_period(start, end)
         for contest in contests:
             c_id, c_title = contest[0], contest[1]
-            results = current_db.compute_contest_results(c_id)
+            results = await current_db.compute_contest_results(c_id)
             for pos, r in enumerate(results, 1):
                 uid = r.get('user_id')
                 if uid is None:
@@ -1354,7 +1354,7 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
         text += "\n"
 
     # Позиция текущего пользователя — показываем, если он за пределами топ-10
-    user_db_id = current_db.get_user_id(callback.from_user.id)
+    user_db_id = await current_db.get_user_id(callback.from_user.id)
     my_pos, my_row = None, None
     for i, row in enumerate(ranking):
         if len(row) > 7 and row[7] == user_db_id:
@@ -1407,7 +1407,7 @@ async def _show_shops(callback: CallbackQuery, state: FSMContext, period: str):
     current_db = await get_db(callback.from_user.id, state)
     is_admin   = is_any_admin(callback.from_user.id)
     back_cb    = "rankings_menu" if is_admin else "user_rankings_menu"
-    ranking    = current_db.get_shop_ranking(start, end)
+    ranking    = await current_db.get_shop_ranking(start, end)
     medals     = ["🥇", "🥈", "🥉"]
 
     if not ranking:
@@ -1459,7 +1459,7 @@ async def _show_cities(callback: CallbackQuery, state: FSMContext, period: str):
     else:
         start, end, label = _ranking_period(period)
     current_db = await get_db(callback.from_user.id, state)
-    ranking    = current_db.get_city_ranking(start, end)
+    ranking    = await current_db.get_city_ranking(start, end)
     medals     = ["🥇", "🥈", "🥉"]
 
     if not ranking:
@@ -1593,7 +1593,7 @@ async def clear_rankings_confirm(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     # Получаем статистику для отображения
     current_db = await get_db(callback.from_user.id, state)
-    total_sales = current_db.get_sales_report()
+    total_sales = await current_db.get_sales_report()
     sales_count = len(total_sales) if total_sales else 0
     
     message_text = (
@@ -1628,11 +1628,11 @@ async def clear_rankings_execute(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     try:
         # Получаем статистику перед удалением
-        total_sales = current_db.get_sales_report()
+        total_sales = await current_db.get_sales_report()
         sales_count = len(total_sales) if total_sales else 0
         
         # Очищаем таблицу продаж
-        result = current_db.clear_all_sales()
+        result = await current_db.clear_all_sales()
         
         if result:
             message_text = (
@@ -1682,7 +1682,7 @@ async def calendar_navigation(callback: CallbackQuery, state: FSMContext):
 async def download_excel_full(callback: CallbackQuery, state: FSMContext):
     """Скачивание полного отчета в Excel (с учётом scope-зоны ответственности admin)"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -1700,9 +1700,9 @@ async def download_excel_full(callback: CallbackQuery, state: FSMContext):
         _af = fsm_data.get(ADMIN_FILTER_KEY, empty_filter())
         _sc, _sv = get_user_org_scope(callback.from_user.id)
         _fkw = merge_scope_with_filter(_sc, _sv, _af)
-        sales = current_db.get_sales_report(**_fkw)
+        sales = await current_db.get_sales_report(**_fkw)
     except Exception:
-        sales = current_db.get_sales_report()
+        sales = await current_db.get_sales_report()
 
     if not sales:
         await callback.message.answer("❌ Нет данных для экспорта")
@@ -1730,7 +1730,7 @@ async def download_excel_full(callback: CallbackQuery, state: FSMContext):
 async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
     """Скачивание отчета по магазину в Excel"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -1743,9 +1743,9 @@ async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Формирую файл...")
 
     shop_raw = callback.data.replace("download_excel_shop_", "")
-    shop_name = resolve_cb_name(shop_raw, current_db.get_all_shops() or [])
+    shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
 
-    sales = current_db.get_sales_report(shop_name=shop_name)
+    sales = await current_db.get_sales_report(shop_name=shop_name)
     if not sales:
         await callback.message.answer("❌ Нет данных для экспорта")
         return
@@ -1773,7 +1773,7 @@ async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
 async def download_excel_user(callback: CallbackQuery, state: FSMContext):
     """Скачивание отчёта пользователя в Excel (все его продажи без лимита)"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -1785,12 +1785,12 @@ async def download_excel_user(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer("⏳ Формирую файл...")
 
-    sales = current_db.get_user_sales(user_id, limit=50000)
+    sales = await current_db.get_user_sales(user_id, limit=50000)
     if not sales:
         await callback.message.answer("❌ Нет данных для экспорта")
         return
 
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     seller_label = f"{user[1]} {user[2]}".strip() if user else "Пользователь"
 
     file_path = generate_excel_report(sales, f"Продажи: {seller_label}", "Все периоды", None)
@@ -1815,7 +1815,7 @@ async def download_excel_user(callback: CallbackQuery, state: FSMContext):
 async def download_excel_period(callback: CallbackQuery, state: FSMContext):
     """Скачивание отчета за период в Excel (параметры читаются из state)."""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -1836,7 +1836,7 @@ async def download_excel_period(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer("⏳ Формирую файл...")
 
-    sales = current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
+    sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=shop_name)
     if not sales:
         await callback.message.answer("❌ Нет данных для экспорта")
         return
@@ -1871,7 +1871,7 @@ async def download_excel_period(callback: CallbackQuery, state: FSMContext):
 async def download_excel_city(callback: CallbackQuery, state: FSMContext):
     """Скачивание отчёта по городу в Excel (один SQL-запрос через shop_names)"""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
@@ -1884,9 +1884,9 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Формирую файл...")
 
     city_raw = callback.data.replace("download_excel_city_", "")
-    city_name = resolve_cb_name(city_raw, current_db.get_all_cities() or [])
+    city_name = resolve_cb_name(city_raw, await current_db.get_all_cities() or [])
 
-    users_in_city = current_db.get_users_by_city(city_name)
+    users_in_city = await current_db.get_users_by_city(city_name)
     if not users_in_city:
         await callback.message.answer("❌ Нет пользователей в этом городе")
         return
@@ -1896,7 +1896,7 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ Нет магазинов в этом городе")
         return
 
-    all_sales = current_db.get_sales_report(shop_names=shops_in_city)
+    all_sales = await current_db.get_sales_report(shop_names=shops_in_city)
 
     if not all_sales:
         await callback.message.answer("❌ Нет данных для экспорта")
@@ -1925,19 +1925,19 @@ async def download_excel_city(callback: CallbackQuery, state: FSMContext):
 async def download_excel_my_sales_free(callback: CallbackQuery, state: FSMContext):
     """Бесплатный Excel-экспорт для продавца — только его собственные продажи, без проверки подписки."""
     current_db = await get_db(callback.from_user.id, state)
-    user_id = current_db.get_user_id(callback.from_user.id)
+    user_id = await current_db.get_user_id(callback.from_user.id)
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    sales = current_db.get_user_sales(user_id, limit=50000)
+    sales = await current_db.get_user_sales(user_id, limit=50000)
     if not sales:
         await callback.answer("❌ У вас пока нет продаж для экспорта", show_alert=True)
         return
 
     await callback.answer("⏳ Формирую файл...")
 
-    user = current_db.get_user(callback.from_user.id)
+    user = await current_db.get_user(callback.from_user.id)
     seller_label = f"{user[1]} {user[2]}".strip() if user else "Продавец"
 
     file_path = generate_excel_report(sales, f"Мои продажи: {seller_label}", "Всё время", None)
