@@ -12,7 +12,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username
 from database import Database
-from keyboards import back_button, home_button
+from keyboards import back_button, home_button, generate_calendar
+from pagination_utils import page_nav_row
 from states import NotificationStates
 from env_manager import env_manager
 from reports_access_control import get_subscription_offer_message
@@ -519,100 +520,294 @@ async def process_notification_time(message: Message, state: FSMContext):
         await message.answer("❌ Ошибка при сохранении времени. Попробуйте позже.")
     await clear_state_keep_org(state)
 
+NOTIF_HIST_PAGE_SIZE = 10
+
+
+def _fmt_date_display(d: str) -> str:
+    """'YYYY-MM-DD' → 'DD.MM.YYYY'"""
+    try:
+        from datetime import datetime as _dt
+        return _dt.strptime(d, '%Y-%m-%d').strftime('%d.%m.%Y')
+    except Exception:
+        return d
+
+
 @notifications_router.callback_query(F.data == "notification_history")
 async def notification_history_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await show_notification_history(callback, state, period_type='week', offset=0)
+    await state.update_data(nh_period='week', nh_offset=0, nh_page=0,
+                             nh_start=None, nh_end=None)
+    await show_notification_history(callback, state)
 
-@notifications_router.callback_query(F.data.startswith("history_period:"))
-async def history_period_handler(callback: CallbackQuery, state: FSMContext):
+
+@notifications_router.callback_query(F.data.startswith("nhper_"))
+async def notif_hist_period_handler(callback: CallbackQuery, state: FSMContext):
+    """Switch period: nhper_week / nhper_month / nhper_all / nhper_custom."""
+    period = callback.data[len("nhper_"):]
+    if period == 'custom':
+        await callback.answer()
+        from datetime import date as _date
+        today = _date.today()
+        await state.update_data(nh_cal_picking='start')
+        await callback.message.edit_text(
+            "📅 <b>Выберите начальную дату:</b>",
+            reply_markup=generate_calendar(today.year, today.month,
+                                           cancel_callback="notification_history",
+                                           prefix="nfcal_"),
+            parse_mode="HTML"
+        )
+        await state.set_state(NotificationStates.nfcal_choosing_start)
+        return
     await callback.answer()
-    parts = callback.data.split(':')
-    period = parts[1]
-    offset_str = parts[2]
-    await show_notification_history(callback, state, period_type=period, offset=int(offset_str))
+    await state.update_data(nh_period=period, nh_offset=0, nh_page=0)
+    await show_notification_history(callback, state)
 
-async def show_notification_history(callback: CallbackQuery, state: FSMContext, period_type='week', offset=0):
+
+@notifications_router.callback_query(F.data.startswith("nhoff_"))
+async def notif_hist_offset_handler(callback: CallbackQuery, state: FSMContext):
+    """Offset navigation within week/month periods (◀️ Старше / Новее ▶️)."""
+    await callback.answer()
+    offset = int(callback.data[len("nhoff_"):])
+    await state.update_data(nh_offset=offset, nh_page=0)
+    await show_notification_history(callback, state)
+
+
+@notifications_router.callback_query(F.data.startswith("nhpg_"))
+async def notif_hist_page_handler(callback: CallbackQuery, state: FSMContext):
+    """Page navigation within current period."""
+    await callback.answer()
+    page = int(callback.data[len("nhpg_"):])
+    await state.update_data(nh_page=page)
+    await show_notification_history(callback, state)
+
+
+# ── Calendar handlers (prefix nfcal_) ─────────────────────────────────────────
+
+@notifications_router.callback_query(F.data.startswith("nfcal_nav_"))
+async def nfcal_nav_handler(callback: CallbackQuery, state: FSMContext):
+    """Navigate calendar months."""
+    await callback.answer()
+    parts = callback.data[len("nfcal_nav_"):].split("_")
+    year, month = int(parts[0]), int(parts[1])
+    data = await state.get_data()
+    picking = data.get('nh_cal_picking', 'start')
+    start_sel = data.get('nh_start', '')
+    if picking == 'end' and start_sel:
+        prompt = f"📅 <b>Выберите конечную дату:</b>\n✅ Начало: {_fmt_date_display(start_sel)}"
+    else:
+        prompt = "📅 <b>Выберите начальную дату:</b>"
+    await callback.message.edit_text(
+        prompt,
+        reply_markup=generate_calendar(year, month,
+                                       cancel_callback="notification_history",
+                                       prefix="nfcal_"),
+        parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("nfcal_date_"),
+                                      NotificationStates.nfcal_choosing_start)
+async def nfcal_start_date(callback: CallbackQuery, state: FSMContext):
+    """Start date selected — show calendar for end date."""
+    await callback.answer()
+    start_date = callback.data[len("nfcal_date_"):]
+    await state.update_data(nh_start=start_date, nh_cal_picking='end')
+    year, month = int(start_date[:4]), int(start_date[5:7])
+    await callback.message.edit_text(
+        f"📅 <b>Выберите конечную дату:</b>\n✅ Начало: {_fmt_date_display(start_date)}",
+        reply_markup=generate_calendar(year, month,
+                                       cancel_callback="notification_history",
+                                       prefix="nfcal_"),
+        parse_mode="HTML"
+    )
+    await state.set_state(NotificationStates.nfcal_choosing_end)
+
+
+@notifications_router.callback_query(F.data.startswith("nfcal_date_"),
+                                      NotificationStates.nfcal_choosing_end)
+async def nfcal_end_date(callback: CallbackQuery, state: FSMContext):
+    """End date selected — show filtered history."""
+    end_date = callback.data[len("nfcal_date_"):]
+    data = await state.get_data()
+    start_date = data.get('nh_start', '')
+    if end_date < start_date:
+        await callback.answer("❌ Конечная дата не может быть раньше начальной!",
+                               show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(nh_end=end_date, nh_period='custom', nh_page=0)
+    await clear_state_keep_org(state)
+    await show_notification_history(callback, state)
+
+
+# ── Core history display ───────────────────────────────────────────────────────
+
+async def show_notification_history(callback: CallbackQuery, state: FSMContext):
+    from datetime import datetime, timedelta, timezone
+    from timezone_utils import format_user_datetime
+
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
     if not user:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
-    
+
     user_id = user[0]
     user_timezone = current_db.get_user_timezone(callback.from_user.id)
-    history, period_info = current_db.get_notification_history_by_period(user_id, period_type, offset)
-    from timezone_utils import format_user_datetime
-    
-    text = f"📋 <b>История уведомлений</b>\n\n"
-    if period_info:
-        text += f"📅 Период: {period_info['start_date'].strftime('%d.%m.%Y')} - {period_info['end_date'].strftime('%d.%m.%Y')}\n\n"
-    
-    if not history:
-        text += "❌ Нет уведомлений."
+    data = await state.get_data()
+
+    period     = data.get('nh_period', 'week')
+    offset     = int(data.get('nh_offset', 0))
+    page       = int(data.get('nh_page', 0))
+    start_date = data.get('nh_start')
+    end_date   = data.get('nh_end')
+
+    now = datetime.now(timezone.utc)
+    if period == 'week':
+        end_dt   = now - timedelta(days=7 * offset)
+        start_dt = end_dt - timedelta(days=7)
+        start_str    = start_dt.strftime('%Y-%m-%d')
+        end_str      = (end_dt - timedelta(seconds=1)).strftime('%Y-%m-%d')
+        period_label = (f"{start_dt.strftime('%d.%m.%Y')} — "
+                        f"{(end_dt - timedelta(seconds=1)).strftime('%d.%m.%Y')}")
+    elif period == 'month':
+        end_dt   = now - timedelta(days=30 * offset)
+        start_dt = end_dt - timedelta(days=30)
+        start_str    = start_dt.strftime('%Y-%m-%d')
+        end_str      = (end_dt - timedelta(seconds=1)).strftime('%Y-%m-%d')
+        period_label = (f"{start_dt.strftime('%d.%m.%Y')} — "
+                        f"{(end_dt - timedelta(seconds=1)).strftime('%d.%m.%Y')}")
+    elif period == 'custom' and start_date and end_date:
+        start_str    = start_date
+        end_str      = end_date
+        period_label = f"{_fmt_date_display(start_date)} — {_fmt_date_display(end_date)}"
+    else:  # 'all'
+        start_str    = None
+        end_str      = None
+        period_label = "Все время"
+
+    rows, total = current_db.get_notification_history_paged(
+        user_id, start_str, end_str,
+        limit=NOTIF_HIST_PAGE_SIZE,
+        offset=page * NOTIF_HIST_PAGE_SIZE,
+    )
+
+    total_pages = max(1, (total + NOTIF_HIST_PAGE_SIZE - 1) // NOTIF_HIST_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+
+    # ── Text ─────────────────────────────────────────────────────────────────
+    text = "📋 <b>История уведомлений</b>\n"
+    text += f"📅 {period_label}"
+    if total > 0:
+        text += f" · {total} шт."
+    text += "\n\n"
+
+    if not rows:
+        text += "❌ Нет уведомлений за этот период."
     else:
-        for item in history:
-            status = "✅" if item[4] else "🔵"
-            date_str = format_user_datetime(item[5], user_timezone, '%d.%m.%Y %H:%M')
-            text += f"{status} {item[2]}\n📅 {date_str}\n💬 {item[3][:100]}\n\n"
-    
-    keyboard_buttons = []
-    if period_type != 'all':
-        nav = [InlineKeyboardButton(text="◀️ Назад", callback_data=f"history_period:{period_type}:{offset + 1}")]
-        if offset > 0: nav.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"history_period:{period_type}:{offset - 1}"))
-        keyboard_buttons.append(nav)
-    
-    periods = []
-    if period_type != 'week': periods.append(InlineKeyboardButton(text="📅 Неделя", callback_data="history_period:week:0"))
-    if period_type != 'month': periods.append(InlineKeyboardButton(text="📅 Месяц", callback_data="history_period:month:0"))
-    if period_type != 'all': periods.append(InlineKeyboardButton(text="📅 Все", callback_data="history_period:all:0"))
-    if periods: keyboard_buttons.append(periods)
-    
-    keyboard_buttons.append([InlineKeyboardButton(text="🗑 Очистить историю", callback_data="cleanup_notifications_menu")])
-    keyboard_buttons.append([InlineKeyboardButton(text="✅ Прочитать все", callback_data="mark_all_read")])
+        for item in rows:
+            status     = "✅" if item[4] else "🔵"
+            date_str   = format_user_datetime(item[5], user_timezone, '%d.%m %H:%M')
+            notif_type = (item[2] or '').replace('_', ' ')
+            preview    = (item[3] or '')[:80]
+            text += f"{status} <b>{notif_type}</b> · {date_str}\n{preview}\n\n"
+
+    # ── Keyboard ──────────────────────────────────────────────────────────────
+    keyboard_buttons: list = []
+
+    # Page navigation
+    has_prev = page > 0
+    has_next = (page + 1) < total_pages
+    if total_pages > 1:
+        nav_row = page_nav_row("nhpg_", page, has_prev, has_next, total_pages)
+        if nav_row:
+            keyboard_buttons.append(nav_row)
+
+    # Period offset navigation (for week/month only)
+    if period in ('week', 'month'):
+        offset_row = [InlineKeyboardButton(
+            text="◀️ Старше", callback_data=f"nhoff_{offset + 1}")]
+        if offset > 0:
+            offset_row.append(InlineKeyboardButton(
+                text="Новее ▶️", callback_data=f"nhoff_{offset - 1}"))
+        keyboard_buttons.append(offset_row)
+
+    # Period type switcher
+    period_row = []
+    if period != 'week':
+        period_row.append(InlineKeyboardButton(text="7 дн.", callback_data="nhper_week"))
+    if period != 'month':
+        period_row.append(InlineKeyboardButton(text="30 дн.", callback_data="nhper_month"))
+    if period != 'all':
+        period_row.append(InlineKeyboardButton(text="Всё", callback_data="nhper_all"))
+    period_row.append(InlineKeyboardButton(text="📅 Период", callback_data="nhper_custom"))
+    keyboard_buttons.append(period_row)
+
+    keyboard_buttons.append([
+        InlineKeyboardButton(text="✅ Прочитать все", callback_data="mark_all_read"),
+        InlineKeyboardButton(text="🗑 Очистить",      callback_data="cleanup_notifications_menu"),
+    ])
     keyboard_buttons.append([back_button("notifications_menu")])
-    
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons), parse_mode="HTML")
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons),
+        parse_mode="HTML"
+    )
+
 
 @notifications_router.callback_query(F.data == "mark_all_read")
 async def mark_all_notifications_read(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
-    if user: current_db.mark_notifications_as_read(user[0])
+    if user:
+        current_db.mark_notifications_as_read(user[0])
     await callback.answer("✅ Прочитано")
-    await show_notification_history(callback, state, period_type='week', offset=0)
+    await show_notification_history(callback, state)
+
 
 @notifications_router.callback_query(F.data == "cleanup_notifications_menu")
 async def cleanup_notifications_menu(callback: CallbackQuery):
     await callback.answer()
     text = "🗑 <b>Очистка истории</b>\n\nВыберите период:"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Старше недели", callback_data="cleanup_confirm:week")],
-        [InlineKeyboardButton(text="🗑 Старше месяца", callback_data="cleanup_confirm:month")],
-        [InlineKeyboardButton(text="🗑 Все", callback_data="cleanup_confirm:all")],
+        [InlineKeyboardButton(text="🗑 Старше недели",  callback_data="cleanup_confirm:week")],
+        [InlineKeyboardButton(text="🗑 Старше месяца",  callback_data="cleanup_confirm:month")],
+        [InlineKeyboardButton(text="🗑 Все",             callback_data="cleanup_confirm:all")],
         [back_button("notification_history")]
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
+
 @notifications_router.callback_query(F.data.startswith("cleanup_confirm:"))
 async def cleanup_notifications_confirm(callback: CallbackQuery):
     await callback.answer()
-    parts = callback.data.split(':')
-    period = parts[1]
-    text = f"🗑 <b>Удалить {period}?</b>"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Да", callback_data=f"cleanup_execute:{period}"), InlineKeyboardButton(text="❌ Нет", callback_data="notification_history")]])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    period = callback.data.split(':')[1]
+    period_labels = {'week': 'уведомления старше недели',
+                     'month': 'уведомления старше месяца',
+                     'all': 'ВСЕ уведомления'}
+    label = period_labels.get(period, period)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"cleanup_execute:{period}"),
+        InlineKeyboardButton(text="❌ Нет",          callback_data="notification_history"),
+    ]])
+    await callback.message.edit_text(
+        f"🗑 <b>Удалить {label}?</b>\n\nЭто действие нельзя отменить.",
+        reply_markup=keyboard, parse_mode="HTML"
+    )
+
 
 @notifications_router.callback_query(F.data.startswith("cleanup_execute:"))
 async def cleanup_notifications_execute(callback: CallbackQuery, state: FSMContext):
-    parts = callback.data.split(':')
-    period = parts[1]
+    period = callback.data.split(':')[1]
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
     if user:
         count = current_db.delete_old_notifications(user[0], period)
         await callback.answer(f"✅ Удалено: {count}")
-    await show_notification_history(callback, state, period_type='week', offset=0)
+    await state.update_data(nh_period='week', nh_offset=0, nh_page=0,
+                             nh_start=None, nh_end=None)
+    await show_notification_history(callback, state)
 
 
 @notifications_router.callback_query(F.data == "notif_read")

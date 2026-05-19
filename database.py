@@ -2241,7 +2241,42 @@ class Database:
         }
         
         return history, period_info
-    
+
+    def get_notification_history_paged(self, user_id: int,
+                                        start_date: str = None,
+                                        end_date: str = None,
+                                        limit: int = 10,
+                                        offset: int = 0):
+        """Paginated notification history with optional date range.
+        start_date / end_date: 'YYYY-MM-DD' strings (inclusive). None = no bound.
+        Returns (rows, total_count).
+        """
+        try:
+            conn = sqlite3.connect(self.db_file)
+            cursor = conn.cursor()
+            where = 'WHERE user_id = ?'
+            params: list = [user_id]
+            if start_date:
+                where += ' AND created_at >= ?'
+                params.append(f'{start_date} 00:00:00')
+            if end_date:
+                where += ' AND created_at <= ?'
+                params.append(f'{end_date} 23:59:59')
+            cursor.execute(
+                f'SELECT COUNT(*) FROM notification_history {where}', params)
+            total = cursor.fetchone()[0]
+            cursor.execute(
+                f'SELECT * FROM notification_history {where} '
+                f'ORDER BY created_at DESC LIMIT ? OFFSET ?',
+                params + [limit, offset]
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return rows, total
+        except Exception as e:
+            logger.error(f'get_notification_history_paged: {e}')
+            return [], 0
+
     def delete_old_notifications(self, user_id, period_type='week'):
         """
         Удаление старых уведомлений

@@ -100,6 +100,8 @@ class NotificationStates(StatesGroup):
     waiting_for_time = State()
     waiting_for_admin_message = State()
     waiting_for_schedule_time = State()
+    nfcal_choosing_start = State()
+    nfcal_choosing_end = State()
 
 class AdminNotificationStates(StatesGroup):
     choosing_recipients = State()
