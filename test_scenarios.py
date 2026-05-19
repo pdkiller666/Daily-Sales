@@ -2278,6 +2278,395 @@ check("has_anything_to_filter: пустой available → False",
 check("has_anything_to_filter: с магазинами → True",
       has_anything_to_filter({'shops': ['Магазин А'], 'cities': [], 'networks': []}))
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 36: home_button() — единая кнопка «Главное меню»
+# ─────────────────────────────────────────────────────────
+section("Сценарий 36: home_button() — кнопка «🏠 Главное меню»")
+
+from keyboards import home_button, back_button
+from aiogram.types import InlineKeyboardButton as _HBtn
+
+hb = home_button()
+check("home_button: тип InlineKeyboardButton",  isinstance(hb, _HBtn))
+check("home_button: callback_data == 'main_menu'", hb.callback_data == "main_menu")
+check("home_button: текст содержит '🏠'",       "🏠" in hb.text)
+check("home_button: текст содержит 'Главное меню'", "Главное меню" in hb.text)
+
+# back_button работает независимо
+bb = back_button("some_cb")
+check("back_button: callback_data == 'some_cb'", bb.callback_data == "some_cb")
+check("back_button и home_button: разные объекты", bb is not hb)
+check("back_button и home_button: разные callback_data",
+      bb.callback_data != hb.callback_data)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 37: Integration connections — CRUD
+# ─────────────────────────────────────────────────────────
+section("Сценарий 37: Integration connections — CRUD")
+
+intdb = make_db("integration.db")
+
+# Пустой список
+check("get_integration_connections: пустая → []",
+      intdb.get_integration_connections() == [])
+
+# Добавление
+conn_id1 = intdb.add_integration_connection(
+    name="Таблица продаж", config='{"spreadsheet_id":"abc123"}', provider="google_sheets"
+)
+check("add_integration_connection: возвращает int > 0",
+      isinstance(conn_id1, int) and conn_id1 > 0)
+
+conn_id2 = intdb.add_integration_connection(
+    name="Таблица остатков", config='{"spreadsheet_id":"xyz456"}', provider="google_sheets"
+)
+check("add_integration_connection: второе соединение", isinstance(conn_id2, int) and conn_id2 > 0)
+check("add_integration_connection: два разных id", conn_id1 != conn_id2)
+
+# get_integration_connections — список всех
+conns = intdb.get_integration_connections()
+check("get_integration_connections: 2 записи", len(conns) == 2)
+check("get_integration_connections: кортежи",  all(isinstance(c, tuple) for c in conns))
+# структура: (id, name, provider, config, enabled, created_at)
+check("get_integration_connections: id[0] == conn_id1", conns[0][0] == conn_id1)
+check("get_integration_connections: provider == google_sheets", conns[0][2] == "google_sheets")
+
+# get_integration_connection — по id
+c = intdb.get_integration_connection(conn_id1)
+check("get_integration_connection: не None",   c is not None)
+check("get_integration_connection: name совпадает", c[1] == "Таблица продаж")
+check("get_integration_connection: enabled=1",  c[4] == 1)
+
+# Несуществующий id → None
+check("get_integration_connection: несущ. → None",
+      intdb.get_integration_connection(9999) is None)
+
+# update_integration_connection
+intdb.update_integration_connection(conn_id1, name="Переименовано", enabled=0)
+c_upd = intdb.get_integration_connection(conn_id1)
+check("update_integration_connection: name обновлён", c_upd[1] == "Переименовано")
+check("update_integration_connection: enabled=0",     c_upd[4] == 0)
+
+# delete_integration_connection
+intdb.delete_integration_connection(conn_id2)
+conns_after = intdb.get_integration_connections()
+check("delete_integration_connection: осталась 1 запись", len(conns_after) == 1)
+check("delete_integration_connection: удалённый не найден",
+      intdb.get_integration_connection(conn_id2) is None)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 38: Integration exports + logs — CRUD
+# ─────────────────────────────────────────────────────────
+section("Сценарий 38: Integration exports и logs — CRUD")
+
+# Используем intdb из сценария 37 (conn_id1 — «Переименовано», enabled=0)
+# Сначала восстановим enabled
+intdb.update_integration_connection(conn_id1, enabled=1)
+
+exp_id = intdb.add_integration_export(
+    connection_id=conn_id1,
+    export_type="sales",
+    operation="append",
+    target_sheet="Продажи {YYYY}-{MM}",
+    schedule="immediate",
+    enabled=1,
+)
+check("add_integration_export: int > 0", isinstance(exp_id, int) and exp_id > 0)
+
+# get_integration_exports
+exports = intdb.get_integration_exports(conn_id1)
+check("get_integration_exports: 1 запись", len(exports) == 1)
+check("get_integration_exports: кортеж",   isinstance(exports[0], tuple))
+# структура: (id, export_type, enabled, schedule, target_sheet, operation, mapping, lookup_config, last_run)
+check("get_integration_exports: export_type == sales", exports[0][1] == "sales")
+
+# get_integration_export по id
+# структура: (export_type, connection_id, enabled, schedule, target_sheet, ...)
+exp_row = intdb.get_integration_export(exp_id)
+check("get_integration_export: не None",          exp_row is not None)
+check("get_integration_export: schedule == immediate", exp_row[3] == "immediate")
+check("get_integration_export: несущ. → None",
+      intdb.get_integration_export(9999) is None)
+
+# update_integration_export_last_run — не должен падать
+intdb.update_integration_export_last_run(exp_id)
+check("update_integration_export_last_run: не падает", True)
+
+# get_enabled_exports_by_type — фильтрует по типу и расписанию
+enabled_exports = intdb.get_enabled_exports_by_type("sales", schedule="immediate")
+check("get_enabled_exports_by_type: 1 запись", len(enabled_exports) == 1)
+check("get_enabled_exports_by_type: 9 колонок", len(enabled_exports[0]) >= 9)
+
+# Несущ. тип → []
+check("get_enabled_exports_by_type: несущ. тип → []",
+      intdb.get_enabled_exports_by_type("nonexistent_type") == [])
+
+# add_integration_log — запись в лог
+intdb.add_integration_log(conn_id1, exp_id, "success", "Записано 5 строк")
+intdb.add_integration_log(conn_id1, exp_id, "error",   "Токен истёк")
+
+logs = intdb.get_integration_logs(connection_id=conn_id1)
+check("get_integration_logs: 2 записи", len(logs) == 2)
+check("get_integration_logs: кортежи",  all(isinstance(r, tuple) for r in logs))
+# Порядок DESC по id — первая запись = последняя добавленная
+check("get_integration_logs: первая запись — error (DESC)",
+      logs[0][3] == "error")
+
+# Несущ. connection → []
+check("get_integration_logs: несущ. conn → []",
+      intdb.get_integration_logs(connection_id=9999) == [])
+
+# delete_integration_export
+intdb.delete_integration_export(exp_id)
+check("delete_integration_export: список пуст",
+      intdb.get_integration_exports(conn_id1) == [])
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 39: subscription_reminder_log — дедупликация
+# ─────────────────────────────────────────────────────────
+section("Сценарий 39: Дедупликация напоминаний о подписке")
+
+remdb = make_db("reminders.db")
+remdb.add_user(2100001, "Напоминание", "Пользователь")
+rem_uid = remdb.get_user_id(2100001)
+sub_end = "2026-06-01"
+
+# Изначально не отправлялось
+check("has_sent_reminder: изначально False",
+      not remdb.has_sent_reminder(rem_uid, 7, sub_end))
+
+# Пометить как отправленное
+remdb.mark_reminder_sent(rem_uid, 7, sub_end)
+check("has_sent_reminder: после mark → True",
+      remdb.has_sent_reminder(rem_uid, 7, sub_end))
+
+# Другой порог (14 дней) — не пересекается
+check("has_sent_reminder: другой порог 14 → False",
+      not remdb.has_sent_reminder(rem_uid, 14, sub_end))
+
+remdb.mark_reminder_sent(rem_uid, 14, sub_end)
+check("has_sent_reminder: порог 14 после mark → True",
+      remdb.has_sent_reminder(rem_uid, 14, sub_end))
+
+# Дубликат mark — INSERT OR IGNORE, не падает
+remdb.mark_reminder_sent(rem_uid, 7, sub_end)
+check("mark_reminder_sent дубликат: не падает (INSERT OR IGNORE)",
+      remdb.has_sent_reminder(rem_uid, 7, sub_end))
+
+# clear_reminders — сбрасывает все записи пользователя
+remdb.clear_reminders(rem_uid)
+check("clear_reminders: порог 7 сброшен",
+      not remdb.has_sent_reminder(rem_uid, 7, sub_end))
+check("clear_reminders: порог 14 сброшен",
+      not remdb.has_sent_reminder(rem_uid, 14, sub_end))
+
+# Другой пользователь не затронут
+remdb.add_user(2100002, "Другой", "Пользователь")
+rem_uid2 = remdb.get_user_id(2100002)
+remdb.mark_reminder_sent(rem_uid2, 3, sub_end)
+remdb.clear_reminders(rem_uid)          # clear первого
+check("clear_reminders: второй пользователь не затронут",
+      remdb.has_sent_reminder(rem_uid2, 3, sub_end))
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 40: can_use_integrations в тарифных планах
+# ─────────────────────────────────────────────────────────
+section("Сценарий 40: can_use_integrations — правила доступа к Google Таблицам")
+
+plandb = make_db("plans_integrations.db")
+
+import sqlite3 as _sqlite3
+_pc = _sqlite3.connect(plandb.db_file)
+_pcur = _pc.cursor()
+_pcur.execute("SELECT name, can_use_integrations FROM subscription_plans ORDER BY name")
+_plan_rows = {r[0]: bool(r[1]) for r in _pcur.fetchall()}
+_pc.close()
+
+check("Бесплатный: can_use_integrations = False",
+      _plan_rows.get('Бесплатный') is False)
+check("Базовый: can_use_integrations = False (принудительно)",
+      _plan_rows.get('Базовый') is False)
+check("Стандарт: can_use_integrations = True",
+      _plan_rows.get('Стандарт') is True)
+check("Премиум: can_use_integrations = True",
+      _plan_rows.get('Премиум') is True)
+
+# get_subscription_limits: пользователь без подписки → Бесплатный
+plandb.add_user(2200001, "Лимит", "Проверка")
+plan_uid = plandb.get_user_id(2200001)
+limits_free = plandb.get_subscription_limits(plan_uid)
+check("get_subscription_limits (нет подписки): dict", isinstance(limits_free, dict))
+check("get_subscription_limits (Бесплатный): max_products = 50",
+      limits_free.get('max_products') == 50)
+check("get_subscription_limits (Бесплатный): can_use_integrations = False",
+      limits_free.get('can_use_integrations') is False)
+check("get_subscription_limits (Бесплатный): can_export_reports = False",
+      limits_free.get('can_export_reports') is False)
+
+# get_subscription_limits: активная подписка Стандарт → можно использовать интеграции
+plandb.create_subscription(plan_uid, 'Стандарт')
+limits_std = plandb.get_subscription_limits(plan_uid)
+check("get_subscription_limits (Стандарт): can_use_integrations = True",
+      limits_std.get('can_use_integrations') is True)
+check("get_subscription_limits (Стандарт): max_products = 500",
+      limits_std.get('max_products') == 500)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 41: Супер-администратор — безлимитный доступ
+# ─────────────────────────────────────────────────────────
+section("Сценарий 41: Супер-администратор — полный обход ограничений")
+
+from env_manager import env_manager as _em
+
+# Константный telegram_id супер-администратора
+SUPER_TG_ID = 921098636
+check("env_manager.is_super_admin(SUPER_TG_ID) → True",
+      _em.is_super_admin(SUPER_TG_ID))
+check("env_manager.is_super_admin(999999) → False",
+      not _em.is_super_admin(999999))
+check("env_manager.is_super_admin(0) → False",
+      not _em.is_super_admin(0))
+
+# get_subscription_limits для суп-админа → безлимит независимо от подписки
+sadb = make_db("superadmin.db")
+sadb.add_user(SUPER_TG_ID, "Супер", "Админ", shop_name="Системный")
+sa_uid = sadb.get_user_id(SUPER_TG_ID)
+sa_limits = sadb.get_subscription_limits(sa_uid)
+
+check("super_admin limits: dict", isinstance(sa_limits, dict))
+check("super_admin limits: max_products = -1 (безлимит)",
+      sa_limits.get('max_products') == -1)
+check("super_admin limits: max_shops = -1",
+      sa_limits.get('max_shops') == -1)
+check("super_admin limits: max_sales_per_month = -1",
+      sa_limits.get('max_sales_per_month') == -1)
+check("super_admin limits: can_export_reports = True",
+      sa_limits.get('can_export_reports') is True)
+check("super_admin limits: can_view_analytics = True",
+      sa_limits.get('can_view_analytics') is True)
+check("super_admin limits: can_use_notifications = True",
+      sa_limits.get('can_use_notifications') is True)
+
+# Суп-админ без подписки — те же безлимитные права
+check("super_admin: нет подписки, доступ всё равно безлимитный",
+      sa_limits.get('max_products') == -1)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 42: try_export_line — нет настроенных экспортов → ""
+# ─────────────────────────────────────────────────────────
+section("Сценарий 42: try_export_line — пустая БД (нет exports) → «»")
+
+import asyncio as _asyncio
+from integration.manager import integration_manager as _im
+
+_teldb = make_db("try_export.db")
+
+# Нет подключений и экспортов → должен вернуть ""
+_line = _asyncio.run(_im.try_export_line(_teldb, "sales", {"product": "Тест"}))
+check("try_export_line: нет exports → пустая строка", _line == "")
+
+# Тип возврата всегда str
+check("try_export_line: тип str", isinstance(_line, str))
+
+# trigger_export_with_result: нет exports → []
+_res = _asyncio.run(_im.trigger_export_with_result(_teldb, "sales", {}))
+check("trigger_export_with_result: нет exports → []", _res == [])
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 43: Устаревшие pending-платежи (stale payments)
+# ─────────────────────────────────────────────────────────
+section("Сценарий 43: Устаревшие pending-платежи (get_stale_pending_payments)")
+
+staledb = make_db("stale_payments.db")
+
+# Пустая БД → []
+check("get_stale_pending_payments: пустая → []",
+      staledb.get_stale_pending_payments(hours=72) == [])
+
+# Добавляем пользователя и свежий pending-запрос
+staledb.add_user(2300001, "Плательщик", "Тест")
+stale_uid = staledb.get_user_id(2300001)
+
+# Создаём pending payment request через create_payment_request
+try:
+    staledb.create_payment_request(
+        user_id=stale_uid,
+        plan_type='Базовый',
+        amount=500.0,
+        payment_proof_file_id='file_id_stub',
+    )
+    fresh_stale = staledb.get_stale_pending_payments(hours=72)
+    check("get_stale_pending_payments: свежий запрос не попадает в «устаревшие»",
+          len(fresh_stale) == 0)
+except Exception:
+    check("create_payment_request: не падает", False)
+
+# Запрос с очень маленьким порогом (0 часов) — свежий тоже будет «устаревшим»
+try:
+    zero_stale = staledb.get_stale_pending_payments(hours=0)
+    check("get_stale_pending_payments(0h): возвращает list",
+          isinstance(zero_stale, list))
+    if zero_stale:
+        row = zero_stale[0]
+        check("get_stale_pending_payments: 7 колонок (id,user_id,plan,amount,tg_id,fn,ln)",
+              len(row) == 7)
+        check("get_stale_pending_payments: plan_type == Базовый",
+              row[2] == 'Базовый')
+        check("get_stale_pending_payments: amount == 500.0",
+              abs(row[3] - 500.0) < 0.01)
+except Exception:
+    check("get_stale_pending_payments(0h): не падает", False)
+
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 44: check_and_mark_plan_milestones — без планов → []
+# ─────────────────────────────────────────────────────────
+section("Сценарий 44: plan_milestone_alerts — UNIQUE по периоду")
+
+msdb = make_db("milestones.db")
+msdb.add_user(2400001, "Веха", "Продавец", shop_name="Магазин М")
+ms_tg = 2400001
+
+# Нет планов → []
+ms_result = msdb.check_and_mark_plan_milestones(ms_tg)
+check("check_and_mark_plan_milestones: нет планов → []",
+      ms_result == [] and isinstance(ms_result, list))
+
+# Несуществующий пользователь → [] (не падает)
+ms_unknown = msdb.check_and_mark_plan_milestones(9999999)
+check("check_and_mark_plan_milestones: несущ. tg_id → []",
+      ms_unknown == [])
+
+# Добавляем план и продажи, чтобы проверить UNIQUE INSERT OR IGNORE
+ms_uid  = msdb.get_user_id(ms_tg)
+ms_pid  = msdb.add_product("Товар Веха", "Кат", 100.0)
+msdb.add_inventory("Магазин М", ms_pid, 1000)
+
+# Создаём план (seller, weekly, turnover, target=10) через add_sales_plan
+try:
+    # Реальное соглашение: plan_type='weekly'/'monthly', target_type='seller'/'shop'
+    # (как в визарде: plan_type=pln_period, target_type=pln_target_type)
+    plan_id = msdb.add_sales_plan(
+        plan_type='weekly',
+        metric_type='turnover',
+        target_value=10.0,
+        target_type='seller',
+        user_id=ms_uid,
+        shop_name=None,
+        filter_type='all', filter_value=None,
+    )
+    # Продажа — 100% выполнение (цель 10, продажа на 100)
+    msdb.add_sale(ms_pid, "Магазин М", 1, ms_uid, 100.0)
+
+    hits1 = msdb.check_and_mark_plan_milestones(ms_tg)
+    check("check_and_mark_plan_milestones: ≥1 вехи достигнуты", len(hits1) >= 1)
+
+    # Второй вызов — UNIQUE INSERT OR IGNORE — те же вехи не дублируются
+    hits2 = msdb.check_and_mark_plan_milestones(ms_tg)
+    check("check_and_mark_plan_milestones: второй вызов → [] (дубликаты игнорируются)",
+          hits2 == [])
+except Exception as _me:
+    check(f"check_and_mark_plan_milestones: план+вехи без исключений (err={_me})", False)
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)
