@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-19 (сессия 138)
+> Последнее обновление: 2026-05-19 (сессия 139)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `801e807` · Amvera `a7980b1` (2026-05-19, сессия 138). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `de81db5` · Amvera `691b438` (2026-05-19, сессия 139). Оба хэша верифицированы через `git ls-remote`.
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
