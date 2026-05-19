@@ -148,7 +148,7 @@ async def add_product_start(callback: CallbackQuery, state: FSMContext):
     # Проверяем лимиты подписки (только для обычных администраторов)
     if not is_super:
         from subscription_utils import check_product_limit
-        ok, msg = check_product_limit(callback.from_user.id)
+        ok, msg = await asyncio.to_thread(check_product_limit, callback.from_user.id)
         if not ok:
             await callback.message.edit_text(
                 f"🚫 <b>Достигнут лимит товаров</b>\n\n{msg}",

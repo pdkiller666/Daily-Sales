@@ -231,6 +231,11 @@ async def confirm_payment_request(callback: CallbackQuery):
 
     if success:
         try:
+            from subscription_utils import invalidate_plan_cache
+            invalidate_plan_cache(callback.from_user.id)
+        except Exception:
+            pass
+        try:
             def _fetch_request_user():
                 import sqlite3 as _sql
                 c = _sql.connect('data/shop_bot.db')

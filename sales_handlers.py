@@ -1407,7 +1407,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
     # Проверяем лимит продаж по тарифу
     if not env_manager.is_super_admin(callback.from_user.id):
         from subscription_utils import check_sales_limit
-        ok, msg = check_sales_limit(callback.from_user.id)
+        ok, msg = await asyncio.to_thread(check_sales_limit, callback.from_user.id)
         if not ok:
             await callback.answer()
             await callback.message.edit_text(

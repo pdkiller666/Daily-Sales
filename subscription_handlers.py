@@ -911,6 +911,11 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
             )
             if req_id:
                 await db.confirm_payment_request(req_id, admin_id=0)
+                try:
+                    from subscription_utils import invalidate_plan_cache
+                    invalidate_plan_cache(callback.from_user.id)
+                except Exception:
+                    pass
         except Exception as e:
             import logging
             logging.error(f"check_yookassa_payment: auto-confirm error: {e}")

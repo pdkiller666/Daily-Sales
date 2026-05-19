@@ -1285,15 +1285,19 @@ async def _render_scope_list(message, state: FSMContext, current_db, scope_type:
     icon   = icon_map[scope_type]
     prefix = cb_prefix[scope_type]
 
-    try:
-        conn = _sq3.connect(current_db.db_file)
-        rows = conn.execute(
-            f"SELECT DISTINCT {field} FROM users WHERE {field} IS NOT NULL AND {field} != '' ORDER BY {field}"
-        ).fetchall()
-        conn.close()
-        values = [r[0] for r in rows]
-    except Exception:
-        values = []
+    def _fetch_scope_values(db_file, f):
+        try:
+            import sqlite3 as _s
+            c = _s.connect(db_file)
+            rows = c.execute(
+                f"SELECT DISTINCT {f} FROM users WHERE {f} IS NOT NULL AND {f} != '' ORDER BY {f}"
+            ).fetchall()
+            c.close()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+
+    values = await asyncio.to_thread(_fetch_scope_values, current_db.db_file, field)
 
     if not values:
         await message.edit_text(
@@ -1366,17 +1370,22 @@ async def _toggle_scope_value(callback: CallbackQuery, state: FSMContext,
     partial = callback.data.removeprefix(prefix)
 
     current_db = await get_db(callback.from_user.id, state)
-    try:
-        import sqlite3 as _sq3
-        field_map = {'shop': 'shop_name', 'city': 'city', 'network': 'trade_network'}
-        field = field_map[scope_type]
-        conn = _sq3.connect(current_db.db_file)
-        candidates = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT {field} FROM users WHERE {field} IS NOT NULL AND {field} != ''"
-        ).fetchall()]
-        conn.close()
-    except Exception:
-        candidates = []
+    field_map = {'shop': 'shop_name', 'city': 'city', 'network': 'trade_network'}
+    field = field_map[scope_type]
+
+    def _fetch_candidates(db_file, f):
+        try:
+            import sqlite3 as _s
+            c = _s.connect(db_file)
+            rows = c.execute(
+                f"SELECT DISTINCT {f} FROM users WHERE {f} IS NOT NULL AND {f} != ''"
+            ).fetchall()
+            c.close()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+
+    candidates = await asyncio.to_thread(_fetch_candidates, current_db.db_file, field)
 
     full_val = resolve_cb_name(partial, candidates) if candidates else partial
 
@@ -1949,7 +1958,7 @@ async def adm_shop_new(callback: CallbackQuery, state: FSMContext):
     from subscription_utils import check_shop_limit
     from env_manager import env_manager as _em
     if not _em.is_super_admin(callback.from_user.id):
-        ok, msg = check_shop_limit(callback.from_user.id)
+        ok, msg = await asyncio.to_thread(check_shop_limit, callback.from_user.id)
         if not ok:
             await callback.message.edit_text(
                 f"🚫 <b>Лимит магазинов исчерпан</b>\n\n{msg}",
