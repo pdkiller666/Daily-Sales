@@ -778,11 +778,20 @@ class Database:
         # ── Индексы для ускорения тяжёлых запросов ──────────────────────────
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date          ON sales(sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_shop_prod ON inventory(shop_name, product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_schedule_date  ON work_schedule(work_date, user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_sale ON seller_earnings(sale_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_shop_name     ON users(shop_name)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_telegram_id   ON users(telegram_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_city          ON users(city)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_trade_network ON users(trade_network)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_category   ON products(category)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_subscriptions_user  ON subscriptions(user_id, end_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_plans_user    ON sales_plans(user_id, target_type)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_history_user  ON notification_history(user_id, is_read)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sched_notif_dt      ON scheduled_notifications(scheduled_datetime, status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_plan_milestones     ON plan_milestone_alerts(user_id, plan_id)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)

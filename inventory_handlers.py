@@ -371,6 +371,7 @@ async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
 @inventory_router.callback_query(F.data == "user_inventory_edit")
 async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
     """Редактирование остатков пользователем в своем магазине"""
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
 

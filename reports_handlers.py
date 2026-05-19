@@ -56,7 +56,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
 
     # Отвечаем на callback сразу — кнопка перестаёт «грузиться» мгновенно,
     # пока в фоне выполняется построение дашборда и отчёта.
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
 
     current_db = await get_db(callback.from_user.id, state)
 
@@ -206,7 +206,7 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
 
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     today = date.today().isoformat()
     await state.update_data(start_date=today, end_date=today)
 
@@ -333,7 +333,7 @@ MONTHS_RU = {
 @reports_router.callback_query(F.data == "view_ratings")
 async def view_ratings(callback: CallbackQuery, state: FSMContext):
     """Просмотр рейтинга продавцов за текущий месяц"""
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
     today = datetime.now()
     start_date = today.replace(day=1).strftime('%Y-%m-%d')
@@ -475,7 +475,7 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Сначала завершите регистрацию через /start", show_alert=True)
         return
 
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     # Получаем все продажи пользователя независимо от магазина
     user_id = current_db.get_user_id(callback.from_user.id)
     sales = current_db.get_user_sales(user_id, limit=1000)  # Увеличиваем лимит для полного отчета
@@ -601,7 +601,7 @@ async def report_my_month(callback: CallbackQuery, state: FSMContext):
     if not limits.get('can_view_analytics', False):
         await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
         return
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     today = date.today()
     start_date = today.replace(day=1).isoformat()
     end_date = today.isoformat()
@@ -621,7 +621,7 @@ async def report_admin_month(callback: CallbackQuery, state: FSMContext):
     if not limits.get('can_view_analytics', False) and not is_super_admin:
         await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
         return
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     today      = date.today()
     start_date = today.replace(day=1).isoformat()
     end_date   = today.isoformat()

@@ -959,7 +959,7 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: 
     from env_manager import env_manager as _env
     is_super_admin = _env.is_super_admin(callback.from_user.id)
     # Отвечаем немедленно — кнопка разблокируется, пока строится дашборд
-    await callback.answer()
+    await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
     if not user:
