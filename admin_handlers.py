@@ -415,10 +415,8 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
     if query:
         builder.row(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="adm_usr_srch_cancel"))
 
-    if show_admin_management:
-        is_owner = is_super_user or (uid and get_user_org_role(uid) == 'owner')
-        if is_owner:
-            builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
+    if show_admin_management and is_super_user:
+        builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
 
     builder.row(back_button(back_target))
 
