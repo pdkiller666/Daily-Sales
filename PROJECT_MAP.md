@@ -619,3 +619,10 @@ run:
 ```
 
 **Исключения из деплоя на Amvera:** `AGENT_HANDOFF.md`, `replit.md`, `PROJECT_MAP.md`, `README.md`, `*.db`, `*.pkl`, `data/tenants/`, `data/backup/`.
+
+**⚠️ Amvera: битые сборки**
+- `deploy.sh` + `git ls-remote ✅` = код дошёл до репозитория. НЕ означает что сборка прошла.
+- "Internal server error" в логах Amvera = инфраструктурная ошибка, не ошибка кода. Amvera продолжает крутить последний успешный образ.
+- Диагностика: Amvera UI → Контроль версий → колонка "Используется".
+- Форс-триггер: добавить комментарий в `requirements.txt` → `bash deploy.sh "chore: trigger rebuild"`.
+- ❌ `quickBuild: false` в `amvera.yml` — НЕ существует, вызывает "Configuration error: unknown fields".
