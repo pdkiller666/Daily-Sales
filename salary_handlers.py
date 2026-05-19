@@ -221,11 +221,11 @@ async def salary_rates_list(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
+    await callback.answer()
     current_db = await get_db(uid, state)
     rates = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_rates_content(rates, 0)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-    await callback.answer()
 
 
 @salary_router.callback_query(F.data.startswith("slr_rates_pg_"))
@@ -235,11 +235,11 @@ async def salary_rates_page(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     page = int(callback.data.removeprefix("slr_rates_pg_"))
+    await callback.answer()
     current_db = await get_db(uid, state)
     rates = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_rates_content(rates, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-    await callback.answer()
 
 
 # ── Установить ставку продавцу ────────────────────────────────────────────────
@@ -336,6 +336,7 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
+    await callback.answer()
     current_db = await get_db(uid, state)
     users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     if not users:
@@ -343,11 +344,9 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
         builder.add(back_button("admin_salary_menu"))
         await callback.message.edit_text("❌ Нет зарегистрированных продавцов",
                                          reply_markup=builder.as_markup())
-        await callback.answer()
         return
     text, markup = _build_scheds_content(users, 0)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-    await callback.answer()
 
 
 @salary_router.callback_query(F.data.startswith("slr_sched_pg_"))
@@ -357,11 +356,11 @@ async def salary_sched_page(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     page = int(callback.data.removeprefix("slr_sched_pg_"))
+    await callback.answer()
     current_db = await get_db(uid, state)
     users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_scheds_content(users, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
-    await callback.answer()
 
 
 # ── Календарь сотрудника (admin) ───────────────────────────────────────────────

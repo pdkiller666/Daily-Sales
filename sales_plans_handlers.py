@@ -1,6 +1,7 @@
 """
 Обработчики для системы планов продаж
 """
+import asyncio
 import json as _json
 from datetime import datetime, timedelta
 from aiogram import Router, F
@@ -1258,7 +1259,7 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
 
     # Кнопка фильтра если доступен
     try:
-        _avail_p = get_available_filter_values(current_db, _sc_p, _sv_p)
+        _avail_p = await asyncio.to_thread(get_available_filter_values, current_db, _sc_p, _sv_p)
         if has_anything_to_filter(_avail_p):
             from filter_utils import filter_button_text
             builder.button(text=filter_button_text(_af_p), callback_data="flt_open_plans_progress")

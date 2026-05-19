@@ -437,12 +437,12 @@ async def slr_rec_srch_start(callback: CallbackQuery, state: FSMContext):
 async def slr_srch_cancel(callback: CallbackQuery, state: FSMContext):
     """Сброс поиска — возвращает полный список Избранного или Недавних."""
     await state.set_state(MultipleSaleStates.adding_items)
+    await callback.answer()
     data = await state.get_data()
     list_type = data.get("sale_srch_list_type", "fav")
     current_db = await get_db(callback.from_user.id, state)
     user_row = await current_db.get_user(callback.from_user.id)
     cart = data.get("sale_cart", [])
-    await callback.answer()
 
     if not user_row:
         await callback.message.edit_text("❌ Пользователь не найден", parse_mode="HTML")
@@ -895,9 +895,9 @@ async def sale_srch_prd_cancel(callback: CallbackQuery, state: FSMContext):
     shop_name = data.get("shop_name", "")
     home_shop = data.get("sale_home_shop", shop_name)
     category = data.get("sale_current_category", "")
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     await _show_sale_product_list(callback.message, shop_name, category, current_db, home_shop)
-    await callback.answer()
 
 
 @sales_router.message(SearchStates.product_sale)

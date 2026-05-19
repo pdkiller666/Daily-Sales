@@ -5,10 +5,28 @@
 
 FSM-ключ фильтра: ADMIN_FILTER_KEY — хранится в data пользователя между экранами.
 """
+import time as _time
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 ADMIN_FILTER_KEY = "admin_filter"
+
+# TTL-кеш справочных данных (магазины/города/сети) — меняются редко.
+# Ключ: db_file path. Значение: (shops, cities, networks, timestamp).
+_FILTER_VALUES_CACHE: dict = {}
+_FILTER_VALUES_TTL = 60
+
+
+def _get_db_path(current_db) -> str:
+    return getattr(current_db, 'db_file', '') or getattr(current_db, 'db_path', '') or str(id(current_db))
+
+
+def invalidate_filter_values_cache(db_path: str = None) -> None:
+    """Инвалидировать кеш при изменении состава магазинов/городов/сетей."""
+    if db_path:
+        _FILTER_VALUES_CACHE.pop(db_path, None)
+    else:
+        _FILTER_VALUES_CACHE.clear()
 
 
 def empty_filter() -> dict:
@@ -16,19 +34,30 @@ def empty_filter() -> dict:
 
 
 def get_available_filter_values(current_db, scope_type: str, scope_values: list) -> dict:
-    """Возвращает доступные значения фильтров в рамках scope роли."""
-    try:
-        all_shops    = current_db.get_all_shops()
-    except Exception:
-        all_shops = []
-    try:
-        all_cities   = current_db.get_all_cities()
-    except Exception:
-        all_cities = []
-    try:
-        all_networks = current_db.get_all_trade_networks()
-    except Exception:
-        all_networks = []
+    """Возвращает доступные значения фильтров в рамках scope роли.
+
+    Справочные данные кешируются на _FILTER_VALUES_TTL секунд по пути DB-файла —
+    магазины/города/сети меняются редко, поэтому повторных запросов к SQLite нет.
+    """
+    db_path = _get_db_path(current_db)
+    now = _time.time()
+    cached = _FILTER_VALUES_CACHE.get(db_path)
+    if cached and now - cached[3] < _FILTER_VALUES_TTL:
+        all_shops, all_cities, all_networks = cached[0], cached[1], cached[2]
+    else:
+        try:
+            all_shops = current_db.get_all_shops()
+        except Exception:
+            all_shops = []
+        try:
+            all_cities = current_db.get_all_cities()
+        except Exception:
+            all_cities = []
+        try:
+            all_networks = current_db.get_all_trade_networks()
+        except Exception:
+            all_networks = []
+        _FILTER_VALUES_CACHE[db_path] = (all_shops, all_cities, all_networks, now)
 
     if not scope_type or scope_type == 'all':
         return {"shops": all_shops, "cities": all_cities, "networks": all_networks}

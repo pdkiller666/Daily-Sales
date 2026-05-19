@@ -1408,10 +1408,10 @@ async def adm_scope_page(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён.", show_alert=True)
         return
     page = int(callback.data.removeprefix("adm_scope_pg_"))
+    await callback.answer()
     data = await state.get_data()
     scope_type = data.get('adm_scope_type', 'shop')
     current_db = await get_db(callback.from_user.id, state)
-    await callback.answer()
     await _render_scope_list(callback.message, state, current_db, scope_type, page=page)
 
 
@@ -1927,12 +1927,12 @@ async def adm_shop_pick(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён.", show_alert=True)
         return
     shop_raw = callback.data.removeprefix("adm_shop_pick_")
+    await callback.answer()
     data = await state.get_data()
     telegram_id = data.get('admin_edit_user_id')
     db_path = data.get('admin_delete_db_path')
     current_db = await get_db(callback.from_user.id, state)
     shop_name = resolve_cb_name(shop_raw, await current_db.get_all_shops() or [])
-    await callback.answer()
     _back = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     if not telegram_id or not db_path:
         await callback.message.edit_text("❌ Контекст редактирования потерян.", reply_markup=_back)
@@ -1983,12 +1983,12 @@ async def adm_net_pick(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён.", show_alert=True)
         return
     net_raw = callback.data.removeprefix("adm_net_pick_")
+    await callback.answer()
     data = await state.get_data()
     telegram_id = data.get('admin_edit_user_id')
     db_path = data.get('admin_delete_db_path')
     current_db = await get_db(callback.from_user.id, state)
     net_name = resolve_cb_name(net_raw, await current_db.get_all_trade_networks() or [])
-    await callback.answer()
     _back = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_edit_user")]])
     if not telegram_id or not db_path:
         await callback.message.edit_text("❌ Контекст редактирования потерян.", reply_markup=_back)
