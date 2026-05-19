@@ -127,12 +127,6 @@ class Database:
         if self.db_file in _INITIALIZED_DBS:
             return
         conn = self.get_connection()
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-8000")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=268435456")
-        conn.execute("PRAGMA busy_timeout=10000")
         cursor = conn.cursor()
 
         # Основные таблицы
@@ -1209,7 +1203,6 @@ class Database:
         conn = None
         try:
             conn = self.get_connection()
-            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             cursor.execute(
                 '''
@@ -1716,7 +1709,6 @@ class Database:
                 
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute("PRAGMA busy_timeout = 5000")
 
             # Получаем информацию о тарифном плане
             cursor.execute('SELECT duration_days FROM subscription_plans WHERE name = ?', (plan_type,))
@@ -1768,7 +1760,6 @@ class Database:
             end_date = (datetime.now() + timedelta(days=days)).isoformat()
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute("PRAGMA busy_timeout = 5000")
             # Двойная проверка: не выдавать повторно
             cursor.execute('SELECT id FROM subscriptions WHERE user_id = ?', (user_id,))
             if cursor.fetchone():
@@ -2459,7 +2450,6 @@ class Database:
         for attempt in range(max_retries):
             try:
                 conn = self.get_connection()
-                conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
                 # Получаем текущее количество
@@ -2547,7 +2537,6 @@ class Database:
             conn = None
             try:
                 conn = self.get_connection()
-                conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
                 # Если цена не указана, берем из товара
@@ -3019,7 +3008,6 @@ class Database:
         for attempt in range(max_retries):
             try:
                 conn = self.get_connection()
-                conn.execute('PRAGMA busy_timeout = 30000')  # 30 секунд
                 cursor = conn.cursor()
 
                 # Получаем текущие данные продажи
@@ -3159,7 +3147,6 @@ class Database:
         """Изменить дату продажи. new_date — строка 'YYYY-MM-DD'."""
         try:
             conn = self.get_connection()
-            conn.execute('PRAGMA busy_timeout = 30000')
             cursor = conn.cursor()
             cursor.execute('SELECT sale_date FROM sales WHERE id = ?', (sale_id,))
             row = cursor.fetchone()
@@ -3922,7 +3909,6 @@ class Database:
             month_end   = f"{year}-{month:02d}-{last_day:02d}"
 
             conn = self.get_connection()
-            conn.execute('PRAGMA busy_timeout=30000')
             cursor = conn.cursor()
 
             # Получаем все продажи за указанный месяц (с фильтром по товару если нужно)
@@ -3959,7 +3945,6 @@ class Database:
                 m_val  = motivation_info['motivation_value'] if motivation_info else 0.0
 
                 conn2 = self.get_connection()
-                conn2.execute('PRAGMA busy_timeout=30000')
                 cur2 = conn2.cursor()
                 # Обновляем если запись есть, иначе вставляем
                 cur2.execute('SELECT id FROM seller_earnings WHERE sale_id = ? AND user_id = ?',
@@ -3993,7 +3978,6 @@ class Database:
         Сохраняет в motivation_schedule; UNIQUE(product_id, year, month) — перезаписывает."""
         try:
             conn = self.get_connection()
-            conn.execute('PRAGMA busy_timeout=30000')
             cursor = conn.cursor()
             admin_id = None
             if admin_telegram_id:
@@ -4179,7 +4163,6 @@ class Database:
         """Установить ручную корректировку результата магазина в конкурсе"""
         try:
             conn = self.get_connection()
-            conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             editor_id = None
             if editor_telegram_id:
@@ -4557,7 +4540,6 @@ class Database:
         conn = None
         try:
             conn = self.get_connection()
-            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contests_table(cursor)
             self._ensure_contest_bonuses_table(cursor)
@@ -4598,7 +4580,6 @@ class Database:
         conn = None
         try:
             conn = self.get_connection()
-            conn.execute("PRAGMA busy_timeout=5000")
             cursor = conn.cursor()
             self._ensure_contest_bonuses_table(cursor)
             cursor.execute('DELETE FROM contest_product_bonuses WHERE contest_id = ?', (contest_id,))
@@ -5514,7 +5495,6 @@ class Database:
         for attempt in range(max_retries):
             try:
                 conn = self.get_connection()
-                conn.execute('PRAGMA busy_timeout = 30000')
                 cursor = conn.cursor()
 
                 # Убеждаемся что все параметры не None
