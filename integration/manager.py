@@ -158,7 +158,7 @@ class IntegrationManager:
             logger.error(f"trigger_export error ({export_type}): {e}")
 
     async def trigger_export_with_result(
-            self, db, export_type: str, event_data: dict, timeout: float = 5.0
+            self, db, export_type: str, event_data: dict, timeout: float = 10.0
     ) -> list:
         """
         Run immediate exports and return results synchronously (with timeout).
@@ -182,7 +182,7 @@ class IntegrationManager:
                     out.append(r)
             return out
         except asyncio.TimeoutError:
-            return [{'success': False, 'error': 'Таймаут (>5с)'}]
+            return [{'success': False, 'error': f'Таймаут (>{int(timeout)}с)'}]
         except Exception as e:
             logger.warning(f"trigger_export_with_result error: {e}")
             return [{'success': False, 'error': str(e)}]
@@ -228,6 +228,12 @@ class IntegrationManager:
                                    f'{operation} on "{sheet_name}" OK')
             db.update_integration_export_last_run(export_id)
             return {'success': True, 'error': None}
+        except asyncio.CancelledError:
+            try:
+                db.add_integration_log(conn_id, export_id, 'error', 'Таймаут — операция отменена')
+            except Exception:
+                pass
+            raise
         except Exception as e:
             msg = str(e)
             logger.error(f"_run_export_with_result id={export_id} error: {msg}")
@@ -271,6 +277,12 @@ class IntegrationManager:
                                    f'{operation} on "{sheet_name}" OK')
             db.update_integration_export_last_run(export_id)
 
+        except asyncio.CancelledError:
+            try:
+                db.add_integration_log(conn_id, export_id, 'error', 'Задача отменена (shutdown)')
+            except Exception:
+                pass
+            raise
         except Exception as e:
             msg = str(e)
             logger.error(f"_run_export id={export_id} error: {msg}")
