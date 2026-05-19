@@ -6,8 +6,6 @@
   3. ✅ Применить  — кнопка с callback_data = back_cb → возврат в модуль
   4. flt_reset  — сброс фильтра + перерисовка панели
 """
-import asyncio
-
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
@@ -50,7 +48,7 @@ async def filter_open(callback: CallbackQuery, state: FSMContext):
     back_cb    = callback.data[len("flt_open_"):]
     current_db = await get_db(callback.from_user.id, state)
     scope_type, scope_values = get_user_org_scope(callback.from_user.id)
-    available  = await asyncio.to_thread(get_available_filter_values, current_db, scope_type, scope_values)
+    available  = get_available_filter_values(current_db, scope_type, scope_values)
 
     data   = await state.get_data()
     active = data.get(ADMIN_FILTER_KEY, empty_filter())
