@@ -5,6 +5,7 @@
 
 FSM-ключ фильтра: ADMIN_FILTER_KEY — хранится в data пользователя между экранами.
 """
+import sqlite3 as _sqlite3
 import time as _time
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -45,18 +46,27 @@ def get_available_filter_values(current_db, scope_type: str, scope_values: list)
     if cached and now - cached[3] < _FILTER_VALUES_TTL:
         all_shops, all_cities, all_networks = cached[0], cached[1], cached[2]
     else:
-        try:
-            all_shops = current_db.get_all_shops()
-        except Exception:
-            all_shops = []
-        try:
-            all_cities = current_db.get_all_cities()
-        except Exception:
-            all_cities = []
-        try:
-            all_networks = current_db.get_all_trade_networks()
-        except Exception:
-            all_networks = []
+        all_shops, all_cities, all_networks = [], [], []
+        if db_path and db_path != str(id(current_db)):
+            try:
+                _conn = _sqlite3.connect(db_path)
+                all_shops = [r[0] for r in _conn.execute(
+                    "SELECT DISTINCT shop_name FROM users "
+                    "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                    "AND shop_name != 'Системный' AND shop_name != 'System'"
+                ).fetchall()]
+                all_cities = [r[0] for r in _conn.execute(
+                    "SELECT DISTINCT city FROM users "
+                    "WHERE city IS NOT NULL AND city != '' AND city != 'System'"
+                ).fetchall()]
+                all_networks = [r[0] for r in _conn.execute(
+                    "SELECT DISTINCT trade_network FROM users "
+                    "WHERE trade_network IS NOT NULL AND trade_network != '' "
+                    "AND trade_network != 'System'"
+                ).fetchall()]
+                _conn.close()
+            except Exception:
+                pass
         _FILTER_VALUES_CACHE[db_path] = (all_shops, all_cities, all_networks, now)
 
     if not scope_type or scope_type == 'all':
