@@ -382,9 +382,9 @@ async def process_product_price(message: Message, state: FSMContext):
 
 async def _render_product_list(callback: CallbackQuery, state: FSMContext, page: int = 0):
     """Рендер страницы N списка товаров по категориям."""
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     products = current_db.get_all_products()
-    await callback.answer()
 
     if not products:
         await callback.message.edit_text(
@@ -665,7 +665,7 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     product = current_db.get_product(product_id)
     
     if not product:
-        await callback.answer("❌ Товар не найден!")
+        await callback.answer("❌ Товар не найден!", show_alert=True)
         return
     
     await callback.answer()
@@ -818,7 +818,7 @@ async def confirm_delete_product(callback: CallbackQuery, state: FSMContext):
     product = current_db.get_product(product_id)
     
     if not product:
-        await callback.answer("❌ Товар не найден!")
+        await callback.answer("❌ Товар не найден!", show_alert=True)
         return
     
     await callback.answer()

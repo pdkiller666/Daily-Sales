@@ -301,6 +301,7 @@ async def add_inventory_select_product(callback: CallbackQuery, state: FSMContex
 @inventory_router.callback_query(F.data == "user_inventory_menu")
 async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
     """Единое меню остатков для пользователей"""
+    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     user = current_db.get_user(callback.from_user.id)
     
@@ -354,7 +355,6 @@ async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
             )
         return
     
-    await callback.answer()
     # Меню остатков
     buttons = [
         [InlineKeyboardButton(text="👁️ Просмотр остатков", callback_data="user_inventory_view")],

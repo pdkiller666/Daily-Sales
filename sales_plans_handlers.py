@@ -561,12 +561,12 @@ async def plnwiz_srch_cat_process(message: Message, state: FSMContext):
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_categories, F.data.startswith("plncat_"))
 async def plnwiz_toggle_category(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     raw = callback.data[len("plncat_"):]
     current_db = await get_db(callback.from_user.id, state)
     categories = current_db.get_all_categories()
     cat = resolve_cb_name(raw, categories)
     if not cat:
-        await callback.answer()
         return
     data = await state.get_data()
     selected = list(data.get('pln_categories', []))
@@ -578,7 +578,6 @@ async def plnwiz_toggle_category(callback: CallbackQuery, state: FSMContext):
     edit_id = data.get('editpln_id')
     back_cb = f"editpln_{edit_id}" if edit_id else "plnwiz_start"
     await _render_category_selection(callback.message, categories, selected, back_cb=back_cb)
-    await callback.answer()
 
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_categories, F.data == "plncatok")
@@ -719,6 +718,7 @@ async def plnwiz_srch_prd_process(message: Message, state: FSMContext):
 # Page navigation for product selection (must be before plnprd_ toggle handler)
 @sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_pg_"))
 async def plnwiz_products_page(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     page = int(callback.data.removeprefix("plnprd_pg_"))
     data = await state.get_data()
     selected = list(data.get('pln_products', []))
@@ -730,7 +730,6 @@ async def plnwiz_products_page(callback: CallbackQuery, state: FSMContext):
     products = current_db.get_all_products()
     await _render_product_selection(callback.message, products, selected, back_cb=back_cb,
                                     query=query, page=page)
-    await callback.answer()
 
 
 @sales_plans_router.callback_query(SalesPlanStates.selecting_products, F.data.startswith("plnprd_"))
@@ -1376,6 +1375,7 @@ async def delpln_execute(callback: CallbackQuery, state: FSMContext):
 
 @sales_plans_router.callback_query(F.data == "my_plans")
 async def my_plans(callback: CallbackQuery, state: FSMContext):
+    await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
     plans_data = current_db.get_user_plans_progress(callback.from_user.id)
 
@@ -1390,7 +1390,6 @@ async def my_plans(callback: CallbackQuery, state: FSMContext):
             "Планы не назначены. Обратитесь к администратору.",
             reply_markup=builder.as_markup(), parse_mode="HTML"
         )
-        await callback.answer()
         return
 
     now = datetime.now()

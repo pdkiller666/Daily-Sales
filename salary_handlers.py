@@ -773,6 +773,7 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
+    await callback.answer()
     now = datetime.now()
     year, month = now.year, now.month
     daily_rate = current_db.get_salary_rate(user_id)
@@ -782,7 +783,6 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer()
 
 
 @salary_router.callback_query(F.data.startswith("my_cal_"))
@@ -793,6 +793,7 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     if not user_id:
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
+    await callback.answer()
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
     daily_rate = current_db.get_salary_rate(user_id)
@@ -802,7 +803,6 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer()
 
 
 @salary_router.callback_query(F.data.startswith("my_d_"))

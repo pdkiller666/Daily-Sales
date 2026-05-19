@@ -1176,6 +1176,7 @@ async def catfilt_user_selected(callback: CallbackQuery, state: FSMContext):
 @commission_router.callback_query(ExtraConditionStates.selecting_categories, F.data.startswith("ctg_"))
 async def catfilt_toggle_category(callback: CallbackQuery, state: FSMContext):
     """Переключить категорию в фильтре"""
+    await callback.answer()
     raw = callback.data[len("ctg_"):]
     current_db = await get_db(callback.from_user.id, state)
     categories = current_db.get_all_categories()
@@ -1192,7 +1193,6 @@ async def catfilt_toggle_category(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(selected_categories=selected)
     await _render_category_selection(callback.message, username, categories, selected)
-    await callback.answer()
 
 
 @commission_router.callback_query(ExtraConditionStates.selecting_categories, F.data == "catfilt_confirm")
@@ -1246,6 +1246,7 @@ async def catfilt_confirm(callback: CallbackQuery, state: FSMContext):
 @commission_router.callback_query(ExtraConditionStates.selecting_categories, F.data == "catfilt_allow_all")
 async def catfilt_allow_all(callback: CallbackQuery, state: FSMContext):
     """Снять все ограничения по категориям для продавца"""
+    await callback.answer()
     data = await state.get_data()
     user_id = data.get('catfilt_user_id')
     username = data.get('catfilt_username', '')
@@ -1267,7 +1268,6 @@ async def catfilt_allow_all(callback: CallbackQuery, state: FSMContext):
             text="⬅️ Доп. условия", callback_data="motivation_extra"
         ).as_markup(), parse_mode="HTML"
     )
-    await callback.answer()
 
 
 # ── Просмотр и удаление ───────────────────────────────────
@@ -1656,6 +1656,7 @@ async def view_motivation_schedule(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
+    await callback.answer()
     await _show_schedule_matrix(callback, state, page=0)
 
 
@@ -1679,7 +1680,6 @@ async def _show_schedule_matrix(callback, state, page=0):
             "Используйте «📝 Установить мотивацию», чтобы задать ставку товару.",
             reply_markup=builder.as_markup(), parse_mode="HTML"
         )
-        await callback.answer()
         return
 
     total_pages = max(1, (len(prod_order) + MATRIX_PRODS_PER_PAGE - 1) // MATRIX_PRODS_PER_PAGE)
@@ -1741,7 +1741,6 @@ async def _show_schedule_matrix(callback, state, page=0):
 
     text += f"\n<i>Стр. {page + 1}/{total_pages}</i>"
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
-    await callback.answer()
 
 
 @commission_router.callback_query(F.data.startswith("sched_page_"))
@@ -1750,6 +1749,7 @@ async def sched_page(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
+    await callback.answer()
     page = int(callback.data.split("_")[-1])
     await _show_schedule_matrix(callback, state, page=page)
 

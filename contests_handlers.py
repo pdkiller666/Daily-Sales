@@ -400,12 +400,12 @@ async def contest_categories_done(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ctcat_"))
 async def contest_toggle_category(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     raw = callback.data[len("ctcat_"):]
     current_db = await get_db(callback.from_user.id, state)
     categories = current_db.get_all_categories()
     cat = resolve_cb_name(raw, categories)
     if not cat:
-        await callback.answer()
         return
 
     data = await state.get_data()
@@ -1252,13 +1252,13 @@ async def ct_srch_shop_start(callback: CallbackQuery, state: FSMContext):
 
 @contests_router.callback_query(F.data == "ct_srch_shop_cancel")
 async def ct_srch_shop_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.set_state(None)
     current_db = await get_db(callback.from_user.id, state)
     shops = current_db.get_all_shops()
     data = await state.get_data()
     selected = data.get('ct_shops') or []
     await _show_contest_shop_list(callback.message, shops, selected)
-    await callback.answer()
 
 
 @contests_router.message(SearchStates.shop_contests)
@@ -1291,6 +1291,7 @@ async def ct_srch_shop_process(message: Message, state: FSMContext):
 
 @contests_router.callback_query(F.data.startswith("ctshopchk_"))
 async def contest_toggle_shop(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     raw = callback.data[len("ctshopchk_"):]
     current_db = await get_db(callback.from_user.id, state)
     shops = current_db.get_all_shops()
@@ -1303,7 +1304,6 @@ async def contest_toggle_shop(callback: CallbackQuery, state: FSMContext):
         selected.append(shop)
     await state.update_data(ct_shops=selected if selected else None)
     await _show_contest_shop_list(callback.message, shops, selected)
-    await callback.answer()
 
 
 @contests_router.callback_query(F.data == "ctshop_done")
