@@ -2241,7 +2241,7 @@ async def trial_settings_menu(callback: CallbackQuery):
     await callback.answer()
     settings = db.get_payment_settings()
     trial_days = settings.get('trial_days', '14')
-    trial_plan = settings.get('trial_plan', 'Бизнес')
+    trial_plan = settings.get('trial_plan', 'Премиум')
 
     # Получаем доступные планы для отображения
     plans = db.get_subscription_plans()
@@ -2339,7 +2339,7 @@ async def trial_edit_plan_start(callback: CallbackQuery, state: FSMContext):
     plan_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="trial_settings")])
 
     settings = db.get_payment_settings()
-    current_plan = settings.get('trial_plan', 'Бизнес')
+    current_plan = settings.get('trial_plan', 'Премиум')
 
     await callback.message.edit_text(
         f"💎 <b>Тариф для пробного периода</b>\n\n"

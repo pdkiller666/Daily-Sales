@@ -685,7 +685,7 @@ async def process_city(message: Message, state: FSMContext):
                 if not existing_sub:
                     trial_settings = shop_db.get_payment_settings()
                     trial_days = int(trial_settings.get('trial_days', '14'))
-                    trial_plan = trial_settings.get('trial_plan', 'Бизнес')
+                    trial_plan = trial_settings.get('trial_plan', 'Премиум')
                     if trial_days > 0:
                         shop_db.create_trial_subscription(shop_user_id, trial_plan, trial_days)
         except Exception as _trial_err:
@@ -698,7 +698,7 @@ async def process_city(message: Message, state: FSMContext):
         _sdb = _ShopDB2('data/shop_bot.db')
         _ts = _sdb.get_payment_settings()
         _td = int(_ts.get('trial_days', '14'))
-        _tp = _ts.get('trial_plan', 'Бизнес')
+        _tp = _ts.get('trial_plan', 'Премиум')
         if _td > 0 and user_data.get('usage_mode') in ('personal', 'corporate'):
             trial_days_info = f"\n🎁 Пробный период: <b>{_td} дн.</b> тариф <b>{_tp}</b> активирован!"
     except Exception:

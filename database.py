@@ -805,8 +805,8 @@ class Database:
             # Создаем стандартные планы подписок с лимитами
             default_plans = [
                 ('Бесплатный', 0, 0.0, 'Ограниченный функционал: до 50 товаров, 1 магазин, без экспорта и уведомлений', 50, 1, 100, False, False, False, False),
-                ('Базовый', 30, 500.0, 'Для малого бизнеса: до 200 товаров, 3 магазина, экспорт отчетов', 200, 3, 500, True, True, True, True),
-                ('Стандарт', 90, 1200.0, 'Для среднего бизнеса: до 500 товаров, 10 магазинов, расширенная аналитика', 500, 10, 1500, True, True, True, True),
+                ('Базовый', 30, 500.0, 'Для малого бизнеса: до 200 товаров, 3 магазина, экспорт отчётов. Без Google Таблиц', 200, 3, 500, True, True, True, False),
+                ('Стандарт', 90, 1200.0, 'Для среднего бизнеса: до 500 товаров, 10 магазинов, расширенная аналитика + Google Таблицы', 500, 10, 1500, True, True, True, True),
                 ('Премиум', 365, 4000.0, 'Для крупного бизнеса: безлимит товаров и магазинов, все функции', -1, -1, -1, True, True, True, True)
             ]
 
@@ -835,7 +835,7 @@ class Database:
                         UPDATE subscription_plans SET 
                         max_products=200, max_shops=3, max_sales_per_month=500,
                         can_export_reports=1, can_view_analytics=1, can_use_notifications=1,
-                        can_use_integrations=1
+                        can_use_integrations=0
                         WHERE name=?
                     ''', (plan_name,))
                 elif plan_name == 'Стандарт':
@@ -855,6 +855,15 @@ class Database:
                         WHERE name=?
                     ''', (plan_name,))
 
+        # Всегда: Базовый не имеет доступа к интеграциям (Google Таблицы — от Стандарт+)
+        cursor.execute(
+            "UPDATE subscription_plans SET can_use_integrations=0 WHERE name='Базовый'"
+        )
+        # Всегда: нормализуем устаревшее название пробного плана 'Бизнес' → 'Премиум'
+        cursor.execute(
+            "UPDATE payment_settings SET value='Премиум' WHERE key='trial_plan' AND value='Бизнес'"
+        )
+
         # Проверяем, есть ли настройки платежей
         cursor.execute('SELECT COUNT(*) FROM payment_settings')
         settings_count = cursor.fetchone()[0]
@@ -866,7 +875,7 @@ class Database:
                 ('recipient_name', 'Настройте в админ панели'),
                 ('bank_name', 'Настройте в админ панели'),
                 ('trial_days', '14'),
-                ('trial_plan', 'Бизнес'),
+                ('trial_plan', 'Премиум'),
             ]
 
             for key, value in default_settings:
@@ -3203,6 +3212,26 @@ class Database:
         except Exception as e:
             logger.error(f"Общая ошибка в reject_payment_request: {e}")
             return False
+
+    def get_stale_pending_payments(self, hours: int = 72):
+        """Возвращает pending-заявки старше N часов с telegram_id пользователя."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT pr.id, pr.user_id, pr.plan_type, pr.amount,
+                       u.telegram_id, u.first_name, u.last_name
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                WHERE pr.status = 'pending'
+                  AND datetime(pr.created_at) <= datetime('now', ?)
+            ''', (f'-{hours} hours',))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_stale_pending_payments: {e}")
+            return []
 
     def get_low_stock_items_for_user(self, user_id, shop_name=None, threshold=None):
         """Получение товаров с низкими остатками для конкретного пользователя"""

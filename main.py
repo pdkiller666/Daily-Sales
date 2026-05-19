@@ -746,6 +746,35 @@ async def send_post_restart_start(bot):
     except Exception as e:
         logging.error(f"Ошибка при отправке post-restart сообщения: {e}")
 
+
+async def auto_reject_stale_payments(bot: Bot):
+    """Авто-отклонение pending-заявок СБП старше 72 часов без обработки."""
+    try:
+        db = Database('data/shop_bot.db')
+        stale = db.get_stale_pending_payments(hours=72)
+        for req_id, _user_id, plan_type, amount, telegram_id, first_name, _last_name in stale:
+            db.reject_payment_request(req_id, admin_id=0)
+            try:
+                from utils import he as _he
+                name = _he(first_name or '')
+                await bot.send_message(
+                    chat_id=telegram_id,
+                    text=(
+                        f"❌ <b>{name}, ваша заявка на оплату отклонена</b>\n\n"
+                        f"Тариф: <b>{_he(plan_type)}</b> · {amount:,.0f} ₽\n\n"
+                        "Причина: заявка не была обработана администратором в течение 72 часов.\n\n"
+                        "Попробуйте оформить заявку повторно или выберите другой способ оплаты."
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=_sub_markup(),
+                )
+                logging.info(f"auto_reject: заявка #{req_id} отклонена (telegram_id={telegram_id})")
+            except Exception as _send_err:
+                logging.error(f"auto_reject: ошибка отправки telegram_id={telegram_id}: {_send_err}")
+    except Exception as e:
+        logging.error(f"auto_reject_stale_payments: {e}")
+
+
 async def main():
     """Основная функция запуска бота"""
     # Создаем планировщик для уведомлений
@@ -814,6 +843,14 @@ async def main():
         CronTrigger(hour='*', minute=0),
         args=[bot],
         id='auto_finish_contests'
+    )
+
+    # Авто-отклонение просроченных заявок СБП (>72ч) — ежедневно в 10:15
+    scheduler.add_job(
+        auto_reject_stale_payments,
+        CronTrigger(hour=10, minute=15),
+        args=[bot],
+        id='auto_reject_stale_payments'
     )
 
     # Добавляем задачу ежедневного резервного копирования в 03:00

@@ -146,6 +146,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         text += f"• Экспорт отчётов: {'✅' if limits['can_export_reports'] else '❌'}\n"
         text += f"• Аналитика: {'✅' if limits['can_view_analytics'] else '❌'}\n"
         text += f"• Уведомления: {'✅' if limits['can_use_notifications'] else '❌'}\n"
+        text += f"• Google Таблицы: {'✅' if limits.get('can_use_integrations', False) else '❌'}\n"
 
         if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
             try:
