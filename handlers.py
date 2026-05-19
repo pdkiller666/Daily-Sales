@@ -548,6 +548,17 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
     _inv_db = await get_db(callback.from_user.id, state)
     _inv_user = _inv_db.get_user(callback.from_user.id)
 
+    try:
+        from integration.manager import integration_manager as _int_mgr
+        welcome_text += await _int_mgr.try_export_line(_inv_db, 'staff', {
+            'name': f"{user_data['first_name']} {user_data['last_name']}",
+            'shop_name': user_data['shop_name'],
+            'role': 'user',
+            'phone': user_data.get('phone', ''),
+        })
+    except Exception:
+        pass
+
     await callback.message.edit_text(
         welcome_text,
         reply_markup=main_menu(callback.from_user.id, user_data['shop_name']),
@@ -720,6 +731,17 @@ async def process_city(message: Message, state: FSMContext):
 
     _reg_db = await get_db(message.from_user.id, state)
     _reg_user = _reg_db.get_user(message.from_user.id)
+
+    try:
+        from integration.manager import integration_manager as _int_mgr
+        welcome_text += await _int_mgr.try_export_line(_reg_db, 'staff', {
+            'name': f"{user_data['first_name']} {user_data['last_name']}",
+            'shop_name': user_data['shop_name'],
+            'role': 'user',
+            'phone': user_data.get('phone', ''),
+        })
+    except Exception:
+        pass
 
     await fsm_edit(
         state, message,

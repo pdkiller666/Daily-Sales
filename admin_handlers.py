@@ -1139,8 +1139,21 @@ async def adm_role_set_user(callback: CallbackQuery, state: FSMContext):
     invalidate_admin_cache(telegram_id)
     invalidate_scope_cache(telegram_id)
     if success:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _cur_db = await get_db(callback.from_user.id, state)
+            _u = _cur_db.get_user(telegram_id)
+            _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
+                'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
+                'shop_name': _u[8] if _u and len(_u) > 8 else '',
+                'role': 'user',
+                'phone': _u[7] if _u and len(_u) > 7 else '',
+            })
+        except Exception:
+            pass
         await callback.message.edit_text(
-            "✅ Роль изменена на: <b>👤 Сотрудник</b>",
+            f"✅ Роль изменена на: <b>👤 Сотрудник</b>{_gs_sfx}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]),
             parse_mode="HTML"
         )
@@ -1170,8 +1183,21 @@ async def adm_role_set_owner(callback: CallbackQuery, state: FSMContext):
     invalidate_admin_cache(telegram_id)
     invalidate_scope_cache(telegram_id)
     if success:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _cur_db = await get_db(callback.from_user.id, state)
+            _u = _cur_db.get_user(telegram_id)
+            _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
+                'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
+                'shop_name': _u[8] if _u and len(_u) > 8 else '',
+                'role': 'owner',
+                'phone': _u[7] if _u and len(_u) > 7 else '',
+            })
+        except Exception:
+            pass
         await callback.message.edit_text(
-            "✅ Роль изменена на: <b>👑 Директор</b>",
+            f"✅ Роль изменена на: <b>👑 Директор</b>{_gs_sfx}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]),
             parse_mode="HTML"
         )
@@ -1228,8 +1254,21 @@ async def adm_scope_all(callback: CallbackQuery, state: FSMContext):
     invalidate_admin_cache(telegram_id)
     invalidate_scope_cache(telegram_id)
     if success:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _cur_db = await get_db(callback.from_user.id, state)
+            _u = _cur_db.get_user(telegram_id)
+            _gs_sfx = await _int_mgr.try_export_line(_cur_db, 'staff', {
+                'name': f"{_u[2] or ''} {_u[3] or ''}".strip() if _u else '',
+                'shop_name': _u[8] if _u and len(_u) > 8 else '',
+                'role': 'admin',
+                'phone': _u[7] if _u and len(_u) > 7 else '',
+            })
+        except Exception:
+            pass
         await callback.message.edit_text(
-            "✅ Роль изменена на: <b>🛡️ Зам. директора</b> (весь орг)",
+            f"✅ Роль изменена на: <b>🛡️ Зам. директора</b> (весь орг){_gs_sfx}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]),
             parse_mode="HTML"
         )

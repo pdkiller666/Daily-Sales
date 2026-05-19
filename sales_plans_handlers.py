@@ -883,6 +883,18 @@ async def plnwiz_target_entered(message: Message, state: FSMContext):
         value_str = f"{int(value)} шт"
 
     if plan_id:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _gs_sfx = await _int_mgr.try_export_line(current_db, 'plans', {
+                'type': target_type, 'metric': metric, 'target': str(value),
+                'period': data.get('pln_period', ''),
+                'shop_name': data.get('pln_shop_name', ''),
+                'seller_name': data.get('pln_user_name', ''),
+            })
+        except Exception:
+            pass
+
         await fsm_edit(
             state, message,
             f"✅ <b>План создан!</b>\n\n"
@@ -890,7 +902,7 @@ async def plnwiz_target_entered(message: Message, state: FSMContext):
             f"📅 Период: {period}\n"
             f"📊 Метрика: {_METRIC_LABELS.get(metric, metric)}\n"
             f"🔍 Фильтр: {filter_label}\n"
-            f"🎯 Цель: <b>{value_str}</b>",
+            f"🎯 Цель: <b>{value_str}</b>{_gs_sfx}",
             reply_markup=InlineKeyboardBuilder().button(
                 text="📊 Прогресс планов", callback_data="plans_progress"
             ).button(
@@ -1333,8 +1345,18 @@ async def delpln_execute(callback: CallbackQuery, state: FSMContext):
     success = current_db.delete_sales_plan(plan_id)
 
     if success:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _gs_sfx = await _int_mgr.try_export_line(current_db, 'plans', {
+                'type': '', 'metric': '', 'target': '',
+                'period': '', 'shop_name': '', 'seller_name': '',
+            })
+        except Exception:
+            pass
+
         await callback.message.edit_text(
-            "✅ <b>План удалён</b>",
+            f"✅ <b>План удалён</b>{_gs_sfx}",
             reply_markup=InlineKeyboardBuilder().button(
                 text="⬅️ К планам", callback_data="admin_sales_plans"
             ).as_markup(), parse_mode="HTML"
@@ -1624,9 +1646,19 @@ async def editpln_target_entered(message: Message, state: FSMContext):
     value_str = f"{format_price(value)}₽" if metric == 'turnover' else f"{int(value)} шт"
 
     if ok:
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _gs_sfx = await _int_mgr.try_export_line(current_db, 'plans', {
+                'type': '', 'metric': metric, 'target': str(value),
+                'period': '', 'shop_name': '', 'seller_name': '',
+            })
+        except Exception:
+            pass
+
         await fsm_edit(
             state, message,
-            f"✅ <b>План обновлён!</b>\n\nНовая цель: <b>{value_str}</b>",
+            f"✅ <b>План обновлён!</b>\n\nНовая цель: <b>{value_str}</b>{_gs_sfx}",
             reply_markup=InlineKeyboardBuilder().button(
                 text="📊 Прогресс планов", callback_data="plans_progress"
             ).button(

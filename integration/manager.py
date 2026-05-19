@@ -187,6 +187,24 @@ class IntegrationManager:
             logger.warning(f"trigger_export_with_result error: {e}")
             return [{'success': False, 'error': str(e)}]
 
+    async def try_export_line(self, db, export_type: str, event_data: dict) -> str:
+        """
+        Convenience wrapper: run export and return a ready-to-append status line.
+        Returns '' if no exports configured (no line added to message).
+        Returns '\\n📋 Google Таблицы: ✅ Записано' on success.
+        Returns '\\n📋 Google Таблицы: ⚠️ Ошибка записи' on failure.
+        """
+        try:
+            results = await self.trigger_export_with_result(db, export_type, event_data)
+            if not results:
+                return ""
+            if all(r['success'] for r in results):
+                return "\n📋 Google Таблицы: ✅ Записано"
+            return "\n📋 Google Таблицы: ⚠️ Ошибка записи"
+        except Exception as e:
+            logger.warning(f"try_export_line {export_type}: {e}")
+            return ""
+
     async def _run_export_with_result(self, db, export_row, event_data: dict) -> dict:
         """Like _run_export but returns {success, error} instead of notifying admins."""
         (export_id, conn_id, export_type, schedule, target_sheet,

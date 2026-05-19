@@ -352,14 +352,24 @@ async def process_product_price(message: Message, state: FSMContext):
         )])
         
         buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data="products")])
-        
+
+        _gs_sfx = ""
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            _gs_sfx = await _int_mgr.try_export_line(current_db, 'products', {
+                'name': data['name'], 'category': data['category'],
+                'price': str(price), 'description': '',
+            })
+        except Exception:
+            pass
+
         await fsm_edit(
             state, message,
             f"✅ Товар успешно добавлен!\n\n"
             f"🏷 Название: {data['name']}\n"
             f"📂 Категория: {data['category']}\n"
             f"💰 Цена: {format_currency(price)}\n\n"
-            f"💡 <i>Хотите сразу настроить дополнительные параметры?</i>",
+            f"💡 <i>Хотите сразу настроить дополнительные параметры?</i>{_gs_sfx}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
         )
     else:
@@ -753,11 +763,21 @@ async def process_edit_value_product(message: Message, state: FSMContext):
         await clear_state_keep_org(state)
         return
 
+    _gs_sfx = ""
+    try:
+        from integration.manager import integration_manager as _int_mgr
+        _gs_sfx = await _int_mgr.try_export_line(current_db, 'products', {
+            'name': product[1], 'category': product[2],
+            'price': str(product[3]), 'description': product[4] if len(product) > 4 else '',
+        })
+    except Exception:
+        pass
+
     await fsm_edit(state, message,
                    f"✅ Товар обновлен!\n\n"
                    f"🏷 Название: {product[1]}\n"
                    f"📂 Категория: {product[2]}\n"
-                   f"💰 Цена: {format_currency(product[3])}",
+                   f"💰 Цена: {format_currency(product[3])}{_gs_sfx}",
                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
 
     await clear_state_keep_org(state)
@@ -830,9 +850,19 @@ async def final_delete_product(callback: CallbackQuery, state: FSMContext):
     
     # Удаляем товар
     current_db.delete_product(product_id)
-    
+
+    _gs_sfx = ""
+    try:
+        from integration.manager import integration_manager as _int_mgr
+        _gs_sfx = await _int_mgr.try_export_line(current_db, 'products', {
+            'name': product_name, 'category': product[2] if product else '',
+            'price': str(product[3]) if product else '', 'description': '',
+        })
+    except Exception:
+        pass
+
     await callback.message.edit_text(
-        f"✅ Товар '{product_name}' успешно удален!",
+        f"✅ Товар '{product_name}' успешно удален!{_gs_sfx}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
     )
 
