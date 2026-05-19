@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-19 (сессия 132)
+> Последнее обновление: 2026-05-19 (сессия 133)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `b3c41f4` · Amvera `d04df11` (2026-05-19, сессия 132). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `b3c41f4` · Amvera `d04df11` (2026-05-19, сессия 132/133). Оба хэша верифицированы через `git ls-remote`. Код актуален — все изменения за два дня задеплоены. 45 импортов ✅, все .py синтаксически чисты ✅.
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
@@ -696,6 +696,21 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 2. `payment_admin_handlers.py`: `confirm_payment_request` — пользователь получает полную квитанцию (тариф + сумма + дата истечения), данные тянутся из `subscription_plans`.
 3. GitHub `3a9650d` · Amvera `46d94fa`.
 
+**Сессия 130–132 — PERFORMANCE AUDIT: answer() + DB indexes + ⏳ indicators:**
+1. **10 новых индексов** в `database.py` (create_tables): idx_sales_date, idx_users_city, idx_users_trade_network, idx_products_category, idx_subscriptions_user, idx_sales_plans_user, idx_notif_history_user, idx_sched_notif_dt, idx_plan_milestones — ускоряют выборки по дате/городу/пользователю.
+2. **`answer("⏳ Загрузка...")` добавлен** в `_render_dashboard`, `reports_menu`, `view_ratings`, `report_today`, `report_my_shop`, `report_user_month`, `report_admin_month`, `my_plans` — тяжёлые экраны с несколькими DB-запросами.
+3. **`answer()` перенесён перед DB** в 13 обработчиках: `my_schedule`, `my_schedule_nav` (salary_handlers), `my_plans`, `plnwiz_toggle_category`, `plnwiz_products_page` (sales_plans_handlers), `contest_toggle_category`, `ct_srch_shop_cancel`, `contest_toggle_shop` (contests_handlers), `_render_product_list`, `edit_product_choice`, `confirm_delete_product` (products_handlers), `user_inventory_menu` (inventory_handlers), `catfilt_toggle_category`, `catfilt_allow_all` (commission_handlers).
+4. **`_show_schedule_matrix` (commission_handlers)**: перенесён pattern — answer() добавлен в `view_motivation_schedule` и `sched_page` ДО вызова хелпера; из самого хелпера `answer()` убран (дублирование).
+5. **`edit_product_choice` / `confirm_delete_product`**: ошибка «не найден» изменена на `show_alert=True` (было без alert — плохой UX).
+6. Принцип: `answer()` — первая строка если нет show_alert-валидации; сразу после последней валидации если есть; toggle-хендлеры — всегда первой строкой.
+7. GitHub `b3c41f4` · Amvera `d04df11`. 45 импортов ✅.
+
+**Сессия 133 — ВЕРИФИКАЦИЯ + GOOGLE SHEETS ДОКУМЕНТАЦИЯ:**
+1. Верификация: все изменения за 2 дня присутствуют в коде (syntax check всех .py ✅, test_imports ✅).
+2. git статус: local main = `48a148a` (Replit checkpoint); origin/main = `fb845fd` (stale tracking — нормально, deploy.sh пушит из /tmp/github-deploy отдельно). Расхождение 94 vs 50 коммитов — ожидаемо, не баг.
+3. Документирован скоуп Google Sheets интеграции (см. ловушку #30 ниже).
+4. Нет нового кода — только документация и верификация.
+
 **Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.
 2. **`report_my_shop`** — убран `[:3]` у товаров; guard `> 3700` с сообщением «остальные товары в Excel».
@@ -737,6 +752,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 27. **`trial_plan` = 'Премиум'** (не 'Бизнес' — этого плана нет в БД). Триал проверяется через `_has_active_trial()` → `_UNLIMITED`, не через lookup плана. Fallback в handlers.py и payment_system_admin.py: `settings.get('trial_plan', 'Премиум')`.
 28. **`subscription_reminder_log` threshold=-1** — специальный ключ для upsell-сообщения «триал истёк». Остальные ключи: 14, 7, 3, 1 (дней до истечения). `get_recently_expired_trials()` возвращает trials с end_date в последние 48ч.
 29. **`auto_reject_stale_payments`** — ежедневно в 10:15; использует `db.get_stale_pending_payments(hours=72)` и `db.reject_payment_request(req_id, admin_id=0)`. admin_id=0 означает авто-отклонение (не конкретный admin).
+30. **Google Sheets — скоуп ПО ОРГАНИЗАЦИИ, не по пользователю.** `integration_connections` и `integration_exports` хранятся в `org_*.db` (не personal). Настраивает только admin/owner с тарифом Стандарт+ (`is_any_admin` + `check_integrations_permission`). После настройки ВСЕ продажи/инвентарь ОТ ЛЮБОГО пользователя орга автоматически пишутся в таблицу — через `trigger_export(current_db, 'sales', event_data)` в `complete_sale`. Рядовые пользователи (sellers) не видят меню интеграций и ничего не настраивают — их продажи попадают в GS автоматически. Поле `seller_name` в экспорте = кто сделал продажу.
 
 ---
 
