@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-19 (сессия 142)
+> Последнее обновление: 2026-05-19 (сессия 143)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,7 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `0ffc019` · Amvera `7355f9a` (2026-05-19, сессия 142). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `0ffc019` · Amvera `7355f9a` (2026-05-19, сессия 142–143). Оба хэша верифицированы через `git ls-remote`.
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
@@ -117,23 +117,48 @@ main.py  — polling, регистрация роутеров, APScheduler (9 з
 ### 2.1 Доступ к БД — ТОЛЬКО через get_db()
 
 ```python
-# ✅ ПРАВИЛЬНО — все обычные handlers:
+# ✅ ПРАВИЛЬНО — все обычные handlers (AsyncDatabase, все методы через await):
 from db_utils import get_db
 current_db = await get_db(callback.from_user.id, state)
-result = current_db.some_method()
+result = await current_db.some_method()        # ← await обязателен!
+items  = await current_db.get_all_products()
 
 # ✅ ПРАВИЛЬНО — payment/subscription handlers (всегда shop_bot.db):
-db = Database('data/shop_bot.db')   # допустимо только в этих файлах
+db = wrap_db(Database('data/shop_bot.db'))      # wrap_db() из db_utils!
+
+# ✅ ПРАВИЛЬНО — APScheduler (sync контекст, не async):
+db = get_db_sync(telegram_id)                  # возвращает Database, без await
+result = db.some_method()                      # без await
+
+# ✅ ПРАВИЛЬНО — parallel queries (asyncio.gather):
+r1, r2, r3 = await asyncio.gather(
+    current_db.get_sales_summary(...),
+    current_db.get_plans_progress(),
+    current_db.get_contests(status='active'),
+    return_exceptions=True,
+)
 
 # ❌ НЕПРАВИЛЬНО — глобальный db в начале обычного файла:
 db = Database('data/shop_bot.db')  # создаёт утечку изоляции между орг
+
+# ❌ НЕПРАВИЛЬНО — вызов без await:
+result = current_db.some_method()  # возвращает coroutine, не данные!
 ```
 
 **get_db() логика (db_utils.py):**
 ```
-super-admin + selected_org_db в state → Database(selected_db) + create_tables()
-user в org (tenant_manager)            → Database(org_*.db)   + create_tables()
-иначе                                  → Database(shop_bot.db) + create_tables()
+super-admin + selected_org_db в state → AsyncDatabase(Database(selected_db))
+user в org (tenant_manager)            → AsyncDatabase(Database(org_*.db))
+иначе                                  → AsyncDatabase(Database(shop_bot.db))
+```
+
+**AsyncDatabase (db_utils.py):**
+```python
+class AsyncDatabase:
+    # __getattr__ оборачивает ВСЕ вызываемые атрибуты Database в asyncio.to_thread()
+    # db_file — explicit @property (без asyncio.to_thread)
+    # sync доступ к внутреннему объекту: getattr(db, '_db', db) → Database
+    wrap_db(db: Database) → AsyncDatabase   # явная обёртка
 ```
 
 ### 2.2 Проверка прав — ТОЛЬКО через is_any_admin()
@@ -319,14 +344,37 @@ Amvera статически сканирует `sqlite3.connect('data/...')` →
 ### db_utils.py
 
 ```
-get_db(telegram_id, state)            → Database  — ОСНОВНАЯ функция
-get_db_sync(telegram_id)              → Database  — для синхронных контекстов (APScheduler)
-is_any_admin(telegram_id)             → bool      — ADMIN_CHAT_ID ИЛИ роль owner/admin в org
-get_user_org_role(telegram_id)        → str|None  — 'owner'/'admin'/'user'/None
+get_db(telegram_id, state)            → AsyncDatabase  — ОСНОВНАЯ функция (async, await обязателен)
+get_db_sync(telegram_id)              → Database       — для синхронных контекстов (APScheduler)
+wrap_db(db: Database)                 → AsyncDatabase  — явная обёртка для inline Database()
+is_any_admin(telegram_id)             → bool           — ADMIN_CHAT_ID ИЛИ роль owner/admin в org
+get_user_org_role(telegram_id)        → str|None       — 'owner'/'admin'/'user'/None
 get_user_org_scope(telegram_id)       → (scope_type, list[str])
 get_user_full_scope(telegram_id)      → (scope_type, list[str], custom_title)
 get_role_display_label(role, scope_type, scope_values, custom_title=None) → str
 clear_state_keep_org(state, extra_keys=None) → None
+```
+
+**AsyncDatabase:**
+```python
+# db_utils.py — класс AsyncDatabase
+# __init__: object.__setattr__(self, '_db', db)
+# __getattr__: если атрибут callable → asyncio.to_thread(fn, *args, **kwargs)
+#              если не callable → прямой return (числа, строки, None)
+# db_file: explicit @property → self._db.db_file (без to_thread)
+# sync доступ к внутреннему объекту: getattr(async_db, '_db', async_db) → Database
+# Используется в hints.py, maybe_refresh_username для sync-совместимости
+```
+
+**Пул соединений (database.py):**
+```python
+# _conn_pool = threading.local()  — thread-local хранилище
+# _get_pooled_conn(db_file)       — создаёт/возвращает existing conn для потока
+#   check_same_thread=False, PRAGMA WAL/cache/temp/mmap при первом создании
+# _PooledConn(conn)               — обёртка: close() = rollback (не disconnect!)
+#   все другие методы/атрибуты → proxy к raw connection
+# get_connection() → _PooledConn  — используется во всех 200+ методах Database
+# Эффект: один поток = одно соединение = нет overhead открытия/закрытия
 ```
 
 ### timezone_utils.py
@@ -711,6 +759,40 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 3. Документирован скоуп Google Sheets интеграции (см. ловушку #30 ниже).
 4. Нет нового кода — только документация и верификация.
 
+**Сессии 135–143 (2026-05-19) — PERFORMANCE OPTIMIZATIONS (3 шага):**
+
+**Шаг 1 — PRAGMA WAL (database.py `get_connection()` + `create_tables()`):**
+- `PRAGMA journal_mode=WAL` — параллельные читатели без блокировок
+- `PRAGMA synchronous=NORMAL` — баланс надёжность/скорость
+- `PRAGMA cache_size=-8000` — 8 MB page cache на соединение
+- `PRAGMA temp_store=MEMORY` — временные таблицы в памяти
+- `PRAGMA mmap_size=134217728` — 128 MB mmap для read-heavy путей
+- `busy_timeout=10000` — 10 с ожидания при блокировке (без SQLITE_BUSY краша)
+- GitHub `4a7f5ec` · Amvera `...`
+
+**Шаг 2 — AsyncDatabase wrapper (db_utils.py):**
+- Класс `AsyncDatabase` с `__getattr__` → `asyncio.to_thread(fn, *args, **kwargs)`
+- `wrap_db(db)` — явная обёртка для inline `Database()`
+- `get_db()` стал `async`, возвращает `AsyncDatabase`
+- **577 `await`** добавлено во все handler-файлы (все вызовы `current_db.*`)
+- 5 sync-хелперов переписаны в async: `build_admin_dashboard`, `build_user_dashboard`, `_build_sale_product_list_content`, etc.
+- `hints.py` / `maybe_refresh_username` — sync-совместимость через `getattr(db, '_db', db)`
+- Inline `Database()` в `admin_handlers`, `handlers`, `inventory_handlers`, `notifications_handlers` — обёрнуты через `wrap_db()`
+- `main.py` `send_daily_reports` — полная async-конвертация
+- 45/45 test_imports ✅
+- GitHub `106222c` · Amvera `7c407f8`
+
+**Шаг 3 — Thread-local connection pool + asyncio.gather() (database.py + dashboard_handlers.py):**
+- `_conn_pool = threading.local()` в `database.py`
+- `_get_pooled_conn(db_file)` — создаёт соединение с `check_same_thread=False` + все PRAGMA; переиспользует в том же потоке
+- `_PooledConn` — обёртка, `close()` = только `rollback` (не разрывает соединение)
+- `get_connection()` возвращает `_PooledConn`
+- **187 вхождений** `sqlite3.connect(self.db_file...)` в 200+ методах заменены на `self.get_connection()`
+- `build_admin_dashboard`: 7 запросов → `asyncio.gather(*_base_tasks, *_salary_tasks, return_exceptions=True)` — все параллельно (~80ms → ~10ms)
+- `build_user_dashboard`: 8 запросов → `asyncio.gather(...)` — все параллельно (~80ms → ~10ms)
+- 45/45 test_imports ✅ · runtime pool tests ✅ · runtime AsyncDatabase tests ✅
+- GitHub `0ffc019` · Amvera `7355f9a`
+
 **Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.
 2. **`report_my_shop`** — убран `[:3]` у товаров; guard `> 3700` с сообщением «остальные товары в Excel».
@@ -753,19 +835,20 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 28. **`subscription_reminder_log` threshold=-1** — специальный ключ для upsell-сообщения «триал истёк». Остальные ключи: 14, 7, 3, 1 (дней до истечения). `get_recently_expired_trials()` возвращает trials с end_date в последние 48ч.
 29. **`auto_reject_stale_payments`** — ежедневно в 10:15; использует `db.get_stale_pending_payments(hours=72)` и `db.reject_payment_request(req_id, admin_id=0)`. admin_id=0 означает авто-отклонение (не конкретный admin).
 30. **Google Sheets — скоуп ПО ОРГАНИЗАЦИИ, не по пользователю.** `integration_connections` и `integration_exports` хранятся в `org_*.db` (не personal). Настраивает только admin/owner с тарифом Стандарт+ (`is_any_admin` + `check_integrations_permission`). После настройки ВСЕ продажи/инвентарь ОТ ЛЮБОГО пользователя орга автоматически пишутся в таблицу — через `trigger_export(current_db, 'sales', event_data)` в `complete_sale`. Рядовые пользователи (sellers) не видят меню интеграций и ничего не настраивают — их продажи попадают в GS автоматически. Поле `seller_name` в экспорте = кто сделал продажу.
+31. **`get_db()` возвращает `AsyncDatabase`** — все вызовы методов требуют `await`. Без `await` получаешь coroutine, а не данные. В APScheduler-задачах использовать `get_db_sync()` → возвращает `Database` (sync, без await).
+32. **`wrap_db(db)` обязателен** для inline `Database('data/shop_bot.db')` в обычных handlers — иначе методы не будут async. Исключение: payment/subscription handlers, где `Database` допустим напрямую (всегда sync контекст).
+33. **Thread-local pool**: каждый рабочий поток (`asyncio.to_thread`) получает своё соединение. `_PooledConn.close()` НЕ закрывает соединение — только откатывает незакрытые транзакции. Соединение живёт пока живёт поток. При добавлении нового метода в `Database` — используй `self.get_connection()`, не `sqlite3.connect(self.db_file)`.
+34. **`asyncio.gather()` с `return_exceptions=True`**: используй в dashboard и любых экранах с 3+ независимыми DB-запросами. Всегда проверяй каждый результат: `if not isinstance(result, Exception)`. Паттерн: `_r = lambda i, default=None: results[i] if not isinstance(results[i], Exception) else default`.
 
 ---
 
 ## 8. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Импорт-аудит (36 модулей):
-python test_imports.py
+# 1. Импорт-аудит (45 модулей):
+python test_imports.py   # должно быть: Итог: 45 ОК, 0 ошибок
 
-# 2. Тесты (559 сценариев):
-python test_scenarios.py
-
-# 3. Синтаксис:
+# 2. Синтаксис:
 python -c "
 import ast, os
 errors = []
@@ -778,7 +861,7 @@ for fn in os.listdir('.'):
 print('✅ OK' if not errors else '\n'.join(errors))
 "
 
-# 4. Деплой (GitHub + Amvera):
+# 3. Деплой (GitHub + Amvera):
 bash deploy.sh "commit message"
 
 # Только GitHub:

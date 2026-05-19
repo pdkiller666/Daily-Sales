@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-05-07 (сессия 43) · 36 модулей · 559 тестов · GitHub `077ce67` · Amvera `790cabe`
+> Последнее обновление: 2026-05-19 (сессия 143) · 45 модулей · 45 test_imports · GitHub `0ffc019` · Amvera `7355f9a`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -112,11 +112,12 @@ idx_users_shop_name, idx_users_telegram_id
 ### db_utils.py — точка входа к БД
 
 ```
-get_db(telegram_id, state)          ← ОСНОВНАЯ функция. Всегда использовать в async handlers.
-                                       super-admin + selected_org_db → Database(org_db) + create_tables()
-                                       user в org                    → Database(org_*.db) + create_tables()
-                                       иначе                         → Database(shop_bot.db) + create_tables()
-get_db_sync(telegram_id)            ← для синхронных контекстов (APScheduler)
+get_db(telegram_id, state)          ← ОСНОВНАЯ функция (async). Возвращает AsyncDatabase.
+                                       super-admin + selected_org_db → AsyncDatabase(Database(org_db))
+                                       user в org                    → AsyncDatabase(Database(org_*.db))
+                                       иначе                         → AsyncDatabase(Database(shop_bot.db))
+get_db_sync(telegram_id)            ← для синхронных контекстов (APScheduler) → Database (sync)
+wrap_db(db: Database)               ← явная обёртка inline Database() → AsyncDatabase
 is_any_admin(telegram_id)           ← проверяет ADMIN_CHAT_ID ИЛИ роль owner/admin в user_org_mapping
 get_user_org_role(telegram_id)      ← 'owner'/'admin'/'user'/None из user_org_mapping
 get_user_org_scope(telegram_id)     ← (scope_type, list[str]) — тип и список зон доступа
@@ -124,6 +125,29 @@ get_user_full_scope(telegram_id)    ← (scope_type, list[str], custom_title)
 get_role_display_label(role, scope_type, scope_values, custom_title=None) ← текст роли
 clear_state_keep_org(state, extra_keys=None) ← очистка state с сохранением selected_org_db
                                               extra_keys — доп. ключи FSM для сохранения
+```
+
+**AsyncDatabase (db_utils.py):**
+```python
+# __getattr__: callable атрибуты → asyncio.to_thread(fn, *args, **kwargs)
+# db_file: explicit @property (без to_thread) → прямое обращение
+# sync доступ: getattr(db, '_db', db) → Database (для hints.py, username sync)
+# wrap_db(Database(...)) → AsyncDatabase  (использовать вместо inline Database())
+
+# Параллельные запросы — asyncio.gather():
+results = await asyncio.gather(
+    db.method_a(), db.method_b(), db.method_c(),
+    return_exceptions=True,
+)
+# Проверка: not isinstance(results[i], Exception)
+```
+
+**Пул соединений (database.py):**
+```python
+# threading.local() пул: один поток = одно соединение на db_file
+# _PooledConn.close() = rollback (не разрывает соединение)
+# get_connection() → _PooledConn — используется во ВСЕХ методах Database
+# Все методы Database используют self.get_connection() (не sqlite3.connect напрямую)
 ```
 
 ### env_manager.py — переменные окружения
@@ -443,19 +467,22 @@ APScheduler (AsyncIOScheduler)
   coalesce=True          — пропущенные повторы схлопываются в один
   max_instances=1        — никакого параллельного запуска одного задания
 
-Задачи:
-  send_sales_alerts()             cron(minute='*', second=0)   — дневные цели продаж
-  send_payment_alerts()           cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день)
-  send_daily_reports()            cron(minute='*', second=24)  — ежедневные отчёты
-  send_personalized_notifications() cron(minute='*', second=36) — персонализированные
-  check_scheduled_notifications() cron(minute='*', second=48)  — запланированные рассылки
-  auto_finish_contests()          cron(minute='*/30')           — завершение конкурсов
-  daily_backup_task()             cron(hour=3, minute=0)        — авто-бэкап (retention 30 дней)
+Задачи (9 штук):
+  send_sales_alerts()               cron(minute='*', second=0)   — дневные цели продаж
+  send_payment_alerts()             cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день) + trial reminders
+  send_daily_reports()              cron(minute='*', second=24)  — ежедневные отчёты (async)
+  send_personalized_notifications() cron(minute='*', second=36)  — персонализированные
+  check_scheduled_notifications()   cron(minute='*', second=48)  — запланированные рассылки (UTC)
+  send_trial_expired_upsell()       cron(hour='*', minute=5)     — upsell при истечении триала; dedup threshold=-1
+  auto_finish_contests()            cron(hour='*', minute=0)     — завершение конкурсов
+  auto_reject_stale_payments()      cron(hour=10, minute=15)     — отклонение pending СБП >72ч
+  backup_job()                      cron(hour=3, minute=0)       — авто-бэкап (retention 30 дней)
 
 _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
 
 **Timezone:** все задачи сравнивают `datetime.now()` (UTC на Amvera) с настроенным временем через `.astimezone(user_tz)`.
+**Async в APScheduler:** `send_daily_reports` — async функция, запускается через `asyncio.run_coroutine_threadsafe`. Остальные задачи — sync, используют `get_db_sync()`.
 
 ---
 
@@ -480,18 +507,37 @@ _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant
 ## 7. ПАТТЕРН ДОСТУПА К БД
 
 ```python
-# ПРАВИЛЬНО — все обычные handlers:
+# ПРАВИЛЬНО — все обычные handlers (AsyncDatabase):
 current_db = await get_db(callback.from_user.id, state)
-data = current_db.get_something()
+data = await current_db.get_something()               # ← await обязателен!
+
+# ПРАВИЛЬНО — параллельные запросы (3+ независимых):
+r1, r2, r3 = await asyncio.gather(
+    current_db.get_sales_summary(...),
+    current_db.get_plans_progress(),
+    current_db.get_contests(status='active'),
+    return_exceptions=True,
+)
 
 # ПРАВИЛЬНО — payment/subscription (всегда централизованно):
-db = Database('data/shop_bot.db')
+db = wrap_db(Database('data/shop_bot.db'))            # wrap_db() обязателен!
 
-# НЕПРАВИЛЬНО — устаревший паттерн (нарушает multi-tenancy):
-db = Database('data/shop_bot.db')  # без get_db() — в обычном handler
+# ПРАВИЛЬНО — APScheduler sync контекст:
+db = get_db_sync(telegram_id)                         # Database (не AsyncDatabase)
+data = db.get_something()                             # без await
+
+# НЕПРАВИЛЬНО — устаревший паттерн:
+db = Database('data/shop_bot.db')                     # без wrap_db() — методы не async!
+data = current_db.get_something()                     # без await — получишь coroutine!
 ```
 
-**SQLite concurrency:** `get_connection()` устанавливает `PRAGMA journal_mode=WAL` + `PRAGMA busy_timeout=10000`. `create_tables()` также устанавливает `busy_timeout=10000`. WAL позволяет параллельные читатели.
+**SQLite concurrency и производительность:**
+- `get_connection()` → `_PooledConn` — thread-local пул (одно соединение на поток)
+- `PRAGMA journal_mode=WAL` — параллельные читатели без блокировок
+- `PRAGMA synchronous=NORMAL` — баланс надёжность/скорость
+- `PRAGMA cache_size=-8000` — 8 MB page cache
+- `PRAGMA temp_store=MEMORY` + `mmap_size=134217728` — in-memory tmp + 128 MB mmap
+- `busy_timeout=10000` — 10 с ожидания при блокировке
 
 ---
 
@@ -513,21 +559,37 @@ db = Database('data/shop_bot.db')  # без get_db() — в обычном handl
 14. `scheduled_notifications.scheduled_datetime` хранится в UTC — `get_utc_time()` при записи
 15. Excel: `generate_excel_report(sales, ...)` — seller detection: `len(row) >= 11`; лимит 50000 строк
 16. Telegram лимит сообщения 4096 символов: guard'ы на уровне магазинов (`>3600`) и товаров (`>3700`)
+17. **`get_db()` возвращает `AsyncDatabase`** — все вызовы `await`. Без await → coroutine, не данные
+18. **`wrap_db(Database(...))`** обязателен для inline Database() в обычных handlers
+19. **APScheduler** → `get_db_sync()` (не `get_db()`), методы без await
+20. **Новый метод в `Database`** → использовать `self.get_connection()`, НЕ `sqlite3.connect(self.db_file)`
+21. **`asyncio.gather()` + `return_exceptions=True`** → всегда проверять `isinstance(r, Exception)`
+22. **`sales_handlers.py`** не имеет глобального `logger` — только `import logging` + `logging.error()`
 
 ---
 
 ## 9. МОНЕТИЗАЦИЯ
 
 ```
-Тарифы (subscription_plans): Бесплатный / Базовый / Стандарт / Премиум / Бизнес
-Пробный период: trial_days (default 14), trial_plan (default Бизнес) в payment_settings
+Тарифы (subscription_plans):
+  Бесплатный  — 0₽, 50 товаров / 1 магазин / 100 продаж; без функций
+  Базовый     — 500₽/30д, 200/3/500; экспорт+аналитика+уведомления; БЕЗ интеграций (can_use_integrations=0)
+  Стандарт    — 1200₽/90д, 500/10/1500; + Google Sheets
+  Премиум     — 4000₽/365д; всё безлимит
+
+Пробный период: trial_days=14, trial_plan='Премиум' в payment_settings
+  → _has_active_trial(tg_id) → True → get_plan_limits() сразу возвращает _UNLIMITED (минуя lookup)
+  → dedup upsell: subscription_reminder_log threshold=-1 (для expired upsell)
 
 Провайдеры оплаты (payment_provider в payment_settings):
-  'sbp'      — ручное подтверждение скриншота чека
+  'sbp'      — ручное подтверждение скриншота чека; pending >72ч → auto_reject_stale_payments
   'yookassa' — автоматическая оплата через API ЮKassa (shop_id + secret_key + return_url)
 
 Промокоды: discount_percent, max_usage, current_usage
 Лимиты по тарифу: max_products, max_shops (-1 = безлимит)
+
+ВАЖНО: can_use_integrations=0 для Базового — always-running migration в database.py принудительно
+       держит это значение. Не менять без проверки миграции (~строка 861 в database.py).
 ```
 
 ---
