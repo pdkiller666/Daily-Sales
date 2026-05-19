@@ -590,11 +590,12 @@ async def process_new_quantity(message: Message, state: FSMContext):
             
         current_db.add_inventory(shop_name, product_id, new_quantity, user_id, 'manual', 'Добавление остатков')
 
+        _gs_status_add = []
         try:
             from integration.manager import integration_manager as _int_mgr
             from datetime import datetime as _dt
             _product = current_db.get_product(product_id)
-            await _int_mgr.trigger_export(current_db, 'inventory', {
+            _gs_status_add = await _int_mgr.trigger_export_with_result(current_db, 'inventory', {
                 'shop_name': shop_name,
                 'product_name': _product[1] if _product else '',
                 'category': _product[2] if _product else '',
@@ -603,11 +604,15 @@ async def process_new_quantity(message: Message, state: FSMContext):
             })
         except Exception as _ie:
             import logging as _log
-            _log.warning(f"integration trigger_export (inventory add): {_ie}")
+            _log.warning(f"integration trigger_export_with_result (inventory add): {_ie}")
 
-        await fsm_edit(state, message,
-                       f"✅ Остатки обновлены для магазина {shop_name}!",
-                       reply_markup=_add_kb)
+        _inv_add_text = f"✅ Остатки обновлены для магазина {shop_name}!"
+        if _gs_status_add:
+            if all(r['success'] for r in _gs_status_add):
+                _inv_add_text += "\n📋 Google Таблицы: ✅ Записано"
+            else:
+                _inv_add_text += "\n📋 Google Таблицы: ⚠️ Ошибка записи"
+        await fsm_edit(state, message, _inv_add_text, reply_markup=_add_kb)
     else:
         product_id = data.get('edit_product_id')
         shop_name = data.get('edit_shop')
@@ -629,10 +634,11 @@ async def process_new_quantity(message: Message, state: FSMContext):
                 change_reason = f'Изменение с {existing_quantity} на {new_quantity} шт. ({"+" if delta > 0 else ""}{delta})'
                 current_db.update_inventory(shop_name, product_id, delta, user_id, 'user_edit', change_reason)
             
+            _gs_status_edit = []
             try:
                 from integration.manager import integration_manager as _int_mgr
                 from datetime import datetime as _dt
-                await _int_mgr.trigger_export(current_db, 'inventory', {
+                _gs_status_edit = await _int_mgr.trigger_export_with_result(current_db, 'inventory', {
                     'shop_name': shop_name,
                     'product_name': product_name or '',
                     'category': category or '',
@@ -641,16 +647,22 @@ async def process_new_quantity(message: Message, state: FSMContext):
                 })
             except Exception as _ie:
                 import logging as _log
-                _log.warning(f"integration trigger_export (inventory edit): {_ie}")
+                _log.warning(f"integration trigger_export_with_result (inventory edit): {_ie}")
 
-            await fsm_edit(state, message,
-                           f"✅ Остатки обновлены!\n\n"
-                           f"🏷 Товар: {product_name}\n"
-                           f"📂 Категория: {category}\n"
-                           f"🏪 Магазин: {shop_name}\n"
-                           f"📊 Было: {current_quantity} шт.\n"
-                           f"📊 Стало: {new_quantity} шт.",
-                           reply_markup=_edit_kb)
+            _inv_edit_text = (
+                f"✅ Остатки обновлены!\n\n"
+                f"🏷 Товар: {product_name}\n"
+                f"📂 Категория: {category}\n"
+                f"🏪 Магазин: {shop_name}\n"
+                f"📊 Было: {current_quantity} шт.\n"
+                f"📊 Стало: {new_quantity} шт."
+            )
+            if _gs_status_edit:
+                if all(r['success'] for r in _gs_status_edit):
+                    _inv_edit_text += "\n📋 Google Таблицы: ✅ Записано"
+                else:
+                    _inv_edit_text += "\n📋 Google Таблицы: ⚠️ Ошибка записи"
+            await fsm_edit(state, message, _inv_edit_text, reply_markup=_edit_kb)
         except Exception as e:
             await fsm_edit(state, message, f"❌ Ошибка при обновлении остатков: {str(e)}", reply_markup=_edit_kb)
     

@@ -157,6 +157,68 @@ class IntegrationManager:
         except Exception as e:
             logger.error(f"trigger_export error ({export_type}): {e}")
 
+    async def trigger_export_with_result(
+            self, db, export_type: str, event_data: dict, timeout: float = 5.0
+    ) -> list:
+        """
+        Run immediate exports and return results synchronously (with timeout).
+        Returns list of {'success': bool, 'error': str|None}.
+        Returns [] if no exports are configured — caller should not add any status line.
+        """
+        try:
+            exports = db.get_enabled_exports_by_type(export_type, schedule='immediate')
+            if not exports:
+                return []
+            tasks = [self._run_export_with_result(db, exp, event_data) for exp in exports]
+            raw = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            out = []
+            for r in raw:
+                if isinstance(r, Exception):
+                    out.append({'success': False, 'error': str(r)})
+                else:
+                    out.append(r)
+            return out
+        except asyncio.TimeoutError:
+            return [{'success': False, 'error': 'Таймаут (>5с)'}]
+        except Exception as e:
+            logger.warning(f"trigger_export_with_result error: {e}")
+            return [{'success': False, 'error': str(e)}]
+
+    async def _run_export_with_result(self, db, export_row, event_data: dict) -> dict:
+        """Like _run_export but returns {success, error} instead of notifying admins."""
+        (export_id, conn_id, export_type, schedule, target_sheet,
+         operation, mapping_json, lookup_json, conn_config_json) = export_row[:9]
+        try:
+            conn_config = json.loads(conn_config_json or '{}')
+            provider_name = conn_config.get('provider', 'google_sheets')
+            provider = self.providers.get(provider_name)
+            if not provider:
+                raise ValueError(f"Провайдер не найден: {provider_name}")
+            conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
+            sheet_name = self._render_sheet_name(target_sheet or 'Sheet1', event_data)
+            cfg = dict(conn_config)
+            if operation == 'append_row':
+                await self._do_append_row(provider, cfg, sheet_name, mapping_json, event_data)
+            elif operation == 'update_cell':
+                await self._do_update_cell(provider, cfg, sheet_name, lookup_json, event_data)
+            elif operation == 'replace_sheet':
+                await self._do_replace_sheet(provider, cfg, sheet_name, db, export_type)
+            db.add_integration_log(conn_id, export_id, 'success',
+                                   f'{operation} on "{sheet_name}" OK')
+            db.update_integration_export_last_run(export_id)
+            return {'success': True, 'error': None}
+        except Exception as e:
+            msg = str(e)
+            logger.error(f"_run_export_with_result id={export_id} error: {msg}")
+            try:
+                db.add_integration_log(conn_id, export_id, 'error', msg)
+            except Exception:
+                pass
+            return {'success': False, 'error': msg}
+
     async def _run_export(self, db, export_row, event_data: dict):
         """Execute a single export configuration."""
         (export_id, conn_id, export_type, schedule, target_sheet,

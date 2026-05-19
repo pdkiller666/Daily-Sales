@@ -1529,6 +1529,33 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         except Exception:
             _completed_now = []
 
+        try:
+            user = current_db.get_user(callback.from_user.id)
+            user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
+        except Exception:
+            user = None
+            user_shop = shop_name or "Неизвестный магазин"
+
+        # ── Google Sheets integration trigger (до формирования сообщения) ──
+        _gs_status = []
+        try:
+            from integration.manager import integration_manager as _int_mgr
+            from datetime import datetime as _dt
+            _seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ''
+            _sale_event = {
+                'date': _dt.now().strftime('%Y-%m-%d %H:%M'),
+                'shop_name': shop_name,
+                'quantity': total_items,
+                'total': total_sum,
+                'seller_name': _seller_name,
+                'product_name': results[0]['name'] if len(results) == 1 else 'Несколько товаров',
+                'price': results[0]['price'] if len(results) == 1 else 0,
+                'category': '',
+            }
+            _gs_status = await _int_mgr.trigger_export_with_result(current_db, 'sales', _sale_event)
+        except Exception as _ie:
+            logging.warning(f"integration trigger_export_with_result (sales): {_ie}")
+
         # Формируем отчет о продаже с информацией о мотивации
         message_text = "✅ Продажа успешно зарегистрирована!\n\n"
 
@@ -1573,12 +1600,12 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-        try:
-            user = current_db.get_user(callback.from_user.id)
-            user_shop = user[8] if user and len(user) > 8 else "Неизвестный магазин"
-        except Exception:
-            user = None
-            user_shop = shop_name or "Неизвестный магазин"
+        # Статус экспорта в Google Таблицы (только если экспорт настроен)
+        if _gs_status:
+            if all(r['success'] for r in _gs_status):
+                message_text += "\n\n📋 Google Таблицы: ✅ Записано"
+            else:
+                message_text += "\n\n📋 Google Таблицы: ⚠️ Ошибка записи"
 
         try:
             await callback.answer()
@@ -1598,25 +1625,6 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 )
             except Exception:
                     pass
-
-        # ── Google Sheets integration trigger ──────────────────────────────
-        try:
-            from integration.manager import integration_manager as _int_mgr
-            from datetime import datetime as _dt
-            _seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ''
-            _sale_event = {
-                'date': _dt.now().strftime('%Y-%m-%d %H:%M'),
-                'shop_name': shop_name,
-                'quantity': total_items,
-                'total': total_sum,
-                'seller_name': _seller_name,
-                'product_name': results[0]['name'] if len(results) == 1 else 'Несколько товаров',
-                'price': results[0]['price'] if len(results) == 1 else 0,
-                'category': '',
-            }
-            await _int_mgr.trigger_export(current_db, 'sales', _sale_event)
-        except Exception as _ie:
-            logging.warning(f"integration trigger_export (sales): {_ie}")
 
         # ── Уведомления коллегам по смене ─────────────────────────────────
         # Отправляем пуш всем, кто привязан к этому магазину, у кого
