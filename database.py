@@ -1684,6 +1684,26 @@ class Database:
             logger.error(f"Ошибка в create_trial_subscription: {e}")
             return False
 
+    def get_recently_expired_trials(self):
+        """Пользователи с пробным периодом, истёкшим до 48 часов назад (для upsell-пуша)."""
+        try:
+            conn = sqlite3.connect(self.db_file, timeout=10)
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT u.telegram_id, u.first_name, s.plan_type, s.end_date, u.id
+                FROM subscriptions s
+                JOIN users u ON s.user_id = u.id
+                WHERE s.is_trial = 1
+                  AND datetime(s.end_date) <= datetime('now')
+                  AND datetime(s.end_date) >= datetime('now', '-48 hours')
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_recently_expired_trials: {e}")
+            return []
+
     def has_sent_reminder(self, user_id: int, threshold: int, subscription_end: str) -> bool:
         """Проверяет, было ли уже отправлено напоминание для данного порога истечения."""
         try:

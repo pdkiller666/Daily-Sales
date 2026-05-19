@@ -191,9 +191,63 @@ def _get_scheduler_db_paths() -> list:
     return paths
 
 
+_TRIAL_FEATURES_LOST = (
+    "• 📊 Экспорт отчётов в Excel\n"
+    "• 📈 Расширенная аналитика и рейтинги\n"
+    "• 🔔 Push-уведомления\n"
+    "• 📗 Интеграция с Google Таблицами\n"
+    "• Без ограничений: товары, магазины, продажи"
+)
+
+def _sub_markup():
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    return add_read_btn(InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="💳 Выбрать тариф", callback_data="subscription_plans")
+    ]]))
+
+
+async def send_trial_expired_upsell(bot: Bot):
+    """Upsell-пуш при истечении пробного периода. Запускается ежечасно."""
+    EXPIRED_THRESHOLD = -1  # специальный ключ дедупликации для «триал истёк»
+    try:
+        from aiogram.utils.text_decorations import html_decoration as hd
+        shop_bot_db = Database('data/shop_bot.db')
+        expired = await asyncio.to_thread(shop_bot_db.get_recently_expired_trials)
+
+        for telegram_id, first_name, plan_type, end_date, shop_user_id in expired:
+            await asyncio.sleep(0)
+            if not telegram_id:
+                continue
+            if await asyncio.to_thread(shop_bot_db.has_sent_reminder, shop_user_id, EXPIRED_THRESHOLD, end_date):
+                continue
+
+            name = hd.quote(first_name) if first_name else "Пользователь"
+            upsell = (
+                f"🎁 <b>{name}, ваш пробный период завершён!</b>\n\n"
+                "Спасибо, что протестировали все возможности бота. "
+                "Аккаунт переведён на <b>бесплатный тариф</b>.\n\n"
+                "❌ <b>На бесплатном тарифе недоступно:</b>\n"
+                f"{_TRIAL_FEATURES_LOST}\n\n"
+                "💎 Оформите подписку — и ничего не потеряете!"
+            )
+            try:
+                await bot.send_message(
+                    telegram_id, upsell,
+                    parse_mode="HTML",
+                    reply_markup=_sub_markup(),
+                )
+                await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, EXPIRED_THRESHOLD, end_date)
+                logging.info(f"Trial expired upsell sent → {telegram_id}")
+            except Exception as send_err:
+                logging.error(f"send_trial_expired_upsell → {telegram_id}: {send_err}")
+    except Exception as e:
+        logging.error(f"send_trial_expired_upsell: {e}")
+
+
 async def send_payment_alerts(bot: Bot):
     """Отправка напоминаний об истечении подписки: за 14, 7, 3 и 1 день.
-    Каждое напоминание отправляется ровно один раз (дедупликация через subscription_reminder_log)."""
+    Каждое напоминание отправляется ровно один раз (дедупликация через subscription_reminder_log).
+    Для пробных подписок — специальные сообщения с перечнем потерь."""
     THRESHOLDS = [14, 7, 3, 1]  # дни до истечения — в порядке убывания
     try:
         from datetime import datetime
@@ -234,6 +288,7 @@ async def send_payment_alerts(bot: Bot):
 
                     plan_type = subscription[2]
                     end_date = subscription[4]
+                    is_trial = bool(subscription[5]) if len(subscription) > 5 else False
                     shop_user_id = shop_bot_user[0]
 
                     # Бессрочные подписки (Бесплатный) не напоминаем
@@ -242,7 +297,6 @@ async def send_payment_alerts(bot: Bot):
 
                     try:
                         end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                        # Считаем разницу в UTC, чтобы не ловить смещения из-за локального времени сервера
                         days_remaining = (end_dt - current_utc).days
                     except Exception:
                         continue
@@ -252,24 +306,60 @@ async def send_payment_alerts(bot: Bot):
                         if days_remaining <= t:
                             if await asyncio.to_thread(shop_bot_db.has_sent_reminder, shop_user_id, t, end_date):
                                 continue  # этот порог уже отправлен, проверяем следующий
-                            # Формируем сообщение
-                            if days_remaining <= 0:
-                                urgency = "🚨"
-                                days_text = "уже истекла!"
-                            elif days_remaining == 1:
-                                urgency = "⚠️"
-                                days_text = "истекает <b>завтра</b>!"
+
+                            # ── Формируем сообщение ──────────────────────────────────
+                            if is_trial:
+                                # Пробный период — специальные сообщения с upsell
+                                if days_remaining <= 0:
+                                    reminder = (
+                                        "🚨 <b>Пробный период завершается!</b>\n\n"
+                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                        "После окончания будет недоступно:\n"
+                                        f"{_TRIAL_FEATURES_LOST}\n\n"
+                                        "💎 Оформите подписку прямо сейчас!"
+                                    )
+                                elif days_remaining == 1:
+                                    reminder = (
+                                        "⚠️ <b>Пробный период заканчивается завтра!</b>\n\n"
+                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                        "С этого момента будет недоступно:\n"
+                                        f"{_TRIAL_FEATURES_LOST}\n\n"
+                                        "💎 Успейте оформить подписку!"
+                                    )
+                                elif days_remaining <= 3:
+                                    reminder = (
+                                        f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
+                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                        "Оцените, что останется недоступным:\n"
+                                        f"{_TRIAL_FEATURES_LOST}\n\n"
+                                        "💎 Выберите тариф и продолжайте без ограничений!"
+                                    )
+                                else:
+                                    reminder = (
+                                        f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
+                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                        "Используйте оставшееся время по максимуму — "
+                                        "все премиум-функции доступны прямо сейчас."
+                                    )
+                                markup = _sub_markup()
                             else:
-                                urgency = "⏰"
-                                days_text = f"истекает через <b>{days_remaining} дн.</b>"
-                            reminder = (
-                                f"💰 <b>Уведомление о подписке</b>\n\n"
-                                f"{urgency} Ваша подписка <b>{plan_type}</b> {days_text}\n"
-                                f"📅 Дата окончания: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                "💡 Пожалуйста, продлите подписку вовремя."
-                            )
+                                # Обычная платная подписка — стандартное напоминание
+                                if days_remaining <= 0:
+                                    urgency, days_text = "🚨", "уже истекла!"
+                                elif days_remaining == 1:
+                                    urgency, days_text = "⚠️", "истекает <b>завтра</b>!"
+                                else:
+                                    urgency, days_text = "⏰", f"истекает через <b>{days_remaining} дн.</b>"
+                                reminder = (
+                                    f"💰 <b>Уведомление о подписке</b>\n\n"
+                                    f"{urgency} Ваша подписка <b>{plan_type}</b> {days_text}\n"
+                                    f"📅 Дата окончания: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                    "💡 Пожалуйста, продлите подписку вовремя."
+                                )
+                                markup = add_read_btn()
+
                             try:
-                                await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=add_read_btn())
+                                await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=markup)
                                 await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
                                 await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
                             except Exception as send_err:
@@ -708,6 +798,14 @@ async def main():
         CronTrigger(minute='*', second=48),
         args=[bot],
         id='check_scheduled_notifications'
+    )
+
+    # Upsell при истечении пробного периода — каждый час в 05 минут
+    scheduler.add_job(
+        send_trial_expired_upsell,
+        CronTrigger(hour='*', minute=5),
+        args=[bot],
+        id='trial_expired_upsell'
     )
 
     # Автозавершение конкурсов каждый час в начале часа
