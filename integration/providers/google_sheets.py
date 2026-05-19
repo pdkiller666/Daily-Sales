@@ -211,6 +211,81 @@ class GoogleSheetsProvider(BaseProvider):
             logger.error(f"get_cell error: {e}")
             return None
 
+    async def update_cell_matrix(
+            self, config: dict, sheet_name: str,
+            row_col: int, row_value: str,
+            col_row: int, col_value: str,
+            upd_op: str, new_value,
+            start_row: int = 1, start_col: int = 1,
+            row_raw: str = '', col_raw: str = ''
+    ) -> None:
+        """
+        Find row by value in col, find col by value in row, then set/increment/decrement cell.
+        Opens the worksheet ONCE — 1 HTTP round-trip instead of 4.
+        Raises ValueError with a descriptive message if row or col is not found.
+        """
+        def _sync():
+            gc = _make_gc_sync(config)
+            ss = gc.open_by_key(config["spreadsheet_id"])
+            ws = ss.worksheet(sheet_name)
+
+            col_vals = ws.col_values(row_col)
+            target_row = str(row_value).strip().lower()
+            row_idx = None
+            for i, v in enumerate(col_vals, start=1):
+                if i < start_row:
+                    continue
+                if str(v).strip().lower() == target_row:
+                    row_idx = i
+                    break
+
+            if row_idx is None:
+                avail = [str(v) for v in col_vals[start_row - 1:] if v][:8]
+                alias_note = (f" (псевдоним: «{row_raw}»→«{row_value}»)"
+                              if row_raw and row_raw != row_value else "")
+                raise ValueError(
+                    f"⚠️ Строка не найдена в листе «{sheet_name}»\n"
+                    f"Искал: «{row_value}»{alias_note} (колонка {row_col})\n"
+                    f"Значения в таблице: {', '.join(avail) or '(пусто)'}\n\n"
+                    f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
+                )
+
+            row_vals = ws.row_values(col_row)
+            target_col = str(col_value).strip().lower()
+            col_idx = None
+            for i, v in enumerate(row_vals, start=1):
+                if i < start_col:
+                    continue
+                if str(v).strip().lower() == target_col:
+                    col_idx = i
+                    break
+
+            if col_idx is None:
+                avail = [str(v) for v in row_vals if v][:8]
+                alias_note = (f" (псевдоним: «{col_raw}»→«{col_value}»)"
+                              if col_raw and col_raw != col_value else "")
+                raise ValueError(
+                    f"⚠️ Столбец не найден в листе «{sheet_name}»\n"
+                    f"Искал: «{col_value}»{alias_note} (строка {col_row})\n"
+                    f"Заголовки в таблице: {', '.join(avail) or '(пусто)'}\n\n"
+                    f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
+                )
+
+            val = new_value
+            if upd_op in ('increment', 'decrement'):
+                current = ws.cell(row_idx, col_idx).value
+                try:
+                    current_num = float(current) if current else 0.0
+                except (ValueError, TypeError):
+                    current_num = 0.0
+                delta = float(new_value)
+                val = (current_num + delta if upd_op == 'increment'
+                       else current_num - delta)
+
+            ws.update_cell(row_idx, col_idx, val)
+
+        await asyncio.to_thread(_sync)
+
     @retry(stop=stop_after_attempt(3),
            wait=wait_exponential(multiplier=1, min=2, max=10),
            retry=retry_if_exception_type(Exception),

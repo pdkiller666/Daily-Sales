@@ -314,52 +314,18 @@ class IntegrationManager:
 
         row_raw = str(event_data.get(row_field, ''))
         col_raw = str(event_data.get(col_field, ''))
-
         row_value = aliases.get(row_raw, row_raw)
         col_value = aliases.get(col_raw, col_raw)
         new_value = event_data.get(val_field, 0)
 
-        row_idx = await provider.find_row_by_value(
-            cfg, sheet_name, row_col, row_value, start_row=start_row)
-
-        if row_idx is None:
-            avail = await provider.read_col(cfg, sheet_name, row_col)
-            avail_vals = [str(v) for v in avail[start_row - 1:] if v][:8]
-            alias_hint = (f" (псевдоним: «{row_raw}»→«{row_value}»)"
-                          if row_raw != row_value else "")
-            raise ValueError(
-                f"⚠️ Строка не найдена в листе «{sheet_name}»\n"
-                f"Искал: «{row_value}»{alias_hint} (колонка {row_col})\n"
-                f"Значения в таблице: {', '.join(avail_vals) or '(пусто)'}\n\n"
-                f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
-            )
-
-        col_idx = await provider.find_col_by_value(
-            cfg, sheet_name, col_row, col_value, start_col=start_col)
-
-        if col_idx is None:
-            avail = await provider.read_row(cfg, sheet_name, col_row)
-            avail_vals = [str(v) for v in avail if v][:8]
-            alias_hint = (f" (псевдоним: «{col_raw}»→«{col_value}»)"
-                          if col_raw != col_value else "")
-            raise ValueError(
-                f"⚠️ Столбец не найден в листе «{sheet_name}»\n"
-                f"Искал: «{col_value}»{alias_hint} (строка {col_row})\n"
-                f"Заголовки в таблице: {', '.join(avail_vals) or '(пусто)'}\n\n"
-                f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
-            )
-
-        if upd_op in ('increment', 'decrement'):
-            current = await provider.get_cell(cfg, sheet_name, row_idx, col_idx)
-            try:
-                current_num = float(current) if current else 0.0
-            except (ValueError, TypeError):
-                current_num = 0.0
-            delta = float(new_value)
-            new_value = (current_num + delta if upd_op == 'increment'
-                         else current_num - delta)
-
-        await provider.update_cell(cfg, sheet_name, row_idx, col_idx, new_value)
+        await provider.update_cell_matrix(
+            cfg, sheet_name,
+            row_col=row_col, row_value=row_value,
+            col_row=col_row, col_value=col_value,
+            upd_op=upd_op, new_value=new_value,
+            start_row=start_row, start_col=start_col,
+            row_raw=row_raw, col_raw=col_raw,
+        )
 
     async def _do_replace_sheet(self, provider, cfg, sheet_name, db, export_type):
         data = self._get_replace_data(db, export_type)
