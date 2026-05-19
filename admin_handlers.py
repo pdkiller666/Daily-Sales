@@ -391,6 +391,7 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
         if nav:
             builder.row(*nav)
 
+    filter_btn = None
     if show_admin_management:
         try:
             from filter_utils import ADMIN_FILTER_KEY, empty_filter, filter_button_text, get_available_filter_values, has_anything_to_filter
@@ -399,17 +400,26 @@ def _build_admin_users_content(users, page, title, back_target, show_admin_manag
                 _avail = get_available_filter_values(current_db, _sc, _sv)
                 if has_anything_to_filter(_avail):
                     _af = (data or {}).get(ADMIN_FILTER_KEY, empty_filter())
-                    builder.row(InlineKeyboardButton(
+                    filter_btn = InlineKeyboardButton(
                         text=filter_button_text(_af),
                         callback_data="flt_open_admin_users"
-                    ))
+                    )
         except Exception:
             pass
-        builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
 
-    builder.row(InlineKeyboardButton(text="🔍 Найти", callback_data="adm_usr_srch_start"))
+    search_btn = InlineKeyboardButton(text="🔍 Найти", callback_data="adm_usr_srch_start")
+    if filter_btn:
+        builder.row(filter_btn, search_btn)
+    else:
+        builder.row(search_btn)
     if query:
         builder.row(InlineKeyboardButton(text="✖️ Сбросить поиск", callback_data="adm_usr_srch_cancel"))
+
+    if show_admin_management:
+        is_owner = is_super_user or (uid and get_user_org_role(uid) == 'owner')
+        if is_owner:
+            builder.row(InlineKeyboardButton(text="⚙️ Управление администраторами", callback_data="manage_admins"))
+
     builder.row(back_button(back_target))
 
     total_count = len(filtered)
