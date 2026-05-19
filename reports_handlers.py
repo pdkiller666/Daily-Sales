@@ -679,9 +679,7 @@ async def report_city_generate(callback: CallbackQuery, state: FSMContext):
 
     shops_in_city = list(set(user[8] for user in users_in_city if user[8]))
 
-    all_sales = []
-    for shop in shops_in_city:
-        all_sales.extend(await current_db.get_sales_report(shop_name=shop))
+    all_sales = await current_db.get_sales_report(shop_names=shops_in_city)
 
     if not all_sales:
         await callback.message.edit_text(
@@ -854,9 +852,7 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     if city_filter:
         users_in_city = await current_db.get_users_by_city(city_filter)
         city_shops = list(set(u[8] for u in users_in_city if u[8]))
-        sales = []
-        for cs in city_shops:
-            sales.extend(await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_name=cs))
+        sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_names=city_shops)
     elif user_shop_only and _user_id_for_period:
         # Сотрудник: только его продажи (по user_id, а не по магазину)
         sales = await current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
