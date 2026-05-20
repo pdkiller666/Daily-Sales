@@ -1403,12 +1403,16 @@ class Database:
 
     def get_user_id(self, telegram_id):
         """Получение ID пользователя по telegram_id"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
+            result = cursor.fetchone()
+            conn.close()
+            return result[0] if result else None
+        except Exception as e:
+            logger.error(f"get_user_id({telegram_id}) error: {e!r}")
+            return None
     
     def get_user_timezone(self, telegram_id):
         """Получение часового пояса пользователя. Результат кешируется на 300 сек."""

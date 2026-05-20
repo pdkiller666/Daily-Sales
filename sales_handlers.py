@@ -1406,8 +1406,12 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
 
     # Проверяем лимит продаж по тарифу
     if not env_manager.is_super_admin(callback.from_user.id):
-        from subscription_utils import check_sales_limit
-        ok, msg = await asyncio.to_thread(check_sales_limit, callback.from_user.id)
+        try:
+            from subscription_utils import check_sales_limit
+            ok, msg = await asyncio.to_thread(check_sales_limit, callback.from_user.id)
+        except Exception as _limit_err:
+            logging.warning(f"check_sales_limit error (ignored, allowing sale): {_limit_err}")
+            ok, msg = True, None
         if not ok:
             await callback.answer()
             await callback.message.edit_text(
@@ -1420,7 +1424,15 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             )
             return
 
-    user_id = await current_db.get_user_id(callback.from_user.id)
+    try:
+        user_id = await current_db.get_user_id(callback.from_user.id)
+    except Exception as _uid_err:
+        logging.error(f"get_user_id failed in complete_sale: {_uid_err!r}")
+        try:
+            await callback.answer("❌ Ошибка доступа к базе данных. Попробуйте ещё раз.", show_alert=True)
+        except Exception:
+            pass
+        return
 
     if not user_id:
         try:
