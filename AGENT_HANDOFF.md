@@ -26,12 +26,12 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `1fd245a` · Amvera `5d7183d` (2026-05-20, сессия 176). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `1fd245a` · Amvera `5d7183d` (2026-05-20, сессия 175). Оба хэша верифицированы через `git ls-remote`.
 
-**Сессия 175 (2026-05-20) — три критических бага исправлены (ожидает деплоя с GITHUB_TOKEN):**
+**Сессия 175 (2026-05-20) — три критических бага исправлены:**
 - `import asyncio` добавлен в `sales_handlers.py` (использовался без импорта → `NameError` в check_sales_limit)
 - `bot_holder.py` — новый синглтон; `from main import bot` везде заменён на `from bot_holder import get_bot` → исправлен «Router is already attached» (повторный импорт `__main__`)
-- AsyncDatabase unwrap перед передачей в integration manager: `sales_handlers.py` и `inventory_handlers.py` теперь передают `_db._db` (sync Database) → исправлен «'coroutine' object is not iterable»
+- AsyncDatabase unwrap перед передачей в integration manager: `sales_handlers.py` и `inventory_handlers.py` теперь передают sync `Database` → исправлен «'coroutine' object is not iterable» в `trigger_export_with_result`
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
