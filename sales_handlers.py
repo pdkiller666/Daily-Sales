@@ -1,4 +1,5 @@
 """Обработчики для продаж и управления остатками: добавлено отображение мотивации при продаже товара и предварительный расчет мотивации при подтверждении продажи."""
+import asyncio
 import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1564,7 +1565,8 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 'price': results[0]['price'] if len(results) == 1 else 0,
                 'category': '',
             }
-            _gs_status = await _int_mgr.trigger_export_with_result(current_db, 'sales', _sale_event)
+            _sync_db = object.__getattribute__(current_db, '_db') if hasattr(current_db, '_db') else current_db
+            _gs_status = await _int_mgr.trigger_export_with_result(_sync_db, 'sales', _sale_event)
         except Exception as _ie:
             logging.warning(f"integration trigger_export_with_result (sales): {_ie}")
 
@@ -1648,7 +1650,10 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         # Отправляем пуш всем, кто привязан к этому магазину, у кого
         # в графике стоит сегодняшний рабочий день и включена опция.
         try:
-            from main import bot
+            from bot_holder import get_bot as _get_bot
+            bot = _get_bot()
+            if not bot:
+                raise RuntimeError("bot not initialized")
             from notif_utils import add_read_btn as _add_read_btn
             from datetime import date as _date
             today_str = _date.today().isoformat()

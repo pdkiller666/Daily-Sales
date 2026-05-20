@@ -58,6 +58,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=SQLiteStorage("data/fsm_storage.db"))
 
+import bot_holder as _bot_holder
+_bot_holder.set_bot(bot)
+
 from aiogram import F as _F
 from aiogram.types import CallbackQuery as _CQ, ErrorEvent
 

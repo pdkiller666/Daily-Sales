@@ -364,7 +364,10 @@ class IntegrationManager:
 
     async def _notify_admins(self, db, text: str):
         try:
-            from main import bot
+            from bot_holder import get_bot
+            bot = get_bot()
+            if not bot:
+                return
             admins = db.get_all_admins_telegram_ids()
             for tg_id in admins:
                 try:

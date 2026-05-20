@@ -163,7 +163,10 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
     # Определяем, по какой БД рассылать
     count = 0
     try:
-        from main import bot
+        from bot_holder import get_bot as _get_bot
+        bot = _get_bot()
+        if not bot:
+            raise RuntimeError("bot not initialized")
         is_super = env_manager.is_super_admin(callback.from_user.id)
         
         base_dir = os.getcwd()

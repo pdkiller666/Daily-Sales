@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-20 (сессия 174)
+> Последнее обновление: 2026-05-20 (сессия 175)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -27,6 +27,11 @@ Workflow: "Start application" → python main.py
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
 **Последний деплой:** GitHub `947796b` · Amvera `f26558f` (2026-05-20, сессия 174). Оба хэша верифицированы через `git ls-remote`.
+
+**Сессия 175 (2026-05-20) — три критических бага исправлены (ожидает деплоя с GITHUB_TOKEN):**
+- `import asyncio` добавлен в `sales_handlers.py` (использовался без импорта → `NameError` в check_sales_limit)
+- `bot_holder.py` — новый синглтон; `from main import bot` везде заменён на `from bot_holder import get_bot` → исправлен «Router is already attached» (повторный импорт `__main__`)
+- AsyncDatabase unwrap перед передачей в integration manager: `sales_handlers.py` и `inventory_handlers.py` теперь передают `_db._db` (sync Database) → исправлен «'coroutine' object is not iterable»
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console

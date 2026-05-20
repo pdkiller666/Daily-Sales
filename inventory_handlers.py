@@ -597,7 +597,8 @@ async def process_new_quantity(message: Message, state: FSMContext):
             from integration.manager import integration_manager as _int_mgr
             from datetime import datetime as _dt
             _product = await current_db.get_product(product_id)
-            _gs_status_add = await _int_mgr.trigger_export_with_result(current_db, 'inventory', {
+            _sync_db_add = object.__getattribute__(current_db, '_db') if hasattr(current_db, '_db') else current_db
+            _gs_status_add = await _int_mgr.trigger_export_with_result(_sync_db_add, 'inventory', {
                 'shop_name': shop_name,
                 'product_name': _product[1] if _product else '',
                 'category': _product[2] if _product else '',
@@ -640,7 +641,8 @@ async def process_new_quantity(message: Message, state: FSMContext):
             try:
                 from integration.manager import integration_manager as _int_mgr
                 from datetime import datetime as _dt
-                _gs_status_edit = await _int_mgr.trigger_export_with_result(current_db, 'inventory', {
+                _sync_db_edit = object.__getattribute__(current_db, '_db') if hasattr(current_db, '_db') else current_db
+                _gs_status_edit = await _int_mgr.trigger_export_with_result(_sync_db_edit, 'inventory', {
                     'shop_name': shop_name,
                     'product_name': product_name or '',
                     'category': category or '',
