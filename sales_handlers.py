@@ -1617,7 +1617,13 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             if all(r['success'] for r in _gs_status):
                 message_text += "\n\n📋 Google Таблицы: ✅ Записано"
             else:
-                message_text += "\n\n📋 Google Таблицы: ⚠️ Ошибка записи"
+                _err_details = "; ".join(
+                    r['error'] for r in _gs_status if not r['success'] and r.get('error')
+                )
+                if _err_details:
+                    message_text += f"\n\n📋 Google Таблицы: ⚠️ Ошибка записи\n{_err_details}"
+                else:
+                    message_text += "\n\n📋 Google Таблицы: ⚠️ Ошибка записи"
 
         try:
             await callback.answer()

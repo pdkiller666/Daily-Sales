@@ -9,7 +9,7 @@ import gspread
 from google.oauth2.service_account import Credentials as SACredentials
 from google.oauth2.credentials import Credentials as OAuthCredentials
 from tenacity import (retry, stop_after_attempt, wait_exponential,
-                      retry_if_exception_type)
+                      retry_if_exception_type, retry_if_not_exception_type)
 
 from integration.base import BaseProvider
 
@@ -211,6 +211,10 @@ class GoogleSheetsProvider(BaseProvider):
             logger.error(f"get_cell error: {e}")
             return None
 
+    @retry(stop=stop_after_attempt(3),
+           wait=wait_exponential(multiplier=1, min=2, max=10),
+           retry=retry_if_not_exception_type(ValueError),
+           reraise=True)
     async def update_cell_matrix(
             self, config: dict, sheet_name: str,
             row_col: int, row_value: str,
@@ -223,6 +227,7 @@ class GoogleSheetsProvider(BaseProvider):
         Find row by value in col, find col by value in row, then set/increment/decrement cell.
         Opens the worksheet ONCE — 1 HTTP round-trip instead of 4.
         Raises ValueError with a descriptive message if row or col is not found.
+        ValueError is not retried (config error); other exceptions retry up to 3 times.
         """
         def _sync():
             gc = _make_gc_sync(config)

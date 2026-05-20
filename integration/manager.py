@@ -158,7 +158,7 @@ class IntegrationManager:
             logger.error(f"trigger_export error ({export_type}): {e}")
 
     async def trigger_export_with_result(
-            self, db, export_type: str, event_data: dict, timeout: float = 10.0
+            self, db, export_type: str, event_data: dict, timeout: float = 30.0
     ) -> list:
         """
         Run immediate exports and return results synchronously (with timeout).
