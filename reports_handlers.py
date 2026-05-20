@@ -861,20 +861,29 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     end_date = data['end_date']
 
     _user_id_for_period = None
+    _user_shop_for_period = None
     if user_shop_only:
         user = await current_db.get_user(callback.from_user.id)
         if not user:
             await callback.answer("❌ Пользователь не найден!", show_alert=True)
             return
-        _user_id_for_period = user[0]  # внутренний DB id — фильтруем только свои продажи
+        _user_id_for_period = user[0]
+        _user_shop_for_period = user[8] if len(user) > 8 else None  # shop_name
 
     if city_filter:
         users_in_city = await current_db.get_users_by_city(city_filter)
         city_shops = list(set(u[8] for u in users_in_city if u[8]))
         sales = await current_db.get_sales_report(start_date=start_date, end_date=end_date, shop_names=city_shops)
-    elif user_shop_only and _user_id_for_period:
-        # Сотрудник: только его продажи (по user_id, а не по магазину)
-        sales = await current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
+    elif user_shop_only:
+        if _user_shop_for_period:
+            # Сотрудник: ВСЕ продажи своего магазина — оба продавца видят друг друга
+            sales = await current_db.get_sales_report(
+                start_date=start_date, end_date=end_date, shop_name=_user_shop_for_period)
+        elif _user_id_for_period:
+            # Fallback: только свои продажи (нет привязки к магазину)
+            sales = await current_db.get_user_sales_by_date(_user_id_for_period, start_date, end_date)
+        else:
+            sales = []
     else:
         # Применяем ручной фильтр если установлен (только для полного admin-отчёта без shop_name/city_filter)
         if not shop_name and not city_filter:
@@ -985,7 +994,11 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     # Формируем отчет
     shops_count = len(shops_data)
     shops_suffix = f" ({shops_count} маг.)" if shops_count > 1 else ""
-    message_text  = f"📅 <b>Отчет за период{shops_suffix}</b>\n"
+    # Для сотрудника показываем название магазина прямо в заголовке
+    shop_header = ""
+    if _user_shop_for_period and not is_admin and shops_count == 1:
+        shop_header = f"\n🏪 {he(_user_shop_for_period)}"
+    message_text  = f"📅 <b>Отчет за период{shops_suffix}</b>{shop_header}\n"
     message_text += f"📆 {period_text}\n\n"
     message_text += "📈 <b>Общая статистика:</b>\n"
     message_text += f"• Продано товаров: {total_quantity} шт.\n"
@@ -1015,8 +1028,8 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
 
-    # Секция «По продавцам» — показываем только для admin-отчёта когда есть данные о продавцах
-    if sellers_data and is_admin and len(sellers_data) > 0:
+    # Секция «По продавцам» — показываем когда больше одного продавца или для admin
+    if sellers_data and (len(sellers_data) > 1 or is_admin):
         message_text += "👤 <b>По продавцам:</b>\n"
         for seller_name, sdata in sorted(sellers_data.items(), key=lambda x: x[1]['total'], reverse=True):
             if len(message_text) > 3700:
