@@ -1,6 +1,7 @@
 """
 Обработчики для управления товарами
 """
+import asyncio
 import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup

@@ -1,6 +1,7 @@
 """
 Административная панель управления платежной системой и подписками
 """
+import asyncio
 import logging
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message

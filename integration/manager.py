@@ -47,6 +47,14 @@ class IntegrationManager:
             'google_sheets': GoogleSheetsProvider(),
         }
 
+    @staticmethod
+    def _unwrap(db):
+        """Возвращает синхронный Database из AsyncDatabase (или сам db если уже sync)."""
+        try:
+            return object.__getattribute__(db, '_db')
+        except AttributeError:
+            return db
+
     # ───────────────────────────────────────────────────────
     #  OAuth token management
     # ───────────────────────────────────────────────────────
@@ -56,6 +64,7 @@ class IntegrationManager:
         Check OAuth token expiry. Refresh if needed and save new token to DB.
         Returns potentially-updated config dict.
         """
+        db = self._unwrap(db)
         if conn_config.get("auth_type") != "oauth":
             return conn_config
 
@@ -82,6 +91,7 @@ class IntegrationManager:
 
     def save_oauth_tokens(self, db, conn_id: int, token_data: dict):
         """Merge new OAuth tokens into connection config and save."""
+        db = self._unwrap(db)
         conn = db.get_integration_connection(conn_id)
         if not conn:
             return
@@ -110,6 +120,7 @@ class IntegrationManager:
         Read bonus rates from a weekly sheet and cache them in gs_bonus_cache.
         Returns {'synced': N, 'models': [list], 'sheet': sheet_name}.
         """
+        db = self._unwrap(db)
         conn = db.get_integration_connection(conn_id)
         if not conn:
             raise ValueError("Подключение не найдено")
@@ -149,6 +160,7 @@ class IntegrationManager:
 
     async def trigger_export(self, db, export_type: str, event_data: dict):
         """Called after a business event. Runs immediate exports in background."""
+        db = self._unwrap(db)
         try:
             exports = db.get_enabled_exports_by_type(export_type, schedule='immediate')
             logger.info(f"trigger_export: type={export_type} found={len(exports)} db={db.db_file}")
@@ -165,6 +177,7 @@ class IntegrationManager:
         Returns list of {'success': bool, 'error': str|None}.
         Returns [] if no exports are configured — caller should not add any status line.
         """
+        db = self._unwrap(db)
         try:
             exports = db.get_enabled_exports_by_type(export_type, schedule='immediate')
             if not exports:
@@ -194,6 +207,7 @@ class IntegrationManager:
         Returns '\\n📋 Google Таблицы: ✅ Записано' on success.
         Returns '\\n📋 Google Таблицы: ⚠️ Ошибка записи' on failure.
         """
+        db = self._unwrap(db)
         try:
             results = await self.trigger_export_with_result(db, export_type, event_data)
             if not results:
@@ -207,6 +221,7 @@ class IntegrationManager:
 
     async def _run_export_with_result(self, db, export_row, event_data: dict) -> dict:
         """Like _run_export but returns {success, error} instead of notifying admins."""
+        db = self._unwrap(db)
         (export_id, conn_id, export_type, schedule, target_sheet,
          operation, mapping_json, lookup_json, conn_config_json) = export_row[:9]
         try:
@@ -245,6 +260,7 @@ class IntegrationManager:
 
     async def _run_export(self, db, export_row, event_data: dict):
         """Execute a single export configuration."""
+        db = self._unwrap(db)
         (export_id, conn_id, export_type, schedule, target_sheet,
          operation, mapping_json, lookup_json, conn_config_json) = export_row[:9]
 
@@ -334,6 +350,7 @@ class IntegrationManager:
                                          data['headers'], data['rows'])
 
     def _get_replace_data(self, db, export_type):
+        db = self._unwrap(db)
         try:
             if export_type == 'sales':
                 rows_raw = db.get_all_sales_for_export()
@@ -368,6 +385,7 @@ class IntegrationManager:
             bot = get_bot()
             if not bot:
                 return
+            db = self._unwrap(db)
             admins = db.get_all_admins_telegram_ids()
             for tg_id in admins:
                 try:
