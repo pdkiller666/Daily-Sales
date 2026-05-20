@@ -242,6 +242,7 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
     total_sum = 0
     total_quantity = 0
     shops_data = {}
+    sellers_data_full = {}
 
     for sale in sales:
         sale_id, product_id, shop_name, quantity, sale_price, user_id, sale_date, product_name, category, first_name, last_name = sale
@@ -266,6 +267,13 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
         if shop_name not in shops_data:
             shops_data[shop_name] = 0
         shops_data[shop_name] += sale_total
+
+        if first_name:
+            seller_key = (f"{first_name} {last_name or ''}").strip()
+            if seller_key not in sellers_data_full:
+                sellers_data_full[seller_key] = {'quantity': 0, 'total': 0}
+            sellers_data_full[seller_key]['quantity'] += quantity
+            sellers_data_full[seller_key]['total'] += sale_total
 
     # Считаем суммарный заработок одним запросом
     total_earnings_accumulated = 0
@@ -308,11 +316,21 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
     sorted_shops = sorted(shops_data.items(), key=lambda x: x[1], reverse=True)
     message_text += "\n🏪 <b>По магазинам:</b>\n"
     for i, (shop, total) in enumerate(sorted_shops, 1):
-        if len(message_text) > 3700:
+        if len(message_text) > 3500:
             remaining = len(sorted_shops) - i + 1
             message_text += f"<i>···  ещё {remaining} маг. — скачайте Excel</i>\n"
             break
         message_text += f"{i}. {he(shop)}: {format_currency(total)}\n"
+
+    # По продавцам
+    if sellers_data_full:
+        message_text += "\n👤 <b>По продавцам:</b>\n"
+        for i, (seller_name, sdata) in enumerate(
+                sorted(sellers_data_full.items(), key=lambda x: x[1]['total'], reverse=True), 1):
+            if len(message_text) > 3700:
+                message_text += "<i>···  остальные продавцы в Excel</i>\n"
+                break
+            message_text += f"{i}. {he(seller_name)}: {sdata['quantity']} шт. — {format_currency(sdata['total'])}\n"
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_full"))
@@ -889,6 +907,7 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     
     # Группируем продажи по магазинам, затем по категориям и товарам
     shops_data = {}
+    sellers_data = {}
     total_sum = 0
     total_quantity = 0
     total_earnings_accumulated = 0
@@ -901,6 +920,7 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                 sale_id, product_id, shop_name_db, quantity, sale_price, user_id, sale_date, product_name, category, first_name, last_name = sale
             elif len(sale) >= 9:
                 sale_id, product_id, shop_name_db, quantity, sale_price, user_id, sale_date, product_name, category = sale
+                first_name, last_name = None, None
             else:
                 continue
 
@@ -935,6 +955,14 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         shops_data[current_shop]['categories'][category]['products'][product_name]['quantity'] += quantity
         shops_data[current_shop]['categories'][category]['products'][product_name]['total'] += sale_total
         shops_data[current_shop]['categories'][category]['total'] += sale_total
+
+        # Группируем по продавцам (только если есть данные о продавце)
+        if first_name:
+            seller_key = (f"{first_name} {last_name or ''}").strip()
+            if seller_key not in sellers_data:
+                sellers_data[seller_key] = {'quantity': 0, 'total': 0}
+            sellers_data[seller_key]['quantity'] += quantity
+            sellers_data[seller_key]['total'] += sale_total
 
     # Считаем суммарный заработок одним запросом
     if sales:
@@ -985,6 +1013,16 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                         message_text += "     <i>···  остальные товары в Excel</i>\n"
                         break
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
+        message_text += "\n"
+
+    # Секция «По продавцам» — показываем только для admin-отчёта когда есть данные о продавцах
+    if sellers_data and is_admin and len(sellers_data) > 0:
+        message_text += "👤 <b>По продавцам:</b>\n"
+        for seller_name, sdata in sorted(sellers_data.items(), key=lambda x: x[1]['total'], reverse=True):
+            if len(message_text) > 3700:
+                message_text += "<i>···  остальные продавцы в Excel</i>\n"
+                break
+            message_text += f"  • {he(seller_name)}: {sdata['quantity']} шт. — {format_currency(sdata['total'])}\n"
         message_text += "\n"
 
     await state.update_data(excel_start=start_date, excel_end=end_date, excel_shop=shop_name)

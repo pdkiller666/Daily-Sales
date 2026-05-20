@@ -1865,8 +1865,15 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
             total        = quantity * sale_price
             formatted_date = format_date_for_user(sale_date, callback.from_user.id)
 
+            # Имя продавца доступно только в admin-режиме (get_shop_sales_by_date → 11 колонок)
+            seller_line = ""
+            if len(sale) >= 11 and sale[9]:
+                seller_full = (f"{sale[9]} {sale[10] or ''}").strip()
+                seller_line = f"   👤 {he(seller_full)}\n"
+
             message_text += f"{i}. 🏷 {he(product_name)}\n"
             message_text += f"   📦 {quantity} × {format_currency(sale_price)} = {format_currency(total)}\n"
+            message_text += seller_line
             message_text += f"   📅 {formatted_date}\n\n"
             builder.add(InlineKeyboardButton(
                 text=f"✏️ {i}. {product_name[:30]}",

@@ -1383,15 +1383,18 @@ class Database:
         return user
 
     def get_shop_sales_by_date(self, shop_name, start_date, end_date):
-        """Получить все продажи магазина за период"""
+        """Получить все продажи магазина за период.
+        Возвращает 11 колонок: id[0], product_id[1], shop_name[2], quantity_sold[3], sale_price[4],
+        user_id[5], sale_date[6], product_name[7], category[8], first_name[9], last_name[10]"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         query = '''
             SELECT s.id, s.product_id, s.shop_name, s.quantity_sold, s.sale_price, 
-                   s.user_id, s.sale_date, p.name, p.category
+                   s.user_id, s.sale_date, p.name, p.category, u.first_name, u.last_name
             FROM sales s
             JOIN products p ON s.product_id = p.id
+            LEFT JOIN users u ON s.user_id = u.id
             WHERE s.shop_name = ? AND date(s.sale_date) >= ? AND date(s.sale_date) <= ?
             ORDER BY s.sale_date DESC
         '''
