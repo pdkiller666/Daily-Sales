@@ -411,12 +411,12 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
     
     user_shop = user[8]  # shop_name
 
-    # Орг-админ: всегда показываем выбор магазина из всей орг
+    # Орг-админ: показываем выбор магазина из всей орг (users + inventory)
     if is_admin and not is_super:
-        all_shops = await current_db.get_all_shops() or []
+        all_shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
         if len(all_shops) > 1:
             builder = InlineKeyboardBuilder()
-            for shop in sorted(all_shops):
+            for shop in all_shops:
                 builder.add(InlineKeyboardButton(
                     text=f"🏪 {shop}",
                     callback_data=safe_cb("inv_edit_shop_", shop)
@@ -445,7 +445,7 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
                         text=f"🏪 {shop}",
                         callback_data=safe_cb("inv_edit_shop_", shop)
                     ))
-                builder.add(back_button("main_menu"))
+                builder.add(back_button("manage_inventory"))
                 builder.adjust(1)
                 await callback.message.edit_text(
                     "📦 Изменение остатков\n\nВыберите магазин:",
@@ -454,7 +454,7 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
                 return
 
     if not user_shop:
-        back_cb_err = "manage_inventory" if is_admin else "main_menu"
+        back_cb_err = "manage_inventory" if (is_admin or is_super) else "main_menu"
         await callback.message.edit_text(
             "❌ У вас не указан магазин в профиле.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(back_cb_err)]])
@@ -462,7 +462,7 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
-    back_cb = "manage_inventory" if (is_admin and not is_super) else "user_inventory_menu"
+    back_cb = "manage_inventory" if (is_admin or is_super) else "user_inventory_menu"
     await _show_edit_inventory_categories(callback, state, current_db, user_shop, back_cb=back_cb)
 
 @inventory_router.callback_query(F.data.startswith("edit_inv_category_"))
@@ -864,7 +864,7 @@ async def inv_view_shop_selected(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     all_names = list(await current_db.get_all_shops() or []) + list(await current_db.get_inventory_shops() or [])
     user_shop = resolve_cb_name(shop_raw, all_names)
-    back_cb = "user_inventory_view" if (is_admin and not is_super) else "user_inventory_menu"
+    back_cb = "user_inventory_view"
     await _show_view_inventory_categories(callback, state, current_db, user_shop, back_cb=back_cb)
 
 
@@ -897,12 +897,12 @@ async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
     
     user_shop = user[8]  # shop_name
 
-    # Орг-админ: всегда показываем выбор магазина из всей орг
+    # Орг-админ: показываем выбор магазина из всей орг (users + inventory)
     if is_admin and not is_super:
-        all_shops = await current_db.get_all_shops() or []
+        all_shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
         if len(all_shops) > 1:
             builder = InlineKeyboardBuilder()
-            for shop in sorted(all_shops):
+            for shop in all_shops:
                 builder.add(InlineKeyboardButton(
                     text=f"🏪 {shop}",
                     callback_data=safe_cb("inv_view_shop_", shop)
@@ -930,7 +930,7 @@ async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
                         text=f"🏪 {shop}",
                         callback_data=safe_cb("inv_view_shop_", shop)
                     ))
-                builder.add(back_button("user_inventory_menu"))
+                builder.add(back_button("manage_inventory"))
                 builder.adjust(1)
                 await callback.message.edit_text(
                     "📦 Просмотр остатков\n\nВыберите магазин:",
@@ -939,7 +939,7 @@ async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
                 return
 
     if not user_shop:
-        back_cb_err = "manage_inventory" if is_admin else "main_menu"
+        back_cb_err = "manage_inventory" if (is_admin or is_super) else "main_menu"
         await callback.message.edit_text(
             "❌ У вас не указан магазин в профиле.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(back_cb_err)]])
@@ -947,7 +947,7 @@ async def user_inventory_view(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer()
-    back_cb = "manage_inventory" if (is_admin and not is_super) else "user_inventory_menu"
+    back_cb = "manage_inventory" if (is_admin or is_super) else "user_inventory_menu"
     await _show_view_inventory_categories(callback, state, current_db, user_shop, back_cb=back_cb)
 
 @inventory_router.callback_query(F.data.startswith("view_user_category_"))
