@@ -1555,18 +1555,38 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             from integration.manager import integration_manager as _int_mgr
             from datetime import datetime as _dt
             _seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ''
-            _sale_event = {
-                'date': _dt.now().strftime('%Y-%m-%d %H:%M'),
-                'shop_name': shop_name,
-                'quantity': total_items,
-                'total': total_sum,
-                'seller_name': _seller_name,
-                'product_name': results[0]['name'] if len(results) == 1 else 'Несколько товаров',
-                'price': results[0]['price'] if len(results) == 1 else 0,
-                'category': '',
-            }
             _sync_db = object.__getattribute__(current_db, '_db') if hasattr(current_db, '_db') else current_db
-            _gs_status = await _int_mgr.trigger_export_with_result(_sync_db, 'sales', _sale_event)
+            _now_str = _dt.now().strftime('%Y-%m-%d %H:%M')
+            if len(results) == 1:
+                _sale_event = {
+                    'date': _now_str,
+                    'shop_name': shop_name,
+                    'quantity': results[0]['quantity'],
+                    'total': results[0]['total'],
+                    'seller_name': _seller_name,
+                    'product_name': results[0]['name'],
+                    'price': results[0]['price'],
+                    'category': '',
+                }
+                _gs_status = await _int_mgr.trigger_export_with_result(_sync_db, 'sales', _sale_event)
+            else:
+                # Мультикорзина: запускаем экспорт отдельно для каждого товара,
+                # чтобы update_cell мог найти колонку по реальному названию товара.
+                _all_gs = []
+                for _item in results:
+                    _item_event = {
+                        'date': _now_str,
+                        'shop_name': shop_name,
+                        'quantity': _item['quantity'],
+                        'total': _item['total'],
+                        'seller_name': _seller_name,
+                        'product_name': _item['name'],
+                        'price': _item['price'],
+                        'category': '',
+                    }
+                    _item_res = await _int_mgr.trigger_export_with_result(_sync_db, 'sales', _item_event)
+                    _all_gs.extend(_item_res)
+                _gs_status = _all_gs
         except Exception as _ie:
             logging.warning(f"integration trigger_export_with_result (sales): {_ie}")
 

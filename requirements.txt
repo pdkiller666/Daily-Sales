@@ -27,3 +27,7 @@ tzlocal==5.3.1
 yarl==1.20.0
 pytz==2024.1
 # build: 2026-05-19-1621
+google-auth
+gspread==6.0.2
+gspread-asyncio
+tenacity
