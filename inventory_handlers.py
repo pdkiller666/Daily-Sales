@@ -537,28 +537,96 @@ async def edit_inventory_item(callback: CallbackQuery, state: FSMContext):
     )
     
     await state.update_data(anchor_msg_id=callback.message.message_id)
-    await callback.message.edit_text(
-        f"📦 Изменение остатков\n\n"
-        f"🏷 Товар: {product_name}\n"
-        f"📂 Категория: {category}\n"
-        f"🏪 Магазин: {user_shop}\n"
-        f"📊 Текущие остатки: {current_quantity} шт.\n\n"
-        f"Введите новое количество:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_edit_inventory")]
-        ])
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✏️ Изменить количество", callback_data=f"inv_do_edit_{product_id}"),
+        InlineKeyboardButton(text="📋 История", callback_data=f"inv_log_{product_id}"),
     )
-    
-    await state.set_state(InventoryStates.editing_quantity)
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_edit_inventory"))
+    await callback.message.edit_text(
+        f"📦 <b>Управление остатками</b>\n\n"
+        f"🏷 Товар: <b>{he(product_name)}</b>\n"
+        f"📂 Категория: {he(category)}\n"
+        f"🏪 Магазин: {he(user_shop)}\n"
+        f"📊 Текущие остатки: <b>{current_quantity} шт.</b>\n\n"
+        f"Выберите действие:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
 
 # ДОБАВЛЕН НОВЫЙ ОБРАБОТЧИК ДЛЯ ОТМЕНЫ РЕДАКТИРОВАНИЯ
 @inventory_router.callback_query(F.data == "cancel_edit_inventory")
 async def cancel_edit_inventory(callback: CallbackQuery, state: FSMContext):
     """Отмена редактирования остатков"""
     await clear_state_keep_org(state)
-
-    # Возвращаемся к меню редактирования остатков
     await edit_inventory_user(callback, state)
+
+
+@inventory_router.callback_query(F.data.startswith("inv_do_edit_"))
+async def inv_do_edit_handler(callback: CallbackQuery, state: FSMContext):
+    """Переход к вводу нового количества (из меню управления товаром)."""
+    await callback.answer()
+    data = await state.get_data()
+    product_name = data.get('product_name', '')
+    user_shop = data.get('edit_shop', '')
+    current_quantity = data.get('current_quantity', 0)
+    await state.set_state(InventoryStates.editing_quantity)
+    await callback.message.edit_text(
+        f"📦 Изменение остатков\n\n"
+        f"🏷 Товар: {he(product_name)}\n"
+        f"🏪 Магазин: {he(user_shop)}\n"
+        f"📊 Текущие остатки: {current_quantity} шт.\n\n"
+        f"Введите новое количество:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_edit_inventory")]
+        ])
+    )
+
+
+@inventory_router.callback_query(F.data.startswith("inv_log_"))
+async def inv_log_handler(callback: CallbackQuery, state: FSMContext):
+    """История движения остатков товара."""
+    await callback.answer()
+    product_id = int(callback.data.replace("inv_log_", ""))
+    data = await state.get_data()
+    shop_name = data.get('edit_shop', '')
+    product_name = data.get('product_name', '')
+    current_db = await get_db(callback.from_user.id, state)
+    rows = await current_db.get_inventory_log(shop_name, product_id, limit=30)
+    if not rows:
+        text = (
+            f"📋 <b>История движения: {he(product_name)}</b>\n"
+            f"🏪 {he(shop_name)}\n\n"
+            "Изменений ещё не было."
+        )
+    else:
+        text = (
+            f"📋 <b>История движения: {he(product_name)}</b>\n"
+            f"🏪 {he(shop_name)}\n\n"
+        )
+        for row in rows:
+            _, old_qty, new_qty, delta, change_type, change_reason, changed_by, changed_at, changer_name = row
+            changed_at_str = str(changed_at)[:16] if changed_at else "—"
+            if delta is not None:
+                sign = "+" if delta >= 0 else ""
+                delta_str = f"{sign}{delta}"
+            else:
+                delta_str = "?"
+            who = he(changer_name) if changer_name else "—"
+            reason_str = f" · {he(change_reason)}" if change_reason else ""
+            text += (
+                f"🕐 <b>{changed_at_str}</b> · {who}\n"
+                f"   {old_qty} → <b>{new_qty}</b> ({delta_str}){reason_str}\n\n"
+            )
+    back_cb = f"edit_inv_product_{product_id}"
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb)]
+        ]),
+        parse_mode="HTML"
+    )
+
 
 @inventory_router.message(InventoryStates.adding_quantity)
 @inventory_router.message(InventoryStates.editing_quantity)

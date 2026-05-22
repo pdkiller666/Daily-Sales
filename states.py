@@ -194,3 +194,7 @@ class IntegrationStates(StatesGroup):
     waiting_motiv_sheet    = State()
     waiting_motiv_rows     = State()
     waiting_alias_edit     = State()
+
+class AdjustmentStates(StatesGroup):
+    entering_amount  = State()
+    entering_comment = State()

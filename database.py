@@ -171,6 +171,21 @@ class Database:
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS inventory_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_name TEXT NOT NULL,
+                product_id INTEGER NOT NULL,
+                old_quantity INTEGER,
+                new_quantity INTEGER,
+                delta INTEGER,
+                change_type TEXT DEFAULT 'manual',
+                change_reason TEXT,
+                changed_by INTEGER,
+                changed_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
         # Добавляем username в users если отсутствует (миграция)
         cursor.execute("PRAGMA table_info(users)")
         users_cols = [col[1] for col in cursor.fetchall()]
@@ -422,6 +437,20 @@ class Database:
                 marked_by INTEGER,
                 created_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(user_id, work_date)
+            )
+        ''')
+
+        # Корректировки зарплат: ручные бонусы и штрафы
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS salary_adjustments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                comment TEXT,
+                created_by INTEGER,
+                created_at TEXT DEFAULT (datetime('now'))
             )
         ''')
 
@@ -2428,11 +2457,22 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         from datetime import datetime
+        cursor.execute('SELECT quantity FROM inventory WHERE shop_name = ? AND product_id = ?', (shop_name, product_id))
+        _old_row = cursor.fetchone()
+        _old_qty = _old_row[0] if _old_row else 0
         cursor.execute('''
             INSERT OR REPLACE INTO inventory (shop_name, product_id, quantity, updated_by, last_updated, change_type, change_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (shop_name, product_id, quantity, user_id, datetime.now().isoformat(), change_type, change_reason))
         conn.commit()
+        try:
+            cursor.execute(
+                'INSERT INTO inventory_log (shop_name, product_id, old_quantity, new_quantity, delta, change_type, change_reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (shop_name, product_id, _old_qty, quantity, quantity - _old_qty, change_type, change_reason, user_id)
+            )
+            conn.commit()
+        except Exception as _le:
+            logger.warning(f"inventory_log insert failed: {_le}")
         conn.close()
 
     def get_inventory(self, shop_name, product_id):
@@ -2480,6 +2520,14 @@ class Database:
                 ''', (shop_name, product_id, new_quantity, user_id, datetime.now().isoformat(), change_type, change_reason))
 
                 conn.commit()
+                try:
+                    cursor.execute(
+                        'INSERT INTO inventory_log (shop_name, product_id, old_quantity, new_quantity, delta, change_type, change_reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        (shop_name, product_id, current_quantity, new_quantity, delta, change_type, change_reason, user_id)
+                    )
+                    conn.commit()
+                except Exception as _le:
+                    logger.warning(f"inventory_log insert failed: {_le}")
                 conn.close()
 
                 return new_quantity
@@ -6542,17 +6590,19 @@ class Database:
             return []
 
     def calculate_monthly_salary(self, user_id, year, month):
-        """Рассчитать зарплату за месяц: смены × ставка"""
+        """Рассчитать зарплату за месяц: смены × ставка + корректировки"""
         try:
             days = self.get_worked_days_count(user_id, year, month)
             rate = self.get_salary_rate(user_id)
-            return days * rate
+            base = days * rate
+            adj = self.get_salary_adjustments_sum(user_id, year, month)
+            return base + adj
         except Exception as e:
             logger.error(f"Ошибка calculate_monthly_salary: {e}")
             return 0.0
 
     def get_team_salary_summary(self, year, month):
-        """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, salary, shop_name, telegram_id)"""
+        """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, base_salary, shop_name, telegram_id, adj_sum)"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -6567,14 +6617,18 @@ class Database:
                     COUNT(ws.id) AS worked_days,
                     COALESCE(ss.daily_rate, 0) * COUNT(ws.id) AS salary,
                     u.shop_name,
-                    u.telegram_id
+                    u.telegram_id,
+                    COALESCE((
+                        SELECT SUM(sa.amount) FROM salary_adjustments sa
+                        WHERE sa.user_id = u.id AND sa.year = ? AND sa.month = ?
+                    ), 0) AS adj_sum
                 FROM users u
                 LEFT JOIN salary_settings ss ON ss.user_id = u.id
                 LEFT JOIN work_schedule ws ON ws.user_id = u.id
                     AND ws.work_date >= ? AND ws.work_date <= ?
                 GROUP BY u.id
                 ORDER BY u.last_name, u.first_name
-            ''', (month_start, month_end))
+            ''', (year, month, month_start, month_end))
             result = cursor.fetchall()
             conn.close()
             return result
@@ -6582,5 +6636,94 @@ class Database:
             logger.error(f"Ошибка get_team_salary_summary: {e}")
             if 'conn' in locals():
                 conn.close()
+            return []
+
+    # ─── Корректировки зарплат ────────────────────────────────────────────────
+
+    def add_salary_adjustment(self, user_id, year, month, amount, comment=None, created_by=None):
+        """Добавить ручную корректировку зарплаты (бонус > 0, штраф < 0)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                'INSERT INTO salary_adjustments (user_id, year, month, amount, comment, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+                (user_id, year, month, amount, comment, created_by)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"add_salary_adjustment: {e}")
+            return False
+
+    def get_salary_adjustments(self, user_id, year, month):
+        """Вернуть все корректировки сотрудника за месяц (id, amount, comment, created_by, created_at, creator_name)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT sa.id, sa.amount, sa.comment, sa.created_by, sa.created_at,
+                       COALESCE(u.first_name || ' ' || u.last_name, 'Система') AS creator_name
+                FROM salary_adjustments sa
+                LEFT JOIN users u ON u.id = sa.created_by
+                WHERE sa.user_id = ? AND sa.year = ? AND sa.month = ?
+                ORDER BY sa.created_at DESC
+            ''', (user_id, year, month))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_salary_adjustments: {e}")
+            return []
+
+    def delete_salary_adjustment(self, adjustment_id):
+        """Удалить корректировку по id."""
+        try:
+            conn = self.get_connection()
+            conn.execute('DELETE FROM salary_adjustments WHERE id = ?', (adjustment_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"delete_salary_adjustment: {e}")
+            return False
+
+    def get_salary_adjustments_sum(self, user_id, year, month):
+        """Сумма всех корректировок за месяц."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT COALESCE(SUM(amount), 0) FROM salary_adjustments WHERE user_id = ? AND year = ? AND month = ?',
+                (user_id, year, month)
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return float(result[0]) if result else 0.0
+        except Exception as e:
+            logger.error(f"get_salary_adjustments_sum: {e}")
+            return 0.0
+
+    # ─── История движения склада ──────────────────────────────────────────────
+
+    def get_inventory_log(self, shop_name, product_id, limit=30):
+        """Вернуть историю изменений остатков товара в магазине."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT il.id, il.old_quantity, il.new_quantity, il.delta,
+                       il.change_type, il.change_reason, il.changed_by, il.changed_at,
+                       COALESCE(u.first_name || ' ' || u.last_name, NULL) AS changer_name
+                FROM inventory_log il
+                LEFT JOIN users u ON u.id = il.changed_by
+                WHERE il.shop_name = ? AND il.product_id = ?
+                ORDER BY il.changed_at DESC, il.id DESC
+                LIMIT ?
+            ''', (shop_name, product_id, limit))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_inventory_log: {e}")
             return []
 

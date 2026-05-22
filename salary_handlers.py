@@ -16,6 +16,7 @@ from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+from states import AdjustmentStates
 
 salary_router = Router()
 
@@ -180,6 +181,7 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     now = datetime.now()
     builder.button(text=f"📊 Сводка ФОТ — {_MONTH_NAMES[now.month - 1]} {now.year}",
                    callback_data=f"slr_sum_{now.year}_{now.month}")
+    builder.button(text="✏️ Корректировки зарплат", callback_data="slr_adj_menu")
     builder.add(back_button("admin_management"))
     builder.add(home_button())
     builder.adjust(1)
@@ -724,15 +726,22 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
         text += "❌ Нет данных"
     else:
         for row in summary:
-            s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id = row
+            s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id, adj_sum = row
             name = he(f"{fn} {ln}".strip())
             shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
+            total_salary = salary + adj_sum
+            adj_str = ""
+            if adj_sum > 0:
+                adj_str = f" + бонус {format_price(adj_sum)}₽"
+            elif adj_sum < 0:
+                adj_str = f" − штраф {format_price(abs(adj_sum))}₽"
             text += (
                 f"👤 <b>{name}</b>{shop_str}\n"
-                f"   📅 {worked_days} смен × {rate_str} = <b>{format_price(salary)}₽</b>\n\n"
+                f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽{adj_str}\n"
+                f"   💰 <b>Итого: {format_price(total_salary)}₽</b>\n\n"
             )
-            total_fot += salary
+            total_fot += total_salary
         text += f"━━━━━━━━━━━━━━━━━━\n💰 <b>Итого ФОТ: {format_price(total_fot)}₽</b>"
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
     next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
@@ -838,3 +847,277 @@ async def my_day_detail(callback: CallbackQuery, state: FSMContext):
         msg = f"📅 {date_ru}\n✅ Рабочая смена · время не указано"
 
     await callback.answer(msg, show_alert=True)
+
+
+# ── Корректировки зарплат ──────────────────────────────────────────────────────
+
+def _adj_back_kb(uid: int, year: int, month: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"slr_adj_u_{uid}_{year}_{month}")]
+    ])
+
+
+async def _show_adj_list(callback: CallbackQuery, state: FSMContext, db, uid: int, name: str, year: int, month: int):
+    """Показать список корректировок сотрудника за месяц."""
+    rows = await db.get_salary_adjustments(uid, year, month)
+    adj_sum = sum(r[1] for r in rows)
+    month_name = _MONTH_NAMES[month - 1]
+    text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
+    if rows:
+        for r in rows:
+            adj_id, amount, comment, _, created_at, creator_name = r
+            sign = "+" if amount >= 0 else ""
+            dt = str(created_at)[:16] if created_at else "—"
+            comment_str = f" · {he(comment)}" if comment else ""
+            text += f"• {sign}{format_price(amount)}₽{comment_str}\n  🕐 {dt} · {he(creator_name)}\n"
+            text += f"  /del_adj_{adj_id}\n\n"
+        sign_sum = "+" if adj_sum >= 0 else ""
+        text += f"━━━━━━━━━━━━━━━━━━\n📊 Итог корректировок: <b>{sign_sum}{format_price(adj_sum)}₽</b>"
+    else:
+        text += "Нет корректировок за этот месяц."
+    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="◀️", callback_data=f"slr_adj_u_{uid}_{prev_y}_{prev_m}"),
+        InlineKeyboardButton(text=f"{month_name[:3]} {year}", callback_data="ignore"),
+        InlineKeyboardButton(text="▶️", callback_data=f"slr_adj_u_{uid}_{next_y}_{next_m}"),
+    )
+    builder.row(InlineKeyboardButton(text="➕ Добавить корректировку", callback_data=f"slr_adj_add_{uid}_{year}_{month}"))
+    builder.row(InlineKeyboardButton(text="⬅️ К списку", callback_data="slr_adj_menu"))
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer()
+
+
+@salary_router.callback_query(F.data == "slr_adj_menu")
+async def slr_adj_menu(callback: CallbackQuery, state: FSMContext):
+    """Выбор сотрудника для просмотра/добавления корректировок."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    current_db = await get_db(uid, state)
+    now = datetime.now()
+    summary = await current_db.get_team_salary_summary(now.year, now.month)
+    employees = [r for r in summary if not env_manager.is_super_admin(r[7])]
+    if not employees:
+        await callback.answer("Нет сотрудников с окладами", show_alert=True)
+        return
+    builder = InlineKeyboardBuilder()
+    for row in employees:
+        e_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id, adj_sum = row
+        name = f"{fn} {ln}".strip()
+        builder.row(InlineKeyboardButton(
+            text=f"👤 {name}",
+            callback_data=f"slr_adj_u_{e_uid}_{now.year}_{now.month}"
+        ))
+    builder.row(back_button("admin_salary_menu"))
+    await callback.message.edit_text(
+        "✏️ <b>Корректировки зарплат</b>\n\nВыберите сотрудника:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@salary_router.callback_query(F.data.startswith("slr_adj_u_"))
+async def slr_adj_user(callback: CallbackQuery, state: FSMContext):
+    """Список корректировок конкретного сотрудника за выбранный месяц."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_adj_u_{uid}_{year}_{month}
+    e_uid, year, month = int(parts[3]), int(parts[4]), int(parts[5])
+    current_db = await get_db(uid, state)
+    user = await current_db.get_user_by_id(e_uid)
+    name = f"{user[2]} {user[3]}".strip() if user else f"ID {e_uid}"
+    await _show_adj_list(callback, state, current_db, e_uid, name, year, month)
+
+
+@salary_router.callback_query(F.data.startswith("slr_adj_add_"))
+async def slr_adj_add_start(callback: CallbackQuery, state: FSMContext):
+    """Начало добавления корректировки: запрашиваем сумму."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_adj_add_{uid}_{year}_{month}
+    e_uid, year, month = int(parts[3]), int(parts[4]), int(parts[5])
+    await state.update_data(adj_target_uid=e_uid, adj_year=year, adj_month=month)
+    await state.set_state(AdjustmentStates.entering_amount)
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"slr_adj_u_{e_uid}_{year}_{month}")]
+    ])
+    month_name = _MONTH_NAMES[month - 1]
+    await callback.message.edit_text(
+        f"✏️ <b>Новая корректировка — {month_name} {year}</b>\n\n"
+        "Введите сумму:\n"
+        "• Бонус: <code>+1000</code> или просто <code>1000</code>\n"
+        "• Штраф: <code>-500</code>",
+        reply_markup=cancel_kb, parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@salary_router.message(AdjustmentStates.entering_amount)
+async def slr_adj_amount_handler(message: Message, state: FSMContext):
+    """Обработка суммы корректировки."""
+    data = await state.get_data()
+    e_uid, year, month = data.get('adj_target_uid'), data.get('adj_year'), data.get('adj_month')
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"slr_adj_u_{e_uid}_{year}_{month}")]
+    ])
+    try:
+        amount = float(message.text.replace(",", ".").replace(" ", ""))
+    except (ValueError, AttributeError):
+        await fsm_edit(state, message, "❌ Введите число, например <code>+500</code> или <code>-200</code>",
+                       reply_markup=cancel_kb)
+        return
+    if amount == 0:
+        await fsm_edit(state, message, "❌ Сумма не может быть 0. Введите ненулевое число:",
+                       reply_markup=cancel_kb)
+        return
+    await state.update_data(adj_amount=amount)
+    await state.set_state(AdjustmentStates.entering_comment)
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏩ Пропустить", callback_data="slr_adj_skip_comment")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"slr_adj_u_{e_uid}_{year}_{month}")]
+    ])
+    sign = "+" if amount > 0 else ""
+    await fsm_edit(state, message,
+                   f"✅ Сумма: <b>{sign}{format_price(amount)}₽</b>\n\n"
+                   "Введите комментарий (или пропустите):",
+                   reply_markup=skip_kb)
+
+
+@salary_router.callback_query(F.data == "slr_adj_skip_comment")
+async def slr_adj_skip_comment(callback: CallbackQuery, state: FSMContext):
+    """Пропустить ввод комментария и сохранить корректировку."""
+    await callback.answer()
+    data = await state.get_data()
+    e_uid, year, month, amount = data.get('adj_target_uid'), data.get('adj_year'), data.get('adj_month'), data.get('adj_amount')
+    current_db = await get_db(callback.from_user.id, state)
+    admin_id = await current_db.get_user_id(callback.from_user.id)
+    await current_db.add_salary_adjustment(e_uid, year, month, amount, comment=None, created_by=admin_id)
+    await clear_state_keep_org(state)
+    user = await current_db.get_user_by_id(e_uid)
+    name = f"{user[2]} {user[3]}".strip() if user else f"ID {e_uid}"
+    await _show_adj_list(callback, state, current_db, e_uid, name, year, month)
+
+
+@salary_router.message(AdjustmentStates.entering_comment)
+async def slr_adj_comment_handler(message: Message, state: FSMContext):
+    """Обработка комментария и сохранение корректировки."""
+    data = await state.get_data()
+    e_uid, year, month, amount = data.get('adj_target_uid'), data.get('adj_year'), data.get('adj_month'), data.get('adj_amount')
+    comment = message.text.strip()[:200]
+    current_db = await get_db(message.from_user.id, state)
+    admin_id = await current_db.get_user_id(message.from_user.id)
+    await current_db.add_salary_adjustment(e_uid, year, month, amount, comment=comment, created_by=admin_id)
+    await clear_state_keep_org(state)
+    user = await current_db.get_user_by_id(e_uid)
+    name = f"{user[2]} {user[3]}".strip() if user else f"ID {e_uid}"
+    # Re-send via fake callback workaround: edit anchor message
+    data2 = await state.get_data()
+    anchor_id = data2.get('anchor_msg_id')
+    rows = await current_db.get_salary_adjustments(e_uid, year, month)
+    adj_sum = sum(r[1] for r in rows)
+    month_name = _MONTH_NAMES[month - 1]
+    text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
+    for r in rows:
+        adj_id, _amount, _comment, _, created_at, creator_name = r
+        sign = "+" if _amount >= 0 else ""
+        dt = str(created_at)[:16] if created_at else "—"
+        comment_str = f" · {he(_comment)}" if _comment else ""
+        text += f"• {sign}{format_price(_amount)}₽{comment_str}\n  🕐 {dt} · {he(creator_name)}\n"
+        text += f"  /del_adj_{adj_id}\n\n"
+    sign_sum = "+" if adj_sum >= 0 else ""
+    text += f"━━━━━━━━━━━━━━━━━━\n📊 Итог корректировок: <b>{sign_sum}{format_price(adj_sum)}₽</b>"
+    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="◀️", callback_data=f"slr_adj_u_{e_uid}_{prev_y}_{prev_m}"),
+        InlineKeyboardButton(text=f"{month_name[:3]} {year}", callback_data="ignore"),
+        InlineKeyboardButton(text="▶️", callback_data=f"slr_adj_u_{e_uid}_{next_y}_{next_m}"),
+    )
+    builder.row(InlineKeyboardButton(text="➕ Добавить корректировку", callback_data=f"slr_adj_add_{e_uid}_{year}_{month}"))
+    builder.row(InlineKeyboardButton(text="⬅️ К списку", callback_data="slr_adj_menu"))
+    if anchor_id:
+        try:
+            await message.bot.edit_message_text(
+                text, chat_id=message.chat.id, message_id=anchor_id,
+                reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
+            await message.delete()
+        except Exception:
+            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    else:
+        await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@salary_router.message(F.text.startswith("/del_adj_"))
+async def slr_adj_delete(message: Message, state: FSMContext):
+    """Удаление корректировки по команде /del_adj_{id}."""
+    uid = message.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        return
+    try:
+        adj_id = int(message.text.replace("/del_adj_", "").strip())
+    except ValueError:
+        return
+    current_db = await get_db(uid, state)
+    # Получаем данные корректировки перед удалением
+    conn = current_db.get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id, year, month FROM salary_adjustments WHERE id = ?', (adj_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        await message.answer("❌ Корректировка не найдена")
+        return
+    e_uid, year, month = row
+    await current_db.delete_salary_adjustment(adj_id)
+    user = await current_db.get_user_by_id(e_uid)
+    name = f"{user[2]} {user[3]}".strip() if user else f"ID {e_uid}"
+    rows = await current_db.get_salary_adjustments(e_uid, year, month)
+    adj_sum = sum(r[1] for r in rows)
+    month_name = _MONTH_NAMES[month - 1]
+    text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
+    if rows:
+        for r in rows:
+            rid, _amount, _comment, _, created_at, creator_name = r
+            sign = "+" if _amount >= 0 else ""
+            dt = str(created_at)[:16] if created_at else "—"
+            comment_str = f" · {he(_comment)}" if _comment else ""
+            text += f"• {sign}{format_price(_amount)}₽{comment_str}\n  🕐 {dt} · {he(creator_name)}\n"
+            text += f"  /del_adj_{rid}\n\n"
+        sign_sum = "+" if adj_sum >= 0 else ""
+        text += f"━━━━━━━━━━━━━━━━━━\n📊 Итог: <b>{sign_sum}{format_price(adj_sum)}₽</b>"
+    else:
+        text += "Нет корректировок за этот месяц."
+    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="◀️", callback_data=f"slr_adj_u_{e_uid}_{prev_y}_{prev_m}"),
+        InlineKeyboardButton(text=f"{month_name[:3]} {year}", callback_data="ignore"),
+        InlineKeyboardButton(text="▶️", callback_data=f"slr_adj_u_{e_uid}_{next_y}_{next_m}"),
+    )
+    builder.row(InlineKeyboardButton(text="➕ Добавить корректировку", callback_data=f"slr_adj_add_{e_uid}_{year}_{month}"))
+    builder.row(InlineKeyboardButton(text="⬅️ К списку", callback_data="slr_adj_menu"))
+    data = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    if anchor_id:
+        try:
+            await message.bot.edit_message_text(
+                text, chat_id=message.chat.id, message_id=anchor_id,
+                reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
+            await message.delete()
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
