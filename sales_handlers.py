@@ -1791,10 +1791,10 @@ async def edit_sales_today(callback: CallbackQuery, state: FSMContext):
     today = date.today().strftime('%Y-%m-%d')
 
     if is_admin:
-        # Для админа - выбор магазина
+        # Для админа - выбор магазина (включая магазины без сотрудников)
         await state.update_data(edit_start_date=today, edit_end_date=today)
 
-        shops = await current_db.get_all_shops()
+        shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
         if not shops:
             await callback.message.edit_text(
                 "🏪 Магазины не найдены.",
@@ -2397,10 +2397,10 @@ async def edit_sales_selected_period(callback: CallbackQuery, state: FSMContext)
     is_admin = is_any_admin(callback.from_user.id)
     current_db = await get_db(callback.from_user.id, state)
     if is_admin:
-        # Для админа - выбор магазина
+        # Для админа - выбор магазина (включая магазины без сотрудников)
         await state.update_data(edit_start_date=start_date, edit_end_date=end_date)
         
-        shops = await current_db.get_all_shops()
+        shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
         builder = InlineKeyboardBuilder()
         for shop in shops:
             builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("admin_edit_shop_sales_", shop)))
@@ -2552,10 +2552,10 @@ async def edit_sales_calendar_handler(callback: CallbackQuery, state: FSMContext
             is_admin = is_any_admin(callback.from_user.id)
             current_db = await get_db(callback.from_user.id, state)
             if is_admin:
-                # Для админа - выбор магазина
+                # Для админа - выбор магазина (включая магазины без сотрудников)
                 await state.update_data(edit_start_date=start_date, edit_end_date=date_str)
                 
-                shops = await current_db.get_all_shops()
+                shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
                 builder = InlineKeyboardBuilder()
                 for shop in shops:
                     builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("admin_edit_shop_sales_", shop)))

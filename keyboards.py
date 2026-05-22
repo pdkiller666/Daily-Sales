@@ -94,14 +94,15 @@ def products_menu():
     return builder.as_markup()
 
 def inventory_menu():
-    """Меню управления остатками"""
+    """Меню управления остатками (супер-адмін)"""
     builder = InlineKeyboardBuilder()
     builder.add(
-        InlineKeyboardButton(text="➕ Добавить остатки", callback_data="add_inventory"),
-        InlineKeyboardButton(text="📋 Просмотр остатков", callback_data="user_inventory_view"),
+        InlineKeyboardButton(text="➕ Добавить остатки",    callback_data="add_inventory"),
+        InlineKeyboardButton(text="📋 Просмотр остатков",  callback_data="user_inventory_view"),
+        InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit"),
         back_button("admin_management")
     )
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup()
 
 def back_button(callback_data: str):
