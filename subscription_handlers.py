@@ -916,6 +916,42 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
                     invalidate_plan_cache(callback.from_user.id)
                 except Exception:
                     pass
+                # Обновляем тариф организации в main.db (как ручное подтверждение СБП)
+                try:
+                    import sqlite3 as _sql3
+                    from datetime import datetime as _dt, timedelta as _td
+                    _sb = _sql3.connect('data/shop_bot.db')
+                    _sb_cur = _sb.cursor()
+                    _sb_cur.execute(
+                        "SELECT duration_days FROM subscription_plans WHERE name = ?",
+                        (plan_type,)
+                    )
+                    _plan_row = _sb_cur.fetchone()
+                    _sb.close()
+                    _duration = _plan_row[0] if _plan_row and _plan_row[0] else 0
+                    _org_expires = (
+                        (_dt.now() + _td(days=_duration)).isoformat()
+                        if _duration > 0 else None
+                    )
+                    _main_conn = _sql3.connect('data/main.db')
+                    _main_cur = _main_conn.cursor()
+                    _main_cur.execute(
+                        "SELECT o.id FROM organizations o "
+                        "JOIN user_org_mapping m ON o.id = m.org_id "
+                        "WHERE m.telegram_id = ? AND m.role IN ('owner', 'admin')",
+                        (callback.from_user.id,)
+                    )
+                    _org_row = _main_cur.fetchone()
+                    if _org_row:
+                        _main_cur.execute(
+                            "UPDATE organizations SET subscription_plan = ?, "
+                            "subscription_end = ? WHERE id = ?",
+                            (plan_type, _org_expires, _org_row[0])
+                        )
+                        _main_conn.commit()
+                    _main_conn.close()
+                except Exception:
+                    pass
         except Exception as e:
             import logging
             logging.error(f"check_yookassa_payment: auto-confirm error: {e}")

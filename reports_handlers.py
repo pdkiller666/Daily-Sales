@@ -209,7 +209,9 @@ async def report_today(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.answer("⏳ Загрузка...")
-    today = date.today().isoformat()
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
+    from timezone_utils import get_current_user_time
+    today = get_current_user_time(_user_tz).date().isoformat()
     await state.update_data(start_date=today, end_date=today)
 
     is_admin = is_any_admin(callback.from_user.id) or env_manager.is_super_admin(callback.from_user.id)
@@ -622,7 +624,9 @@ async def report_my_month(callback: CallbackQuery, state: FSMContext):
         await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
         return
     await callback.answer("⏳ Загрузка...")
-    today = date.today()
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
+    from timezone_utils import get_current_user_time
+    today = get_current_user_time(_user_tz).date()
     start_date = today.replace(day=1).isoformat()
     end_date = today.isoformat()
     await state.update_data(start_date=start_date, end_date=end_date)
@@ -642,7 +646,10 @@ async def report_admin_month(callback: CallbackQuery, state: FSMContext):
         await callback.answer("🔒 Расширенные отчёты доступны в платных тарифах", show_alert=True)
         return
     await callback.answer("⏳ Загрузка...")
-    today      = date.today()
+    current_db = await get_db(callback.from_user.id, state)
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
+    from timezone_utils import get_current_user_time
+    today      = get_current_user_time(_user_tz).date()
     start_date = today.replace(day=1).isoformat()
     end_date   = today.isoformat()
     await state.update_data(start_date=start_date, end_date=end_date)
