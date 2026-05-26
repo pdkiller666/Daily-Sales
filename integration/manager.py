@@ -395,6 +395,105 @@ class IntegrationManager:
         except Exception as e:
             logger.error(f"_notify_admins error: {e}")
 
+    async def run_import(self, db, conn_id: int, import_type: str,
+                          sheet_name: str, header_row: int = 1,
+                          col_mapping: dict = None) -> dict:
+        """Read data from Google Sheet and import into the bot database."""
+        db = self._unwrap(db)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            raise ValueError("Подключение не найдено")
+        conn_config = json.loads(conn[3] or '{}')
+        conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
+        provider = self.providers.get('google_sheets')
+        data = await provider.read_all_data(conn_config, sheet_name, header_row)
+        headers = data['headers']
+        rows = data['rows']
+        if not rows:
+            return {'imported': 0, 'skipped': 0, 'errors': [], 'headers': headers, 'total': 0}
+        if col_mapping is None:
+            col_mapping = {}
+        imported = 0
+        skipped = 0
+        errors = []
+
+        def _clean_num(s: str) -> str:
+            return s.replace(',', '.').replace('\xa0', '').replace(' ', '').strip()
+
+        if import_type == 'products':
+            name_col  = col_mapping.get('name', 0)
+            cat_col   = col_mapping.get('category', 1)
+            price_col = col_mapping.get('price', 2)
+            items = []
+            for row in rows:
+                try:
+                    name = str(row[name_col]).strip() if name_col < len(row) else ''
+                    if not name:
+                        skipped += 1
+                        continue
+                    cat = str(row[cat_col]).strip() if cat_col < len(row) else ''
+                    if not cat:
+                        cat = 'Без категории'
+                    ps = str(row[price_col]).strip() if price_col < len(row) else '0'
+                    price = float(_clean_num(ps)) if ps else 0.0
+                    items.append({'name': name, 'category': cat, 'price': price})
+                except Exception as e:
+                    errors.append(f"Строка: {e}")
+            if items:
+                added, skipped_names = db.add_products_bulk(items)
+                imported += added
+                skipped += len(skipped_names)
+
+        elif import_type == 'inventory':
+            shop_col    = col_mapping.get('shop', 0)
+            product_col = col_mapping.get('product', 1)
+            qty_col     = col_mapping.get('quantity', 2)
+            db_conn = db.get_connection()
+            cur = db_conn.cursor()
+            for row in rows:
+                try:
+                    shop  = str(row[shop_col]).strip() if shop_col < len(row) else ''
+                    pname = str(row[product_col]).strip() if product_col < len(row) else ''
+                    if not shop or not pname:
+                        skipped += 1
+                        continue
+                    qs  = str(row[qty_col]).strip() if qty_col < len(row) else '0'
+                    qty = int(float(_clean_num(qs))) if qs else 0
+                    cur.execute("SELECT id FROM products WHERE LOWER(name) = LOWER(?)", (pname,))
+                    prod_row = cur.fetchone()
+                    if not prod_row:
+                        skipped += 1
+                        continue
+                    pid = prod_row[0]
+                    cur.execute(
+                        "UPDATE inventory SET quantity = ?, last_updated = datetime('now') "
+                        "WHERE shop_name = ? AND product_id = ?",
+                        (qty, shop, pid)
+                    )
+                    if cur.rowcount == 0:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO inventory (shop_name, product_id, quantity) VALUES (?, ?, ?)",
+                            (shop, pid, qty)
+                        )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"Строка: {e}")
+            db_conn.commit()
+            db_conn.close()
+
+        try:
+            db.add_integration_log(conn_id, None, 'success',
+                                   f'import {import_type}: {imported} записей')
+        except Exception:
+            pass
+        return {
+            'imported': imported,
+            'skipped': skipped,
+            'errors': errors[:10],
+            'headers': headers,
+            'total': len(rows),
+        }
+
     async def schedule_exports(self, scheduler, get_db_paths_fn):
         """Register cron-scheduled export jobs at bot startup."""
         try:

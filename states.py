@@ -198,3 +198,12 @@ class IntegrationStates(StatesGroup):
 class AdjustmentStates(StatesGroup):
     entering_amount  = State()
     entering_comment = State()
+
+class AdminShopStates(StatesGroup):
+    waiting_for_new_shop_name = State()
+    waiting_for_renamed_shop  = State()
+
+class GSImportStates(StatesGroup):
+    waiting_sheet_name  = State()
+    waiting_header_row  = State()
+    confirming_import   = State()

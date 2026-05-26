@@ -15,7 +15,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from utils import he
 from subscription_utils import check_integrations_permission
 from keyboards import back_button, home_button
-from states import IntegrationStates
+from states import IntegrationStates, GSImportStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
 from message_utils import fsm_edit, delete_message_safe
 
@@ -921,6 +921,7 @@ def _build_conn_detail_content(conn, conn_id: int, exports: list):
         callback_data=f"gs_toggle_conn_{conn_id}"
     ))
     kb.row(InlineKeyboardButton(text="📋 Экспорты", callback_data=f"gs_exports_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📥 Импорт данных", callback_data=f"gs_import_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🔍 Тест подключения", callback_data=f"gs_test_conn_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🔄 Синхронизировать мотивацию",
                                 callback_data=f"gs_sync_motiv_{conn_id}"))
@@ -2420,3 +2421,190 @@ async def _save_export(msg, state: FSMContext, from_message: bool = False):
         await _edit_anchor(msg.bot, msg.chat.id, anchor_id, summary, reply_markup=kb)
     else:
         await msg.edit_text(summary, reply_markup=kb, parse_mode="HTML")
+
+
+# ═══════════════════════════════════════════════════════════
+#  IMPORT WIZARD
+# ═══════════════════════════════════════════════════════════
+
+IMPORT_TYPE_LABELS = {
+    'products':  '🛍 Товары (название, категория, цена)',
+    'inventory': '📦 Остатки (магазин, товар, количество)',
+}
+
+IMPORT_COL_HINTS = {
+    'products':  'Колонки: <b>A — Название</b>, <b>B — Категория</b>, <b>C — Цена</b>',
+    'inventory': 'Колонки: <b>A — Магазин</b>, <b>B — Товар</b>, <b>C — Количество</b>',
+}
+
+
+@integration_router.callback_query(F.data.startswith("gs_import_"))
+async def gs_import_menu(callback: CallbackQuery, state: FSMContext):
+    """Выбор типа импорта из Google Sheets"""
+    conn_id = int(callback.data.split("_")[2])
+    if not check_integrations_permission(callback.from_user.id):
+        await callback.answer()
+        await callback.message.edit_text(
+            "🔒 <b>Импорт из Google Таблиц — тариф «Стандарт» и выше</b>\n\n"
+            "Для доступа к интеграциям выберите подходящий тариф:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Выбрать тариф",
+                                      callback_data="subscription_plans")],
+                [_back(f"gs_conn_{conn_id}")],
+            ])
+        )
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    conn = await current_db.get_integration_connection(conn_id)
+    if not conn:
+        await callback.answer("❌ Подключение не найдено", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(gs_import_conn_id=conn_id)
+    kb = InlineKeyboardBuilder()
+    for imp_type, label in IMPORT_TYPE_LABELS.items():
+        kb.row(InlineKeyboardButton(
+            text=label,
+            callback_data=f"gs_imptyp_{imp_type}_{conn_id}"
+        ))
+    kb.row(_back(f"gs_conn_{conn_id}"))
+    await callback.message.edit_text(
+        "📥 <b>Импорт из Google Sheets</b>\n\n"
+        "Выберите тип данных для импорта:\n\n"
+        "• <b>Товары</b> — добавит новые товары из таблицы (дубли пропускаются)\n"
+        "• <b>Остатки</b> — установит количество остатков по магазинам\n\n"
+        "⚠️ Первая строка считается заголовком (можно изменить).",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_imptyp_"))
+async def gs_import_type_selected(callback: CallbackQuery, state: FSMContext):
+    """Выбран тип импорта — запрашиваем имя листа"""
+    parts = callback.data.split("_")
+    imp_type = parts[2]
+    conn_id = int(parts[3])
+    if not check_integrations_permission(callback.from_user.id):
+        await callback.answer("🔒 Требуется тариф «Стандарт» и выше", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(gs_import_type=imp_type, gs_import_conn_id=conn_id)
+    hint = IMPORT_COL_HINTS.get(imp_type, '')
+    await fsm_edit(
+        state, callback.message,
+        f"📥 <b>Импорт: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}</b>\n\n"
+        f"{hint}\n\n"
+        f"Введите <b>название листа</b> (вкладки) в таблице Google Sheets:",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_back(f"gs_import_{conn_id}")]]
+        ),
+        parse_mode="HTML"
+    )
+    await state.set_state(GSImportStates.waiting_sheet_name)
+
+
+@integration_router.message(GSImportStates.waiting_sheet_name)
+async def gs_import_sheet_name(message: Message, state: FSMContext):
+    """Получено имя листа — запрашиваем номер строки заголовков"""
+    sheet_name = message.text.strip()
+    data = await state.get_data()
+    conn_id = data.get('gs_import_conn_id', 0)
+    _kb = InlineKeyboardMarkup(
+        inline_keyboard=[[_back(f"gs_import_{conn_id}")]]
+    )
+    if not sheet_name:
+        await fsm_edit(state, message, "⚠️ Имя листа не может быть пустым. Введите снова:",
+                       reply_markup=_kb, parse_mode="HTML")
+        return
+    await state.update_data(gs_import_sheet=sheet_name)
+    await fsm_edit(
+        state, message,
+        f"📥 Лист: <code>{he(sheet_name)}</code>\n\n"
+        f"Введите <b>номер строки с заголовками</b> (обычно <b>1</b>).\n"
+        f"Данные будут импортированы начиная со следующей строки:",
+        reply_markup=_kb,
+        parse_mode="HTML"
+    )
+    await state.set_state(GSImportStates.waiting_header_row)
+
+
+@integration_router.message(GSImportStates.waiting_header_row)
+async def gs_import_header_row(message: Message, state: FSMContext):
+    """Получен номер строки заголовков — запускаем импорт"""
+    raw = message.text.strip()
+    data = await state.get_data()
+    conn_id = data.get('gs_import_conn_id', 0)
+    imp_type = data.get('gs_import_type', 'products')
+    sheet_name = data.get('gs_import_sheet', 'Sheet1')
+    _kb = InlineKeyboardMarkup(
+        inline_keyboard=[[_back(f"gs_import_{conn_id}")]]
+    )
+    try:
+        header_row = int(raw)
+        if header_row < 1:
+            raise ValueError
+    except ValueError:
+        await fsm_edit(state, message,
+                       "⚠️ Введите корректный номер строки (например, 1):",
+                       reply_markup=_kb, parse_mode="HTML")
+        return
+
+    await fsm_edit(
+        state, message,
+        f"⏳ <b>Импорт из Google Sheets...</b>\n\n"
+        f"📋 Лист: <code>{he(sheet_name)}</code>\n"
+        f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n\n"
+        f"Пожалуйста, подождите.",
+        parse_mode="HTML"
+    )
+    await clear_state_keep_org(state)
+
+    current_db = await get_db(message.from_user.id, state)
+    try:
+        result = await integration_manager.run_import(
+            db=current_db,
+            conn_id=conn_id,
+            import_type=imp_type,
+            sheet_name=sheet_name,
+            header_row=header_row,
+        )
+        imported = result['imported']
+        skipped = result['skipped']
+        total = result.get('total', imported + skipped)
+        errors = result.get('errors', [])
+        headers = result.get('headers', [])
+
+        summary = (
+            f"✅ <b>Импорт завершён</b>\n\n"
+            f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n"
+            f"📋 Лист: <code>{he(sheet_name)}</code>\n"
+            f"📥 Строк в таблице: {total}\n"
+            f"✅ Импортировано: {imported}\n"
+            f"⏭ Пропущено (дубли/не найдено): {skipped}\n"
+        )
+        if headers:
+            summary += f"\n<b>Заголовки листа:</b> {he(', '.join(str(h) for h in headers[:8]))}\n"
+        if errors:
+            summary += f"\n⚠️ Ошибки ({len(errors)}):\n"
+            for err in errors[:5]:
+                summary += f"  • {he(str(err))}\n"
+    except Exception as e:
+        logger.error(f"gs_import error: {e}")
+        summary = f"❌ <b>Ошибка импорта:</b>\n{he(str(e))}"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Ещё импорт",
+                              callback_data=f"gs_import_{conn_id}")],
+        [_back(f"gs_conn_{conn_id}")],
+    ])
+    try:
+        anchor_id = data.get('anchor_msg_id')
+        if anchor_id:
+            await _edit_anchor(message.bot, message.chat.id, anchor_id,
+                               summary, reply_markup=kb)
+        else:
+            await message.answer(summary, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await message.answer(summary, reply_markup=kb, parse_mode="HTML")

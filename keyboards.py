@@ -71,6 +71,7 @@ def admin_management_menu(chat_id: int):
         InlineKeyboardButton(text="💰 Оклады и смены", callback_data="admin_salary_menu"),
         InlineKeyboardButton(text="🏆 Конкурсы", callback_data="contests_menu"),
         InlineKeyboardButton(text="👥 Упр. сотрудниками", callback_data="admin_users"),
+        InlineKeyboardButton(text="🏪 Упр. магазинами", callback_data="admin_shops"),
         InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_menu"),
     )
     builder.add(back_button("main_menu"))

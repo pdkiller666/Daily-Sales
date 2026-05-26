@@ -144,6 +144,21 @@ class GoogleSheetsProvider(BaseProvider):
             logger.error(f"read_col error: {e}")
             return []
 
+    async def read_all_data(self, config: dict, sheet_name: str,
+                             header_row: int = 1) -> dict:
+        """Read all data from a sheet. Returns {'headers': [...], 'rows': [[...], ...]}."""
+        try:
+            ws = await _get_ws(config, sheet_name)
+            all_vals = await asyncio.to_thread(ws.get_all_values)
+            if not all_vals or len(all_vals) < header_row:
+                return {'headers': [], 'rows': []}
+            headers = all_vals[header_row - 1]
+            rows = [r for r in all_vals[header_row:] if any(str(v).strip() for v in r)]
+            return {'headers': headers, 'rows': rows}
+        except Exception as e:
+            logger.error(f"read_all_data error: {e}")
+            return {'headers': [], 'rows': []}
+
     @retry(stop=stop_after_attempt(3),
            wait=wait_exponential(multiplier=1, min=2, max=10),
            retry=retry_if_exception_type(Exception),

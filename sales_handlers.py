@@ -1686,10 +1686,15 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 if seller_name:
                     notif_lines.append(f"👤 Продавец: {seller_name}")
                 for r in results:
+                    _earn = r.get('expected_earning', 0) or 0
+                    _earn_part = f" 💰 {format_currency(_earn)}" if _earn > 0 else ""
                     notif_lines.append(
                         f"• {r['name']}: {r['quantity']} шт. "
-                        f"× {format_currency(r['price'])} = {format_currency(r['total'])}"
+                        f"× {format_currency(r['price'])} = {format_currency(r['total'])}{_earn_part}"
                     )
+                _total_earn_notif = sum(r.get('expected_earning', 0) or 0 for r in results)
+                if _total_earn_notif > 0:
+                    notif_lines.append(f"\n💰 Мотивация продавца: {format_currency(_total_earn_notif)}")
                 notif_text = "\n".join(notif_lines)
                 for cw_uid, cw_tgid, _cw_name in coworkers:
                     try:

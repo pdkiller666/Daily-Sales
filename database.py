@@ -874,6 +874,14 @@ class Database:
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS shops (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL UNIQUE,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -1482,14 +1490,109 @@ class Database:
     def get_all_shops(self):
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT DISTINCT shop_name FROM users "
-            "WHERE shop_name IS NOT NULL AND shop_name != '' "
-            "AND shop_name != 'Системный' AND shop_name != 'System'"
-        )
+        try:
+            cursor.execute(
+                "SELECT DISTINCT name FROM ("
+                "  SELECT shop_name AS name FROM users "
+                "  WHERE shop_name IS NOT NULL AND shop_name != '' "
+                "  AND shop_name NOT IN ('Системный', 'System')"
+                "  UNION"
+                "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                ") ORDER BY name"
+            )
+        except Exception:
+            cursor.execute(
+                "SELECT DISTINCT shop_name FROM users "
+                "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                "AND shop_name NOT IN ('Системный', 'System')"
+            )
         shops = [row[0] for row in cursor.fetchall()]
         conn.close()
         return shops
+
+    def get_shops_with_stats(self):
+        """Возвращает список (name, user_count, inventory_items) для всех магазинов."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT DISTINCT name FROM ("
+                "  SELECT shop_name AS name FROM users "
+                "  WHERE shop_name IS NOT NULL AND shop_name != '' "
+                "  AND shop_name NOT IN ('Системный', 'System')"
+                "  UNION"
+                "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                ") ORDER BY name"
+            )
+        except Exception:
+            cursor.execute(
+                "SELECT DISTINCT shop_name AS name FROM users "
+                "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                "AND shop_name NOT IN ('Системный', 'System')"
+            )
+        shop_names = [r[0] for r in cursor.fetchall()]
+        result = []
+        for sn in shop_names:
+            cursor.execute("SELECT COUNT(*) FROM users WHERE shop_name = ?", (sn,))
+            user_count = cursor.fetchone()[0]
+            try:
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT product_id) FROM inventory WHERE shop_name = ? AND quantity > 0",
+                    (sn,)
+                )
+                inv_count = cursor.fetchone()[0]
+            except Exception:
+                inv_count = 0
+            result.append((sn, user_count, inv_count))
+        conn.close()
+        return result
+
+    def add_shop(self, name: str) -> bool:
+        """Добавить новый магазин в таблицу shops."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT OR IGNORE INTO shops (name) VALUES (?)", (name.strip(),))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def rename_shop_everywhere(self, old_name: str, new_name: str):
+        """Переименовать магазин во всех таблицах: users, inventory, shops."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "UPDATE users SET shop_name = ? WHERE shop_name = ?",
+                (new_name, old_name)
+            )
+            cursor.execute(
+                "UPDATE inventory SET shop_name = ? WHERE shop_name = ?",
+                (new_name, old_name)
+            )
+            cursor.execute("INSERT OR IGNORE INTO shops (name) VALUES (?)", (new_name,))
+            cursor.execute("DELETE FROM shops WHERE name = ?", (old_name,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete_shop_everywhere(self, name: str) -> int:
+        """Удалить магазин: сбросить shop_name у пользователей, удалить остатки и запись."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT COUNT(*) FROM users WHERE shop_name = ?", (name,))
+            user_count = cursor.fetchone()[0]
+            cursor.execute("UPDATE users SET shop_name = '' WHERE shop_name = ?", (name,))
+            cursor.execute("DELETE FROM inventory WHERE shop_name = ?", (name,))
+            cursor.execute("DELETE FROM shops WHERE name = ?", (name,))
+            conn.commit()
+            return user_count
+        finally:
+            conn.close()
 
     def get_inventory_shops(self):
         """Возвращает список уникальных магазинов из таблицы inventory"""

@@ -355,7 +355,7 @@ async def show_all_contacts(callback: CallbackQuery, state: FSMContext):
             message_text += f"  🏪 {he(shop_name)}: {len(shop_users)} чел.\n"
             
             for user in shop_users:
-                user_id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop, city, timezone, created_at = user
+                user_id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop, city, timezone, created_at = user[:12]
                 
                 full_name = f"{he(first_name)} {he(last_name)}"
                 if middle_name:
