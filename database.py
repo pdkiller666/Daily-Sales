@@ -6490,6 +6490,25 @@ class Database:
             logger.error(f"get_all_enabled_cron_exports: {e}")
             return []
 
+    def move_exports_to_connection(self, from_conn_id: int, to_conn_id: int) -> int:
+        """Move all exports from one connection to another. Returns count moved."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE integration_exports SET connection_id = ? WHERE connection_id = ?",
+                (to_conn_id, from_conn_id)
+            )
+            moved = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return moved
+        except Exception as e:
+            logger.error(f"move_exports_to_connection: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return 0
+
     def update_integration_export(self, export_id: int, **kwargs):
         allowed = {'enabled', 'schedule', 'target_sheet', 'operation',
                    'mapping', 'lookup_config', 'extra'}

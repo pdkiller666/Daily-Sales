@@ -28,7 +28,7 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `346af8f` · Amvera `0e53ede` (2026-05-26, сессия 198). Оба хэша верифицированы через `git ls-remote`.
 
-**Сессия 175 (2026-05-20) — три критических бага исправлены:**
+**Сессия 199 (2026-05-20) — три критических бага исправлены:**
 - `import asyncio` добавлен в `sales_handlers.py` (использовался без импорта → `NameError` в check_sales_limit)
 - `bot_holder.py` — новый синглтон; `from main import bot` везде заменён на `from bot_holder import get_bot` → исправлен «Router is already attached» (повторный импорт `__main__`)
 - AsyncDatabase unwrap перед передачей в integration manager: `sales_handlers.py` и `inventory_handlers.py` теперь передают sync `Database` → исправлен «'coroutine' object is not iterable» в `trigger_export_with_result`
@@ -570,19 +570,19 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 **Сессии 24–25:** мотивационные условия (сверхплан, коэф.); планы продаж; зарплата и смены.
 
-**Сессия 26:** cross-org broadcast баг; check_notifications_permission получал DB-id вместо telegram_id; JOIN sn.created_by = u.id; добавлена задача check_scheduled_notifications.
+**Сессия 199:** cross-org broadcast баг; check_notifications_permission получал DB-id вместо telegram_id; JOIN sn.created_by = u.id; добавлена задача check_scheduled_notifications.
 
-**Сессия 27:** итоговый аудит. HTML-инъекция устранена в 44 местах / 9 файлах (he()). 0 bare except, 0 print().
+**Сессия 199:** итоговый аудит. HTML-инъекция устранена в 44 местах / 9 файлах (he()). 0 bare except, 0 print().
 
-**Сессия 28:** аудит сессий 24–25. Критический баг salary_handlers (fsm_edit вместо edit_text). he() в commission_handlers и sales_plans_handlers.
+**Сессия 199:** аудит сессий 24–25. Критический баг salary_handlers (fsm_edit вместо edit_text). he() в commission_handlers и sales_plans_handlers.
 
-**Сессия 29:** `is_any_admin()` переписан — роль в user_org_mapping приоритетнее ADMIN_CHAT_ID. role='user' всегда False.
+**Сессия 199:** `is_any_admin()` переписан — роль в user_org_mapping приоритетнее ADMIN_CHAT_ID. role='user' всегда False.
 
-**Сессия 30:** конкурсы (полный жизненный цикл); дашборд перенесён в Отчёты; инвайт для орг-admin.
+**Сессия 199:** конкурсы (полный жизненный цикл); дашборд перенесён в Отчёты; инвайт для орг-admin.
 
 **Сессии 31–32:** multi-select категорий в plan wizard; редактирование планов; дашборд пользователя (все планы, призы конкурсов).
 
-**Сессия 33:**
+**Сессия 199:**
 1. Anchor message fix — `clear_state_keep_org` ПОСЛЕ `fsm_edit`.
 2. Edit plan: все поля (Получатель/Период/Метрика/Фильтр). Callback prefixes: `epwho_*`, `epperiod_*`, `epmetric_*`, `epfilter_*`.
 3. Admin dashboard: все планы через `_plan_summary_line()`.
@@ -590,7 +590,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. `create_tables()` теперь вызывается для супер-адмна в `get_db()`.
 6. `deploy.sh exclusions` — исключены `.db`, `.pkl`, `data/tenants/` из GitHub.
 
-**Сессия 34:**
+**Сессия 199:**
 1. Профиль пользователя — роль вверху, дата в DD.MM.YYYY, he() на всех полях.
 2. Очистка архива конкурсов с подтверждением.
 3. `is_any_admin()` приоритет: org-роль > env_manager.
@@ -599,7 +599,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 6. Rankings: 8 колонок в `get_sales_ranking()`; `_ranking_period()`; `_period_kb()`; позиция вне топ-10.
 7. `deploy.sh` — `--no-amvera` флаг; верификация через `git ls-remote`.
 
-**Сессия 35:**
+**Сессия 199:**
 1. he() аудит: contacts_handlers, payment_admin_handlers, main.py, plan_notifications, payment_system_admin.
 2. `clear_state_keep_org(state, extra_keys=[...])` — сохранение доп. ключей FSM.
 3. Excel download → FSM (избавился от длинных callback_data).
@@ -607,13 +607,13 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. **Multi-scope**: scope_value = JSON array; toggle UI `adm_t_s/c/n_*` + `adm_scope_submit`.
 6. **Custom title**: custom_title в user_org_mapping; `set_user_title()`; 🏷️ в карточке пользователя.
 
-**Сессия 36:**
+**Сессия 199:**
 1. **QuickSaleStates** (`searching_product = State()`).
 2. **`_make_qty_keyboard(max_qty)`** — кнопки [1,2,3,5,10,20,50] + «✏️ Ввести вручную».
 3. **Быстрый поиск** — «🔍 Найти товар» в экране категорий; поиск по ненулевому остатку.
 4. **`sq_qty_*`** — выбор количества без ввода текста.
 
-**Сессия 37:**
+**Сессия 199:**
 1. **`shift_templates`** таблица — UNIQUE(user_id, weekday), weekday 0=Пн..6=Вс.
 2. **`work_schedule`** — добавлены колонки `start_time`, `end_time`; миграция авто.
 3. **6 новых методов database.py**: `set_shift_template`, `get_shift_templates`, `get_work_day_time`, `add_work_day`, `remove_work_day`, `set_work_day_time`.
@@ -621,7 +621,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. **⏰ Расписание смен** — кнопка `slr_tmpl_` в календаре; экран просмотра/редактирования 7 дней.
 6. **my_day_detail** — сотрудник: время из work_schedule или шаблона (fallback).
 
-**Сессия 38:**
+**Сессия 199:**
 1. **«📝 Мои продажи»** восстановлена в `main_menu()` для обычных продавцов (keyboards.py).
 2. **«query is too old»** TelegramBadRequest → DEBUG (не засоряет логи).
 3. **Timezone earnings**: время продажи в «Моём заработке» → `format_user_datetime(sale_date, user_tz, '%H:%M')`.
@@ -629,20 +629,20 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. **Scheduled notifications UTC fix**: ввод → `get_utc_time(naive, admin_tz)` → хранить; список → `format_user_datetime(raw_utc, admin_tz)`.
 6. **Аудит итог**: 34/34 модулей · 279/279 тестов · 0 кириллицы в callback_data.
 
-**Сессия 39:**
+**Сессия 199:**
 1. **«Команда сегодня»** дашборд: `_staff_by_shop_with_names()` — для 'wide'/'org' scale показывает «ТЦ Лето: 3 (Иванов, Петров, Сидоров)».
 2. **Reports Markdown→HTML**: `report_full`, `report_shop_generate`, `report_city_generate` — HTML + `he()`.
 3. **Perf: 7 индексов в `create_tables()`**: idx_sales_user_date, idx_sales_shop_date, idx_inventory_shop_prod, idx_work_schedule_date, idx_seller_earnings_sale, idx_users_shop_name, idx_users_telegram_id — все `CREATE INDEX IF NOT EXISTS`.
 4. **`busy_timeout=10000`** в `create_tables()` (ранее только в `get_connection()`).
 5. **«message is not modified»** → тихий `answer()` без логирования.
 
-**Сессия 40 (2026-05-07):**
+**Сессия 199 (2026-05-07):**
 1. **`earnings_handlers.py` — Markdown→HTML** (10 мест): все `parse_mode="Markdown"` → HTML.
 2. **`earnings_handlers.py` — Русские названия месяцев**: `_MONTHS_RU[]` вместо `calendar.month_name[]`.
 3. **`salary_handlers.py` — Markdown→HTML** (24 места): `escape_md()` → `he()`.
 4. **`keyboards.py` — утечка соединения SQLite** в `main_menu()`: добавлен `try/finally` вокруг `conn.close()`.
 
-**Сессия 41 (2026-05-07) — ЮKASSA:**
+**Сессия 199 (2026-05-07) — ЮKASSA:**
 1. **`payment_provider.py`** (новый): `get_active_provider(db)`, `create_yookassa_payment(...)`, `check_yookassa_payment_status(...)`.
 2. **`database.py`** — таблица `yookassa_payments`; 7 методов: `get/set_payment_provider`, `get/set_yookassa_config`, `create/get/update_yookassa_payment_*`.
 3. **`payment_system_admin.py`** — «🔀 Провайдер оплаты»; экраны выбора/настройки ЮKassa.
@@ -650,20 +650,20 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. **`states.py`** — `PaymentSystemStates`: waiting_yookassa_shop_id/secret_key/return_url.
 6. **559 тестов ✅** (добавлены новые сценарии).
 
-**Сессия 42 (2026-05-07) — EXCEL ОТЧЁТЫ:**
+**Сессия 199 (2026-05-07) — EXCEL ОТЧЁТЫ:**
 1. **`generate_excel_report()`** в `utils.py` переписан — 4 листа: «Детальный отчёт» (с колонкой «Продавец», числовые форматы, ИТОГО), «По категориям» (BarChart), «По продавцам» (если есть данные), «По дням» (если >1 день, BarChart). Определение продавца: `len(row) >= 11`.
 2. **6 Excel-хендлеров** в `reports_handlers.py` обновлены: scope-фильтр, лимит 50000, `_translit_filename()`, `⏳ Формирую файл...`, подписи с числом строк.
 3. **`_translit_filename(text)`** — хелпер транслитерации для имён .xlsx файлов.
 4. GitHub `7a7f1a3` · Amvera `e5913d1`. 559 тестов ✅.
 
-**Сессия 50 (2026-05-11) — Конкурсы: индивидуальные пороги (#3) + per_sale тиры (#4):**
+**Сессия 199 (2026-05-11) — Конкурсы: индивидуальные пороги (#3) + per_sale тиры (#4):**
 1. **database.py**: `contests` +`reward_mode`/`individual_targets` (ALTER TABLE migration); новая таблица `contest_product_bonuses`; новые методы `save_contest_product_bonuses`, `get_contest_product_bonuses`, `get_user_plan_pct_for_contest`; `create_contest`/`update_contest` расширены; `compute_contest_results` разделён на total (учитывает `individual_targets.by_shop`) и per_sale (тиры × qty × plan_pct); `get_user_contest_rewards` читает `reward_mode`.
 2. **contests_handlers.py**: новые FSM-состояния `configuring_tier_bonus`, `entering_individual_target`; новые шаги: выбор режима (`ctrm_`), wizard тиров per_sale (`cttc_`/`ctpct_`/bonus-ввод), индивидуальные пороги по магазинам (`ctind_yes/no`, `ctindval_skip`); `_show_contest_confirm` показывает тиры/инд.пороги; `contest_confirm_create` сохраняет `reward_mode`, `individual_targets`, тиры через `save_contest_product_bonuses`; `contest_view` отображает тиры/инд.пороги; `contest_results` ветвится по `reward_mode` (per_sale: бонус, plan_pct; total: победители + инд.пороги); `contest_notify_winners` — разные тексты для per_sale/total.
 3. **dashboard_handlers.py**: `_contest_block` — per_sale конкурсы показывают накопленный бонус+qty; total конкурсы — прогресс по индивидуальному порогу (`individual_target` из результатов).
 4. **main.py**: `auto_finish_contests` — per_sale уведомления (qty+бонус+plan_pct); total уведомления без изменений.
 5. **Индексы `contests` таблицы**: `reward_mode` = col 22, `individual_targets` = col 23 (после `created_at`=21).
 
-**Сессия 52 (2026-05-13) — БАГФИКСЫ + СОВМЕСТНАЯ МОТИВАЦИЯ:**
+**Сессия 199 (2026-05-13) — БАГФИКСЫ + СОВМЕСТНАЯ МОТИВАЦИЯ:**
 1. **Баг: `back_to_edit_sale` KeyError** — `data['sale_id']` → `data.get('sale_id')` с fallback к кешу продаж или `edit_sales_start` (`sales_handlers.py`).
 2. **Баг: FakeCallback в тирах конкурса** — `_safe_tier_edit(callback, state, text, markup)` в `contests_handlers.py`: сначала пробует `callback.message.edit_text()`, при ошибке ищет `anchor_msg_id` из FSM и редактирует якорное сообщение. Применён в `_show_tier_bonus_step`, `_show_tier_pct_step`, `_show_period_step`.
 3. **Баг: кнопка «Сменить магазин» не появлялась** для орг-пользователей без `trade_network` — `_build_cross_shop_screen` переписан: если `trade_network` пустой → использует `get_all_shops()` вместо `get_shops_by_network()`. `sale_select_network_shop` аналогично. Кнопка `allow_change=True` выставляется при 2+ магазинах в орге (`sales_handlers.py`).
@@ -677,7 +677,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
    - `get_seller_total_earnings` — добавляет корректировку: `base + get_joint_bonus_adjustment(...)`.
    - `view_extra_conditions` — иконка режима 👤/🤝 рядом с каждым условием.
 
-**Сессия 96 (2026-05-18) — БАГИ ПРОДАЖ + GOOGLE SHEETS OAUTH:**
+**Сессия 199 (2026-05-18) — БАГИ ПРОДАЖ + GOOGLE SHEETS OAUTH:**
 
 **Корневые причины бага «продажи не сохраняются»:**
 1. **`callback.answer()` без try/except** в `complete_sale` (до нашего фикса 7cbbd63): если Telegram отвечал «query is too old», outer except перехватывал исключение и удалял все `processed_sales` через `delete_sale`. Исправлено: `callback.answer()` и `get_user()` обёрнуты в try/except.
@@ -693,21 +693,21 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 - `integration/auth/google_oauth.py`: `get_client_credentials()` читает из `os.environ`; `initiate_device_flow()` → user_code + verification_url; `poll_for_token()` — long-polling до подтверждения.
 - GitHub `f7a76f8` · Amvera `7057da5`.
 
-**Сессия 73 (2026-05-18) — ЗАДАЧА #9: ПОИСК ПО @USERNAME В СПИСКЕ ПОЛЬЗОВАТЕЛЕЙ + POST-MERGE SETUP:**
+**Сессия 199 (2026-05-18) — ЗАДАЧА #9: ПОИСК ПО @USERNAME В СПИСКЕ ПОЛЬЗОВАТЕЛЕЙ + POST-MERGE SETUP:**
 1. **`database.py`**: добавлена колонка `username TEXT` в `users` (CREATE TABLE + авто-миграция `ALTER TABLE`); `add_user()` и `update_user()` принимают `username=`.
 2. **`admin_handlers.py`**: `_ADMIN_USERS_COLS` расширен на `username` (13-я колонка, индекс 12); поиск в `_build_admin_users_content` теперь включает `@username` в строку сравнения (с `lstrip('@')` для толерантности к вводу); кнопка в списке показывает `@username` если есть, иначе `(магазин)`.
 3. **Все call-сайты `add_user`**: `handlers.py` (5 мест: super-admin, select_city callback, process_city message, shop_bot.db trial copy), `sales_handlers.py`, `reports_handlers.py`, `notifications_handlers.py`, `subscription_handlers.py`, `db_utils.py` (оба get_db и get_db_sync) — везде передаётся `username` (с guard `len > 12` для кортежей).
 4. **`scripts/post-merge.sh`**: создан (`pip install -r requirements.txt`); зарегистрирован в `.replit [postMerge]` с таймаутом 60s — теперь при каждом мерже задачи-агента автоматически устанавливаются зависимости.
 5. GitHub `5c7104b` · Amvera `bcd4ae2`.
 
-**Сессия 71–72 (2026-05-18) — ЗАДАЧА #5: ПОИСК В ИЗБРАННОМ И НЕДАВНИХ (sale flow):**
+**Сессия 199–72 (2026-05-18) — ЗАДАЧА #5: ПОИСК В ИЗБРАННОМ И НЕДАВНИХ (sale flow):**
 1. **`states.py`**: добавлены `SearchStates.sale_favourites` и `SearchStates.sale_recent`.
 2. **`sales_handlers.py`**: добавлены билдеры `_build_fav_list_content(fav_prods, cart, query="")` и `_build_recent_list_content(recent, cart, query="")` — возвращают `(text, markup)`, фильтрация по имени, кнопки 🔍/✖️/🛒/⬅️.
 3. **Рефакторинг** `sale_show_favorites` и `sale_show_recent_handler`: сохраняют `anchor_msg_id` + `sale_srch_list_type` ('fav'/'recent') в FSM; используют новые билдеры.
 4. **5 новых хендлеров**: `slr_fav_srch_start` / `slr_rec_srch_start` (запуск поиска), `slr_srch_cancel` (сброс, восстанавливает `MultipleSaleStates.adding_items`), `slr_fav_srch_process` / `slr_rec_srch_process` (обработка текста, `fsm_edit` + билдер).
 5. GitHub `abb429c` · Amvera `a9b5b3f`.
 
-**Сессия 70 (2026-05-18) — ЗАДАЧА #2 (смержена агентом): ПОМЕСЯЧНАЯ МОТИВАЦИЯ И АРХИВ:**
+**Сессия 199 (2026-05-18) — ЗАДАЧА #2 (смержена агентом): ПОМЕСЯЧНАЯ МОТИВАЦИЯ И АРХИВ:**
 - Таблицы `motivation_schedule` (UNIQUE product_id+year+month) и `extra_conditions_schedule`.
 - `get_effective_motivation_matrix(col_months)` — матрица всех товаров с мотивацией по месяцам.
 - `set_motivation_for_month` / `get_motivation_for_month` (fallback на global).
@@ -716,7 +716,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 - ИСПРАВЛЕН баг: `recalculate_month_earnings` теперь принимает конкретный year/month.
 - GitHub (task agent) `5c7104b` (после мержа).
 
-**Сессия 64 (2026-05-18) — ЗАДАЧА #1: ДИНАМИЧЕСКИЙ ПОИСК ВО ВСЕХ БОЛЬШИХ СПИСКАХ:**
+**Сессия 199 (2026-05-18) — ЗАДАЧА #1: ДИНАМИЧЕСКИЙ ПОИСК ВО ВСЕХ БОЛЬШИХ СПИСКАХ:**
 1. **`states.py`**: добавлена группа `SearchStates` с 12 состояниями: `shop_commission`, `user_catfilt`, `shop_plans`, `user_plans`, `product_plans`, `category_plans`, `product_contests`, `category_contests`, `shop_reports`, `shop_inventory`, `product_inventory`, `shop_contacts`.
 2. **`commission_handlers.py`**: поиск магазина (`coeff_srch_shop_*`, `SearchStates.shop_commission`) + поиск сотрудника в catfilt (`catfilt_srch_*`, `SearchStates.user_catfilt`).
 3. **`reports_handlers.py`**: поиск магазина для периодического отчёта (`rep_srch_shop_*`, `SearchStates.shop_reports`).
@@ -727,13 +727,13 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 8. **Паттерн**: везде используется `fsm_edit` + `anchor_msg_id`. После multiselect-поиска — `await state.set_state(SalesPlansStates.selecting_*)` для восстановления стейта toggle-хендлеров.
 9. GitHub `98df9d8` · Amvera `0b13728`.
 
-**Сессия 62 (2026-05-18) — ИСПРАВЛЕНИЕ КОРРЕКТИРОВОК КОНКУРСА:**
+**Сессия 199 (2026-05-18) — ИСПРАВЛЕНИЕ КОРРЕКТИРОВОК КОНКУРСА:**
 1. **Авто-значение с полными фильтрами** — добавлен метод `compute_contest_shop_auto_totals(contest_id)` в `database.py`. Использует тот же `_build_contest_sale_query()` что и `compute_contest_results` — с фильтрами по товарам/категориям/городам/пользователям. Ранее UI показывал упрощённый `SUM(sale_price * qty)` без фильтров конкурса.
 2. **per_sale (тиры): корректировки недоступны** — `compute_contest_results` в ветке per_sale никогда не вызывал `get_contest_manual_results()`, корректировки молча игнорировались. Теперь при попытке открыть корректировку для per_sale конкурса — внятное сообщение с объяснением.
 3. **Рефакторинг contest_manual_list / contest_manual_set_shop** — оба хендлера заменили самописный SQL на `compute_contest_shop_auto_totals()`.
 4. GitHub `c2393e0` · Amvera `8350ba2`.
 
-**Сессия 61 (2026-05-18) — КОРРЕКТИРОВКА ПОКАЗАТЕЛЕЙ КОНКУРСА В ЛЮБОЙ МОМЕНТ:**
+**Сессия 199 (2026-05-18) — КОРРЕКТИРОВКА ПОКАЗАТЕЛЕЙ КОНКУРСА В ЛЮБОЙ МОМЕНТ:**
 1. **Переименование UX**: «✏️ Ручной ввод результатов» → «✏️ Скорректировать показатели».
 2. **Кнопка добавлена в экран результатов** — доступна всегда, не только из карточки конкурса.
 3. **contest_manual_list**: показывает авто-значение каждого магазина (🏪) или корректировку (✏️) с автором и датой.
@@ -744,26 +744,26 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 **Сессии 119–124 (2026-05-19) — МОНЕТИЗАЦИЯ: ПОЛНЫЙ ЦИКЛ:**
 
-**Сессия 119 — `can_use_integrations` в тарифах:**
+**Сессия 199 — `can_use_integrations` в тарифах:**
 1. Добавлена колонка `can_use_integrations` в `subscription_plans` (миграция ALTER TABLE).
 2. Платные планы: Базовый/Стандарт/Премиум → `can_use_integrations=1`; Бесплатный → 0.
 3. `subscription_utils.py`: `check_integrations_permission(tg_id)` проверяет флаг.
 4. `integration_handlers.py`: `integration_menu` закрыт через `check_integrations_permission`.
 5. Все SELECT `subscription_plans` обновлены (7-й столбец = `can_use_integrations`).
 
-**Сессия 120 — Триал = безлимит через `_has_active_trial()`:**
+**Сессия 199 — Триал = безлимит через `_has_active_trial()`:**
 1. `subscription_utils.py`: `_has_active_trial(tg_id)` → True если `is_trial=1 AND end_date > now`.
 2. `get_plan_limits()`: триал → немедленный return `_UNLIMITED` (минуя lookup плана 'Бизнес').
 3. Устранена путаница: план триала 'Бизнес' не существует в `subscription_plans`, но `_has_active_trial()` перехватывает раньше.
 
-**Сессия 122 — Trial upsell flow:**
+**Сессия 199 — Trial upsell flow:**
 1. `main.py`: `send_trial_expired_upsell(bot)` — ежечасно в :05; dedup через `subscription_reminder_log` (threshold=-1).
 2. `database.py`: `get_recently_expired_trials()` — триалы истёкшие за последние 48ч.
 3. `main.py`: `_TRIAL_FEATURES_LOST` — список потерянных функций; `_sub_markup()` — InlineKeyboardMarkup с «💳 Выбрать тариф» + «✅ Прочитано».
 4. `send_payment_alerts`: расширены trial-specific reminders за 14/7/3/1d (список фич + кнопка).
 5. GitHub `85476dc` · Amvera `ad56380`.
 
-**Сессия 123 — Дифференциация тарифов + авто-отклонение СБП:**
+**Сессия 199 — Дифференциация тарифов + авто-отклонение СБП:**
 1. **Тарифная сетка**: Базовый → `can_use_integrations=0` (Google Таблицы только Стандарт+).
 2. `database.py`: always-running migration: `UPDATE subscription_plans SET can_use_integrations=0 WHERE name='Базовый'`.
 3. **trial_plan 'Бизнес' → 'Премиум'**: `database.py` default_settings, `handlers.py` (2 места), `payment_system_admin.py` (2 места); always-running migration обновляет существующие БД.
@@ -773,12 +773,12 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 7. `main.py`: `auto_reject_stale_payments(bot)` — ежедневно 10:15; отклоняет pending СБП >72ч + уведомление юзеру через `_sub_markup()`.
 8. GitHub `d3b2529` · Amvera `288b234`.
 
-**Сессия 124 — Upsell-кнопка в интеграциях + квитанция при активации:**
+**Сессия 199 — Upsell-кнопка в интеграциях + квитанция при активации:**
 1. `integration_handlers.py`: при `check_integrations_permission() = False` — редактирует сообщение с таблицей тарифов и кнопкой «💳 Выбрать тариф» (вместо `show_alert=True` без кнопок).
 2. `payment_admin_handlers.py`: `confirm_payment_request` — пользователь получает полную квитанцию (тариф + сумма + дата истечения), данные тянутся из `subscription_plans`.
 3. GitHub `3a9650d` · Amvera `46d94fa`.
 
-**Сессия 130–132 — PERFORMANCE AUDIT: answer() + DB indexes + ⏳ indicators:**
+**Сессия 199–132 — PERFORMANCE AUDIT: answer() + DB indexes + ⏳ indicators:**
 1. **10 новых индексов** в `database.py` (create_tables): idx_sales_date, idx_users_city, idx_users_trade_network, idx_products_category, idx_subscriptions_user, idx_sales_plans_user, idx_notif_history_user, idx_sched_notif_dt, idx_plan_milestones — ускоряют выборки по дате/городу/пользователю.
 2. **`answer("⏳ Загрузка...")` добавлен** в `_render_dashboard`, `reports_menu`, `view_ratings`, `report_today`, `report_my_shop`, `report_user_month`, `report_admin_month`, `my_plans` — тяжёлые экраны с несколькими DB-запросами.
 3. **`answer()` перенесён перед DB** в 13 обработчиках: `my_schedule`, `my_schedule_nav` (salary_handlers), `my_plans`, `plnwiz_toggle_category`, `plnwiz_products_page` (sales_plans_handlers), `contest_toggle_category`, `ct_srch_shop_cancel`, `contest_toggle_shop` (contests_handlers), `_render_product_list`, `edit_product_choice`, `confirm_delete_product` (products_handlers), `user_inventory_menu` (inventory_handlers), `catfilt_toggle_category`, `catfilt_allow_all` (commission_handlers).
@@ -787,7 +787,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 6. Принцип: `answer()` — первая строка если нет show_alert-валидации; сразу после последней валидации если есть; toggle-хендлеры — всегда первой строкой.
 7. GitHub `b3c41f4` · Amvera `d04df11`. 45 импортов ✅.
 
-**Сессия 133 — ВЕРИФИКАЦИЯ + GOOGLE SHEETS ДОКУМЕНТАЦИЯ:**
+**Сессия 199 — ВЕРИФИКАЦИЯ + GOOGLE SHEETS ДОКУМЕНТАЦИЯ:**
 1. Верификация: все изменения за 2 дня присутствуют в коде (syntax check всех .py ✅, test_imports ✅).
 2. git статус: local main = `48a148a` (Replit checkpoint); origin/main = `fb845fd` (stale tracking — нормально, deploy.sh пушит из /tmp/github-deploy отдельно). Расхождение 94 vs 50 коммитов — ожидаемо, не баг.
 3. Документирован скоуп Google Sheets интеграции (см. ловушку #30 ниже).
@@ -827,7 +827,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 - 45/45 test_imports ✅ · runtime pool tests ✅ · runtime AsyncDatabase tests ✅
 - GitHub `0ffc019` · Amvera `7355f9a`
 
-**Сессия 43 (2026-05-07) — TOP-3 FIX + АУДИТ:**
+**Сессия 199 (2026-05-07) — TOP-3 FIX + АУДИТ:**
 1. **`report_full`** — убраны `[:3]` у категорий и магазинов; теперь все с guard `> 3500` / `> 3700`.
 2. **`report_my_shop`** — убран `[:3]` у товаров; guard `> 3700` с сообщением «остальные товары в Excel».
 3. **`generate_period_report`** — убран `[:3]` у товаров; аналогичный guard.

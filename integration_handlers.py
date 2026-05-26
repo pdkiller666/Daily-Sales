@@ -931,6 +931,9 @@ def _build_conn_detail_content(conn, conn_id: int, exports: list):
     if cfg.get("auth_type") == "oauth":
         kb.row(InlineKeyboardButton(text="🔑 Переавторизовать Google",
                                     callback_data=f"gs_reauth_{conn_id}"))
+    if exports:
+        kb.row(InlineKeyboardButton(text="📤 Перенести экспорты",
+                                    callback_data=f"gs_move_exports_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"gs_del_conn_{conn_id}"))
     kb.row(_back("integration_menu"))
     return text, kb.as_markup()
@@ -1027,6 +1030,97 @@ async def gs_del_conn_confirm(callback: CallbackQuery, state: FSMContext):
                                   callback_data=f"gs_del_conn_ok_{conn_id}")],
             [InlineKeyboardButton(text="❌ Отмена",
                                   callback_data=f"gs_conn_{conn_id}")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_move_exports_"))
+async def gs_move_exports_pick(callback: CallbackQuery, state: FSMContext):
+    """Show list of other connections to move exports into."""
+    from_id = int(callback.data.split("_")[3])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    all_conns = await current_db.get_integration_connections()
+    others = [c for c in all_conns if c[0] != from_id]
+    if not others:
+        await callback.message.edit_text(
+            "❌ <b>Нет других подключений</b>\n\nСначала создайте новое подключение.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{from_id}")]]),
+            parse_mode="HTML"
+        )
+        return
+    from_conn = await current_db.get_integration_connection(from_id)
+    from_name = from_conn[1] if from_conn else f"#{from_id}"
+    from_exports = await current_db.get_integration_exports(from_id)
+    rows = []
+    for c in others:
+        status_icon = "✅" if c[4] else "❌"
+        rows.append([InlineKeyboardButton(
+            text=f"{status_icon} {c[1]}",
+            callback_data=f"gs_move_exp_to_{from_id}_{c[0]}"
+        )])
+    rows.append([_back(f"gs_conn_{from_id}")])
+    await callback.message.edit_text(
+        f"📤 <b>Перенести экспорты</b>\n\n"
+        f"Из: <b>{from_name}</b> ({len(from_exports)} экспорт(ов))\n\n"
+        f"Выберите <b>целевое</b> подключение:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_move_exp_to_"))
+async def gs_move_exports_confirm(callback: CallbackQuery, state: FSMContext):
+    """Confirm screen before actually moving exports."""
+    parts = callback.data.split("_")
+    from_id, to_id = int(parts[4]), int(parts[5])
+    current_db = await get_db(callback.from_user.id, state)
+    from_conn = await current_db.get_integration_connection(from_id)
+    to_conn   = await current_db.get_integration_connection(to_id)
+    if not from_conn or not to_conn:
+        await callback.answer("❌ Подключение не найдено", show_alert=True)
+        return
+    await callback.answer()
+    from_exports = await current_db.get_integration_exports(from_id)
+    exp_preview = "\n".join(
+        f"  • {EXPORT_TYPE_LABELS.get(e[1], e[1])} → {e[4] or '?'}"
+        for e in from_exports[:8]
+    )
+    if len(from_exports) > 8:
+        exp_preview += f"\n  … ещё {len(from_exports) - 8}"
+    await callback.message.edit_text(
+        f"📤 <b>Подтвердите перенос экспортов</b>\n\n"
+        f"Из: <b>{from_conn[1]}</b>\n"
+        f"В: <b>{to_conn[1]}</b>\n\n"
+        f"Будут перенесены ({len(from_exports)}):\n{exp_preview}\n\n"
+        f"⚠️ Все псевдонимы и настройки сохранятся.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Перенести",
+                                  callback_data=f"gs_move_exp_ok_{from_id}_{to_id}")],
+            [_back(f"gs_move_exports_{from_id}")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_move_exp_ok_"))
+async def gs_move_exports_execute(callback: CallbackQuery, state: FSMContext):
+    """Execute the export transfer."""
+    parts = callback.data.split("_")
+    from_id, to_id = int(parts[4]), int(parts[5])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    moved = await current_db.move_exports_to_connection(from_id, to_id)
+    to_conn = await current_db.get_integration_connection(to_id)
+    to_name = to_conn[1] if to_conn else f"#{to_id}"
+    await callback.message.edit_text(
+        f"✅ <b>Перенесено {moved} экспорт(ов)</b>\n\n"
+        f"Все экспорты теперь привязаны к подключению <b>{to_name}</b>.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚙️ Открыть подключение",
+                                  callback_data=f"gs_conn_{to_id}")],
+            [_back("integration_menu")],
         ]),
         parse_mode="HTML"
     )
