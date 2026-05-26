@@ -1,4 +1,4 @@
-"""Универсальные утилиты пагинации для Telegram inline-клавиатур."""  # noqa: E501
+"""Универсальные утилиты пагинации для Telegram inline-клавиатур."""
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 PAGE_SIZE_DEFAULT = 8
