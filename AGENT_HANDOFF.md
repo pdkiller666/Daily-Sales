@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-26 (сессия 199)
+> Последнее обновление: 2026-05-26 (сессия 200)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,12 +26,12 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `0983dfd` · Amvera `42fb73b` (2026-05-26, сессия 199). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `0983dfd` · Amvera `42fb73b` (2026-05-26, сессия 200). Оба хэша верифицированы через `git ls-remote`.
 
-**Сессия 199 (2026-05-20) — три критических бага исправлены:**
-- `import asyncio` добавлен в `sales_handlers.py` (использовался без импорта → `NameError` в check_sales_limit)
-- `bot_holder.py` — новый синглтон; `from main import bot` везде заменён на `from bot_holder import get_bot` → исправлен «Router is already attached» (повторный импорт `__main__`)
-- AsyncDatabase unwrap перед передачей в integration manager: `sales_handlers.py` и `inventory_handlers.py` теперь передают sync `Database` → исправлен «'coroutine' object is not iterable» в `trigger_export_with_result`
+**Сессия 200 (2026-05-26) — фичи и фиксы:**
+- **Фильтры получателей уведомлений** (`notifications_handlers.py`): после ввода текста → выбор «👥 Всем / 🏪 По магазину / 🎭 По роли»; превью с числом получателей; запланированные уведомления сохраняют фильтр в `recipients_list` (JSON); `check_scheduled_notifications` применяет фильтр при отправке. Супер-admin: только «Всем».
+- **Google Sheets `invalid_grant` fix** (`integration/auth/google_oauth.py`, `integration/manager.py`, `sales_handlers.py`, `integration_handlers.py`): `OAuthTokenRevokedException` класс; `_normalize_gs_error()` конвертирует `google.auth.RefreshError` в дружелюбное сообщение; автоматически отключает подключение (`enabled=0`); в продаже показывает «🔑 Требуется переподключение»; в sync_motivation — инструкция по переподключению.
+- **Перенос экспортов между подключениями** (`integration_handlers.py`, `database.py`): кнопка «📤 Перенести экспорты» на экране подключения (только если есть экспорты); выбор целевого подключения → экран подтверждения с превью экспортов → одна кнопка «✅ Перенести»; `move_exports_to_connection(from_id, to_id)` в database.py — UPDATE connection_id одной транзакцией; все псевдонимы и настройки сохраняются.
 
 **Дополнительные секреты (Google Sheets):**
 - `GOOGLE_OAUTH_CLIENT_ID` — OAuth client_id из Google Cloud Console
@@ -834,6 +834,35 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 4. **Комплексный аудит** — 36 модулей, 559 тестов, 0 bare except, 0 print(), 0 hardcoded secrets, WAL+busy_timeout, APScheduler misfire/coalesce/max_instances=1, все соединения закрываются.
 5. **Нераздражающий techdebt**: 3 строки `BROADCAST DEBUG` в `notifications_handlers.py` (logging.info) — не баги, но стоит убрать перед масштабированием.
 6. GitHub `077ce67` · Amvera `790cabe`. 559 тестов ✅.
+
+**Сессия 200 (2026-05-26) — ФИЛЬТРЫ УВЕДОМЛЕНИЙ + GOOGLE SHEETS FIXES + ПЕРЕНОС ЭКСПОРТОВ:**
+
+**1. Фильтры получателей уведомлений** (`notifications_handlers.py`, `main.py`):
+- После ввода текста → экран «👥 Выберите получателей»: Всем / По магазину / По роли.
+- FSM-ключи: `ntf_rcpt_type` ('all'/'shop'/'role'), `ntf_rcpt_filter` (имя магазина или роль), `ntf_rcpt_label` (display).
+- Превью с числом получателей (`_count_notif_recipients`) перед отправкой.
+- Кнопка «↩️ Изменить получателей» для возврата.
+- Callbacks: `ntf_rcpt_all`, `ntf_rcpt_shop`, `ntf_rcpt_s_{shop}`, `ntf_rcpt_role`, `ntf_rcpt_r_{role}`, `ntf_change_rcpt`.
+- `admin_confirm_send_now`: читает `ntf_rcpt_type`/`ntf_rcpt_filter` из FSM, фильтрует `target_by_db`.
+- `process_schedule_time`: сериализует фильтр в `recipients_list` JSON (`{"type":"shop","filter":"ЦУМ"}`).
+- `check_scheduled_notifications` (main.py): разбирает `notif[5]` (recipients_list JSON) и применяет фильтр при отправке. Обратная совместимость: NULL → отправка всем.
+- Супер-admin видит только «Всем» (кросс-орг фильтрация не реализована).
+
+**2. Google Sheets `invalid_grant` обработка**:
+- `integration/auth/google_oauth.py`: класс `OAuthTokenRevokedException`; `refresh_access_token` детектирует `error_code == 'invalid_grant'` и поднимает его вместо сырого `ValueError`.
+- `integration/manager.py`: `_ensure_valid_token` перехватывает `OAuthTokenRevokedException` → `db.update_integration_connection(conn_id, enabled=0)` + лог → `ValueError` с дружелюбным текстом. Новый хелпер `_normalize_gs_error(e, db, conn_id)`: конвертирует двух-аргументный `google.auth.RefreshError` (формат `('invalid_grant:...', {...})`) → чистый `ValueError`; вызывается в `_run_export` и `_run_export_with_result`.
+- `_run_export` при отозванном токене: `_notify_admins` получает «🔑 Google Sheets: требуется переподключение» вместо сырого tuple-текста.
+- `sales_handlers.py`: отозванный токен → «🔑 Требуется переподключение → Управление орг. → Интеграции».
+- `integration_handlers.py` sync_motivation: детект `invalid_grant` или 'Переподключите' → инструкция пользователю.
+
+**3. Перенос экспортов между подключениями** (`integration_handlers.py`, `database.py`):
+- Кнопка «📤 Перенести экспорты» на экране подключения (только если `len(exports) > 0`).
+- `gs_move_exports_{from_id}` → список других подключений (с иконкой ✅/❌).
+- `gs_move_exp_to_{from_id}_{to_id}` → экран подтверждения с превью экспортов (до 8 строк).
+- `gs_move_exp_ok_{from_id}_{to_id}` → `db.move_exports_to_connection(from_id, to_id)` → отчёт.
+- `database.py`: `move_exports_to_connection(from_conn_id, to_conn_id)` — `UPDATE integration_exports SET connection_id=? WHERE connection_id=?`, возвращает число перенесённых.
+- Все псевдонимы, mapping, lookup, schedule сохраняются без изменений.
+- GitHub `0983dfd` · Amvera `42fb73b`. 703 теста ✅, 0 проблем callback-анализатора.
 
 ---
 
