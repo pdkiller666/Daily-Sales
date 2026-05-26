@@ -304,6 +304,18 @@ async def process_schedule_time(message: Message, state: FSMContext):
             await message.answer("❌ Время должно быть в будущем!")
             return
 
+        _MAX_SCHEDULED = 20
+        _all_pending = await current_db.get_scheduled_notifications(status='pending')
+        _my_pending = [n for n in _all_pending if n[2] == admin_user[0]]
+        if len(_my_pending) >= _MAX_SCHEDULED:
+            await message.answer(
+                f"❌ Достигнут лимит запланированных уведомлений ({_MAX_SCHEDULED}). "
+                f"Удалите некоторые из существующих перед созданием нового.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]])
+            )
+            await clear_state_keep_org(state)
+            return
+
         is_super = env_manager.is_super_admin(message.from_user.id)
         recipients_type = 'all' if is_super else 'org'
         job_id = str(uuid.uuid4())

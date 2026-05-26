@@ -639,14 +639,23 @@ async def process_promocode(message: Message, state: FSMContext):
     promocode = message.text.strip().upper()
     data = await state.get_data()
     plan_key = data.get('plan_key')
-    
+    promo_attempts = data.get('promo_attempts', 0)
+
     _promo_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
     ])
     if not plan_key:
         await fsm_edit(state, message, "❌ Ошибка: данные о плане потеряны. Начните заново.", reply_markup=_promo_kb)
         return
-    
+
+    _MAX_PROMO_ATTEMPTS = 5
+    if promo_attempts >= _MAX_PROMO_ATTEMPTS:
+        await fsm_edit(state, message,
+                       "🚫 Превышено количество попыток ввода промокода. Попробуйте позже.",
+                       reply_markup=_promo_kb)
+        await clear_state_keep_org(state)
+        return
+
     plans = get_current_subscription_plans()
     
     if plan_key not in plans:
@@ -659,8 +668,11 @@ async def process_promocode(message: Message, state: FSMContext):
     validation_result = await db.validate_promocode(promocode)
     
     if not validation_result['valid']:
+        await state.update_data(promo_attempts=promo_attempts + 1)
+        remaining = _MAX_PROMO_ATTEMPTS - promo_attempts - 1
         await fsm_edit(state, message,
-                       f"❌ {validation_result['error']}\n\nПопробуйте ещё раз или продолжите без промокода.",
+                       f"❌ {validation_result['error']}\n\nПопробуйте ещё раз или продолжите без промокода."
+                       + (f" (осталось попыток: {remaining})" if remaining <= 2 else ""),
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                            [InlineKeyboardButton(text="💳 Продолжить без промокода", callback_data=f"proceed_payment_{plan_key}")],
                            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
@@ -930,7 +942,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
                     _sb.close()
                     _duration = _plan_row[0] if _plan_row and _plan_row[0] else 0
                     _org_expires = (
-                        (_dt.now() + _td(days=_duration)).isoformat()
+                        (_dt.now() + _td(days=_duration)).strftime('%Y-%m-%d %H:%M:%S')
                         if _duration > 0 else None
                     )
                     _main_conn = _sql3.connect('data/main.db')

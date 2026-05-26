@@ -270,7 +270,7 @@ async def confirm_payment_request(callback: CallbackQuery):
                     _sb.close()
                     _duration = _plan_row[0] if _plan_row and _plan_row[0] else 0
                     _org_expires = (
-                        (_dt.now() + _td(days=_duration)).isoformat()
+                        (_dt.now() + _td(days=_duration)).strftime('%Y-%m-%d %H:%M:%S')
                         if _duration > 0 else None
                     )
 
