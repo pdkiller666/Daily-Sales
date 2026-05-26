@@ -2717,26 +2717,37 @@ async def admin_shop_employees(callback: CallbackQuery, state: FSMContext):
     shops = await _get_shops_with_stats(db_path)
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
 
-    rows = await _db_run(
+    user_rows = await _db_run(
         db_path,
-        "SELECT u.telegram_id, u.first_name, u.last_name, u.username,"
-        " COALESCE(m.role,'user') as role, COALESCE(m.custom_title,'') as ctitle"
-        " FROM users u"
-        " LEFT JOIN user_org_mapping m ON m.telegram_id = u.telegram_id"
-        " WHERE u.shop_name = ?"
-        " ORDER BY CASE COALESCE(m.role,'user')"
-        "  WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.first_name",
+        "SELECT telegram_id, first_name, last_name, username FROM users"
+        " WHERE shop_name = ? ORDER BY first_name",
         (shop_name,), fetch="all"
     ) or []
 
-    _ROLE_ICON = {'owner': '👑', 'admin': '🔧', 'user': '👤'}
+    role_map: dict = {}
+    if user_rows:
+        tg_ids = [r[0] for r in user_rows]
+        ph = ','.join('?' * len(tg_ids))
+        role_rows = await _db_run(
+            'data/main.db',
+            f"SELECT telegram_id, role, COALESCE(custom_title,'') FROM user_org_mapping"
+            f" WHERE telegram_id IN ({ph})",
+            tuple(tg_ids), fetch="all"
+        ) or []
+        role_map = {r[0]: (r[1], r[2]) for r in role_rows}
+
+    _ROLE_ORDER = {'owner': 0, 'admin': 1, 'user': 2}
+    _ROLE_ICON  = {'owner': '👑', 'admin': '🔧', 'user': '👤'}
     _ROLE_LABEL = {'owner': 'Владелец', 'admin': 'Администратор', 'user': 'Сотрудник'}
 
-    if not rows:
+    user_rows = sorted(user_rows, key=lambda r: _ROLE_ORDER.get(role_map.get(r[0], ('user',))[0], 2))
+
+    if not user_rows:
         text = f"👥 <b>Сотрудники</b>\n🏪 {he(shop_name)}\n\n❌ Нет сотрудников."
     else:
-        text = f"👥 <b>Сотрудники</b> · {len(rows)} чел.\n🏪 {he(shop_name)}\n\n"
-        for tg_id, fn, ln, uname, role, ctitle in rows:
+        text = f"👥 <b>Сотрудники</b> · {len(user_rows)} чел.\n🏪 {he(shop_name)}\n\n"
+        for tg_id, fn, ln, uname in user_rows:
+            role, ctitle = role_map.get(tg_id, ('user', ''))
             icon  = _ROLE_ICON.get(role, '👤')
             label = ctitle or _ROLE_LABEL.get(role, role)
             name  = f"{fn or ''} {ln or ''}".strip() or "—"

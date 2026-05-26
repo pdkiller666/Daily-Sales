@@ -1,0 +1,2 @@
+- [UX hub pattern](ux-hub-pattern.md) — консолидация кнопок в хаб-меню: 3→1 кнопка + промежуточный экран; back из хаба → родительское меню
+- [Dashboard в главном меню](menu-dashboard.md) — `_quick_menu_summary()` в handlers.py: sync DB-методы в async OK (SQLite fast), всё в try/except, пустая строка при любой ошибке
