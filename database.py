@@ -3950,6 +3950,45 @@ class Database:
                 conn.close()
             return False
 
+    def delete_sales_by_shop_period(self, shop_name: str, start_date: str, end_date: str) -> int:
+        """Массовое удаление продаж магазина за период с восстановлением остатков.
+        Возвращает количество удалённых записей, или -1 при ошибке."""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, product_id, quantity_sold FROM sales"
+                " WHERE shop_name = ? AND sale_date BETWEEN ? AND ?",
+                (shop_name, start_date, end_date)
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                conn.close()
+                return 0
+            now = datetime.now().isoformat()
+            for sale_id, product_id, qty in rows:
+                cursor.execute(
+                    "UPDATE inventory SET quantity = quantity + ?, last_updated = ?"
+                    " WHERE shop_name = ? AND product_id = ?",
+                    (qty, now, shop_name, product_id)
+                )
+                cursor.execute("DELETE FROM seller_earnings WHERE sale_id = ?", (sale_id,))
+                cursor.execute("DELETE FROM sales_audit_log WHERE sale_id = ?", (sale_id,))
+            cursor.execute(
+                "DELETE FROM sales WHERE shop_name = ? AND sale_date BETWEEN ? AND ?",
+                (shop_name, start_date, end_date)
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return deleted
+        except Exception as e:
+            logger.error(f"Ошибка при массовом удалении продаж: {e}")
+            if conn:
+                conn.close()
+            return -1
+
     def delete_subscription_plan(self, plan_id):
         """Удаление тарифного плана с сохранением активных подписок"""
         try:

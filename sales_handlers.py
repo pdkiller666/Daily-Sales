@@ -1768,13 +1768,19 @@ async def cancel_sale(callback: CallbackQuery, state: FSMContext):
 
 @sales_router.callback_query(F.data == "edit_sales")
 async def edit_sales_menu(callback: CallbackQuery, state: FSMContext):
-    """Меню управления продажами"""
+    """Хаб управления продажами (для админа) или прямой вход (для сотрудника)"""
     await callback.answer()
-    is_admin = is_any_admin(callback.from_user.id)
-    
     await clear_state_keep_org(state)
-    
-    await edit_sales_start(callback, state)
+    is_admin = is_any_admin(callback.from_user.id)
+    if not is_admin:
+        await edit_sales_start(callback, state)
+        return
+    from keyboards import edit_sales_hub
+    await callback.message.edit_text(
+        "📝 <b>Управление продажами</b>\n\nВыберите действие:",
+        reply_markup=edit_sales_hub(),
+        parse_mode="HTML"
+    )
 
 @sales_router.callback_query(F.data == "edit_sales_start")
 async def edit_sales_start(callback: CallbackQuery, state: FSMContext):
@@ -1784,7 +1790,7 @@ async def edit_sales_start(callback: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     is_admin = is_any_admin(callback.from_user.id)
-    back_cb = "admin_management" if is_admin else "main_menu"
+    back_cb = "edit_sales" if is_admin else "main_menu"
     
     await callback.message.edit_text(
         "📝 Редактирование продаж\n\nВыберите период:",
@@ -2644,3 +2650,243 @@ async def edit_sales_calendar_handler(callback: CallbackQuery, state: FSMContext
             await show_sales_for_edit(callback, sales, state, f"За период {period_title}")
 
         await callback.answer()
+
+
+# ─── Массовое удаление продаж ─────────────────────────────────────────────────
+
+@sales_router.callback_query(F.data == "sales_bulk_delete")
+async def sales_bulk_delete_start(callback: CallbackQuery, state: FSMContext):
+    """Хаб → выбор магазина для массового удаления продаж"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    shops = sorted(set(await current_db.get_all_shops() or []) | set(await current_db.get_inventory_shops() or []))
+
+    if not shops:
+        await callback.message.edit_text(
+            "🏪 Магазины не найдены.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_sales")]])
+        )
+        return
+
+    builder = InlineKeyboardBuilder()
+    for shop in shops:
+        builder.add(InlineKeyboardButton(text=shop, callback_data=safe_cb("sbd_shop_", shop)))
+    builder.add(back_button("edit_sales"))
+    builder.adjust(2, 1)
+
+    await callback.message.edit_text(
+        "🗑 <b>Удаление продаж за период</b>\n\n🏪 Выберите магазин:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data.startswith("sbd_shop_"))
+async def sales_bulk_delete_shop(callback: CallbackQuery, state: FSMContext):
+    """Магазин выбран — показываем выбор периода"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    key = callback.data[len("sbd_shop_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    shops = await current_db.get_all_shops() or []
+    shop_name = resolve_cb_name(key, shops)
+    await state.update_data(sbd_shop_name=shop_name)
+    await _sbd_show_period_menu(callback, shop_name)
+
+
+async def _sbd_show_period_menu(callback: CallbackQuery, shop_name: str):
+    """Показывает меню выбора периода для массового удаления"""
+    from datetime import date, timedelta
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    week_ago  = today - timedelta(days=7)
+    month_ago = today - timedelta(days=30)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📅 За сегодня",         callback_data=f"sbd_period_{today}_{today}")],
+        [InlineKeyboardButton(text="📅 Вчера",              callback_data=f"sbd_period_{yesterday}_{yesterday}")],
+        [InlineKeyboardButton(text="📅 Последние 7 дней",   callback_data=f"sbd_period_{week_ago}_{today}")],
+        [InlineKeyboardButton(text="📅 Последние 30 дней",  callback_data=f"sbd_period_{month_ago}_{today}")],
+        [InlineKeyboardButton(text="🗓 Выбрать период",     callback_data="sbd_calendar")],
+        [back_button("sales_bulk_delete")],
+    ])
+    await callback.message.edit_text(
+        f"🗑 <b>Удаление продаж за период</b>\n\n🏪 Магазин: <b>{he(shop_name)}</b>\n\nВыберите период:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data.startswith("sbd_period_"))
+async def sales_bulk_delete_period(callback: CallbackQuery, state: FSMContext):
+    """Период выбран — сохраняем и показываем подтверждение"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    raw = callback.data[len("sbd_period_"):]
+    start_date, end_date = raw.split("_", 1)
+    await state.update_data(sbd_start_date=start_date, sbd_end_date=end_date)
+    await _sbd_show_confirm(callback, state)
+
+
+async def _sbd_show_confirm(callback: CallbackQuery, state: FSMContext):
+    """Экран подтверждения: показывает количество продаж и кнопки подтверждения"""
+    data = await state.get_data()
+    shop_name  = data.get("sbd_shop_name", "")
+    start_date = data.get("sbd_start_date", "")
+    end_date   = data.get("sbd_end_date", "")
+
+    current_db = await get_db(callback.from_user.id, state)
+    sales = await current_db.get_shop_sales_by_date(shop_name, start_date, end_date) or []
+    count = len(sales)
+
+    period_str = (
+        format_date_display(start_date)
+        if start_date == end_date
+        else f"{format_date_display(start_date)} — {format_date_display(end_date)}"
+    )
+
+    if count == 0:
+        await callback.message.edit_text(
+            f"📝 В магазине <b>{he(shop_name)}</b> нет продаж\nза период: {period_str}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_sales")]]),
+            parse_mode="HTML"
+        )
+        return
+
+    await callback.message.edit_text(
+        f"⚠️ <b>Подтверждение удаления</b>\n\n"
+        f"🏪 Магазин: <b>{he(shop_name)}</b>\n"
+        f"📅 Период: {period_str}\n"
+        f"📝 Продаж к удалению: <b>{count}</b>\n\n"
+        f"❗️ Остатки будут восстановлены. Действие необратимо!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"✅ Удалить {count} прод.", callback_data="sbd_confirm")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="edit_sales")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data == "sbd_calendar")
+async def sales_bulk_delete_calendar(callback: CallbackQuery, state: FSMContext):
+    """Начало выбора произвольного периода через календарь"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    from keyboards import generate_calendar
+    await state.update_data(sbd_selecting_start=True)
+    calendar = generate_calendar(cancel_callback="sbd_calendar_cancel", prefix="sbd_cal_")
+    await callback.message.edit_text("📅 Выберите начальную дату периода:", reply_markup=calendar)
+
+
+@sales_router.callback_query(F.data == "sbd_calendar_cancel")
+async def sales_bulk_delete_calendar_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отмена выбора даты через календарь — возврат к меню периодов"""
+    await callback.answer()
+    data = await state.get_data()
+    shop_name = data.get("sbd_shop_name", "")
+    await _sbd_show_period_menu(callback, shop_name)
+
+
+@sales_router.callback_query(F.data.startswith("sbd_cal_"))
+async def sales_bulk_delete_cal_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработка навигации и выбора дат в календаре для массового удаления"""
+    from keyboards import generate_calendar
+    from datetime import datetime, date
+
+    action = callback.data[len("sbd_cal_"):]
+    data = await state.get_data()
+
+    if action == "ignore":
+        await callback.answer()
+        return
+
+    if action.startswith("nav_"):
+        nav_parts = action.replace("nav_", "").split("_")
+        y, m = int(nav_parts[0]), int(nav_parts[1])
+        await state.update_data(sbd_cal_year=y, sbd_cal_month=m)
+        is_start = data.get("sbd_selecting_start", True)
+        label = "начальную" if is_start else "конечную"
+        cal = generate_calendar(y, m, "sbd_calendar_cancel", "sbd_cal_")
+        await callback.message.edit_text(f"📅 Выберите {label} дату периода:", reply_markup=cal)
+        await callback.answer()
+        return
+
+    if action.startswith("date_"):
+        date_str = action.replace("date_", "")
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            await callback.answer("❌ Неверный формат даты!", show_alert=True)
+            return
+
+        is_start = data.get("sbd_selecting_start", True)
+        if is_start:
+            await state.update_data(sbd_start_date=date_str, sbd_selecting_start=False)
+            cal = generate_calendar(cancel_callback="sbd_calendar_cancel", prefix="sbd_cal_")
+            await callback.message.edit_text(
+                f"📅 <b>Выбор периода</b>\n✅ Начало: {format_date_display(date_str)}\n\nВыберите конечную дату:",
+                reply_markup=cal,
+                parse_mode="HTML"
+            )
+        else:
+            start = data.get("sbd_start_date", "")
+            if date_str < start:
+                await callback.answer("❌ Конечная дата не может быть раньше начальной!", show_alert=True)
+                return
+            await state.update_data(sbd_end_date=date_str, sbd_selecting_start=True)
+            await _sbd_show_confirm(callback, state)
+
+        await callback.answer()
+        return
+
+    await callback.answer()
+
+
+@sales_router.callback_query(F.data == "sbd_confirm")
+async def sales_bulk_delete_confirm(callback: CallbackQuery, state: FSMContext):
+    """Выполнение массового удаления продаж после подтверждения"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    data = await state.get_data()
+    shop_name  = data.get("sbd_shop_name", "")
+    start_date = data.get("sbd_start_date", "")
+    end_date   = data.get("sbd_end_date", "")
+
+    current_db = await get_db(callback.from_user.id, state)
+    deleted = await current_db.delete_sales_by_shop_period(shop_name, start_date, end_date)
+
+    period_str = (
+        format_date_display(start_date)
+        if start_date == end_date
+        else f"{format_date_display(start_date)} — {format_date_display(end_date)}"
+    )
+
+    if deleted < 0:
+        text = "❌ Ошибка при удалении. Попробуйте ещё раз."
+    elif deleted == 0:
+        text = "📝 Продаж для удаления не найдено."
+    else:
+        text = (
+            f"✅ <b>Удалено {deleted} продаж</b>\n\n"
+            f"🏪 Магазин: {he(shop_name)}\n"
+            f"📅 Период: {period_str}\n"
+            f"📦 Остатки восстановлены."
+        )
+
+    await clear_state_keep_org(state)
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_sales")]]),
+        parse_mode="HTML"
+    )
