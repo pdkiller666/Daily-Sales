@@ -1712,7 +1712,10 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
         except Exception as _notif_err:
             logging.error(f"Ошибка уведомлений коллег по смене: {_notif_err}")
 
-        await clear_state_keep_org(state)
+        try:
+            await clear_state_keep_org(state)
+        except Exception as _cls_err:
+            logging.warning(f"complete_sale: clear_state_keep_org error: {_cls_err}")
 
     except Exception as e:
         logging.error(f"Ошибка в complete_sale: {e!r}", exc_info=True)

@@ -1860,7 +1860,7 @@ class Database:
                     end_date = '9999-12-31 23:59:59'
                 else:
                     # Платный план - добавляем указанное количество дней
-                    end_date = (datetime.now() + timedelta(days=duration_days)).isoformat()
+                    end_date = (datetime.now() + timedelta(days=duration_days)).strftime('%Y-%m-%d %H:%M:%S')
             else:
                 # Fallback для новых пользователей - создаем бесплатную подписку
                 end_date = '9999-12-31 23:59:59'
@@ -3690,13 +3690,13 @@ class Database:
         }
 
     def apply_promocode(self, promocode_id):
-        """Применение промокода — атомарный инкремент с проверкой лимита."""
+        """Применение промокода — атомарный инкремент с проверкой лимита и активности."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE promocodes
             SET usage_count = usage_count + 1
-            WHERE id = ? AND usage_count < max_usage
+            WHERE id = ? AND usage_count < max_usage AND is_active = 1
         ''', (promocode_id,))
         success = cursor.rowcount > 0
         conn.commit()

@@ -48,6 +48,7 @@ def get_available_filter_values(current_db, scope_type: str, scope_values: list)
     else:
         all_shops, all_cities, all_networks = [], [], []
         if db_path and db_path != str(id(current_db)):
+            _conn = None
             try:
                 _conn = _sqlite3.connect(db_path)
                 all_shops = [r[0] for r in _conn.execute(
@@ -64,9 +65,11 @@ def get_available_filter_values(current_db, scope_type: str, scope_values: list)
                     "WHERE trade_network IS NOT NULL AND trade_network != '' "
                     "AND trade_network != 'System'"
                 ).fetchall()]
-                _conn.close()
             except Exception:
                 pass
+            finally:
+                if _conn:
+                    _conn.close()
         _FILTER_VALUES_CACHE[db_path] = (all_shops, all_cities, all_networks, now)
 
     if not scope_type or scope_type == 'all':
