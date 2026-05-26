@@ -76,6 +76,7 @@ AMVERA_ONLY_EXCLUDE_FILES = {
     'replit.md',
     'PROJECT_MAP.md',
     'README.md',
+    'UI_MAP.md',
     '.gitignore',
     '.env.example',
     'deploy.sh',
