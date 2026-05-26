@@ -595,7 +595,7 @@ check("resolve_cb_name: пустые кандидаты → partial",
 # ─────────────────────────────────────────────────────────
 section("Сценарий 11: Генерация клавиатур")
 
-from keyboards import (generate_calendar, products_menu, inventory_menu,
+from keyboards import (generate_calendar, products_menu,
                        cancel_registration_keyboard, usage_mode_keyboard,
                        create_confirm_keyboard, back_button, timezone_keyboard)
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -630,7 +630,6 @@ check("generate_calendar: дек 2024 nav вперёд = янв 2025",
 
 # Другие клавиатуры
 check("products_menu: тип", isinstance(products_menu(), InlineKeyboardMarkup))
-check("inventory_menu: тип", isinstance(inventory_menu(), InlineKeyboardMarkup))
 
 cancel_kb = cancel_registration_keyboard()
 cancel_cbs = [btn.callback_data for row in cancel_kb.inline_keyboard for btn in row]
