@@ -1872,9 +1872,14 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
     period_title = f"Магазин {shop_name}"
     await show_sales_for_edit(callback, sales, state, period_title)
 
-async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
+async def show_sales_for_edit(callback_or_msg, sales, state: FSMContext,
                               period_title: str, page: int = 0):
-    """Показывает список продаж для редактирования (с пагинацией)."""
+    """Показывает список продаж для редактирования (с пагинацией).
+    Принимает CallbackQuery или Message — во втором случае редактирует якорь через fsm_edit."""
+    from aiogram.types import Message as _Msg
+    _is_msg = isinstance(callback_or_msg, _Msg)
+    user_id = callback_or_msg.from_user.id
+
     await state.update_data(edit_sales_cache=sales, edit_sales_title=period_title)
 
     builder = InlineKeyboardBuilder()
@@ -1897,9 +1902,8 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
             sale_date    = sale[6]
             product_name = sale[7] if len(sale) > 7 else "Неизвестный товар"
             total        = quantity * sale_price
-            formatted_date = format_date_for_user(sale_date, callback.from_user.id)
+            formatted_date = format_date_for_user(sale_date, user_id)
 
-            # Имя продавца доступно только в admin-режиме (get_shop_sales_by_date → 11 колонок)
             seller_line = ""
             if len(sale) >= 11 and sale[9]:
                 seller_full = (f"{sale[9]} {sale[10] or ''}").strip()
@@ -1921,9 +1925,12 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
         builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
         builder.adjust(1)
 
-    # Сохраняем текущую страницу для восстановления из карточки продажи
     await state.update_data(edit_sales_page_num=page)
-    await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    kb = builder.as_markup()
+    if _is_msg:
+        await fsm_edit(state, callback_or_msg, message_text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await callback_or_msg.message.edit_text(message_text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(EditSaleStates.choosing_sale)
 
 
@@ -1956,14 +1963,8 @@ async def esl_srch_process(message: Message, state: FSMContext):
     else:
         matched = sales
 
-    # Создаём фейковый callback чтобы переиспользовать show_sales_for_edit
-    class _FakeCB:
-        def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
-        async def answer(self): pass
-
-    fake_cb = _FakeCB(message)
     suffix = f" · 🔍 «{query}»" if query else ""
-    await show_sales_for_edit(fake_cb, matched, state, title + suffix, page=0)
+    await show_sales_for_edit(message, matched, state, title + suffix, page=0)
 
 
 @sales_router.callback_query(F.data.startswith("esl_pg_"))
