@@ -766,6 +766,42 @@ async def hint_dismiss_handler(callback: CallbackQuery):
         pass
 
 
+async def _quick_menu_summary(db, user_row, is_admin: bool, tid: int) -> str:
+    """Лёгкая сводка дня для заголовка главного меню. Никогда не бросает исключений."""
+    try:
+        from dashboard_handlers import _scope_filter_kwargs
+        from db_utils import get_user_org_scope
+        today = date.today().isoformat()
+        lines = []
+
+        if is_admin:
+            scope_type, scope_values = get_user_org_scope(tid)
+            skwargs = _scope_filter_kwargs(scope_type, scope_values)
+            summary = db.get_sales_summary(start_date=today, end_date=today, **skwargs)
+        else:
+            uid = user_row[0]
+            summary = db.get_sales_summary(start_date=today, end_date=today, user_id=uid)
+
+        cnt = int((summary[0] or 0) if summary else 0)
+        rev = float((summary[2] or 0) if summary else 0)
+        if cnt > 0:
+            lines.append(f"📅 <b>Сегодня:</b> {cnt} прод. · {format_currency(rev)} ₽")
+
+        # Малые остатки (только если есть user_row)
+        if user_row:
+            try:
+                low = db.get_low_stock_items_for_user(user_row[0])
+                n = len(low) if low else 0
+                if n:
+                    lines.append(f"⚠️ Малых остатков: {n}")
+            except Exception:
+                pass
+
+        return ("\n" + "\n".join(lines)) if lines else ""
+    except Exception:
+        return ""
+
+
 @router.callback_query(F.data == "main_menu")
 async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню"""
@@ -786,8 +822,10 @@ async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
             _banner = f"\n\n⚠️ <b>Подписка истекает через {_days} дн.</b> Не забудьте продлить."
 
     if user:
+        _is_admin = is_any_admin(callback.from_user.id)
+        _summary = await _quick_menu_summary(current_db, user, _is_admin, callback.from_user.id)
         await callback.message.edit_text(
-            f"🏪 <b>Главное меню</b>{_banner}",
+            f"🏪 <b>Главное меню</b>{_summary}{_banner}",
             reply_markup=main_menu(callback.from_user.id, user[8]),
             parse_mode="HTML"
         )
