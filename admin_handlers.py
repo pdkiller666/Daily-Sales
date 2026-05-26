@@ -838,6 +838,22 @@ async def admin_management_menu_handler(callback: CallbackQuery, state: FSMConte
         parse_mode="HTML"
     )
 
+@admin_router.callback_query(F.data == "catalog_menu")
+async def catalog_menu_handler(callback: CallbackQuery, state: FSMContext):
+    """Меню каталога: товары + остатки"""
+    is_super = env_manager.is_super_admin(callback.from_user.id)
+    is_admin = is_super or is_any_admin(callback.from_user.id)
+    if not is_admin:
+        await callback.answer("❌ Доступ запрещен!", show_alert=True)
+        return
+    await callback.answer()
+    from keyboards import catalog_menu
+    await callback.message.edit_text(
+        "📦 <b>Каталог товаров</b>\n\nВыберите раздел:",
+        reply_markup=catalog_menu(),
+        parse_mode="HTML"
+    )
+
 @admin_router.callback_query(F.data == "select_org_0")
 async def select_personal_org(callback: CallbackQuery, state: FSMContext):
     """Быстрый выбор личного кабинета"""

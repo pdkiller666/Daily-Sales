@@ -63,8 +63,7 @@ def admin_management_menu(chat_id: int):
     """Меню управления для администратора организации"""
     builder = InlineKeyboardBuilder()
     builder.add(
-        InlineKeyboardButton(text="🛍 Упр. товарами", callback_data="products"),
-        InlineKeyboardButton(text="📦 Упр. остатками", callback_data="manage_inventory"),
+        InlineKeyboardButton(text="📦 Каталог товаров", callback_data="catalog_menu"),
         InlineKeyboardButton(text="📝 Упр. продажами", callback_data="edit_sales"),
         InlineKeyboardButton(text="🎯 Упр. мотивацией", callback_data="admin_motivation"),
         InlineKeyboardButton(text="📋 Планы продаж", callback_data="admin_sales_plans"),
@@ -73,8 +72,20 @@ def admin_management_menu(chat_id: int):
         InlineKeyboardButton(text="👥 Упр. сотрудниками", callback_data="admin_users"),
         InlineKeyboardButton(text="🏪 Упр. магазинами", callback_data="admin_shops"),
         InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_menu"),
+        InlineKeyboardButton(text="📨 Рассылка сотрудникам", callback_data="admin_send_notification"),
     )
     builder.add(back_button("main_menu"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+def catalog_menu():
+    """Меню каталога: товары + остатки"""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="🛍 Управление товарами", callback_data="products"),
+        InlineKeyboardButton(text="📦 Управление остатками", callback_data="manage_inventory"),
+        back_button("admin_management"),
+    )
     builder.adjust(1)
     return builder.as_markup()
 
@@ -89,7 +100,7 @@ def products_menu():
         InlineKeyboardButton(text="📂 Категории", callback_data="categories_menu"),
         InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_product"),
         InlineKeyboardButton(text="🗑 Удалить товар", callback_data="delete_product"),
-        back_button("admin_management")
+        back_button("catalog_menu")
     )
     builder.adjust(2, 1, 1, 1, 2, 1)
     return builder.as_markup()

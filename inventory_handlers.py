@@ -34,7 +34,7 @@ async def manage_inventory_callback(callback: CallbackQuery, state: FSMContext):
     rows = [
         [InlineKeyboardButton(text="👁️ Просмотр остатков",    callback_data="user_inventory_view")],
         [InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit")],
-        [back_button("admin_management")],
+        [back_button("catalog_menu")],
     ]
 
     await callback.message.edit_text(
