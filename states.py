@@ -166,6 +166,8 @@ class SearchStates(StatesGroup):
     sale_recent        = State()   # sales_handlers — поиск в Недавних
     slr_rates_srch     = State()   # salary_handlers — поиск в ставках сотрудников
     slr_scheds_srch    = State()   # salary_handlers — поиск в графиках работы
+    inv_edit_srch      = State()   # inventory_handlers — поиск при редактировании остатков
+    edit_sales_srch    = State()   # sales_handlers — поиск при редактировании продаж
 
 class ExcelImportStates(StatesGroup):
     waiting_file       = State()
@@ -201,6 +203,8 @@ class AdjustmentStates(StatesGroup):
 class AdminShopStates(StatesGroup):
     waiting_for_new_shop_name = State()
     waiting_for_renamed_shop  = State()
+    waiting_for_city          = State()
+    waiting_for_network       = State()
 
 class GSImportStates(StatesGroup):
     waiting_sheet_name  = State()

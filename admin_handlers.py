@@ -2196,14 +2196,16 @@ async def _get_shop_db_path(state: FSMContext) -> str:
 
 
 async def _get_shops_with_stats(db_path: str) -> list:
-    """Возвращает список (name, user_count, inv_count) для всех магазинов."""
+    """Возвращает список (name, user_count, inv_count, city, trade_network) для всех магазинов."""
     try:
         rows = await _db_run(
             db_path,
-            "SELECT name,"
+            "SELECT q.name,"
             " (SELECT COUNT(*) FROM users WHERE shop_name = q.name) as uc,"
             " (SELECT COUNT(DISTINCT product_id) FROM inventory"
-            "   WHERE shop_name = q.name AND quantity > 0) as ic"
+            "   WHERE shop_name = q.name AND quantity > 0) as ic,"
+            " COALESCE(s.city, '') as city,"
+            " COALESCE(s.trade_network, '') as trade_network"
             " FROM ("
             "  SELECT DISTINCT shop_name AS name FROM users"
             "   WHERE shop_name IS NOT NULL AND shop_name != ''"
@@ -2213,13 +2215,13 @@ async def _get_shops_with_stats(db_path: str) -> list:
             "  UNION"
             "  SELECT DISTINCT shop_name AS name FROM inventory"
             "   WHERE shop_name IS NOT NULL AND shop_name != ''"
-            " ) q ORDER BY name",
+            " ) q LEFT JOIN shops s ON s.name = q.name ORDER BY q.name",
             fetch="all"
         ) or []
     except Exception:
         rows = await _db_run(
             db_path,
-            "SELECT DISTINCT shop_name, 0, 0 FROM users"
+            "SELECT DISTINCT shop_name, 0, 0, '', '' FROM users"
             " WHERE shop_name IS NOT NULL AND shop_name != ''"
             " AND shop_name NOT IN ('Системный','System')"
             " ORDER BY shop_name",
@@ -2240,23 +2242,162 @@ async def admin_shops_list(callback: CallbackQuery, state: FSMContext):
     db_path = await _get_shop_db_path(state)
     shops = await _get_shops_with_stats(db_path)
 
-    text = "🏪 <b>Управление магазинами</b>\n\n"
+    total = len(shops)
+    text = f"🏪 <b>Управление магазинами</b> · {total} шт.\n\n"
     if shops:
-        for name, users, inv in shops:
-            text += f"• <b>{he(name)}</b> — 👥 {users} сотр., 📦 {inv} поз.\n"
+        for row in shops:
+            name, users, inv = row[0], row[1], row[2]
+            city = row[4] if len(row) > 4 else ""
+            net  = row[5] if len(row) > 5 else ""
+            meta = f"👥 {users} сотр., 📦 {inv} поз."
+            if city:
+                meta += f", 🏙 {he(city)}"
+            if net:
+                meta += f", 🌐 {he(net)}"
+            text += f"• <b>{he(name)}</b> — {meta}\n"
     else:
         text += "Магазины ещё не добавлены.\n"
-    text += "\nВыберите магазин для редактирования или добавьте новый:"
+    text += "\nНажмите на магазин для редактирования:"
 
     builder = InlineKeyboardBuilder()
-    for name, users, inv in shops:
-        builder.row(
-            InlineKeyboardButton(text=f"✏️ {name}", callback_data=safe_cb("ashop_ren_", name)),
-            InlineKeyboardButton(text="🗑", callback_data=safe_cb("ashop_del_", name)),
-        )
+    for row in shops:
+        name = row[0]
+        builder.button(text=f"🏪 {name}", callback_data=safe_cb("ashop_edit_", name))
+    builder.adjust(1)
     builder.row(InlineKeyboardButton(text="➕ Добавить магазин", callback_data="ashop_add"))
     builder.row(back_button("admin_management"))
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data.startswith("ashop_edit_"))
+async def admin_shop_edit_detail(callback: CallbackQuery, state: FSMContext):
+    """Страница редактирования конкретного магазина"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_edit_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    stat = next((s for s in shops if s[0] == shop_name), None)
+    users = stat[1] if stat else 0
+    inv   = stat[2] if stat else 0
+    city  = (stat[4] if stat and len(stat) > 4 else "") or ""
+    net   = (stat[5] if stat and len(stat) > 5 else "") or ""
+
+    lines = [
+        f"🏪 <b>{he(shop_name)}</b>",
+        f"👥 Сотрудников: {users}",
+        f"📦 Позиций в остатках: {inv}",
+    ]
+    if city:
+        lines.append(f"🏙 Город: {he(city)}")
+    if net:
+        lines.append(f"🌐 Торговая сеть: {he(net)}")
+    text = "\n".join(lines) + "\n\nВыберите действие:"
+
+    await state.update_data(shop_edit_name=shop_name)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Переименовать", callback_data=safe_cb("ashop_ren_", shop_name))
+    builder.button(text=f"🏙 {'Изменить город' if city else 'Добавить город'}", callback_data=safe_cb("ashop_city_", shop_name))
+    builder.button(text=f"🌐 {'Изменить сеть' if net else 'Добавить сеть'}", callback_data=safe_cb("ashop_net_", shop_name))
+    builder.button(text="🗑 Удалить", callback_data=safe_cb("ashop_del_", shop_name))
+    builder.button(text="⬅️ К списку", callback_data="admin_shops")
+    builder.adjust(1)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data.startswith("ashop_city_"))
+async def admin_shop_city_start(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование города магазина"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_city_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    await state.update_data(shop_edit_name=shop_name)
+    await fsm_edit(
+        state, callback.message,
+        f"🏙 <b>Город магазина</b>\n\n"
+        f"Магазин: <b>{he(shop_name)}</b>\n\n"
+        "Введите название города (или пустую строку чтобы убрать):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminShopStates.waiting_for_city)
+
+
+@admin_router.message(AdminShopStates.waiting_for_city)
+async def admin_shop_city_process(message: Message, state: FSMContext):
+    """Сохранить город магазина"""
+    data = await state.get_data()
+    shop_name = data.get('shop_edit_name', '')
+    city_value = (message.text or "").strip()
+    db_path = await _get_shop_db_path(state)
+    _kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_shops")]])
+    try:
+        await _db_run(db_path,
+                      "INSERT INTO shops (name, city) VALUES (?, ?)"
+                      " ON CONFLICT(name) DO UPDATE SET city = excluded.city",
+                      (shop_name, city_value))
+        if city_value:
+            msg = f"✅ Город магазина <b>{he(shop_name)}</b> установлен: <b>{he(city_value)}</b>"
+        else:
+            msg = f"✅ Город магазина <b>{he(shop_name)}</b> удалён."
+    except Exception as e:
+        msg = f"❌ Ошибка: {he(str(e))}"
+    await fsm_edit(state, message, msg, reply_markup=_kb, parse_mode="HTML")
+    await clear_state_keep_org(state)
+
+
+@admin_router.callback_query(F.data.startswith("ashop_net_"))
+async def admin_shop_network_start(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование торговой сети магазина"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_net_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    await state.update_data(shop_edit_name=shop_name)
+    await fsm_edit(
+        state, callback.message,
+        f"🌐 <b>Торговая сеть магазина</b>\n\n"
+        f"Магазин: <b>{he(shop_name)}</b>\n\n"
+        "Введите название сети (или пустую строку чтобы убрать):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminShopStates.waiting_for_network)
+
+
+@admin_router.message(AdminShopStates.waiting_for_network)
+async def admin_shop_network_process(message: Message, state: FSMContext):
+    """Сохранить торговую сеть магазина"""
+    data = await state.get_data()
+    shop_name = data.get('shop_edit_name', '')
+    net_value = (message.text or "").strip()
+    db_path = await _get_shop_db_path(state)
+    _kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_shops")]])
+    try:
+        await _db_run(db_path,
+                      "INSERT INTO shops (name, trade_network) VALUES (?, ?)"
+                      " ON CONFLICT(name) DO UPDATE SET trade_network = excluded.trade_network",
+                      (shop_name, net_value))
+        if net_value:
+            msg = f"✅ Торговая сеть магазина <b>{he(shop_name)}</b>: <b>{he(net_value)}</b>"
+        else:
+            msg = f"✅ Торговая сеть магазина <b>{he(shop_name)}</b> удалена."
+    except Exception as e:
+        msg = f"❌ Ошибка: {he(str(e))}"
+    await fsm_edit(state, message, msg, reply_markup=_kb, parse_mode="HTML")
+    await clear_state_keep_org(state)
 
 
 @admin_router.callback_query(F.data == "ashop_add")
@@ -2334,7 +2475,7 @@ async def admin_shop_rename_start(callback: CallbackQuery, state: FSMContext):
         f"✏️ <b>Переименование магазина</b>\n\n"
         f"Текущее название: <b>{he(shop_name)}</b>\n\n"
         f"Введите новое название:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_shops")]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]),
         parse_mode="HTML"
     )
     await state.set_state(AdminShopStates.waiting_for_renamed_shop)

@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from database import Database
 from keyboards import back_button, safe_cb, resolve_cb_name
 from message_utils import safe_edit_message, fsm_edit
-from states import InventoryStates
+from states import InventoryStates, SearchStates
 from utils import format_currency, get_stock_color_indicator, he
 from env_manager import env_manager
 
@@ -471,21 +471,94 @@ async def _show_edit_inventory_categories(callback: CallbackQuery, state: FSMCon
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(back_cb)]])
         )
         return
-    categories = set()
+
+    cat_counts: dict = {}
     for product in all_products:
-        categories.add(product[2])
+        cat = product[2] or "Без категории"
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+    total_prods = len(all_products)
+    total_cats  = len(cat_counts)
+
     await state.update_data(user_shop=user_shop, action="edit_inventory", inv_edit_back_cb=back_cb)
     builder = InlineKeyboardBuilder()
-    for category in sorted(categories):
+    for category, count in sorted(cat_counts.items()):
         builder.add(InlineKeyboardButton(
-            text=f"📂 {category}",
+            text=f"📂 {category} ({count})",
             callback_data=safe_cb("edit_inv_category_", category)
         ))
-    builder.add(back_button(back_cb))
-    builder.adjust(2, 1)
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔍 Поиск по названию", callback_data="inv_edit_srch_start"))
+    builder.row(back_button(back_cb))
     await callback.message.edit_text(
-        f"📦 Изменение остатков - {user_shop}\n\nВыберите категорию:",
-        reply_markup=builder.as_markup()
+        f"📦 <b>Изменение остатков</b> — {he(user_shop)}\n"
+        f"Всего: <b>{total_prods} тов.</b> в <b>{total_cats} кат.</b>\n\n"
+        "Выберите категорию:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@inventory_router.callback_query(F.data == "inv_edit_srch_start")
+async def inv_edit_srch_start(callback: CallbackQuery, state: FSMContext):
+    """Начало поиска товара для редактирования остатков"""
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.inv_edit_srch)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="user_inventory_edit")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск товара</b>\n\nВведите название или часть названия:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@inventory_router.message(SearchStates.inv_edit_srch)
+async def inv_edit_srch_process(message: Message, state: FSMContext):
+    """Обработка поискового запроса — показываем товары из всех категорий"""
+    query = (message.text or "").strip().lower()
+    await state.set_state(None)
+    data = await state.get_data()
+    user_shop = data.get('user_shop', '')
+    back_cb   = data.get('inv_edit_back_cb', 'user_inventory_menu')
+
+    current_db = await get_db(message.from_user.id, state)
+    all_products = await current_db.get_all_products()
+
+    matched = [p for p in all_products if query in (p[1] or '').lower()] if query else all_products
+
+    if not matched:
+        await fsm_edit(
+            state, message,
+            f"🔍 По запросу «{he(query)}» ничего не найдено.\n\nПопробуйте другой запрос.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Искать снова", callback_data="inv_edit_srch_start")],
+                [back_button(back_cb)],
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    builder = InlineKeyboardBuilder()
+    for p in matched[:30]:
+        product_id   = p[0]
+        product_name = p[1]
+        quantity = await current_db.get_inventory(user_shop, product_id) or 0
+        builder.add(InlineKeyboardButton(
+            text=f"{product_name} ({quantity} шт.)",
+            callback_data=f"edit_inv_product_{product_id}"
+        ))
+    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🔍 Искать снова", callback_data="inv_edit_srch_start"))
+    builder.row(back_button(back_cb))
+
+    suffix = f"🔍 «{he(query)}» — найдено: {len(matched)}" if query else f"Все товары: {len(matched)}"
+    await fsm_edit(
+        state, message,
+        f"📦 <b>Результаты поиска</b> — {he(user_shop)}\n{suffix}\n\nВыберите товар:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
     )
 
 
@@ -499,36 +572,40 @@ async def _show_view_inventory_categories(callback: CallbackQuery, state: FSMCon
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(back_cb)]])
         )
         return
-    categories = set()
+
+    cat_counts: dict = {}
     total_items = 0
     low_stock_count = 0
     for product in all_products:
-        category = product[2]
+        cat = product[2] or "Без категории"
         product_id = product[0]
         quantity = await current_db.get_inventory(user_shop, product_id)
         if quantity is None:
             quantity = 0
-        categories.add(category)
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
         total_items += quantity
         if quantity < 2:
             low_stock_count += 1
+
     await state.update_data(user_shop=user_shop, action="view_inventory")
     builder = InlineKeyboardBuilder()
-    for category in sorted(categories):
+    for category, count in sorted(cat_counts.items()):
         builder.add(InlineKeyboardButton(
-            text=f"📂 {category}",
+            text=f"📂 {category} ({count})",
             callback_data=safe_cb("view_user_category_", category)
         ))
-    builder.add(back_button(back_cb))
-    builder.adjust(2, 1)
-    message_text = f"📦 Остатки - {user_shop}\n\n"
-    message_text += f"📊 Всего товаров: {total_items} шт.\n"
+    builder.adjust(2)
+    builder.row(back_button(back_cb))
+
+    message_text = f"📦 <b>Остатки</b> — {he(user_shop)}\n"
+    message_text += f"📊 Всего: <b>{total_items} шт.</b> в <b>{len(cat_counts)} кат.</b>\n"
     if low_stock_count > 0:
-        message_text += f"⚠️ Низкие остатки: {low_stock_count} позиций\n"
+        message_text += f"⚠️ Низкие остатки: {low_stock_count} поз.\n"
     message_text += "\nВыберите категорию:"
     await callback.message.edit_text(
         message_text,
-        reply_markup=builder.as_markup()
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
     )
 
 

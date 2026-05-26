@@ -881,6 +881,14 @@ class Database:
                 created_at TEXT    DEFAULT (datetime('now'))
             )
         ''')
+        try:
+            cursor.execute("ALTER TABLE shops ADD COLUMN city TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE shops ADD COLUMN trade_network TEXT DEFAULT ''")
+        except Exception:
+            pass
 
         conn.commit()
 

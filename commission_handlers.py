@@ -96,9 +96,9 @@ async def set_motivation_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    categories = await current_db.get_all_categories()
+    all_products = await current_db.get_all_products()
 
-    if not categories:
+    if not all_products:
         await callback.message.edit_text(
             "❌ <b>Нет товаров</b>\n\nСначала добавьте товары в систему.",
             reply_markup=InlineKeyboardBuilder().button(
@@ -108,15 +108,25 @@ async def set_motivation_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    cat_counts: dict = {}
+    for p in all_products:
+        cat = p[2] or "Без категории"
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+    total_prods = len(all_products)
+    total_cats  = len(cat_counts)
+
     builder = InlineKeyboardBuilder()
-    for cat in categories:
-        builder.button(text=f"📂 {cat}", callback_data=safe_cb("motiv_cat_", cat))
+    for cat, count in sorted(cat_counts.items()):
+        builder.button(text=f"📂 {cat} ({count})", callback_data=safe_cb("motiv_cat_", cat))
+    builder.adjust(2)
     builder.button(text="⬅️ Назад", callback_data="admin_motivation")
-    builder.adjust(1)
+    builder.adjust(2, 1)
 
     await callback.message.edit_text(
-        "📝 <b>Установка мотивации — шаг 1/3</b>\n\n"
-        "Выберите категорию товаров:",
+        f"📝 <b>Установка мотивации — шаг 1/3</b>\n"
+        f"Всего: <b>{total_prods} тов.</b> в <b>{total_cats} кат.</b>\n\n"
+        "Выберите категорию:",
         reply_markup=builder.as_markup(), parse_mode="HTML",
     )
     await callback.answer()
@@ -510,8 +520,9 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
 
     current_db = await get_db(callback.from_user.id, state)
     commissions = await current_db.get_all_product_motivations()
-    
-    if not commissions:
+    products_with_comm = [c for c in commissions if c[2] is not None]
+
+    if not products_with_comm:
         await callback.message.edit_text(
             "📊 <b>Мотивации по товарам</b>\n\n"
             "❌ Мотивации не установлены",
@@ -522,21 +533,24 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    text = "📊 <b>Установленные мотивации</b>\n\n"
-    
-    for commission in commissions:
+    # Группируем по категориям
+    all_products = await current_db.get_all_products()
+    prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
+    cat_comms: dict = {}
+    for commission in products_with_comm:
         product_id, product_name, comm_type, comm_value, admin_first, admin_last, created_at = commission
-        
-        if comm_type and comm_value:
-            if comm_type == 'percentage':
-                comm_text = f"{comm_value}%"
-            else:
-                comm_text = f"{format_price(comm_value)}/шт"
-            
-            admin_name = f"{admin_first} {admin_last}" if admin_first and admin_first != 'None' else "Неизвестно"
-            text += f"🔹 <b>{he(product_name)}</b>\n💰 {comm_text} | 👤 {he(admin_name)}\n\n"
-        else:
-            text += f"🔸 <b>{he(product_name)}</b>\n💰 Мотивация не установлена\n\n"
+        cat = prod_cat_map.get(product_id, "Без категории")
+        cat_comms.setdefault(cat, []).append((product_name, comm_type, comm_value, admin_first, admin_last))
+
+    total = len(products_with_comm)
+    text = f"📊 <b>Установленные мотивации</b> · {total} тов.\n\n"
+    for cat_name in sorted(cat_comms.keys()):
+        text += f"📂 <b>{he(cat_name)}</b>\n"
+        for product_name, comm_type, comm_value, admin_first, admin_last in cat_comms[cat_name]:
+            comm_text = f"{comm_value}%" if comm_type == 'percentage' else f"{format_price(comm_value)}/шт"
+            admin_name = f"{admin_first} {admin_last}".strip() if admin_first and admin_first != 'None' else "—"
+            text += f"  🔹 {he(product_name)} · 💰 {comm_text} · 👤 {he(admin_name)}\n"
+        text += "\n"
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
@@ -548,7 +562,7 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
 
 @commission_router.callback_query(F.data == "remove_motivation")
 async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
-    """Начало удаления мотивации - выбор товара"""
+    """Начало удаления мотивации — выбор категории"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
@@ -556,10 +570,10 @@ async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     commissions = await current_db.get_all_product_motivations()
     products_with_commission = [c for c in commissions if c[2] is not None]
-    
+
     if not products_with_commission:
         await callback.message.edit_text(
-            "🗑️ <b>Удаление комиссий</b>\n\n"
+            "🗑️ <b>Удаление мотивации</b>\n\n"
             "❌ Нет товаров с установленными мотивациями",
             reply_markup=InlineKeyboardBuilder().button(
                 text="⬅️ Назад", callback_data="admin_motivation"
@@ -568,29 +582,78 @@ async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    builder = InlineKeyboardBuilder()
+    # Группируем по категориям
+    all_products = await current_db.get_all_products()
+    prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
+    cat_products: dict = {}
     for commission in products_with_commission:
         product_id, product_name, comm_type, comm_value = commission[:4]
-        
-        if comm_type == 'percentage':
-            comm_text = f" ({comm_value}%)"
-        else:
-            comm_text = f" ({format_price(comm_value)})"
-        
+        cat = prod_cat_map.get(product_id, "Без категории")
+        cat_products.setdefault(cat, []).append((product_id, product_name, comm_type, comm_value))
+
+    total = len(products_with_commission)
+    if len(cat_products) == 1:
+        # Только одна категория — сразу показываем товары
+        cat_name = list(cat_products.keys())[0]
+        await _show_remove_motiv_products(callback, cat_name, cat_products[cat_name])
+    else:
+        builder = InlineKeyboardBuilder()
+        for cat_name, prods in sorted(cat_products.items()):
+            builder.button(text=f"📂 {cat_name} ({len(prods)})", callback_data=safe_cb("remove_motiv_cat_", cat_name))
+        builder.adjust(2)
+        builder.button(text="⬅️ Назад", callback_data="admin_motivation")
+        builder.adjust(2, 1)
+        await callback.message.edit_text(
+            f"🗑️ <b>Удаление мотивации</b>\n"
+            f"Товаров с мотивацией: <b>{total}</b>\n\n"
+            "Выберите категорию:",
+            reply_markup=builder.as_markup(), parse_mode="HTML",
+        )
+    await callback.answer()
+
+
+async def _show_remove_motiv_products(callback, cat_name: str, products: list):
+    """Показать список товаров категории для удаления мотивации"""
+    builder = InlineKeyboardBuilder()
+    for product_id, product_name, comm_type, comm_value in products:
+        comm_text = f" ({comm_value}%)" if comm_type == 'percentage' else f" ({format_price(comm_value)})"
         builder.button(
             text=f"🗑️ {product_name}{comm_text}",
             callback_data=f"remove_motiv_{product_id}"
         )
-    
-    builder.button(text="⬅️ Назад", callback_data="admin_motivation")
+    builder.button(text="⬅️ Назад", callback_data="remove_motivation")
     builder.adjust(1)
-
     await callback.message.edit_text(
-        "🗑️ <b>Удаление мотивации</b>\n\n"
-        "Выберите товар для удаления мотивации:",
+        f"🗑️ <b>Удаление мотивации</b>\n"
+        f"📂 Категория: <b>{he(cat_name)}</b>\n\n"
+        "Выберите товар для удаления:",
         reply_markup=builder.as_markup(), parse_mode="HTML",
     )
+
+
+@commission_router.callback_query(F.data.startswith("remove_motiv_cat_"))
+async def remove_motiv_cat_selected(callback: CallbackQuery, state: FSMContext):
+    """Категория выбрана — показываем товары с мотивацией"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
     await callback.answer()
+    raw = callback.data[len("remove_motiv_cat_"):]
+    current_db = await get_db(callback.from_user.id, state)
+    all_cats = await current_db.get_all_categories()
+    cat_name = resolve_cb_name(raw, all_cats)
+    commissions = await current_db.get_all_product_motivations()
+    all_products = await current_db.get_all_products()
+    prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
+    products = [
+        (c[0], c[1], c[2], c[3])
+        for c in commissions
+        if c[2] is not None and prod_cat_map.get(c[0], "Без категории") == cat_name
+    ]
+    if not products:
+        await callback.answer("❌ Нет товаров с мотивацией в этой категории", show_alert=True)
+        return
+    await _show_remove_motiv_products(callback, cat_name, products)
 
 @commission_router.callback_query(F.data.startswith("remove_motiv_"))
 async def remove_motivation_confirm(callback: CallbackQuery, state: FSMContext):

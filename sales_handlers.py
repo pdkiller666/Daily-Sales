@@ -1917,6 +1917,7 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
         nav = page_nav_row("esl_pg_", page, has_prev, has_next, total_pages)
         if nav:
             builder.row(*nav)
+        builder.row(InlineKeyboardButton(text="🔍 Поиск по названию", callback_data="esl_srch_start"))
         builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
         builder.adjust(1)
 
@@ -1924,6 +1925,45 @@ async def show_sales_for_edit(callback: CallbackQuery, sales, state: FSMContext,
     await state.update_data(edit_sales_page_num=page)
     await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await state.set_state(EditSaleStates.choosing_sale)
+
+
+@sales_router.callback_query(F.data == "esl_srch_start")
+async def esl_srch_start(callback: CallbackQuery, state: FSMContext):
+    """Начало поиска в списке продаж для редактирования"""
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.edit_sales_srch)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data="edit_sales_start")
+    await callback.message.edit_text(
+        "🔍 <b>Поиск продажи</b>\n\nВведите название товара или его часть:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.message(SearchStates.edit_sales_srch)
+async def esl_srch_process(message: Message, state: FSMContext):
+    """Фильтрация кэшированных продаж по названию товара"""
+    query = (message.text or "").strip().lower()
+    await state.set_state(None)
+    data = await state.get_data()
+    sales = data.get("edit_sales_cache", [])
+    title = data.get("edit_sales_title", "Продажи")
+
+    if query:
+        matched = [s for s in sales if query in (s[7] if len(s) > 7 else "").lower()]
+    else:
+        matched = sales
+
+    # Создаём фейковый callback чтобы переиспользовать show_sales_for_edit
+    class _FakeCB:
+        def __init__(self, msg): self.message = msg; self.from_user = msg.from_user
+        async def answer(self): pass
+
+    fake_cb = _FakeCB(message)
+    suffix = f" · 🔍 «{query}»" if query else ""
+    await show_sales_for_edit(fake_cb, matched, state, title + suffix, page=0)
 
 
 @sales_router.callback_query(F.data.startswith("esl_pg_"))
