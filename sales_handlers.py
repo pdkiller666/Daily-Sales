@@ -2001,7 +2001,6 @@ async def esl_srch_process(message: Message, state: FSMContext):
 @sales_router.callback_query(F.data == "esl_cat_pick")
 async def esl_cat_pick(callback: CallbackQuery, state: FSMContext):
     """Открыть пикер категорий для фильтрации списка продаж"""
-    await callback.answer()
     data       = await state.get_data()
     sales      = data.get("edit_sales_cache", [])
     cat_filter = data.get("edit_sales_cat_filter")
@@ -2012,6 +2011,7 @@ async def esl_cat_pick(callback: CallbackQuery, state: FSMContext):
     if not cat_counts:
         await callback.answer("Категории не найдены.", show_alert=True)
         return
+    await callback.answer()
 
     builder = InlineKeyboardBuilder()
     for cat, count in sorted(cat_counts.items()):

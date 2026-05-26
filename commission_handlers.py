@@ -637,7 +637,6 @@ async def remove_motiv_cat_selected(callback: CallbackQuery, state: FSMContext):
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
-    await callback.answer()
     raw = callback.data[len("remove_motiv_cat_"):]
     current_db = await get_db(callback.from_user.id, state)
     all_cats = await current_db.get_all_categories()
@@ -653,6 +652,7 @@ async def remove_motiv_cat_selected(callback: CallbackQuery, state: FSMContext):
     if not products:
         await callback.answer("❌ Нет товаров с мотивацией в этой категории", show_alert=True)
         return
+    await callback.answer()
     await _show_remove_motiv_products(callback, cat_name, products)
 
 @commission_router.callback_query(F.data.startswith("remove_motiv_"))

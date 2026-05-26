@@ -2922,7 +2922,6 @@ async def admin_shop_delete_transfer_pick(callback: CallbackQuery, state: FSMCon
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
     key = callback.data[len("ashop_deltrans_"):]
-    await callback.answer()
     db_path = await _get_shop_db_path(state)
     shops = await _get_shops_with_stats(db_path)
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
@@ -2932,6 +2931,7 @@ async def admin_shop_delete_transfer_pick(callback: CallbackQuery, state: FSMCon
     if not other_shops:
         await callback.answer("❌ Нет других магазинов для перевода.", show_alert=True)
         return
+    await callback.answer()
 
     builder = InlineKeyboardBuilder()
     for s in other_shops:
@@ -2990,7 +2990,6 @@ async def admin_shop_delete_transfer_execute(callback: CallbackQuery, state: FSM
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
-    await callback.answer()
     db_path = await _get_shop_db_path(state)
     data = await state.get_data()
     source_name = data.get('shop_del_from', '')
@@ -2999,6 +2998,7 @@ async def admin_shop_delete_transfer_execute(callback: CallbackQuery, state: FSM
     if not source_name or not target_name:
         await callback.answer("❌ Ошибка: данные сессии устарели.", show_alert=True)
         return
+    await callback.answer()
 
     try:
         row = await _db_run(

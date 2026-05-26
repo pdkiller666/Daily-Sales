@@ -506,12 +506,12 @@ async def ntf_usr_deselect_all(callback: CallbackQuery, state: FSMContext):
 @notifications_router.callback_query(F.data == "ntf_usr_done")
 async def ntf_usr_done(callback: CallbackQuery, state: FSMContext):
     """Подтверждение выбора конкретных получателей — переходим к превью."""
-    await callback.answer()
     data = await state.get_data()
     selected: list = data.get('ntf_selected_tids', [])
     if not selected:
         await callback.answer("⚠️ Выберите хотя бы одного получателя!", show_alert=True)
         return
+    await callback.answer()
     n = len(selected)
     label = f"{n} польз." if n != 1 else "1 польз."
     await state.update_data(
