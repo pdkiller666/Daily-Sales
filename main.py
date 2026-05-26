@@ -364,6 +364,7 @@ async def send_payment_alerts(bot: Bot):
 
                             try:
                                 await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=markup)
+                                await asyncio.sleep(0.05)
                                 await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
                                 await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
                             except Exception as send_err:
@@ -414,6 +415,7 @@ async def send_sales_alerts(bot: Bot):
                             message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
 
                         await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        await asyncio.sleep(0.05)
                         await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
             except Exception: continue
     except Exception as e:
@@ -452,6 +454,7 @@ async def send_personalized_notifications(bot: Bot):
                             message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
                         
                         await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        await asyncio.sleep(0.05)
                         await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
             except Exception: continue
     except Exception as e:
@@ -513,6 +516,7 @@ async def send_daily_reports(bot: Bot):
                             message += "ℹ️ Продаж не было."
 
                     await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                    await asyncio.sleep(0.05)
                     await current_db.add_notification_to_history(user_id, 'daily_report', message)
             except Exception:
                 continue
