@@ -1498,6 +1498,9 @@ class Database:
                 "  AND shop_name NOT IN ('Системный', 'System')"
                 "  UNION"
                 "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                "  UNION"
+                "  SELECT shop_name AS name FROM inventory "
+                "  WHERE shop_name IS NOT NULL AND shop_name != ''"
                 ") ORDER BY name"
             )
         except Exception:
@@ -1522,6 +1525,9 @@ class Database:
                 "  AND shop_name NOT IN ('Системный', 'System')"
                 "  UNION"
                 "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                "  UNION"
+                "  SELECT shop_name AS name FROM inventory "
+                "  WHERE shop_name IS NOT NULL AND shop_name != ''"
                 ") ORDER BY name"
             )
         except Exception:

@@ -31,14 +31,16 @@ async def manage_inventory_callback(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
+    rows = []
+    if is_super:
+        rows.append([InlineKeyboardButton(text="➕ Добавить остатки", callback_data="add_inventory")])
+    rows.append([InlineKeyboardButton(text="👁️ Просмотр остатков",    callback_data="user_inventory_view")])
+    rows.append([InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit")])
+    rows.append([back_button("admin_management")])
+
     await callback.message.edit_text(
         "📦 <b>Управление остатками</b>\n\nВыберите действие:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Добавить остатки",     callback_data="add_inventory")],
-            [InlineKeyboardButton(text="👁️ Просмотр остатков",    callback_data="user_inventory_view")],
-            [InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit")],
-            [back_button("admin_management")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         parse_mode="HTML"
     )
 
