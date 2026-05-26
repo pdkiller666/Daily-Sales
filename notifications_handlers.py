@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username, wrap_db
 from database import Database
-from keyboards import back_button, home_button, generate_calendar
+from keyboards import back_button, home_button, generate_calendar, safe_cb, resolve_cb_name
 from pagination_utils import page_nav_row
 from states import NotificationStates
 from env_manager import env_manager
@@ -127,22 +127,165 @@ async def admin_send_notification_start(callback: CallbackQuery, state: FSMConte
 
 @notifications_router.message(NotificationStates.waiting_for_admin_message)
 async def process_admin_notification_text(message: Message, state: FSMContext):
-    """Обработка текста уведомления от администратора"""
+    """Обработка текста уведомления — переход к выбору получателей."""
     notification_text = message.text.strip() if message.text else ""
     if not notification_text:
         await message.answer("❌ Текст уведомления не может быть пустым. Введите текст сообщения:")
         return
     await state.update_data(admin_notification_text=notification_text)
-    
+    is_super = env_manager.is_super_admin(message.from_user.id)
     await message.answer(
-        f"📋 <b>Предпросмотр уведомления:</b>\n\n{notification_text}\n\nВы уверены, что хотите отправить это сообщение всем пользователям?",
+        "👥 <b>Выберите получателей</b>\n\nКому отправить уведомление?",
+        reply_markup=_build_rcpt_selection_kb(is_super),
+        parse_mode="HTML"
+    )
+
+
+# ── Helpers: recipient selection ──────────────────────────────────────────────
+
+def _build_rcpt_selection_kb(is_super: bool) -> InlineKeyboardMarkup:
+    """Клавиатура выбора получателей уведомления."""
+    rows = [[InlineKeyboardButton(text="👥 Всем пользователям", callback_data="ntf_rcpt_all")]]
+    if not is_super:
+        rows.append([InlineKeyboardButton(text="🏪 По магазину", callback_data="ntf_rcpt_shop")])
+        rows.append([InlineKeyboardButton(text="🎭 По роли", callback_data="ntf_rcpt_role")])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="notifications_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _count_notif_recipients(db, rcpt_type: str, rcpt_filter=None) -> int:
+    """Подсчёт получателей уведомления с учётом фильтра (admin_notifications=1)."""
+    try:
+        recipients = await db.get_users_for_notifications('admin')
+        if rcpt_type == 'shop':
+            return len([r for r in recipients if r[1] and r[3] == rcpt_filter])
+        if rcpt_type == 'role':
+            from db_utils import get_user_org_role as _gor
+            return len([r for r in recipients if r[1] and _gor(r[1]) == rcpt_filter])
+        return len([r for r in recipients if r[1]])
+    except Exception:
+        return 0
+
+
+async def _show_notif_send_preview(callback: CallbackQuery, state: FSMContext, current_db=None):
+    """Показывает превью уведомления с числом получателей перед отправкой."""
+    data = await state.get_data()
+    text = data.get('admin_notification_text', '')
+    rcpt_label = data.get('ntf_rcpt_label', 'Всем пользователям')
+    count_str = ''
+    if current_db is not None:
+        try:
+            cnt = await _count_notif_recipients(
+                current_db,
+                data.get('ntf_rcpt_type', 'all'),
+                data.get('ntf_rcpt_filter')
+            )
+            count_str = f' — {cnt} польз.'
+        except Exception:
+            pass
+    preview = (
+        f"📨 <b>Предпросмотр уведомления</b>\n\n"
+        f"👥 <b>Получатели:</b> {rcpt_label}{count_str}\n\n"
+        f"<b>Текст:</b>\n{he(text)}"
+    )
+    await callback.message.edit_text(
+        preview,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Отправить сейчас", callback_data="admin_confirm_send_now")],
-            [InlineKeyboardButton(text="📅 Запланировать", callback_data="admin_schedule_notification")],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="notifications_menu")]
+            [InlineKeyboardButton(text="📅 Запланировать",    callback_data="admin_schedule_notification")],
+            [InlineKeyboardButton(text="↩️ Изменить получателей", callback_data="ntf_change_rcpt")],
+            [InlineKeyboardButton(text="❌ Отмена",            callback_data="notifications_menu")],
         ]),
         parse_mode="HTML"
     )
+
+
+_ROLE_LABELS = {'owner': 'Директора', 'admin': 'Администраторы', 'user': 'Сотрудники'}
+
+
+# ── Recipient selection callbacks ─────────────────────────────────────────────
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_all")
+async def ntf_rcpt_all(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(ntf_rcpt_type='all', ntf_rcpt_filter=None, ntf_rcpt_label='Всем пользователям')
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_shop")
+async def ntf_rcpt_shop(callback: CallbackQuery, state: FSMContext):
+    """Показывает список магазинов для выбора получателей."""
+    current_db = await get_db(callback.from_user.id, state)
+    shops = await current_db.get_all_shops()
+    if not shops:
+        await callback.answer("❌ Магазины не найдены.", show_alert=True)
+        return
+    await callback.answer()
+    rows = []
+    for shop in shops:
+        sname = shop[0] if isinstance(shop, (list, tuple)) else str(shop)
+        rows.append([InlineKeyboardButton(text=f"🏪 {sname}", callback_data=safe_cb(sname, prefix='ntf_rcpt_s_'))])
+    rows.append([back_button("ntf_change_rcpt")])
+    await callback.message.edit_text(
+        "🏪 <b>Выберите магазин</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_rcpt_s_"))
+async def ntf_rcpt_shop_selected(callback: CallbackQuery, state: FSMContext):
+    """Магазин выбран — сохраняем фильтр и показываем превью."""
+    await callback.answer()
+    shop_name = resolve_cb_name(callback.data.removeprefix("ntf_rcpt_s_"))
+    await state.update_data(
+        ntf_rcpt_type='shop',
+        ntf_rcpt_filter=shop_name,
+        ntf_rcpt_label=f'Магазин «{shop_name}»'
+    )
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_role")
+async def ntf_rcpt_role(callback: CallbackQuery, state: FSMContext):
+    """Показывает выбор роли получателей."""
+    await callback.answer()
+    await callback.message.edit_text(
+        "🎭 <b>Выберите роль получателей</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👑 Директора",        callback_data="ntf_rcpt_r_owner")],
+            [InlineKeyboardButton(text="🛡️ Администраторы",  callback_data="ntf_rcpt_r_admin")],
+            [InlineKeyboardButton(text="👤 Сотрудники",       callback_data="ntf_rcpt_r_user")],
+            [back_button("ntf_change_rcpt")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.in_({"ntf_rcpt_r_owner", "ntf_rcpt_r_admin", "ntf_rcpt_r_user"}))
+async def ntf_rcpt_role_selected(callback: CallbackQuery, state: FSMContext):
+    """Роль выбрана — сохраняем фильтр и показываем превью."""
+    await callback.answer()
+    role = callback.data.removeprefix("ntf_rcpt_r_")
+    label = _ROLE_LABELS.get(role, role)
+    await state.update_data(ntf_rcpt_type='role', ntf_rcpt_filter=role, ntf_rcpt_label=label)
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+@notifications_router.callback_query(F.data == "ntf_change_rcpt")
+async def ntf_change_rcpt(callback: CallbackQuery, state: FSMContext):
+    """Возврат к экрану выбора получателей."""
+    await callback.answer()
+    is_super = env_manager.is_super_admin(callback.from_user.id)
+    await callback.message.edit_text(
+        "👥 <b>Выберите получателей</b>\n\nКому отправить уведомление?",
+        reply_markup=_build_rcpt_selection_kb(is_super),
+        parse_mode="HTML"
+    )
+
 
 @notifications_router.callback_query(F.data == "admin_confirm_send_now")
 async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
@@ -153,12 +296,16 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     text = data.get('admin_notification_text')
-    
+
     if not text:
         await callback.answer("❌ Ошибка: текст сообщения не найден", show_alert=True)
         return
-        
-    await callback.message.edit_text("⏳ Отправка уведомлений...")
+
+    rcpt_type   = data.get('ntf_rcpt_type', 'all')
+    rcpt_filter = data.get('ntf_rcpt_filter')
+    rcpt_label  = data.get('ntf_rcpt_label', 'всем пользователям')
+
+    await callback.message.edit_text(f"⏳ Отправка уведомлений ({rcpt_label})...")
     
     # Определяем, по какой БД рассылать
     count = 0
@@ -225,7 +372,15 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
                 path_db = wrap_db(Database(path))
                 recipients = await path_db.get_users_for_notifications('admin')
                 if recipients:
-                    target_by_db[path] = (path_db, [(r[0], r[1]) for r in recipients if r[1]])
+                    if rcpt_type == 'shop' and rcpt_filter:
+                        filtered = [(r[0], r[1]) for r in recipients if r[1] and r[3] == rcpt_filter]
+                    elif rcpt_type == 'role' and rcpt_filter:
+                        from db_utils import get_user_org_role as _gor
+                        filtered = [(r[0], r[1]) for r in recipients if r[1] and _gor(r[1]) == rcpt_filter]
+                    else:
+                        filtered = [(r[0], r[1]) for r in recipients if r[1]]
+                    if filtered:
+                        target_by_db[path] = (path_db, filtered)
             except Exception as e:
                 logging.error(f"BROADCAST ERROR: Database {path} error: {e}")
 
@@ -316,6 +471,15 @@ async def process_schedule_time(message: Message, state: FSMContext):
             await clear_state_keep_org(state)
             return
 
+        import json as _njson
+        _rcpt_type   = data.get('ntf_rcpt_type', 'all')
+        _rcpt_filter = data.get('ntf_rcpt_filter')
+        _rcpt_label  = data.get('ntf_rcpt_label', 'всем пользователям')
+        _rcpt_info   = {'type': _rcpt_type}
+        if _rcpt_filter:
+            _rcpt_info['filter'] = _rcpt_filter
+        recipients_list_json = _njson.dumps(_rcpt_info, ensure_ascii=False)
+
         is_super = env_manager.is_super_admin(message.from_user.id)
         recipients_type = 'all' if is_super else 'org'
         job_id = str(uuid.uuid4())
@@ -324,11 +488,14 @@ async def process_schedule_time(message: Message, state: FSMContext):
             created_by=admin_user[0],
             notification_text=text,
             recipients_type=recipients_type,
-            recipients_list=None,
+            recipients_list=recipients_list_json,
             scheduled_datetime=schedule_time_utc.strftime('%Y-%m-%dT%H:%M:%S')
         )
         await message.answer(
-            f"✅ <b>Уведомление запланировано!</b>\n\n📅 Время: {time_text} ({admin_tz})\n💬 Текст: {he(text)}",
+            f"✅ <b>Уведомление запланировано!</b>\n\n"
+            f"📅 Время: {time_text} ({admin_tz})\n"
+            f"👥 Получатели: {_rcpt_label}\n"
+            f"💬 Текст: {he(text)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]]),
             parse_mode="HTML"
         )

@@ -543,6 +543,7 @@ async def check_scheduled_notifications(bot: Bot):
                     job_id = notif[1]
                     notif_text = notif[3]
                     recipients_type = notif[4]
+                    recipients_list_raw = notif[5]
                     scheduled_dt = notif[6]
 
                     try:
@@ -552,6 +553,17 @@ async def check_scheduled_notifications(bot: Bot):
 
                     if scheduled_utc > now_utc:
                         continue
+
+                    # Разбираем фильтр получателей из recipients_list (JSON)
+                    import json as _sn_json
+                    _rcpt_info = {}
+                    if recipients_list_raw:
+                        try:
+                            _rcpt_info = _sn_json.loads(recipients_list_raw)
+                        except Exception:
+                            pass
+                    _rcpt_type   = _rcpt_info.get('type', 'all')
+                    _rcpt_filter = _rcpt_info.get('filter')
 
                     if recipients_type == 'all':
                         # Рассылка по всем БД (только для super-admin)
@@ -567,6 +579,12 @@ async def check_scheduled_notifications(bot: Bot):
                             continue
                         send_db = Database(send_path)
                         recipients = await asyncio.to_thread(send_db.get_users_for_notifications, 'admin')
+                        # Применяем фильтр по магазину или роли
+                        if _rcpt_type == 'shop' and _rcpt_filter:
+                            recipients = [r for r in recipients if r[3] == _rcpt_filter]
+                        elif _rcpt_type == 'role' and _rcpt_filter:
+                            from db_utils import get_user_org_role as _gor
+                            recipients = [r for r in recipients if _gor(r[1]) == _rcpt_filter]
                         for user_data in recipients:
                             uid_internal, telegram_id = user_data[0], user_data[1]
                             if not telegram_id:
