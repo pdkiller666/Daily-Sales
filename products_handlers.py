@@ -815,33 +815,51 @@ async def delete_category_final(callback: CallbackQuery, state: FSMContext):
     
     await clear_state_keep_org(state)
 
-@products_router.callback_query(F.data == "edit_product")
-async def edit_product_start(callback: CallbackQuery, state: FSMContext):
-    """Начало редактирования товара"""
-    await callback.answer()
+async def _render_edit_product_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Отрисовка страницы редактирования товара с пагинацией."""
+    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row, PAGE_SIZE_BTN
     current_db = await get_db(callback.from_user.id, state)
     products = await current_db.get_all_products()
-    
+
     if not products:
         await callback.message.edit_text(
             "📋 Товары для редактирования отсутствуют.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
         )
         return
-    
+
+    page_prods, has_prev, has_next, total_pages, page = _paginate(products, page, PAGE_SIZE_BTN)
+    pg_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+
     builder = InlineKeyboardBuilder()
-    for product in products:
+    for product in page_prods:
         builder.add(InlineKeyboardButton(
             text=f"{product[1]} ({product[2]}) - {format_currency(product[3])}",
             callback_data=f"edit_product_choice_{product[0]}"
         ))
-    builder.add(back_button("products"))
     builder.adjust(1)
-    
+    nav = _nav_row("ep_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("products"))
+
     await callback.message.edit_text(
-        "✏️ Выберите товар для редактирования:",
+        f"✏️ Выберите товар для редактирования:{pg_info}",
         reply_markup=builder.as_markup()
     )
+
+@products_router.callback_query(F.data == "edit_product")
+async def edit_product_start(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования товара"""
+    await callback.answer()
+    await _render_edit_product_page(callback, state, page=0)
+
+@products_router.callback_query(F.data.startswith("ep_pg_"))
+async def edit_product_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка товаров для редактирования"""
+    await callback.answer()
+    page = int(callback.data[6:])
+    await _render_edit_product_page(callback, state, page=page)
 
 @products_router.callback_query(F.data.startswith("edit_product_choice_"))
 async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
@@ -968,33 +986,51 @@ async def process_edit_value_product(message: Message, state: FSMContext):
 
     await clear_state_keep_org(state)
 
-@products_router.callback_query(F.data == "delete_product")
-async def delete_product_start(callback: CallbackQuery, state: FSMContext):
-    """Начало удаления товара"""
-    await callback.answer()
+async def _render_delete_product_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Отрисовка страницы удаления товара с пагинацией."""
+    from pagination_utils import paginate as _paginate, page_nav_row as _nav_row, PAGE_SIZE_BTN
     current_db = await get_db(callback.from_user.id, state)
     products = await current_db.get_all_products()
-    
+
     if not products:
         await callback.message.edit_text(
             "📋 Товары для удаления отсутствуют.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
         )
         return
-    
+
+    page_prods, has_prev, has_next, total_pages, page = _paginate(products, page, PAGE_SIZE_BTN)
+    pg_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+
     builder = InlineKeyboardBuilder()
-    for product in products:
+    for product in page_prods:
         builder.add(InlineKeyboardButton(
             text=f"{product[1]} ({product[2]}) - {format_currency(product[3])}",
             callback_data=f"confirm_delete_{product[0]}"
         ))
-    builder.add(back_button("products"))
     builder.adjust(1)
-    
+    nav = _nav_row("dp_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(back_button("products"))
+
     await callback.message.edit_text(
-        "🗑 Выберите товар для удаления:",
+        f"🗑 Выберите товар для удаления:{pg_info}",
         reply_markup=builder.as_markup()
     )
+
+@products_router.callback_query(F.data == "delete_product")
+async def delete_product_start(callback: CallbackQuery, state: FSMContext):
+    """Начало удаления товара"""
+    await callback.answer()
+    await _render_delete_product_page(callback, state, page=0)
+
+@products_router.callback_query(F.data.startswith("dp_pg_"))
+async def delete_product_page(callback: CallbackQuery, state: FSMContext):
+    """Навигация по страницам списка товаров для удаления"""
+    await callback.answer()
+    page = int(callback.data[6:])
+    await _render_delete_product_page(callback, state, page=page)
 
 @products_router.callback_query(F.data.startswith("confirm_delete_"))
 async def confirm_delete_product(callback: CallbackQuery, state: FSMContext):
