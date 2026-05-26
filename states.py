@@ -164,6 +164,8 @@ class SearchStates(StatesGroup):
     org_users          = State()   # admin_handlers — поиск по сотрудникам
     sale_favourites    = State()   # sales_handlers — поиск в Избранном
     sale_recent        = State()   # sales_handlers — поиск в Недавних
+    slr_rates_srch     = State()   # salary_handlers — поиск в ставках сотрудников
+    slr_scheds_srch    = State()   # salary_handlers — поиск в графиках работы
 
 class ExcelImportStates(StatesGroup):
     waiting_file       = State()

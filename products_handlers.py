@@ -561,6 +561,7 @@ async def product_back_to_cats(callback: CallbackQuery, state: FSMContext):
 async def product_search_start(callback: CallbackQuery, state: FSMContext):
     """Начать поиск товара по названию."""
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(ProductStates.searching_product)
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="prodl_srch_cancel"))
@@ -587,7 +588,10 @@ async def product_search_input(message: Message, state: FSMContext):
     from db_utils import get_db as _get_db
     query = (message.text or "").strip().lower()
     if not query:
-        await message.answer("⚠️ Введите хотя бы один символ.")
+        await fsm_edit(state, message, "⚠️ Введите хотя бы один символ.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                           InlineKeyboardButton(text="✖ Отмена", callback_data="prodl_srch_cancel")
+                       ]]))
         return
 
     current_db = await _get_db(message.from_user.id, state)
@@ -601,11 +605,9 @@ async def product_search_input(message: Message, state: FSMContext):
     builder.row(InlineKeyboardButton(text="◀ К категориям", callback_data="prodl_srch_cancel"))
 
     if not matches:
-        await message.answer(
-            f"🔍 По запросу «<b>{he(query)}</b>» ничего не найдено.",
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML"
-        )
+        await fsm_edit(state, message,
+                       f"🔍 По запросу «<b>{he(query)}</b>» ничего не найдено.",
+                       reply_markup=builder.as_markup())
         return
 
     cat_groups: dict[str, list] = {}
@@ -623,7 +625,7 @@ async def product_search_input(message: Message, state: FSMContext):
     if len(text) > 3800:
         text = text[:3800] + f"\n\n<i>...показаны первые результаты</i>"
 
-    await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await fsm_edit(state, message, text, reply_markup=builder.as_markup())
 
 @products_router.callback_query(F.data == "categories_menu")
 async def categories_menu(callback: CallbackQuery, state: FSMContext):

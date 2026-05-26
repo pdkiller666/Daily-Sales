@@ -17,7 +17,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from timezone_utils import get_current_user_time
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
-from states import AdjustmentStates
+from states import AdjustmentStates, SearchStates
 
 salary_router = Router()
 
@@ -214,6 +214,7 @@ def _build_rates_content(rates: list, page: int):
     nav = page_nav_row("slr_rates_pg_", page, has_prev, has_next, total_pages)
     if nav:
         builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="🔍 Поиск по имени", callback_data="slr_rates_srch_start"))
     builder.row(back_button("admin_salary_menu"))
     return text, builder.as_markup()
 
@@ -329,6 +330,7 @@ def _build_scheds_content(users: list, page: int):
     nav = page_nav_row("slr_sched_pg_", page, has_prev, has_next, total_pages)
     if nav:
         builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="🔍 Поиск по имени", callback_data="slr_scheds_srch_start"))
     builder.row(back_button("admin_salary_menu"))
     return f"📅 <b>Графики работы</b>{pg_line}\n\nВыберите сотрудника:", builder.as_markup()
 
@@ -364,6 +366,128 @@ async def salary_sched_page(callback: CallbackQuery, state: FSMContext):
     users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     text, markup = _build_scheds_content(users, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+# ── Поиск по ставкам сотрудников ──────────────────────────────────────────────
+
+@salary_router.callback_query(F.data == "slr_rates_srch_start")
+async def salary_rates_search_start(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.slr_rates_srch)
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="slr_rates"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск по ставкам</b>\n\nВведите имя или фамилию сотрудника:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@salary_router.message(SearchStates.slr_rates_srch)
+async def salary_rates_search_process(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    query = (message.text or "").strip().lower()
+    if not query:
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="slr_rates"))
+        await fsm_edit(state, message, "⚠️ Введите имя или фамилию.",
+                       reply_markup=builder.as_markup())
+        return
+    current_db = await get_db(uid, state)
+    all_rates = [r for r in await current_db.get_all_salary_rates()
+                 if not env_manager.is_super_admin(r[4])]
+    matches = [r for r in all_rates
+               if query in (r[1] or "").lower() or query in (r[2] or "").lower()]
+    await state.set_state(None)
+    builder = InlineKeyboardBuilder()
+    if not matches:
+        for r in all_rates[:PAGE_SIZE_BTN]:
+            user_id, fn, ln, daily_rate, _ = r
+            builder.row(InlineKeyboardButton(
+                text=f"✏️ {f'{fn} {ln}'.strip()}",
+                callback_data=f"slr_set_{user_id}"))
+        builder.row(InlineKeyboardButton(text="🔍 Поиск по имени", callback_data="slr_rates_srch_start"))
+        builder.row(back_button("admin_salary_menu"))
+        await fsm_edit(state, message,
+                       f"🔍 По запросу «<b>{he(query)}</b>» никого не найдено.\n\n"
+                       f"💵 <b>Ставки сотрудников</b>\n\nНажмите на сотрудника для редактирования:",
+                       reply_markup=builder.as_markup())
+        return
+    text = f"🔍 По запросу «<b>{he(query)}</b>» найдено: <b>{len(matches)}</b>\n\n"
+    for user_id, fn, ln, daily_rate, _ in matches:
+        name = he(f"{fn} {ln}".strip())
+        rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+        text += f"👤 {name} — {rate_str}\n"
+        builder.row(InlineKeyboardButton(text=f"✏️ {f'{fn} {ln}'.strip()}",
+                                         callback_data=f"slr_set_{user_id}"))
+    builder.row(InlineKeyboardButton(text="🔍 Новый поиск", callback_data="slr_rates_srch_start"))
+    builder.row(back_button("slr_rates"))
+    await fsm_edit(state, message, text, reply_markup=builder.as_markup())
+
+
+# ── Поиск по графикам работы ───────────────────────────────────────────────────
+
+@salary_router.callback_query(F.data == "slr_scheds_srch_start")
+async def salary_scheds_search_start(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(SearchStates.slr_scheds_srch)
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="slr_scheds"))
+    await callback.message.edit_text(
+        "🔍 <b>Поиск по графикам</b>\n\nВведите имя или фамилию сотрудника:",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+
+
+@salary_router.message(SearchStates.slr_scheds_srch)
+async def salary_scheds_search_process(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    query = (message.text or "").strip().lower()
+    if not query:
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="✖ Отмена", callback_data="slr_scheds"))
+        await fsm_edit(state, message, "⚠️ Введите имя или фамилию.",
+                       reply_markup=builder.as_markup())
+        return
+    current_db = await get_db(uid, state)
+    all_users = [r for r in await current_db.get_all_salary_rates()
+                 if not env_manager.is_super_admin(r[4])]
+    matches = [r for r in all_users
+               if query in (r[1] or "").lower() or query in (r[2] or "").lower()]
+    await state.set_state(None)
+    now = datetime.now()
+    builder = InlineKeyboardBuilder()
+    if not matches:
+        for user_id, fn, ln, _, tg_id in all_users[:PAGE_SIZE_BTN]:
+            name = f"{fn} {ln}".strip()
+            builder.row(InlineKeyboardButton(
+                text=f"📅 {name}",
+                callback_data=f"slr_cal_{user_id}_{now.year}_{now.month}"))
+        builder.row(InlineKeyboardButton(text="🔍 Поиск по имени", callback_data="slr_scheds_srch_start"))
+        builder.row(back_button("admin_salary_menu"))
+        await fsm_edit(state, message,
+                       f"🔍 По запросу «<b>{he(query)}</b>» никого не найдено.\n\n"
+                       f"📅 <b>Графики работы</b>\n\nВыберите сотрудника:",
+                       reply_markup=builder.as_markup())
+        return
+    text = f"🔍 По запросу «<b>{he(query)}</b>» найдено: <b>{len(matches)}</b>\n\nВыберите сотрудника:"
+    for user_id, fn, ln, _, tg_id in matches:
+        name = f"{fn} {ln}".strip()
+        builder.row(InlineKeyboardButton(
+            text=f"📅 {name}",
+            callback_data=f"slr_cal_{user_id}_{now.year}_{now.month}"))
+    builder.row(InlineKeyboardButton(text="🔍 Новый поиск", callback_data="slr_scheds_srch_start"))
+    builder.row(back_button("slr_scheds"))
+    await fsm_edit(state, message, text, reply_markup=builder.as_markup())
 
 
 # ── Календарь сотрудника (admin) ───────────────────────────────────────────────

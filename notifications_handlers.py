@@ -15,6 +15,7 @@ from database import Database
 from keyboards import back_button, home_button, generate_calendar, safe_cb, resolve_cb_name
 from pagination_utils import page_nav_row
 from states import NotificationStates
+from message_utils import fsm_edit
 from env_manager import env_manager
 from utils import he
 from reports_access_control import get_subscription_offer_message
@@ -118,6 +119,7 @@ async def admin_send_notification_start(callback: CallbackQuery, state: FSMConte
         return
         
     await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         "📨 <b>Отправка уведомления</b>\n\nВведите текст сообщения, которое вы хотите отправить всем пользователям:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]]),
@@ -130,15 +132,15 @@ async def process_admin_notification_text(message: Message, state: FSMContext):
     """Обработка текста уведомления — переход к выбору получателей."""
     notification_text = message.text.strip() if message.text else ""
     if not notification_text:
-        await message.answer("❌ Текст уведомления не может быть пустым. Введите текст сообщения:")
+        await fsm_edit(state, message,
+                       "❌ Текст уведомления не может быть пустым. Введите текст сообщения:",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notifications_menu")]]))
         return
     await state.update_data(admin_notification_text=notification_text)
     is_super = env_manager.is_super_admin(message.from_user.id)
-    await message.answer(
-        "👥 <b>Выберите получателей</b>\n\nКому отправить уведомление?",
-        reply_markup=_build_rcpt_selection_kb(is_super),
-        parse_mode="HTML"
-    )
+    await fsm_edit(state, message,
+                   "👥 <b>Выберите получателей</b>\n\nКому отправить уведомление?",
+                   reply_markup=_build_rcpt_selection_kb(is_super))
 
 
 # ── Helpers: recipient selection ──────────────────────────────────────────────

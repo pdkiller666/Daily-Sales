@@ -1542,7 +1542,7 @@ async def adm_title_entered(message, state: FSMContext):
         title = None
         status_text = "✅ Название должности сброшено (используется стандартное)."
     elif not raw:
-        await message.answer("❌ Введите название или «-» для сброса.")
+        await fsm_edit(state, message, "❌ Введите название или «-» для сброса.")
         return
     else:
         title = raw[:50]

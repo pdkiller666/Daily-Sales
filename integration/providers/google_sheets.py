@@ -74,6 +74,15 @@ async def _get_ss(config: dict) -> gspread.Spreadsheet:
     return await asyncio.to_thread(_sync)
 
 
+def _col_to_letter(n: int) -> str:
+    """Convert 1-based column number to A1-notation letter(s). E.g. 1→A, 27→AA."""
+    result = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        result = chr(65 + r) + result
+    return result
+
+
 # ─────────────────────────────────────────────────────────────
 #  Provider
 # ─────────────────────────────────────────────────────────────
@@ -160,7 +169,7 @@ class GoogleSheetsProvider(BaseProvider):
             return {'headers': [], 'rows': []}
 
     @retry(stop=stop_after_attempt(3),
-           wait=wait_exponential(multiplier=1, min=2, max=10),
+           wait=wait_exponential(multiplier=1, min=1, max=5),
            retry=retry_if_exception_type(Exception),
            reraise=True)
     async def append_row(self, config: dict, sheet_name: str, row: list) -> bool:
@@ -171,7 +180,7 @@ class GoogleSheetsProvider(BaseProvider):
         return True
 
     @retry(stop=stop_after_attempt(3),
-           wait=wait_exponential(multiplier=1, min=2, max=10),
+           wait=wait_exponential(multiplier=1, min=1, max=5),
            retry=retry_if_exception_type(Exception),
            reraise=True)
     async def update_cell(self, config: dict, sheet_name: str,
@@ -227,7 +236,7 @@ class GoogleSheetsProvider(BaseProvider):
             return None
 
     @retry(stop=stop_after_attempt(3),
-           wait=wait_exponential(multiplier=1, min=2, max=10),
+           wait=wait_exponential(multiplier=1, min=1, max=5),
            retry=retry_if_not_exception_type(ValueError),
            reraise=True)
     async def update_cell_matrix(
@@ -240,7 +249,9 @@ class GoogleSheetsProvider(BaseProvider):
     ) -> None:
         """
         Find row by value in col, find col by value in row, then set/increment/decrement cell.
-        Opens the worksheet ONCE — 1 HTTP round-trip instead of 4.
+        Opens the worksheet ONCE and uses batch_get to read col+row in a single
+        HTTP request instead of two separate calls — reduces API round-trips from
+        5-7 down to 3 (open, batch_get, update_cell).
         Raises ValueError with a descriptive message if row or col is not found.
         ValueError is not retried (config error); other exceptions retry up to 3 times.
         """
@@ -249,7 +260,20 @@ class GoogleSheetsProvider(BaseProvider):
             ss = gc.open_by_key(config["spreadsheet_id"])
             ws = ss.worksheet(sheet_name)
 
-            col_vals = ws.col_values(row_col)
+            # Single batch_get reads column data + row data in ONE HTTP call
+            col_letter = _col_to_letter(row_col)
+            batch = ws.batch_get([
+                f"{col_letter}:{col_letter}",  # entire column for row search
+                f"{col_row}:{col_row}",         # entire header row for col search
+            ])
+
+            col_vals_raw = batch[0] if batch else []
+            col_vals = [r[0] if r else "" for r in col_vals_raw]
+
+            row_vals_raw = batch[1] if len(batch) > 1 and batch[1] else []
+            row_vals = list(row_vals_raw[0]) if row_vals_raw else []
+
+            # Find row index by matching column values
             target_row = str(row_value).strip().lower()
             row_idx = None
             for i, v in enumerate(col_vals, start=1):
@@ -270,7 +294,7 @@ class GoogleSheetsProvider(BaseProvider):
                     f"💡 Добавь псевдоним: Интеграции → Экспорт → 📝 Псевдонимы"
                 )
 
-            row_vals = ws.row_values(col_row)
+            # Find col index by matching row values
             target_col = str(col_value).strip().lower()
             col_idx = None
             for i, v in enumerate(row_vals, start=1):
@@ -307,7 +331,7 @@ class GoogleSheetsProvider(BaseProvider):
         await asyncio.to_thread(_sync)
 
     @retry(stop=stop_after_attempt(3),
-           wait=wait_exponential(multiplier=1, min=2, max=10),
+           wait=wait_exponential(multiplier=1, min=1, max=5),
            retry=retry_if_exception_type(Exception),
            reraise=True)
     async def replace_sheet(self, config: dict, sheet_name: str,
