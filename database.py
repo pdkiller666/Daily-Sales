@@ -5490,19 +5490,21 @@ class Database:
                 conn.close()
             return False
 
-    def calculate_plan_actual(self, plan_row):
-        """Рассчитать фактическое выполнение плана за текущий период"""
+    def calculate_plan_actual(self, plan_row, local_today=None):
+        """Рассчитать фактическое выполнение плана за текущий период.
+        local_today — date объект в timezone пользователя; если None, используется datetime.now().date() (UTC на Amvera)."""
         try:
             import json as _json
+            from datetime import date as _date
             (plan_id, plan_type, metric_type, target_value,
              target_type, user_id, shop_name,
              filter_type, filter_value, *_rest) = plan_row
 
-            now = datetime.now()
+            today = local_today if isinstance(local_today, _date) else datetime.now().date()
             if plan_type == 'weekly':
-                start_date = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
+                start_date = (today - timedelta(days=today.weekday())).strftime('%Y-%m-%d')
             else:
-                start_date = now.replace(day=1).strftime('%Y-%m-%d')
+                start_date = today.replace(day=1).strftime('%Y-%m-%d')
 
             if metric_type == 'turnover':
                 metric_expr = 'COALESCE(SUM(s.sale_price * s.quantity_sold), 0)'
@@ -5559,18 +5561,19 @@ class Database:
                 conn.close()
             return 0.0
 
-    def get_plans_progress(self):
-        """Получить все планы с прогрессом выполнения"""
+    def get_plans_progress(self, local_today=None):
+        """Получить все планы с прогрессом выполнения.
+        local_today — date в timezone пользователя для корректного расчёта периода."""
         plans = self.get_sales_plans(active_only=True)
         result = []
         for plan in plans:
-            actual = self.calculate_plan_actual(plan)
+            actual = self.calculate_plan_actual(plan, local_today)
             target = plan[3]
             percent = round((actual / target * 100) if target > 0 else 0.0, 1)
             result.append((plan, actual, percent))
         return result
 
-    def get_user_plans_progress(self, telegram_id):
+    def get_user_plans_progress(self, telegram_id, local_today=None):
         """Получить планы конкретного продавца по telegram_id с прогрессом"""
         try:
             conn = self.get_connection()
@@ -5589,12 +5592,12 @@ class Database:
                 plan_user_id = plan[5]
                 plan_shop = plan[6]
                 if target_type == 'seller' and plan_user_id == internal_id:
-                    actual = self.calculate_plan_actual(plan)
+                    actual = self.calculate_plan_actual(plan, local_today)
                     target = plan[3]
                     percent = round((actual / target * 100) if target > 0 else 0.0, 1)
                     result.append((plan, actual, percent))
                 elif target_type == 'shop' and plan_shop and user_shop and plan_shop == user_shop:
-                    actual = self.calculate_plan_actual(plan)
+                    actual = self.calculate_plan_actual(plan, local_today)
                     target = plan[3]
                     percent = round((actual / target * 100) if target > 0 else 0.0, 1)
                     result.append((plan, actual, percent))

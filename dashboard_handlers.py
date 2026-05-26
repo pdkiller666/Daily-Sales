@@ -568,7 +568,7 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     # ── Параллельные запросы к БД + sync-функции через to_thread ────────────
     _base_tasks = [
         current_db.get_sales_summary(start_date=start_date, end_date=today, **scope_kwargs),
-        current_db.get_plans_progress(),
+        current_db.get_plans_progress(today_dt.date()),
         current_db.get_contests(status='active'),
         asyncio.to_thread(_low_stock_count, current_db.db_file,
                           scope_type=scope_type, scope_values=scope_values),
@@ -800,7 +800,7 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         current_db.get_seller_total_earnings(user_id, start_date=sales_start, end_date=today),
         current_db.get_sales_summary(start_date=sales_start, end_date=today, user_id=user_id),
         current_db.get_user_contest_rewards(telegram_id, month_start, today),
-        current_db.get_user_plans_progress(telegram_id),
+        current_db.get_user_plans_progress(telegram_id, today_dt.date()),
         current_db.get_contests(status='active'),
         return_exceptions=True,
     )

@@ -1144,6 +1144,10 @@ async def adm_role_set_user(callback: CallbackQuery, state: FSMContext):
     if env_manager.is_super_admin(telegram_id):
         await callback.answer("❌ Роль глобального суперадмина изменить нельзя.", show_alert=True)
         return
+    target_role = get_user_org_role(telegram_id)
+    if target_role in ('owner', 'admin') and not is_org_owner(callback.from_user.id):
+        await callback.answer("❌ Понизить администратора или директора может только директор.", show_alert=True)
+        return
     await callback.answer()
     success, result = tenant_manager.change_user_role(telegram_id, 'user')
     invalidate_admin_cache(telegram_id)

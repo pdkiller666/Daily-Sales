@@ -46,6 +46,7 @@ class IntegrationManager:
         self.providers = {
             'google_sheets': GoogleSheetsProvider(),
         }
+        self._token_refresh_locks: dict[int, asyncio.Lock] = {}
 
     @staticmethod
     def _unwrap(db):
@@ -63,31 +64,37 @@ class IntegrationManager:
         """
         Check OAuth token expiry. Refresh if needed and save new token to DB.
         Returns potentially-updated config dict.
+        Uses per-connection lock to prevent concurrent refresh races.
         """
         db = self._unwrap(db)
         if conn_config.get("auth_type") != "oauth":
             return conn_config
 
-        tokens = conn_config.get("tokens", {})
-        expiry = tokens.get("expiry", 0)
-
-        if time.time() < expiry - 300:
+        if time.time() < conn_config.get("tokens", {}).get("expiry", 0) - 300:
             return conn_config
 
-        refresh_token = tokens.get("refresh_token", "")
-        if not refresh_token:
-            raise ValueError("OAuth refresh_token отсутствует — переподключите Google аккаунт")
+        if conn_id not in self._token_refresh_locks:
+            self._token_refresh_locks[conn_id] = asyncio.Lock()
 
-        logger.info(f"Refreshing OAuth token for connection {conn_id}")
-        from integration.auth.google_oauth import refresh_access_token
-        new_tokens = await refresh_access_token(refresh_token)
+        async with self._token_refresh_locks[conn_id]:
+            tokens = conn_config.get("tokens", {})
+            if time.time() < tokens.get("expiry", 0) - 300:
+                return conn_config
 
-        tokens.update(new_tokens)
-        updated_config = dict(conn_config)
-        updated_config["tokens"] = tokens
+            refresh_token = tokens.get("refresh_token", "")
+            if not refresh_token:
+                raise ValueError("OAuth refresh_token отсутствует — переподключите Google аккаунт")
 
-        db.update_integration_connection(conn_id, config=json.dumps(updated_config))
-        return updated_config
+            logger.info(f"Refreshing OAuth token for connection {conn_id}")
+            from integration.auth.google_oauth import refresh_access_token
+            new_tokens = await refresh_access_token(refresh_token)
+
+            tokens.update(new_tokens)
+            updated_config = dict(conn_config)
+            updated_config["tokens"] = tokens
+
+            db.update_integration_connection(conn_id, config=json.dumps(updated_config))
+            return updated_config
 
     def save_oauth_tokens(self, db, conn_id: int, token_data: dict):
         """Merge new OAuth tokens into connection config and save."""

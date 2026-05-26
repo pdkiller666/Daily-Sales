@@ -18,6 +18,7 @@ from message_utils import fsm_edit, safe_edit_message
 from hints import hint_suffix
 from states import SearchStates
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+from timezone_utils import get_current_user_time
 
 sales_plans_router = Router()
 
@@ -1183,7 +1184,9 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
     _af_p = _data_p.get(ADMIN_FILTER_KEY, empty_filter())
     _sc_p, _sv_p = get_user_org_scope(callback.from_user.id)
 
-    plans_data_all = await current_db.get_plans_progress()
+    _tz_sp = await current_db.get_user_timezone(callback.from_user.id)
+    _now_sp = get_current_user_time(_tz_sp)
+    plans_data_all = await current_db.get_plans_progress(_now_sp.date())
 
     # Фильтруем планы по магазину/городу/сети
     if _af_p.get("shops"):
@@ -1376,7 +1379,9 @@ async def delpln_execute(callback: CallbackQuery, state: FSMContext):
 async def my_plans(callback: CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
-    plans_data = await current_db.get_user_plans_progress(callback.from_user.id)
+    _tz_mp = await current_db.get_user_timezone(callback.from_user.id)
+    _now_mp = get_current_user_time(_tz_mp)
+    plans_data = await current_db.get_user_plans_progress(callback.from_user.id, _now_mp.date())
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🔄 Обновить", callback_data="my_plans")
@@ -1391,7 +1396,7 @@ async def my_plans(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    now = datetime.now()
+    now = _now_mp
     weekly_start = (now - timedelta(days=now.weekday())).strftime('%d.%m')
     monthly_start = now.replace(day=1).strftime('%d.%m')
 
