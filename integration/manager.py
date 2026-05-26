@@ -86,8 +86,18 @@ class IntegrationManager:
                 raise ValueError("OAuth refresh_token отсутствует — переподключите Google аккаунт")
 
             logger.info(f"Refreshing OAuth token for connection {conn_id}")
-            from integration.auth.google_oauth import refresh_access_token
-            new_tokens = await refresh_access_token(refresh_token)
+            from integration.auth.google_oauth import refresh_access_token, OAuthTokenRevokedException
+            try:
+                new_tokens = await refresh_access_token(refresh_token)
+            except OAuthTokenRevokedException as revoked_exc:
+                logger.warning(f"OAuth token revoked for conn {conn_id}: {revoked_exc}")
+                try:
+                    db.update_integration_connection(conn_id, enabled=0)
+                    db.add_integration_log(conn_id, None, 'error',
+                                          'Токен отозван — подключение отключено автоматически')
+                except Exception:
+                    pass
+                raise ValueError(str(revoked_exc)) from revoked_exc
 
             tokens.update(new_tokens)
             updated_config = dict(conn_config)

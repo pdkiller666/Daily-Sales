@@ -1642,7 +1642,13 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 _err_details = "; ".join(
                     r['error'] for r in _gs_status if not r['success'] and r.get('error')
                 )
-                if _err_details:
+                _is_revoked = _err_details and "Авторизация Google отозвана" in _err_details
+                if _is_revoked:
+                    message_text += (
+                        "\n\n📋 Google Таблицы: 🔑 Требуется переподключение\n"
+                        "Зайдите в Управление орг. → Интеграции и переавторизуйте аккаунт."
+                    )
+                elif _err_details:
                     message_text += f"\n\n📋 Google Таблицы: ⚠️ Ошибка записи\n{_err_details}"
                 else:
                     message_text += "\n\n📋 Google Таблицы: ⚠️ Ошибка записи"

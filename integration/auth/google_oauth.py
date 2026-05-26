@@ -7,6 +7,10 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+
+class OAuthTokenRevokedException(Exception):
+    """Raised when Google reports invalid_grant (token revoked or expired permanently)."""
+
 DEVICE_AUTH_URL = "https://oauth2.googleapis.com/device/code"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPES = "https://www.googleapis.com/auth/spreadsheets"
@@ -84,8 +88,14 @@ async def refresh_access_token(refresh_token_str: str) -> dict:
             data = await resp.json(content_type=None)
 
     if "access_token" not in data:
+        error_code = data.get("error", "")
+        if error_code == "invalid_grant":
+            raise OAuthTokenRevokedException(
+                "Авторизация Google отозвана или истекла. "
+                "Переподключите Google аккаунт в настройках интеграции."
+            )
         raise ValueError(
-            f"Не удалось обновить токен: {data.get('error_description', data.get('error', ''))}"
+            f"Не удалось обновить токен: {data.get('error_description', error_code)}"
         )
     data["expiry"] = time.time() + data.get("expires_in", 3600)
     return data
