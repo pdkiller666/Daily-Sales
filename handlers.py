@@ -15,7 +15,7 @@ from database import Database
 from tenant_manager import tenant_manager
 
 from keyboards import (
-    main_menu, products_menu, inventory_menu, back_button, 
+    main_menu, products_menu, back_button, 
     cancel_registration_keyboard, generate_calendar,
     create_selection_keyboard, create_confirm_keyboard,
     create_registration_selection_keyboard, safe_cb, resolve_cb_name

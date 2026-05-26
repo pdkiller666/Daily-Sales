@@ -19,7 +19,6 @@ class ProductStates(StatesGroup):
 class InventoryStates(StatesGroup):
     choosing_product = State()
     entering_quantity = State()
-    adding_quantity = State()
     editing_quantity = State()
     waiting_for_new_quantity = State()
 
@@ -159,8 +158,6 @@ class SearchStates(StatesGroup):
     product_contests   = State()   # contests_handlers — товары конкурса
     category_contests  = State()   # contests_handlers — категории конкурса
     shop_reports       = State()   # reports_handlers — магазин отчёта за период
-    shop_inventory     = State()   # inventory_handlers — магазин для остатков
-    product_inventory  = State()   # inventory_handlers — товар для остатков
     shop_contacts      = State()   # contacts_handlers — магазин контактов
     shop_contests      = State()   # contests_handlers — магазин конкурса
     product_sale       = State()   # sales_handlers — товар внутри категории (cross-shop)

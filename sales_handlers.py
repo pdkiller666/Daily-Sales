@@ -8,7 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database import Database
 from env_manager import env_manager
-from keyboards import main_menu, inventory_menu, back_button, create_selection_keyboard
+from keyboards import main_menu, back_button, create_selection_keyboard
 from states import SaleStates, InventoryStates, EditSaleStates, MultipleSaleStates, QuickSaleStates, ExcelImportStates, SearchStates
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_SALES
 from utils import format_currency, get_stock_color_indicator, format_date_display, he
