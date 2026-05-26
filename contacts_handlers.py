@@ -346,30 +346,35 @@ async def show_all_contacts(callback: CallbackQuery, state: FSMContext):
             cities_data[city][shop_name] = []
         cities_data[city][shop_name].append(user)
     
+    _LIMIT = 3800
     message_text = "👥 Все контакты пользователей\n\n"
-    
+    truncated = False
+
     for city_name, shops in sorted(cities_data.items()):
-        message_text += f"🏙️ {he(city_name)}:\n"
-        
+        city_block = f"🏙️ {he(city_name)}:\n"
         for shop_name, shop_users in sorted(shops.items()):
-            message_text += f"  🏪 {he(shop_name)}: {len(shop_users)} чел.\n"
-            
+            city_block += f"  🏪 {he(shop_name)}: {len(shop_users)} чел.\n"
             for user in shop_users:
                 user_id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop, city, timezone, created_at = user[:12]
-                
                 full_name = f"{he(first_name)} {he(last_name)}"
                 if middle_name:
                     full_name += f" {he(middle_name)}"
-                
-                message_text += f"    👤 {full_name}"
-                message_text += f" [<a href='tg://user?id={telegram_id}'>Написать</a>]"
+                line = f"    👤 {full_name} [<a href='tg://user?id={telegram_id}'>Написать</a>]"
                 if phone:
-                    message_text += f" | 📞 {phone}"
-                message_text += "\n"
-        
-        message_text += "\n"
-    
+                    line += f" | 📞 {phone}"
+                line += "\n"
+                city_block += line
+        city_block += "\n"
+        if len((message_text + city_block).encode('utf-8')) > _LIMIT:
+            truncated = True
+            break
+        message_text += city_block
+
+    if truncated:
+        message_text += "…\n<i>Список слишком длинный — показаны не все пользователи.</i>\n"
+
     await callback.message.edit_text(
         message_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("view_contacts")]]), parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("view_contacts")]]),
+        parse_mode="HTML"
     )

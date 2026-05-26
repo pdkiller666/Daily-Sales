@@ -2243,10 +2243,9 @@ async def admin_shops_list(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     for name, users, inv in shops:
-        key = safe_cb(name)
         builder.row(
-            InlineKeyboardButton(text=f"✏️ {name}", callback_data=f"ashop_ren_{key}"),
-            InlineKeyboardButton(text="🗑", callback_data=f"ashop_del_{key}"),
+            InlineKeyboardButton(text=f"✏️ {name}", callback_data=safe_cb("ashop_ren_", name)),
+            InlineKeyboardButton(text="🗑", callback_data=safe_cb("ashop_del_", name)),
         )
     builder.row(InlineKeyboardButton(text="➕ Добавить магазин", callback_data="ashop_add"))
     builder.row(back_button("admin_management"))
@@ -2300,6 +2299,8 @@ async def admin_shop_add_process(message: Message, state: FSMContext):
                           "  name TEXT NOT NULL UNIQUE,"
                           "  created_at TEXT DEFAULT (datetime('now')))")
             await _db_run(db_path, "INSERT OR IGNORE INTO shops (name) VALUES (?)", (name,))
+        from filter_utils import invalidate_filter_values_cache
+        invalidate_filter_values_cache(db_path)
         await fsm_edit(state, message,
                        f"✅ Магазин <b>{he(name)}</b> добавлен.",
                        reply_markup=_kb, parse_mode="HTML")
@@ -2316,8 +2317,10 @@ async def admin_shop_rename_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
     key = callback.data[len("ashop_ren_"):]
-    shop_name = resolve_cb_name(key)
     await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops_data = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops_data])
     await state.update_data(shop_rename_old=shop_name)
     await fsm_edit(
         state, callback.message,
@@ -2355,6 +2358,8 @@ async def admin_shop_rename_process(message: Message, state: FSMContext):
             await _db_run(db_path, "DELETE FROM shops WHERE name = ?", (old_name,))
         except Exception:
             pass
+        from filter_utils import invalidate_filter_values_cache
+        invalidate_filter_values_cache(db_path)
         msg = (f"✅ Магазин переименован:\n"
                f"<b>{he(old_name)}</b> → <b>{he(new_name)}</b>")
     except Exception as e:
@@ -2370,13 +2375,12 @@ async def admin_shop_delete_confirm(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
     key = callback.data[len("ashop_del_"):]
-    shop_name = resolve_cb_name(key)
     await callback.answer()
     db_path = await _get_shop_db_path(state)
     shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
     stat = next(((u, i) for n, u, i in shops if n == shop_name), (0, 0))
     users, inv = stat
-    del_key = safe_cb(shop_name)
     await callback.message.edit_text(
         f"⚠️ <b>Удаление магазина</b>\n\n"
         f"🏪 <b>{he(shop_name)}</b>\n"
@@ -2386,7 +2390,7 @@ async def admin_shop_delete_confirm(callback: CallbackQuery, state: FSMContext):
         f"Продолжить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Да, удалить",
-                                  callback_data=f"ashop_delok_{del_key}")],
+                                  callback_data=safe_cb("ashop_delok_", shop_name))],
             [back_button("admin_shops")],
         ]),
         parse_mode="HTML"
@@ -2400,9 +2404,10 @@ async def admin_shop_delete_execute(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
     key = callback.data[len("ashop_delok_"):]
-    shop_name = resolve_cb_name(key)
     await callback.answer()
     db_path = await _get_shop_db_path(state)
+    shops_data = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops_data])
     try:
         row = await _db_run(
             db_path, "SELECT COUNT(*) FROM users WHERE shop_name = ?",
@@ -2419,6 +2424,8 @@ async def admin_shop_delete_execute(callback: CallbackQuery, state: FSMContext):
             await _db_run(db_path, "DELETE FROM shops WHERE name = ?", (shop_name,))
         except Exception:
             pass
+        from filter_utils import invalidate_filter_values_cache
+        invalidate_filter_values_cache(db_path)
         msg = (f"✅ Магазин <b>{he(shop_name)}</b> удалён.\n"
                f"👥 {affected} сотрудников отвязано от магазина.")
     except Exception as e:

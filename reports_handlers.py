@@ -96,8 +96,9 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     from dashboard_handlers import build_admin_dashboard, build_user_dashboard
     from timezone_utils import get_current_user_time
     _user_tz = await current_db.get_user_timezone(callback.from_user.id)
-    today   = date.today().isoformat()
-    now_str = get_current_user_time(_user_tz).strftime("%d.%m.%Y · %H:%M")
+    _now_user = get_current_user_time(_user_tz)
+    today   = _now_user.date().isoformat()
+    now_str = _now_user.strftime("%d.%m.%Y · %H:%M")
     try:
         if is_admin:
             dashboard_text = await build_admin_dashboard(

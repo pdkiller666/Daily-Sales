@@ -345,9 +345,11 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
     from timezone_utils import format_user_datetime
     admin_tz = await current_db.get_user_timezone(callback.from_user.id)
 
-    text = "📅 <b>Запланированные уведомления</b>\n\n"
+    total = len(notifications)
+    shown = notifications[:10]
+    text = f"📅 <b>Запланированные уведомления</b> ({total})\n\n"
     buttons = []
-    for notif in notifications[:10]:
+    for notif in shown:
         notif_id = notif[0]
         notif_text = notif[3] or ""
         scheduled_dt_raw = notif[6] or ""
@@ -359,6 +361,8 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
             text=f"🗑 Удалить #{notif_id}",
             callback_data=f"del_sched_notif_{notif_id}"
         )])
+    if total > 10:
+        text += f"<i>…и ещё {total - 10} уведомлений. Удалите часть для просмотра остальных.</i>\n"
 
     buttons.append([back_button("notifications_menu")])
     await callback.message.edit_text(
