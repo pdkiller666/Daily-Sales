@@ -461,7 +461,6 @@ async def edit_inventory_user(callback: CallbackQuery, state: FSMContext):
         )
         return
 
-    await callback.answer()
     back_cb = "manage_inventory" if (is_admin or is_super) else "user_inventory_menu"
     await _show_edit_inventory_categories(callback, state, current_db, user_shop, back_cb=back_cb)
 

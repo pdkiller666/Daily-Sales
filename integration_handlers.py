@@ -1593,7 +1593,6 @@ async def gs_sheet_manual(callback: CallbackQuery, state: FSMContext):
 
 @integration_router.callback_query(F.data.startswith("gs_pick_sheet_"))
 async def gs_pick_sheet(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
     idx = int(callback.data.replace("gs_pick_sheet_", ""))
     data = await state.get_data()
     sheets    = data.get('gs_available_sheets', [])
@@ -1602,6 +1601,7 @@ async def gs_pick_sheet(callback: CallbackQuery, state: FSMContext):
     if idx >= len(sheets):
         await callback.answer("⚠️ Лист не найден", show_alert=True)
         return
+    await callback.answer()
     sheet = sheets[idx]
     await state.update_data(gs_target_sheet=sheet)
 
@@ -1884,13 +1884,13 @@ async def _show_hrow_picker(target, state: FSMContext, rows_data: dict, page: in
 @integration_router.callback_query(F.data.startswith("gs_lkp_hrow_pg_"))
 async def gs_lkp_hrow_page(callback: CallbackQuery, state: FSMContext):
     """Navigate between pages of the row picker."""
-    await callback.answer()
     page = int(callback.data.replace("gs_lkp_hrow_pg_", ""))
     data = await state.get_data()
     rows_sorted = data.get('gs_hrow_rows', [])
     if not rows_sorted:
         await callback.answer("⚠️ Данные устарели, начните заново", show_alert=True)
         return
+    await callback.answer()
     total_pages = max(1, -(-len(rows_sorted) // _HROW_PAGE_SIZE))
     wiz_back_cb = data.get('gs_wizard_back_cb', '')
     markup      = _hrow_page_kb(rows_sorted, page, wiz_back_cb=wiz_back_cb)
@@ -2079,7 +2079,12 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
         lookup    = data.get('gs_lookup', {})
         row_num   = lookup.get('col_search_row')
         if not row_num:
-            await callback.answer("⚠️ Номер строки не найден — вернись на шаг 1.", show_alert=True)
+            await callback.message.edit_text(
+                "⚠️ Номер строки не найден — вернись на шаг 1.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_lkp_bk_hrow")
+                ]])
+            )
             return
         sheet_name = data.get('gs_target_sheet', '')
         user_id    = callback.from_user.id
@@ -2099,7 +2104,15 @@ async def gs_lkp_field(callback: CallbackQuery, state: FSMContext):
             await state.update_data(gs_header_row=header_row, gs_first_drow=first_drow)
             await _show_idcol_picker(callback.message, state, header_row, first_drow, page=0)
         else:
-            await callback.answer("⚠️ Всё равно не удалось загрузить. Попробуй ещё раз.", show_alert=True)
+            _retry_kb2 = InlineKeyboardBuilder()
+            _retry_kb2.row(InlineKeyboardButton(
+                text="🔄 Попробовать снова", callback_data="gs_lkp_retry_idcol"))
+            _retry_kb2.row(InlineKeyboardButton(
+                text="⬅️ Назад", callback_data="gs_lkp_bk_hrow"))
+            await callback.message.edit_text(
+                "⚠️ Всё равно не удалось загрузить данные колонок. Попробуй ещё раз.",
+                reply_markup=_retry_kb2.as_markup()
+            )
         return
 
     if raw == "bk_idcol":

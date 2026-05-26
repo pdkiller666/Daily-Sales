@@ -1566,12 +1566,12 @@ async def help_cat_subscription_callback(callback: CallbackQuery, state: FSMCont
 @router.callback_query(F.data.startswith("help_cat_"))
 async def help_category_callback(callback: CallbackQuery, state: FSMContext):
     """Детальная справка по выбранной категории."""
-    await callback.answer()
     cat = callback.data[len("help_cat_"):]
     text = _HELP_TEXTS.get(cat)
     if not text:
         await callback.answer("❓ Раздел не найден", show_alert=True)
         return
+    await callback.answer()
     await callback.message.edit_text(
         text,
         reply_markup=_help_cat_kb(),

@@ -505,7 +505,6 @@ async def product_list_page(callback: CallbackQuery, state: FSMContext):
 @products_router.callback_query(F.data.startswith("prodl_cat_"))
 async def product_open_category(callback: CallbackQuery, state: FSMContext):
     """Открыть категорию — уровень 2: товары."""
-    await callback.answer()
     raw = callback.data[len("prodl_cat_"):]
     current_db = await get_db(callback.from_user.id, state)
     all_cats = await current_db.get_all_categories() or []
@@ -513,6 +512,7 @@ async def product_open_category(callback: CallbackQuery, state: FSMContext):
     if not category:
         await callback.answer("❌ Категория не найдена.", show_alert=True)
         return
+    await callback.answer()
     await _render_products_in_category(callback, state, category, page=0, sort='name')
 
 
@@ -574,6 +574,7 @@ async def product_search_start(callback: CallbackQuery, state: FSMContext):
 @products_router.callback_query(F.data == "prodl_srch_cancel")
 async def product_search_cancel(callback: CallbackQuery, state: FSMContext):
     """Отменить поиск, вернуться к категориям."""
+    await callback.answer()
     await state.set_state(None)
     data = await state.get_data()
     page = data.get("prodl_cat_page", 0)

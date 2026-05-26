@@ -3172,43 +3172,65 @@ class Database:
                 cursor.execute('SELECT * FROM sales WHERE id = ?', (sale_id,))
                 current_sale = cursor.fetchone()
 
-                if current_sale:
-                    old_quantity = current_sale[3]  # quantity_sold
-                    product_id = current_sale[1]
-                    shop_name = current_sale[2]
+                if not current_sale:
+                    conn.close()
+                    return False
 
-                    # Обновляем продажу
-                    if sale_price is not None:
-                        cursor.execute('''
-                            UPDATE sales SET quantity_sold = ?, sale_price = ?
-                            WHERE id = ?
-                        ''', (quantity_sold, sale_price, sale_id))
-                    else:
-                        cursor.execute('''
-                            UPDATE sales SET quantity_sold = ?
-                            WHERE id = ?
-                        ''', (quantity_sold, sale_id))
+                old_quantity = current_sale[3]  # quantity_sold
+                product_id = current_sale[1]
+                shop_name = current_sale[2]
+                old_price = current_sale[4]
+                sale_user_id = current_sale[5]
+                _sale_date_str = current_sale[6] if len(current_sale) > 6 else None
 
-                    # Корректируем остатки
-                    quantity_diff = old_quantity - quantity_sold
-                    if quantity_diff != 0:
-                        # Обновляем остатки в той же транзакции
-                        cursor.execute('''
-                            UPDATE inventory SET quantity = quantity + ?
-                            WHERE shop_name = ? AND product_id = ?
-                        ''', (quantity_diff, shop_name, product_id))
+                # Обновляем продажу
+                if sale_price is not None:
+                    cursor.execute('''
+                        UPDATE sales SET quantity_sold = ?, sale_price = ?
+                        WHERE id = ?
+                    ''', (quantity_sold, sale_price, sale_id))
+                else:
+                    cursor.execute('''
+                        UPDATE sales SET quantity_sold = ?
+                        WHERE id = ?
+                    ''', (quantity_sold, sale_id))
 
-                    # Пересчитываем заработок продавца
-                    final_price = sale_price if sale_price is not None else current_sale[4]  # sale_price col
-                    sale_user_id = current_sale[5]  # user_id col
-                    _sale_date_str = current_sale[6] if len(current_sale) > 6 else None
-                    try:
-                        from datetime import datetime as _dt2
-                        _sdt = _dt2.fromisoformat(_sale_date_str) if _sale_date_str else _dt2.now()
-                    except Exception:
-                        from datetime import datetime as _dt2
-                        _sdt = _dt2.now()
-                    _upd_year, _upd_month = _sdt.year, _sdt.month
+                # Корректируем остатки в той же транзакции
+                quantity_diff = old_quantity - quantity_sold
+                if quantity_diff != 0:
+                    cursor.execute('''
+                        UPDATE inventory SET quantity = quantity + ?
+                        WHERE shop_name = ? AND product_id = ?
+                    ''', (quantity_diff, shop_name, product_id))
+
+                # Аудит-лог (не критично — ошибка не останавливает коммит)
+                try:
+                    cursor.execute('''
+                        INSERT INTO sales_audit_log
+                        (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (sale_id, changed_by, old_quantity, quantity_sold,
+                          old_price,
+                          sale_price if sale_price is not None else old_price))
+                except Exception:
+                    pass
+
+                # ВАЖНО: коммит основной транзакции ДО вызова любых других методов DB.
+                # Внутренние вызовы (get_motivation_for_month, calculate_seller_commission)
+                # используют тот же пул соединений и вызывают conn.close() → rollback(),
+                # что откатило бы незакомиченный UPDATE.
+                conn.commit()
+
+                # Пересчитываем заработок продавца (отдельная транзакция после основного коммита)
+                final_price = sale_price if sale_price is not None else old_price
+                try:
+                    from datetime import datetime as _dt2
+                    _sdt = _dt2.fromisoformat(_sale_date_str) if _sale_date_str else _dt2.now()
+                except Exception:
+                    from datetime import datetime as _dt2
+                    _sdt = _dt2.now()
+                _upd_year, _upd_month = _sdt.year, _sdt.month
+                try:
                     commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month)
                     if commission_info:
                         new_commission = self.calculate_seller_commission(
@@ -3216,39 +3238,28 @@ class Database:
                             user_id=sale_user_id, shop_name=shop_name,
                             sale_year=_upd_year, sale_month=_upd_month
                         )
-                        # Используем INSERT OR REPLACE чтобы обновить или создать запись
-                        cursor.execute('''
-                            INSERT INTO seller_earnings (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
+                        conn2 = self.get_connection()
+                        conn2.execute('''
+                            INSERT INTO seller_earnings
+                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
                             VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?)
                             ON CONFLICT(sale_id) DO UPDATE SET
                                 commission_amount = excluded.commission_amount,
-                                motivation_type = excluded.motivation_type,
-                                motivation_value = excluded.motivation_value
+                                motivation_type   = excluded.motivation_type,
+                                motivation_value  = excluded.motivation_value
                         ''', (sale_id, sale_id, product_id, new_commission,
                               commission_info['motivation_type'], commission_info['motivation_value']))
+                        conn2.commit()
+                        conn2.close()
+                except Exception:
+                    pass
 
-                    try:
-                        cursor.execute('''
-                            INSERT INTO sales_audit_log
-                            (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ''', (sale_id, changed_by, old_quantity, quantity_sold,
-                              current_sale[4],
-                              sale_price if sale_price is not None else current_sale[4]))
-                    except Exception:
-                        pass
-
-                    conn.commit()
-                    conn.close()
-                    return True
-
-                conn.close()
-                return False
+                return True
 
             except sqlite3.OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay *= 2
                     continue
                 else:
                     logger.error(f"Database error in update_sale: {e}")

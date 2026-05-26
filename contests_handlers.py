@@ -418,7 +418,6 @@ async def contest_toggle_category(callback: CallbackQuery, state: FSMContext):
     await state.update_data(ct_categories=selected)
 
     await _show_contest_category_list(callback.message, categories, selected)
-    await callback.answer()
 
 
 @contests_router.callback_query(F.data == "ct_srch_prd_start")
