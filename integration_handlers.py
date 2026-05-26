@@ -1173,12 +1173,19 @@ async def gs_motiv_rows_input(message: Message, state: FSMContext):
             ]),
         )
     except Exception as e:
-        await _edit_anchor(
-            bot, chat_id, anchor_id,
-            f"❌ <b>Ошибка синхронизации:</b>\n<code>{e}</code>\n\n"
-            f"Проверьте название листа и параметры структуры.",
-            reply_markup=back_kb,
-        )
+        _e_str = str(e)
+        if 'invalid_grant' in _e_str.lower() or 'отозвана' in _e_str or 'Переподключите' in _e_str:
+            _err_text = (
+                "🔑 <b>Авторизация Google отозвана или истекла</b>\n\n"
+                "Переподключите аккаунт: нажмите «⬅️ К интеграциям» → выберите подключение → "
+                "«🔄 Переподключить OAuth»."
+            )
+        else:
+            _err_text = (
+                f"❌ <b>Ошибка синхронизации:</b>\n<code>{_e_str}</code>\n\n"
+                "Проверьте название листа и параметры структуры."
+            )
+        await _edit_anchor(bot, chat_id, anchor_id, _err_text, reply_markup=back_kb)
     finally:
         await clear_state_keep_org(state)
 

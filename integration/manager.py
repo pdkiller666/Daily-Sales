@@ -171,6 +171,7 @@ class IntegrationManager:
                                f'motivation sync: {synced} моделей из "{sheet_name}"')
         return {'synced': synced, 'models': models, 'sheet': sheet_name}
 
+
     # ───────────────────────────────────────────────────────
     #  Export trigger
     # ───────────────────────────────────────────────────────
@@ -266,7 +267,8 @@ class IntegrationManager:
             except Exception:
                 pass
             raise
-        except Exception as e:
+        except Exception as raw_e:
+            e = self._normalize_gs_error(raw_e, db, conn_id)
             msg = str(e)
             logger.error(f"_run_export_with_result id={export_id} error: {msg}")
             try:
@@ -316,14 +318,22 @@ class IntegrationManager:
             except Exception:
                 pass
             raise
-        except Exception as e:
+        except Exception as raw_e:
+            e = self._normalize_gs_error(raw_e, db, conn_id)
             msg = str(e)
             logger.error(f"_run_export id={export_id} error: {msg}")
             try:
                 db.add_integration_log(conn_id, export_id, 'error', msg)
             except Exception:
                 pass
-            await self._notify_admins(db, f"⚠️ Ошибка экспорта Google Sheets\n\n{msg}")
+            if 'отозвана' in msg or 'Переподключите' in msg:
+                await self._notify_admins(
+                    db,
+                    "🔑 <b>Google Sheets: требуется переподключение</b>\n\n"
+                    "Авторизация отозвана. Зайдите в Управление орг. → Интеграции и переавторизуйте аккаунт."
+                )
+            else:
+                await self._notify_admins(db, f"⚠️ Ошибка экспорта Google Sheets\n\n{msg}")
 
     async def _do_append_row(self, provider, cfg, sheet_name,
                               mapping_json, event_data):
@@ -395,6 +405,27 @@ class IntegrationManager:
         for macro, value in macros.items():
             template = template.replace(macro, value)
         return template
+
+    def _normalize_gs_error(self, e: Exception, db=None, conn_id: int = None) -> Exception:
+        """Convert google.auth RefreshError with invalid_grant → friendly ValueError.
+        Also auto-disables the connection in DB."""
+        err_str = str(e)
+        if 'invalid_grant' in err_str.lower():
+            from integration.auth.google_oauth import OAuthTokenRevokedException
+            if db is not None and conn_id is not None:
+                try:
+                    db.update_integration_connection(conn_id, enabled=0)
+                    db.add_integration_log(
+                        conn_id, None, 'error',
+                        'Токен отозван — подключение отключено автоматически'
+                    )
+                except Exception:
+                    pass
+            return ValueError(
+                "Авторизация Google отозвана или истекла. "
+                "Переподключите аккаунт в настройках интеграции."
+            )
+        return e
 
     async def _notify_admins(self, db, text: str):
         try:
