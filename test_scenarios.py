@@ -1566,7 +1566,7 @@ from aiogram.types import InlineKeyboardButton as _IKBtn
 check("PAGE_SIZE_DEFAULT == 8",  PAGE_SIZE_DEFAULT == 8)
 check("PAGE_SIZE_USERS == 10",   PAGE_SIZE_USERS == 10)
 check("PAGE_SIZE_ORGS == 8",     PAGE_SIZE_ORGS == 8)
-check("PAGE_SIZE_SALES == 8",    PAGE_SIZE_SALES == 8)
+check("PAGE_SIZE_SALES == 5",    PAGE_SIZE_SALES == 5)
 
 # paginate возвращает (items_on_page, has_prev, has_next, total_pages, clamped_page)
 items10 = list(range(10))

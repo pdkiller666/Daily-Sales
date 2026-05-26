@@ -1880,24 +1880,39 @@ async def admin_edit_shop_sales_list(callback: CallbackQuery, state: FSMContext)
 
 async def show_sales_for_edit(callback_or_msg, sales, state: FSMContext,
                               period_title: str, page: int = 0):
-    """Показывает список продаж для редактирования (с пагинацией).
+    """Показывает список продаж для редактирования (с пагинацией + фильтр по категории).
     Принимает CallbackQuery или Message — во втором случае редактирует якорь через fsm_edit."""
     from aiogram.types import Message as _Msg
     _is_msg = isinstance(callback_or_msg, _Msg)
     user_id = callback_or_msg.from_user.id
 
     await state.update_data(edit_sales_cache=sales, edit_sales_title=period_title)
+    state_data = await state.get_data()
+    cat_filter = state_data.get("edit_sales_cat_filter")
+
+    # Применяем фильтр по категории для отображения
+    view = [s for s in sales if (s[8] if len(s) > 8 else "") == cat_filter] if cat_filter else sales
+
+    # Кнопки категории
+    cat_label = f"🗂 {cat_filter[:18]} ✕" if cat_filter else "🗂 Категория"
+    cat_cb    = "esl_cat_clear" if cat_filter else "esl_cat_pick"
+
+    display_title = f"{period_title} · 📂 {cat_filter}" if cat_filter else period_title
+    message_text  = f"📝 <b>Редактирование продаж</b> — {he(display_title)}\n\n"
 
     builder = InlineKeyboardBuilder()
-    message_text = f"📝 <b>Редактирование продаж</b> — {he(period_title)}\n\n"
 
-    if not sales:
-        message_text += "❌ Продажи не найдены."
-        builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
+    if not view:
+        if cat_filter:
+            message_text += f"📂 В категории «{he(cat_filter)}» продаж не найдено."
+        else:
+            message_text += "❌ Продажи не найдены."
+        builder.row(InlineKeyboardButton(text=cat_label, callback_data=cat_cb))
+        builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
     else:
-        page_items, has_prev, has_next, total_pages, page = paginate(sales, page, PAGE_SIZE_SALES)
+        page_items, has_prev, has_next, total_pages, page = paginate(view, page, PAGE_SIZE_SALES)
         pg_info = f"· стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
-        message_text += f"Продаж: {len(sales)} {pg_info}\nВыберите для редактирования:\n\n"
+        message_text += f"Продаж: {len(view)} {pg_info}\nВыберите для редактирования:\n\n"
 
         from utils import format_date_for_user
         offset = page * PAGE_SIZE_SALES
@@ -1927,8 +1942,11 @@ async def show_sales_for_edit(callback_or_msg, sales, state: FSMContext,
         nav = page_nav_row("esl_pg_", page, has_prev, has_next, total_pages)
         if nav:
             builder.row(*nav)
-        builder.row(InlineKeyboardButton(text="🔍 Поиск по названию", callback_data="esl_srch_start"))
-        builder.add(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
+        builder.row(
+            InlineKeyboardButton(text="🔍 Поиск",  callback_data="esl_srch_start"),
+            InlineKeyboardButton(text=cat_label,   callback_data=cat_cb),
+        )
+        builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="edit_sales"))
         builder.adjust(1)
 
     await state.update_data(edit_sales_page_num=page)
@@ -1957,20 +1975,97 @@ async def esl_srch_start(callback: CallbackQuery, state: FSMContext):
 
 @sales_router.message(SearchStates.edit_sales_srch)
 async def esl_srch_process(message: Message, state: FSMContext):
-    """Фильтрация кэшированных продаж по названию товара"""
+    """Фильтрация кэшированных продаж по названию товара (с учётом активного фильтра категории)"""
     query = (message.text or "").strip().lower()
     await state.set_state(None)
     data = await state.get_data()
+    sales      = data.get("edit_sales_cache", [])
+    title      = data.get("edit_sales_title", "Продажи")
+    cat_filter = data.get("edit_sales_cat_filter")
+
+    # Сначала применяем фильтр категории, затем текстовый
+    base = [s for s in sales if (s[8] if len(s) > 8 else "") == cat_filter] if cat_filter else sales
+
+    if query:
+        matched = [s for s in base if query in (s[7] if len(s) > 7 else "").lower()]
+    else:
+        matched = base
+
+    suffix     = f" · 🔍 «{query}»" if query else ""
+    cat_suffix = f" · 📂 {cat_filter}" if cat_filter else ""
+    await show_sales_for_edit(message, matched, state, title + cat_suffix + suffix, page=0)
+
+
+# ─── Фильтр по категории в списке продаж ─────────────────────────────────────
+
+@sales_router.callback_query(F.data == "esl_cat_pick")
+async def esl_cat_pick(callback: CallbackQuery, state: FSMContext):
+    """Открыть пикер категорий для фильтрации списка продаж"""
+    await callback.answer()
+    data       = await state.get_data()
+    sales      = data.get("edit_sales_cache", [])
+    cat_filter = data.get("edit_sales_cat_filter")
+
+    from collections import Counter
+    cat_counts = Counter((s[8] if len(s) > 8 else "Без категории") for s in sales)
+
+    if not cat_counts:
+        await callback.answer("Категории не найдены.", show_alert=True)
+        return
+
+    builder = InlineKeyboardBuilder()
+    for cat, count in sorted(cat_counts.items()):
+        marker = "✅ " if cat == cat_filter else ""
+        builder.add(InlineKeyboardButton(
+            text=f"{marker}📂 {cat} ({count})",
+            callback_data=safe_cb("esl_cat_set_", cat)
+        ))
+    builder.row(InlineKeyboardButton(text=f"📋 Все категории ({len(sales)})", callback_data="esl_cat_clear"))
+    builder.row(InlineKeyboardButton(text="⬅️ К списку", callback_data="esl_cat_back"))
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"🗂 <b>Фильтр по категории</b>\n\nВсего продаж: {len(sales)}\nВыберите категорию:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@sales_router.callback_query(F.data.startswith("esl_cat_set_"))
+async def esl_cat_set(callback: CallbackQuery, state: FSMContext):
+    """Применить фильтр по выбранной категории"""
+    await callback.answer()
+    raw   = callback.data[len("esl_cat_set_"):]
+    data  = await state.get_data()
     sales = data.get("edit_sales_cache", [])
     title = data.get("edit_sales_title", "Продажи")
 
-    if query:
-        matched = [s for s in sales if query in (s[7] if len(s) > 7 else "").lower()]
-    else:
-        matched = sales
+    all_cats = list({(s[8] if len(s) > 8 else "Без категории") for s in sales})
+    cat_name = resolve_cb_name(raw, all_cats)
 
-    suffix = f" · 🔍 «{query}»" if query else ""
-    await show_sales_for_edit(message, matched, state, title + suffix, page=0)
+    await state.update_data(edit_sales_cat_filter=cat_name)
+    await show_sales_for_edit(callback, sales, state, title, page=0)
+
+
+@sales_router.callback_query(F.data == "esl_cat_clear")
+async def esl_cat_clear(callback: CallbackQuery, state: FSMContext):
+    """Сбросить фильтр по категории — показать все продажи"""
+    await callback.answer()
+    await state.update_data(edit_sales_cat_filter=None)
+    data  = await state.get_data()
+    sales = data.get("edit_sales_cache", [])
+    title = data.get("edit_sales_title", "Продажи")
+    await show_sales_for_edit(callback, sales, state, title, page=0)
+
+
+@sales_router.callback_query(F.data == "esl_cat_back")
+async def esl_cat_back(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к списку продаж из пикера категорий"""
+    await callback.answer()
+    data  = await state.get_data()
+    sales = data.get("edit_sales_cache", [])
+    title = data.get("edit_sales_title", "Продажи")
+    await show_sales_for_edit(callback, sales, state, title, page=0)
 
 
 @sales_router.callback_query(F.data.startswith("esl_pg_"))

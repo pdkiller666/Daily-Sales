@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 PAGE_SIZE_DEFAULT = 8
 PAGE_SIZE_USERS   = 10
 PAGE_SIZE_ORGS    = 8
-PAGE_SIZE_SALES   = 8
+PAGE_SIZE_SALES   = 5
 PAGE_SIZE_BTN     = 5   # inline-button lists (shops, products, users)
 
 
