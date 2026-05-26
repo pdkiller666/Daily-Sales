@@ -11,7 +11,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from utils import he
+from utils import he, format_price
 
 from database import Database
 from keyboards import main_menu, back_button, create_selection_keyboard
@@ -2196,7 +2196,7 @@ async def _get_shop_db_path(state: FSMContext) -> str:
 
 
 async def _get_shops_with_stats(db_path: str) -> list:
-    """Возвращает список (name, user_count, inv_count, city, trade_network) для всех магазинов."""
+    """Возвращает список (name[0], users[1], inv[2], city[3], trade_network[4], notes[5])."""
     try:
         rows = await _db_run(
             db_path,
@@ -2205,7 +2205,8 @@ async def _get_shops_with_stats(db_path: str) -> list:
             " (SELECT COUNT(DISTINCT product_id) FROM inventory"
             "   WHERE shop_name = q.name AND quantity > 0) as ic,"
             " COALESCE(s.city, '') as city,"
-            " COALESCE(s.trade_network, '') as trade_network"
+            " COALESCE(s.trade_network, '') as trade_network,"
+            " COALESCE(s.notes, '') as notes"
             " FROM ("
             "  SELECT DISTINCT shop_name AS name FROM users"
             "   WHERE shop_name IS NOT NULL AND shop_name != ''"
@@ -2221,13 +2222,27 @@ async def _get_shops_with_stats(db_path: str) -> list:
     except Exception:
         rows = await _db_run(
             db_path,
-            "SELECT DISTINCT shop_name, 0, 0, '', '' FROM users"
+            "SELECT DISTINCT shop_name, 0, 0, '', '', '' FROM users"
             " WHERE shop_name IS NOT NULL AND shop_name != ''"
             " AND shop_name NOT IN ('Системный','System')"
             " ORDER BY shop_name",
             fetch="all"
         ) or []
     return rows
+
+
+async def _shop_sales_stats(db_path: str, shop_name: str, since_date: str) -> tuple:
+    """(кол-во продаж, сумма выручки) для магазина начиная с since_date."""
+    try:
+        row = await _db_run(
+            db_path,
+            "SELECT COUNT(*), COALESCE(SUM(quantity_sold * sale_price), 0)"
+            " FROM sales WHERE shop_name = ? AND date(sale_date) >= ?",
+            (shop_name, since_date), fetch="one"
+        )
+        return (row[0] or 0, row[1] or 0) if row else (0, 0)
+    except Exception:
+        return (0, 0)
 
 
 @admin_router.callback_query(F.data == "admin_shops")
@@ -2246,10 +2261,10 @@ async def admin_shops_list(callback: CallbackQuery, state: FSMContext):
     text = f"🏪 <b>Управление магазинами</b> · {total} шт.\n\n"
     if shops:
         for row in shops:
-            name, users, inv = row[0], row[1], row[2]
-            city = row[4] if len(row) > 4 else ""
-            net  = row[5] if len(row) > 5 else ""
-            meta = f"👥 {users} сотр., 📦 {inv} поз."
+            name  = row[0]; users = row[1]; inv = row[2]
+            city  = (row[3] if len(row) > 3 else "") or ""
+            net   = (row[4] if len(row) > 4 else "") or ""
+            meta  = f"👥 {users} сотр., 📦 {inv} поз."
             if city:
                 meta += f", 🏙 {he(city)}"
             if net:
@@ -2257,7 +2272,7 @@ async def admin_shops_list(callback: CallbackQuery, state: FSMContext):
             text += f"• <b>{he(name)}</b> — {meta}\n"
     else:
         text += "Магазины ещё не добавлены.\n"
-    text += "\nНажмите на магазин для редактирования:"
+    text += "\nНажмите на магазин для управления:"
 
     builder = InlineKeyboardBuilder()
     for row in shops:
@@ -2280,31 +2295,36 @@ async def admin_shop_edit_detail(callback: CallbackQuery, state: FSMContext):
     db_path = await _get_shop_db_path(state)
     shops = await _get_shops_with_stats(db_path)
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
-    stat = next((s for s in shops if s[0] == shop_name), None)
+    stat  = next((s for s in shops if s[0] == shop_name), None)
     users = stat[1] if stat else 0
     inv   = stat[2] if stat else 0
-    city  = (stat[4] if stat and len(stat) > 4 else "") or ""
-    net   = (stat[5] if stat and len(stat) > 5 else "") or ""
+    city  = (stat[3] if stat and len(stat) > 3 else "") or ""
+    net   = (stat[4] if stat and len(stat) > 4 else "") or ""
+    notes = (stat[5] if stat and len(stat) > 5 else "") or ""
 
-    lines = [
-        f"🏪 <b>{he(shop_name)}</b>",
-        f"👥 Сотрудников: {users}",
-        f"📦 Позиций в остатках: {inv}",
-    ]
-    if city:
-        lines.append(f"🏙 Город: {he(city)}")
-    if net:
-        lines.append(f"🌐 Торговая сеть: {he(net)}")
+    lines = [f"🏪 <b>{he(shop_name)}</b>",
+             f"👥 Сотрудников: <b>{users}</b>  •  📦 Позиций: <b>{inv}</b>"]
+    if city:  lines.append(f"🏙 Город: {he(city)}")
+    if net:   lines.append(f"🌐 Сеть: {he(net)}")
+    if notes: lines.append(f"📝 {he(notes)}")
     text = "\n".join(lines) + "\n\nВыберите действие:"
 
     await state.update_data(shop_edit_name=shop_name)
     builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ Переименовать", callback_data=safe_cb("ashop_ren_", shop_name))
-    builder.button(text=f"🏙 {'Изменить город' if city else 'Добавить город'}", callback_data=safe_cb("ashop_city_", shop_name))
-    builder.button(text=f"🌐 {'Изменить сеть' if net else 'Добавить сеть'}", callback_data=safe_cb("ashop_net_", shop_name))
-    builder.button(text="🗑 Удалить", callback_data=safe_cb("ashop_del_", shop_name))
-    builder.button(text="⬅️ К списку", callback_data="admin_shops")
-    builder.adjust(1)
+    builder.button(text="📊 Статистика продаж",   callback_data=safe_cb("ashop_stats_", shop_name))
+    builder.button(text="👥 Сотрудники",          callback_data=safe_cb("ashop_empl_",  shop_name))
+    builder.button(text="📋 Смены сегодня",       callback_data=safe_cb("ashop_shifts_", shop_name))
+    builder.button(text="📦 Остатки",             callback_data=safe_cb("ashop_inv_",   shop_name))
+    builder.button(text="✏️ Переименовать",        callback_data=safe_cb("ashop_ren_",   shop_name))
+    builder.button(text=f"🏙 {'Изменить город' if city else 'Добавить город'}",
+                   callback_data=safe_cb("ashop_city_",  shop_name))
+    builder.button(text=f"🌐 {'Изменить сеть' if net else 'Добавить сеть'}",
+                   callback_data=safe_cb("ashop_net_",   shop_name))
+    builder.button(text=f"📝 {'Изменить заметку' if notes else 'Добавить заметку'}",
+                   callback_data=safe_cb("ashop_notes_", shop_name))
+    builder.button(text="🗑 Удалить магазин",     callback_data=safe_cb("ashop_del_",   shop_name))
+    builder.button(text="⬅️ К списку",            callback_data="admin_shops")
+    builder.adjust(2, 2, 2, 2, 1, 1)
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
@@ -2527,20 +2547,31 @@ async def admin_shop_delete_confirm(callback: CallbackQuery, state: FSMContext):
     db_path = await _get_shop_db_path(state)
     shops = await _get_shops_with_stats(db_path)
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
-    stat = next(((u, i) for n, u, i in shops if n == shop_name), (0, 0))
-    users, inv = stat
+    stat  = next((s for s in shops if s[0] == shop_name), None)
+    users = stat[1] if stat else 0
+    inv   = stat[2] if stat else 0
+    other_shops = [s[0] for s in shops if s[0] != shop_name]
+    await state.update_data(shop_del_from=shop_name)
+
+    rows = [
+        [InlineKeyboardButton(text="🗑 Удалить (оставить без магазина)",
+                              callback_data=safe_cb("ashop_delok_", shop_name))],
+    ]
+    if users > 0 and other_shops:
+        rows.append([InlineKeyboardButton(
+            text="🔄 Перевести сотрудников и удалить",
+            callback_data=safe_cb("ashop_deltrans_", shop_name)
+        )])
+    rows.append([back_button(safe_cb("ashop_edit_", shop_name))])
     await callback.message.edit_text(
         f"⚠️ <b>Удаление магазина</b>\n\n"
         f"🏪 <b>{he(shop_name)}</b>\n"
         f"👥 Сотрудников: {users}\n"
         f"📦 Позиций в остатках: {inv}\n\n"
-        f"❗ Остатки будут удалены. У сотрудников сбросится привязка к магазину.\n"
+        f"❗ Остатки будут удалены.\n"
+        f"{'У сотрудников сбросится привязка — или переведите их в другой магазин.' if users > 0 else 'Сотрудников нет.'}\n\n"
         f"Продолжить?",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, удалить",
-                                  callback_data=safe_cb("ashop_delok_", shop_name))],
-            [back_button("admin_shops")],
-        ]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         parse_mode="HTML"
     )
 
@@ -2576,6 +2607,361 @@ async def admin_shop_delete_execute(callback: CallbackQuery, state: FSMContext):
         invalidate_filter_values_cache(db_path)
         msg = (f"✅ Магазин <b>{he(shop_name)}</b> удалён.\n"
                f"👥 {affected} сотрудников отвязано от магазина.")
+    except Exception as e:
+        msg = f"❌ Ошибка: {he(str(e))}"
+    await callback.message.edit_text(
+        msg,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_shops")]]),
+        parse_mode="HTML"
+    )
+
+
+# ─── Статистика продаж магазина ──────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_stats_"))
+async def admin_shop_stats(callback: CallbackQuery, state: FSMContext):
+    """Статистика продаж магазина: сегодня / 7 дней / 30 дней"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_stats_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+
+    today  = datetime.utcnow().date()
+    d7     = (today - timedelta(days=6)).isoformat()
+    d30    = (today - timedelta(days=29)).isoformat()
+    d0     = today.isoformat()
+
+    cnt0, rev0  = await _shop_sales_stats(db_path, shop_name, d0)
+    cnt7, rev7  = await _shop_sales_stats(db_path, shop_name, d7)
+    cnt30, rev30 = await _shop_sales_stats(db_path, shop_name, d30)
+
+    text = (
+        f"📊 <b>Статистика продаж</b>\n"
+        f"🏪 {he(shop_name)}\n\n"
+        f"<b>Сегодня</b>      {cnt0} прод. · {format_price(rev0)} ₽\n"
+        f"<b>7 дней</b>       {cnt7} прод. · {format_price(rev7)} ₽\n"
+        f"<b>30 дней</b>      {cnt30} прод. · {format_price(rev30)} ₽\n"
+    )
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]
+        ),
+        parse_mode="HTML"
+    )
+
+
+# ─── Сотрудники магазина ─────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_empl_"))
+async def admin_shop_employees(callback: CallbackQuery, state: FSMContext):
+    """Список сотрудников магазина с ролями"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_empl_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+
+    rows = await _db_run(
+        db_path,
+        "SELECT u.telegram_id, u.first_name, u.last_name, u.username,"
+        " COALESCE(m.role,'user') as role, COALESCE(m.custom_title,'') as ctitle"
+        " FROM users u"
+        " LEFT JOIN user_org_mapping m ON m.telegram_id = u.telegram_id"
+        " WHERE u.shop_name = ?"
+        " ORDER BY CASE COALESCE(m.role,'user')"
+        "  WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.first_name",
+        (shop_name,), fetch="all"
+    ) or []
+
+    _ROLE_ICON = {'owner': '👑', 'admin': '🔧', 'user': '👤'}
+    _ROLE_LABEL = {'owner': 'Владелец', 'admin': 'Администратор', 'user': 'Сотрудник'}
+
+    if not rows:
+        text = f"👥 <b>Сотрудники</b>\n🏪 {he(shop_name)}\n\n❌ Нет сотрудников."
+    else:
+        text = f"👥 <b>Сотрудники</b> · {len(rows)} чел.\n🏪 {he(shop_name)}\n\n"
+        for tg_id, fn, ln, uname, role, ctitle in rows:
+            icon  = _ROLE_ICON.get(role, '👤')
+            label = ctitle or _ROLE_LABEL.get(role, role)
+            name  = f"{fn or ''} {ln or ''}".strip() or "—"
+            link  = f" @{he(uname)}" if uname else ""
+            text += f"{icon} <b>{he(name)}</b>{link} · {he(label)}\n"
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]
+        ),
+        parse_mode="HTML"
+    )
+
+
+# ─── Смены сегодня ────────────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_shifts_"))
+async def admin_shop_shifts_today(callback: CallbackQuery, state: FSMContext):
+    """Кто стоит на смене сегодня в этом магазине"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_shifts_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    today_str = datetime.utcnow().date().isoformat()
+
+    rows = await _db_run(
+        db_path,
+        "SELECT u.first_name, u.last_name,"
+        " COALESCE(ws.start_time,'') as st, COALESCE(ws.end_time,'') as et"
+        " FROM users u"
+        " JOIN work_schedule ws ON ws.user_id = u.id AND ws.work_date = ?"
+        " WHERE u.shop_name = ?"
+        " ORDER BY COALESCE(ws.start_time,'99'), u.first_name",
+        (today_str, shop_name), fetch="all"
+    ) or []
+
+    if not rows:
+        text = (f"📋 <b>Смены сегодня</b>\n🏪 {he(shop_name)}\n\n"
+                f"😴 Никто не на смене.")
+    else:
+        text = (f"📋 <b>Смены сегодня</b> · {len(rows)} чел.\n"
+                f"🏪 {he(shop_name)}\n\n")
+        for fn, ln, st, et in rows:
+            name  = f"{fn or ''} {ln or ''}".strip() or "—"
+            hours = f" {st}–{et}" if st and et else (" с " + st if st else "")
+            text += f"✅ <b>{he(name)}</b>{he(hours)}\n"
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]
+        ),
+        parse_mode="HTML"
+    )
+
+
+# ─── Быстрый просмотр остатков ───────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_inv_"))
+async def admin_shop_inventory_quick(callback: CallbackQuery, state: FSMContext):
+    """Быстрый просмотр топ-15 позиций остатков магазина"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_inv_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+
+    rows = await _db_run(
+        db_path,
+        "SELECT p.name, p.category, i.quantity"
+        " FROM inventory i"
+        " JOIN products p ON p.id = i.product_id"
+        " WHERE i.shop_name = ? AND i.quantity > 0"
+        " ORDER BY i.quantity DESC LIMIT 20",
+        (shop_name,), fetch="all"
+    ) or []
+
+    zero_row = await _db_run(
+        db_path,
+        "SELECT COUNT(*) FROM inventory i"
+        " JOIN products p ON p.id = i.product_id"
+        " WHERE i.shop_name = ? AND i.quantity = 0",
+        (shop_name,), fetch="one"
+    )
+    zero_cnt = zero_row[0] if zero_row else 0
+    total_qty = sum(r[2] for r in rows)
+
+    if not rows:
+        text = (f"📦 <b>Остатки</b>\n🏪 {he(shop_name)}\n\n"
+                f"❌ Нет товаров на складе.")
+    else:
+        text = (f"📦 <b>Остатки</b> · {len(rows)} поз., {total_qty} шт.\n"
+                f"🏪 {he(shop_name)}\n\n")
+        for pname, cat, qty in rows:
+            indicator = "🔴" if qty == 0 else ("🟡" if qty < 3 else "🟢")
+            text += f"{indicator} {he(pname)} — <b>{qty} шт.</b>\n"
+        if zero_cnt:
+            text += f"\n⚠️ Ещё {zero_cnt} поз. с нулевым остатком."
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]
+        ),
+        parse_mode="HTML"
+    )
+
+
+# ─── Заметка к магазину ──────────────────────────────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_notes_"))
+async def admin_shop_notes_start(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование заметки магазина"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_notes_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    await state.update_data(shop_edit_name=shop_name)
+    await fsm_edit(
+        state, callback.message,
+        f"📝 <b>Заметка к магазину</b>\n\n"
+        f"Магазин: <b>{he(shop_name)}</b>\n\n"
+        "Введите заметку (адрес, телефон, часы — любой текст).\n"
+        "Пустая строка — удалить заметку.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[back_button(safe_cb("ashop_edit_", shop_name))]]
+        ),
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminShopStates.waiting_for_notes)
+
+
+@admin_router.message(AdminShopStates.waiting_for_notes)
+async def admin_shop_notes_process(message: Message, state: FSMContext):
+    """Сохранить заметку магазина"""
+    data = await state.get_data()
+    shop_name = data.get('shop_edit_name', '')
+    notes_value = (message.text or "").strip()
+    db_path = await _get_shop_db_path(state)
+    _kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_shops")]])
+    try:
+        await _db_run(db_path,
+                      "INSERT INTO shops (name, notes) VALUES (?, ?)"
+                      " ON CONFLICT(name) DO UPDATE SET notes = excluded.notes",
+                      (shop_name, notes_value))
+        msg = (f"✅ Заметка для <b>{he(shop_name)}</b> сохранена." if notes_value
+               else f"✅ Заметка для <b>{he(shop_name)}</b> удалена.")
+    except Exception as e:
+        msg = f"❌ Ошибка: {he(str(e))}"
+    await fsm_edit(state, message, msg, reply_markup=_kb, parse_mode="HTML")
+    await clear_state_keep_org(state)
+
+
+# ─── Перевод сотрудников при удалении магазина ───────────────────────────────
+
+@admin_router.callback_query(F.data.startswith("ashop_deltrans_"))
+async def admin_shop_delete_transfer_pick(callback: CallbackQuery, state: FSMContext):
+    """Выбрать магазин для перевода сотрудников перед удалением"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_deltrans_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    shop_name = resolve_cb_name(key, [s[0] for s in shops])
+    await state.update_data(shop_del_from=shop_name)
+    other_shops = [s for s in shops if s[0] != shop_name]
+
+    if not other_shops:
+        await callback.answer("❌ Нет других магазинов для перевода.", show_alert=True)
+        return
+
+    builder = InlineKeyboardBuilder()
+    for s in other_shops:
+        builder.button(
+            text=f"🏪 {s[0]} ({s[1]} сотр.)",
+            callback_data=safe_cb("ashop_delto_", s[0])
+        )
+    builder.adjust(1)
+    builder.row(back_button(safe_cb("ashop_del_", shop_name)))
+    await callback.message.edit_text(
+        f"🔄 <b>Перевод сотрудников</b>\n\n"
+        f"Из: <b>{he(shop_name)}</b>\n\n"
+        "Выберите магазин назначения:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@admin_router.callback_query(F.data.startswith("ashop_delto_"))
+async def admin_shop_delete_transfer_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение: перевести и удалить"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    key = callback.data[len("ashop_delto_"):]
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    shops = await _get_shops_with_stats(db_path)
+    target_name = resolve_cb_name(key, [s[0] for s in shops])
+    data = await state.get_data()
+    source_name = data.get('shop_del_from', '')
+    await state.update_data(shop_del_to=target_name)
+
+    stat = next((s for s in shops if s[0] == source_name), None)
+    users = stat[1] if stat else 0
+
+    await callback.message.edit_text(
+        f"🔄 <b>Перевод и удаление</b>\n\n"
+        f"Из: <b>{he(source_name)}</b> ({users} сотр.)\n"
+        f"В:   <b>{he(target_name)}</b>\n\n"
+        f"Остатки магазина <b>{he(source_name)}</b> будут удалены.\n"
+        f"Сотрудники переведены в <b>{he(target_name)}</b>.\n\n"
+        f"Подтвердить?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да, перевести и удалить",
+                                  callback_data="ashop_delokfin_")],
+            [back_button(safe_cb("ashop_deltrans_", source_name))],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@admin_router.callback_query(F.data == "ashop_delokfin_")
+async def admin_shop_delete_transfer_execute(callback: CallbackQuery, state: FSMContext):
+    """Выполнить перевод сотрудников и удалить магазин"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    db_path = await _get_shop_db_path(state)
+    data = await state.get_data()
+    source_name = data.get('shop_del_from', '')
+    target_name = data.get('shop_del_to', '')
+
+    if not source_name or not target_name:
+        await callback.answer("❌ Ошибка: данные сессии устарели.", show_alert=True)
+        return
+
+    try:
+        row = await _db_run(
+            db_path, "SELECT COUNT(*) FROM users WHERE shop_name = ?",
+            (source_name,), fetch="one"
+        )
+        transferred = row[0] if row else 0
+        await _db_run(db_path,
+                      "UPDATE users SET shop_name = ? WHERE shop_name = ?",
+                      (target_name, source_name))
+        await _db_run(db_path,
+                      "DELETE FROM inventory WHERE shop_name = ?",
+                      (source_name,))
+        try:
+            await _db_run(db_path, "DELETE FROM shops WHERE name = ?", (source_name,))
+        except Exception:
+            pass
+        from filter_utils import invalidate_filter_values_cache
+        invalidate_filter_values_cache(db_path)
+        msg = (f"✅ Готово!\n"
+               f"🔄 {transferred} сотр. переведены в <b>{he(target_name)}</b>.\n"
+               f"🗑 Магазин <b>{he(source_name)}</b> удалён.")
     except Exception as e:
         msg = f"❌ Ошибка: {he(str(e))}"
     await callback.message.edit_text(

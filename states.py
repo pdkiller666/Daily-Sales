@@ -205,6 +205,7 @@ class AdminShopStates(StatesGroup):
     waiting_for_renamed_shop  = State()
     waiting_for_city          = State()
     waiting_for_network       = State()
+    waiting_for_notes         = State()
 
 class GSImportStates(StatesGroup):
     waiting_sheet_name  = State()

@@ -889,6 +889,10 @@ class Database:
             cursor.execute("ALTER TABLE shops ADD COLUMN trade_network TEXT DEFAULT ''")
         except Exception:
             pass
+        try:
+            cursor.execute("ALTER TABLE shops ADD COLUMN notes TEXT DEFAULT ''")
+        except Exception:
+            pass
 
         conn.commit()
 
