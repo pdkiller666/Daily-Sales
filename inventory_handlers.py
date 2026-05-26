@@ -31,25 +31,16 @@ async def manage_inventory_callback(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-    if is_super:
-        # Супер-админ — старое меню с «Добавить остатки»
-        from keyboards import inventory_menu
-        await callback.message.edit_text(
-            "📦 <b>Управление остатками</b>\n\nВыберите действие:",
-            reply_markup=inventory_menu(),
-            parse_mode="HTML"
-        )
-    else:
-        # Орг-админ — меню «Просмотр + Редактировать» (без сломанного «Добавить»)
-        await callback.message.edit_text(
-            "📦 <b>Управление остатками</b>\n\nВыберите действие:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="👁️ Просмотр остатков",    callback_data="user_inventory_view")],
-                [InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit")],
-                [back_button("admin_management")]
-            ]),
-            parse_mode="HTML"
-        )
+    await callback.message.edit_text(
+        "📦 <b>Управление остатками</b>\n\nВыберите действие:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Добавить остатки",     callback_data="add_inventory")],
+            [InlineKeyboardButton(text="👁️ Просмотр остатков",    callback_data="user_inventory_view")],
+            [InlineKeyboardButton(text="✏️ Редактировать остатки", callback_data="user_inventory_edit")],
+            [back_button("admin_management")]
+        ]),
+        parse_mode="HTML"
+    )
 
 @inventory_router.callback_query(F.data == "add_inventory")
 async def add_inventory_start(callback: CallbackQuery, state: FSMContext):

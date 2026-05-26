@@ -1896,7 +1896,7 @@ class Database:
         Вызывается только если у пользователя ещё нет ни одной подписки."""
         try:
             from datetime import datetime, timedelta
-            end_date = (datetime.now() + timedelta(days=days)).isoformat()
+            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
             conn = self.get_connection()
             cursor = conn.cursor()
             # Двойная проверка: не выдавать повторно
