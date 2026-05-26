@@ -578,13 +578,27 @@ async def check_scheduled_notifications(bot: Bot):
                         if not os.path.exists(send_path):
                             continue
                         send_db = Database(send_path)
-                        recipients = await asyncio.to_thread(send_db.get_users_for_notifications, 'admin')
-                        # Применяем фильтр по магазину или роли
-                        if _rcpt_type == 'shop' and _rcpt_filter:
-                            recipients = [r for r in recipients if r[3] == _rcpt_filter]
-                        elif _rcpt_type == 'role' and _rcpt_filter:
-                            from db_utils import get_user_org_role as _gor
-                            recipients = [r for r in recipients if _gor(r[1]) == _rcpt_filter]
+                        # Применяем фильтр по типу получателей
+                        if _rcpt_type == 'users' and _rcpt_filter:
+                            # Конкретные получатели — без проверки admin_notifications
+                            target_tids = set(int(t) for t in _rcpt_filter)
+                            all_u = await asyncio.to_thread(send_db.get_all_users)
+                            recipients = [(u[0], u[1]) for u in all_u if u[1] and int(u[1]) in target_tids]
+                        else:
+                            recipients = await asyncio.to_thread(send_db.get_users_for_notifications, 'admin')
+                            if _rcpt_type == 'shop' and _rcpt_filter:
+                                recipients = [r for r in recipients if r[3] == _rcpt_filter]
+                            elif _rcpt_type == 'role' and _rcpt_filter:
+                                from db_utils import get_user_org_role as _gor
+                                recipients = [r for r in recipients if _gor(r[1]) == _rcpt_filter]
+                            elif _rcpt_type == 'city' and _rcpt_filter:
+                                city_u = await asyncio.to_thread(send_db.get_all_users, None, _rcpt_filter)
+                                city_tids = {u[1] for u in city_u if u[1]}
+                                recipients = [r for r in recipients if r[1] in city_tids]
+                            elif _rcpt_type == 'network' and _rcpt_filter:
+                                net_u = await asyncio.to_thread(send_db.get_all_users, None, None, _rcpt_filter)
+                                net_tids = {u[1] for u in net_u if u[1]}
+                                recipients = [r for r in recipients if r[1] in net_tids]
                         for user_data in recipients:
                             uid_internal, telegram_id = user_data[0], user_data[1]
                             if not telegram_id:

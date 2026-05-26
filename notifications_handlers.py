@@ -149,8 +149,11 @@ def _build_rcpt_selection_kb(is_super: bool) -> InlineKeyboardMarkup:
     """Клавиатура выбора получателей уведомления."""
     rows = [[InlineKeyboardButton(text="👥 Всем пользователям", callback_data="ntf_rcpt_all")]]
     if not is_super:
-        rows.append([InlineKeyboardButton(text="🏪 По магазину", callback_data="ntf_rcpt_shop")])
-        rows.append([InlineKeyboardButton(text="🎭 По роли", callback_data="ntf_rcpt_role")])
+        rows.append([InlineKeyboardButton(text="🏪 По магазину",         callback_data="ntf_rcpt_shop")])
+        rows.append([InlineKeyboardButton(text="🎭 По роли",             callback_data="ntf_rcpt_role")])
+        rows.append([InlineKeyboardButton(text="🏙 По городу",           callback_data="ntf_rcpt_city")])
+        rows.append([InlineKeyboardButton(text="🌐 По торговой сети",    callback_data="ntf_rcpt_network")])
+        rows.append([InlineKeyboardButton(text="👤 Выбрать конкретных",  callback_data="ntf_rcpt_pick")])
     rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="notifications_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -158,13 +161,22 @@ def _build_rcpt_selection_kb(is_super: bool) -> InlineKeyboardMarkup:
 async def _count_notif_recipients(db, rcpt_type: str, rcpt_filter=None) -> int:
     """Подсчёт получателей уведомления с учётом фильтра (admin_notifications=1)."""
     try:
+        if rcpt_type == 'users':
+            return len(rcpt_filter) if isinstance(rcpt_filter, list) else 0
         recipients = await db.get_users_for_notifications('admin')
+        opted = [r for r in recipients if r[1]]
         if rcpt_type == 'shop':
-            return len([r for r in recipients if r[1] and r[3] == rcpt_filter])
+            return len([r for r in opted if r[3] == rcpt_filter])
         if rcpt_type == 'role':
             from db_utils import get_user_org_role as _gor
-            return len([r for r in recipients if r[1] and _gor(r[1]) == rcpt_filter])
-        return len([r for r in recipients if r[1]])
+            return len([r for r in opted if _gor(r[1]) == rcpt_filter])
+        if rcpt_type == 'city':
+            city_tids = {u[1] for u in await db.get_all_users(city=rcpt_filter) if u[1]}
+            return len([r for r in opted if r[1] in city_tids])
+        if rcpt_type == 'network':
+            net_tids = {u[1] for u in await db.get_all_users(trade_network=rcpt_filter) if u[1]}
+            return len([r for r in opted if r[1] in net_tids])
+        return len(opted)
     except Exception:
         return 0
 
@@ -277,6 +289,243 @@ async def ntf_rcpt_role_selected(callback: CallbackQuery, state: FSMContext):
     await _show_notif_send_preview(callback, state, current_db)
 
 
+# ── По городу ─────────────────────────────────────────────────────────────────
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_city")
+async def ntf_rcpt_city(callback: CallbackQuery, state: FSMContext):
+    """Показывает список городов для выбора получателей."""
+    current_db = await get_db(callback.from_user.id, state)
+    cities = await current_db.get_all_cities()
+    if not cities:
+        await callback.answer("❌ Города не найдены.", show_alert=True)
+        return
+    await callback.answer()
+    rows = [[InlineKeyboardButton(text=f"🏙 {c}", callback_data=safe_cb(c, prefix='ntf_rcpt_ci_'))]
+            for c in sorted(cities)]
+    rows.append([back_button("ntf_change_rcpt")])
+    await callback.message.edit_text(
+        "🏙 <b>Выберите город</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_rcpt_ci_"))
+async def ntf_rcpt_city_selected(callback: CallbackQuery, state: FSMContext):
+    """Город выбран — сохраняем фильтр и показываем превью."""
+    await callback.answer()
+    city = resolve_cb_name(callback.data.removeprefix("ntf_rcpt_ci_"))
+    await state.update_data(ntf_rcpt_type='city', ntf_rcpt_filter=city,
+                            ntf_rcpt_label=f'Город «{city}»')
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+# ── По торговой сети ──────────────────────────────────────────────────────────
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_network")
+async def ntf_rcpt_network(callback: CallbackQuery, state: FSMContext):
+    """Показывает список торговых сетей для выбора получателей."""
+    current_db = await get_db(callback.from_user.id, state)
+    networks = await current_db.get_all_trade_networks()
+    if not networks:
+        await callback.answer("❌ Торговые сети не найдены.", show_alert=True)
+        return
+    await callback.answer()
+    rows = [[InlineKeyboardButton(text=f"🌐 {nw}", callback_data=safe_cb(nw, prefix='ntf_rcpt_nw_'))]
+            for nw in sorted(networks)]
+    rows.append([back_button("ntf_change_rcpt")])
+    await callback.message.edit_text(
+        "🌐 <b>Выберите торговую сеть</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_rcpt_nw_"))
+async def ntf_rcpt_network_selected(callback: CallbackQuery, state: FSMContext):
+    """Торговая сеть выбрана — сохраняем фильтр и показываем превью."""
+    await callback.answer()
+    network = resolve_cb_name(callback.data.removeprefix("ntf_rcpt_nw_"))
+    await state.update_data(ntf_rcpt_type='network', ntf_rcpt_filter=network,
+                            ntf_rcpt_label=f'Сеть «{network}»')
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+# ── Выбрать конкретных пользователей (мультивыбор) ───────────────────────────
+
+_NTF_PICK_PAGE_SIZE = 8
+
+
+async def _show_user_picker(callback: CallbackQuery, state: FSMContext, page: int = 0):
+    """Рисует экран выбора конкретных получателей с чекбоксами и пагинацией."""
+    current_db = await get_db(callback.from_user.id, state)
+    all_users_raw = await current_db.get_all_users()
+    # Фильтруем: только с telegram_id, без системных
+    SKIP = {'', 'System', 'Системный'}
+    users = [u for u in all_users_raw
+             if u[1] and str(u[8] or '') not in SKIP and str(u[2] or '') not in SKIP]
+
+    data = await state.get_data()
+    selected: list = data.get('ntf_selected_tids', [])
+    sel_set = set(selected)
+
+    total = len(users)
+    total_pages = max(1, (total + _NTF_PICK_PAGE_SIZE - 1) // _NTF_PICK_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    page_users = users[page * _NTF_PICK_PAGE_SIZE:(page + 1) * _NTF_PICK_PAGE_SIZE]
+
+    rows = []
+    for u in page_users:
+        uid     = u[0]
+        tid     = u[1]
+        fname   = u[2] or ''
+        lname   = u[3] or ''
+        shop    = u[8] or ''
+        name    = f"{fname} {lname}".strip() or f"id{uid}"
+        shop_s  = f" · {shop}" if shop else ""
+        mark    = "✅" if tid in sel_set else "⬜"
+        btn_txt = f"{mark} {name}{shop_s}"
+        rows.append([InlineKeyboardButton(text=btn_txt[:60],
+                                          callback_data=f"ntf_usr_tog_{tid}")])
+
+    # Кнопки управления выбором
+    rows.append([
+        InlineKeyboardButton(text="✅ Все",  callback_data=f"ntf_usr_all_{page}"),
+        InlineKeyboardButton(text="⬜ Сбросить", callback_data=f"ntf_usr_none_{page}"),
+    ])
+
+    # Пагинация
+    nav = page_nav_row("ntf_usr_pg_", page, page > 0, page < total_pages - 1, total_pages)
+    if nav:
+        rows.append(nav)
+
+    n_sel = len(sel_set)
+    done_txt = f"✅ Готово ({n_sel} чел.)" if n_sel else "✅ Готово"
+    rows.append([InlineKeyboardButton(text=done_txt, callback_data="ntf_usr_done")])
+    rows.append([back_button("ntf_change_rcpt")])
+
+    header = (
+        f"👤 <b>Выберите получателей</b>\n"
+        f"Всего: {total} · Выбрано: {n_sel}"
+        + (f" · стр. {page+1}/{total_pages}" if total_pages > 1 else "")
+    )
+    await callback.message.edit_text(
+        header,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML"
+    )
+    await state.update_data(ntf_pick_page=page)
+
+
+@notifications_router.callback_query(F.data == "ntf_rcpt_pick")
+async def ntf_rcpt_pick(callback: CallbackQuery, state: FSMContext):
+    """Открывает экран мультивыбора пользователей."""
+    await callback.answer()
+    data = await state.get_data()
+    if 'ntf_selected_tids' not in data:
+        await state.update_data(ntf_selected_tids=[])
+    await _show_user_picker(callback, state, page=0)
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_usr_tog_"))
+async def ntf_usr_toggle(callback: CallbackQuery, state: FSMContext):
+    """Переключает выбор конкретного пользователя."""
+    await callback.answer()
+    try:
+        tid = int(callback.data.removeprefix("ntf_usr_tog_"))
+    except ValueError:
+        return
+    data = await state.get_data()
+    selected: list = data.get('ntf_selected_tids', [])
+    if tid in selected:
+        selected.remove(tid)
+    else:
+        selected.append(tid)
+    page = data.get('ntf_pick_page', 0)
+    await state.update_data(ntf_selected_tids=selected)
+    await _show_user_picker(callback, state, page=page)
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_usr_pg_"))
+async def ntf_usr_page(callback: CallbackQuery, state: FSMContext):
+    """Пагинация в экране выбора пользователей."""
+    await callback.answer()
+    try:
+        page = int(callback.data.removeprefix("ntf_usr_pg_"))
+    except ValueError:
+        page = 0
+    await _show_user_picker(callback, state, page=page)
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_usr_all_"))
+async def ntf_usr_select_all(callback: CallbackQuery, state: FSMContext):
+    """Выбрать всех пользователей на текущей странице."""
+    await callback.answer()
+    try:
+        page = int(callback.data.removeprefix("ntf_usr_all_"))
+    except ValueError:
+        page = 0
+    current_db = await get_db(callback.from_user.id, state)
+    all_users_raw = await current_db.get_all_users()
+    SKIP = {'', 'System', 'Системный'}
+    users = [u for u in all_users_raw
+             if u[1] and str(u[8] or '') not in SKIP and str(u[2] or '') not in SKIP]
+    page_tids = [u[1] for u in users[page * _NTF_PICK_PAGE_SIZE:(page + 1) * _NTF_PICK_PAGE_SIZE]]
+
+    data = await state.get_data()
+    selected: list = data.get('ntf_selected_tids', [])
+    sel_set = set(selected)
+    for tid in page_tids:
+        sel_set.add(tid)
+    await state.update_data(ntf_selected_tids=list(sel_set))
+    await _show_user_picker(callback, state, page=page)
+
+
+@notifications_router.callback_query(F.data.startswith("ntf_usr_none_"))
+async def ntf_usr_deselect_all(callback: CallbackQuery, state: FSMContext):
+    """Снять выбор у всех пользователей на текущей странице."""
+    await callback.answer()
+    try:
+        page = int(callback.data.removeprefix("ntf_usr_none_"))
+    except ValueError:
+        page = 0
+    current_db = await get_db(callback.from_user.id, state)
+    all_users_raw = await current_db.get_all_users()
+    SKIP = {'', 'System', 'Системный'}
+    users = [u for u in all_users_raw
+             if u[1] and str(u[8] or '') not in SKIP and str(u[2] or '') not in SKIP]
+    page_tids = set(u[1] for u in users[page * _NTF_PICK_PAGE_SIZE:(page + 1) * _NTF_PICK_PAGE_SIZE])
+
+    data = await state.get_data()
+    selected: list = [t for t in data.get('ntf_selected_tids', []) if t not in page_tids]
+    await state.update_data(ntf_selected_tids=selected)
+    await _show_user_picker(callback, state, page=page)
+
+
+@notifications_router.callback_query(F.data == "ntf_usr_done")
+async def ntf_usr_done(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение выбора конкретных получателей — переходим к превью."""
+    await callback.answer()
+    data = await state.get_data()
+    selected: list = data.get('ntf_selected_tids', [])
+    if not selected:
+        await callback.answer("⚠️ Выберите хотя бы одного получателя!", show_alert=True)
+        return
+    n = len(selected)
+    label = f"{n} польз." if n != 1 else "1 польз."
+    await state.update_data(
+        ntf_rcpt_type='users',
+        ntf_rcpt_filter=selected,
+        ntf_rcpt_label=f'Конкретные получатели ({label})'
+    )
+    current_db = await get_db(callback.from_user.id, state)
+    await _show_notif_send_preview(callback, state, current_db)
+
+
+# ── Изменить получателей ──────────────────────────────────────────────────────
+
 @notifications_router.callback_query(F.data == "ntf_change_rcpt")
 async def ntf_change_rcpt(callback: CallbackQuery, state: FSMContext):
     """Возврат к экрану выбора получателей."""
@@ -364,25 +613,40 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
             db_paths = [os.path.normpath(org_db.db_file)]
         logging.info(f"BROADCAST DEBUG: DB paths for scan: {db_paths}")
 
-        # Собираем пользователей с включёнными admin-уведомлениями (admin_notifications=1)
-        # Структура get_users_for_notifications: (user_id, telegram_id, first_name, shop_name, threshold, notification_time)
+        # Собираем пользователей с учётом фильтра
+        # get_users_for_notifications: (user_id[0], telegram_id[1], first_name[2], shop_name[3], ...)
+        # get_all_users SELECT *: id[0], telegram_id[1], first_name[2], last_name[3], ..., city[9], ...
         target_by_db: dict = {}
         for path in db_paths:
             try:
                 if not os.path.exists(path):
                     continue
                 path_db = wrap_db(Database(path))
-                recipients = await path_db.get_users_for_notifications('admin')
-                if recipients:
+
+                if rcpt_type == 'users' and rcpt_filter:
+                    # Конкретные получатели — без проверки admin_notifications
+                    target_tids = set(int(t) for t in rcpt_filter)
+                    all_u = await path_db.get_all_users()
+                    filtered = [(u[0], u[1]) for u in all_u if u[1] and int(u[1]) in target_tids]
+                else:
+                    recipients = await path_db.get_users_for_notifications('admin')
+                    opted = [r for r in recipients if r[1]]
                     if rcpt_type == 'shop' and rcpt_filter:
-                        filtered = [(r[0], r[1]) for r in recipients if r[1] and r[3] == rcpt_filter]
+                        filtered = [(r[0], r[1]) for r in opted if r[3] == rcpt_filter]
                     elif rcpt_type == 'role' and rcpt_filter:
                         from db_utils import get_user_org_role as _gor
-                        filtered = [(r[0], r[1]) for r in recipients if r[1] and _gor(r[1]) == rcpt_filter]
+                        filtered = [(r[0], r[1]) for r in opted if _gor(r[1]) == rcpt_filter]
+                    elif rcpt_type == 'city' and rcpt_filter:
+                        city_tids = {u[1] for u in await path_db.get_all_users(city=rcpt_filter) if u[1]}
+                        filtered = [(r[0], r[1]) for r in opted if r[1] in city_tids]
+                    elif rcpt_type == 'network' and rcpt_filter:
+                        net_tids = {u[1] for u in await path_db.get_all_users(trade_network=rcpt_filter) if u[1]}
+                        filtered = [(r[0], r[1]) for r in opted if r[1] in net_tids]
                     else:
-                        filtered = [(r[0], r[1]) for r in recipients if r[1]]
-                    if filtered:
-                        target_by_db[path] = (path_db, filtered)
+                        filtered = [(r[0], r[1]) for r in opted]
+
+                if filtered:
+                    target_by_db[path] = (path_db, filtered)
             except Exception as e:
                 logging.error(f"BROADCAST ERROR: Database {path} error: {e}")
 
