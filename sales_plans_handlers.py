@@ -1209,7 +1209,6 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
         plans_data = [
             (p, a, pct) for p, a, pct in plans_data_all
             if p[4] == 'seller' and p[5] in city_user_ids
-            or p[4] == 'shop'
         ]
     elif _af_p.get("networks"):
         # Для сети: фильтруем только seller-планы по пользователям сети
@@ -1218,7 +1217,6 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
         plans_data = [
             (p, a, pct) for p, a, pct in plans_data_all
             if p[4] == 'seller' and p[5] in net_user_ids
-            or p[4] == 'shop'
         ]
     else:
         plans_data = plans_data_all

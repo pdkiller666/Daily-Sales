@@ -165,7 +165,7 @@ async def execute_delete_org(callback: CallbackQuery, state: FSMContext):
 
         await callback.answer()
         await callback.message.edit_text(
-            f"✅ <b>Организация «{result}» успешно удалена.</b>\n\n"
+            f"✅ <b>Организация «{he(result)}» успешно удалена.</b>\n\n"
             f"База данных организации и все записи удалены.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🏢 Все организации", callback_data="list_all_orgs")],
@@ -1626,7 +1626,7 @@ async def adm_kick_final(callback: CallbackQuery, state: FSMContext):
         )
     else:
         await callback.message.edit_text(
-            f"❌ Ошибка при исключении: {result}",
+            f"❌ Ошибка при исключении: {he(result)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_users")]]),
             parse_mode="HTML"
         )
