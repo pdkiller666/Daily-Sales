@@ -2210,6 +2210,9 @@ async def _get_shops_with_stats(db_path: str) -> list:
             "   AND shop_name NOT IN ('Системный','System')"
             "  UNION"
             "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+            "  UNION"
+            "  SELECT DISTINCT shop_name AS name FROM inventory"
+            "   WHERE shop_name IS NOT NULL AND shop_name != ''"
             " ) q ORDER BY name",
             fetch="all"
         ) or []

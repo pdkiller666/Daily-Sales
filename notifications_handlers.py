@@ -533,8 +533,8 @@ async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContex
         notif_text = notif[3] or ""
         scheduled_dt_raw = notif[6] or ""
         scheduled_dt = format_user_datetime(scheduled_dt_raw, admin_tz, '%d.%m.%Y %H:%M') if scheduled_dt_raw else "—"
-        creator_name = f"{notif[-2] or ''} {notif[-1] or ''}".strip() or "Администратор"
-        preview = notif_text[:50] + ("…" if len(notif_text) > 50 else "")
+        creator_name = he(f"{notif[-2] or ''} {notif[-1] or ''}".strip() or "Администратор")
+        preview = he(notif_text[:50] + ("…" if len(notif_text) > 50 else ""))
         text += f"🕐 {scheduled_dt}\n👤 {creator_name}\n💬 {preview}\n\n"
         buttons.append([InlineKeyboardButton(
             text=f"🗑 Удалить #{notif_id}",

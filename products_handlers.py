@@ -67,12 +67,12 @@ def _parse_bulk_products(text: str):
             continue
         if len(name) > 30:
             name = name[:30]
-            notices.append(f"⚠️ Стр.{i}: название обрезано до 30 символов → «{name}»")
+            notices.append(f"⚠️ Стр.{i}: название обрезано до 30 символов → «{he(name)}»")
 
         # ── Дубликат ──────────────────────────────────────────────
         key = name.lower()
         if key in seen:
-            notices.append(f"❌ Стр.{i}: «{name}» — дублируется в списке — строка пропущена")
+            notices.append(f"❌ Стр.{i}: «{he(name)}» — дублируется в списке — строка пропущена")
             skipped_count += 1
             continue
 
@@ -82,7 +82,7 @@ def _parse_bulk_products(text: str):
             notices.append(f"⚠️ Стр.{i}: категория не указана → подставлено «Без категории»")
         elif len(category_raw) > 30:
             category = category_raw[:30]
-            notices.append(f"⚠️ Стр.{i}: категория обрезана до 30 символов → «{category}»")
+            notices.append(f"⚠️ Стр.{i}: категория обрезана до 30 символов → «{he(category)}»")
         else:
             category = category_raw
 
@@ -92,11 +92,11 @@ def _parse_bulk_products(text: str):
             try:
                 parsed = float(price_str.replace(',', '.').replace(' ', ''))
                 if parsed < 0:
-                    notices.append(f"⚠️ Стр.{i}: отрицательная цена «{price_str}» → подставлено 0")
+                    notices.append(f"⚠️ Стр.{i}: отрицательная цена «{he(price_str)}» → подставлено 0")
                 else:
                     price = parsed
             except ValueError:
-                notices.append(f"⚠️ Стр.{i}: «{price_str}» не является числом → цена = 0")
+                notices.append(f"⚠️ Стр.{i}: «{he(price_str)}» не является числом → цена = 0")
         else:
             notices.append(f"⚠️ Стр.{i}: цена не указана → подставлено 0")
 
@@ -205,11 +205,11 @@ async def process_product_name(message: Message, state: FSMContext):
         builder.add(back_button("products"))
         builder.adjust(2, 1, 1)
         await fsm_edit(state, message,
-                       f"✅ Название: {name}\n\n2️⃣ Выберите категорию или создайте новую:",
+                       f"✅ Название: {he(name)}\n\n2️⃣ Выберите категорию или создайте новую:",
                        reply_markup=builder.as_markup())
     else:
         await fsm_edit(state, message,
-                       f"✅ Название: {name}\n\n2️⃣ Введите категорию товара:",
+                       f"✅ Название: {he(name)}\n\n2️⃣ Введите категорию товара:",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
         await state.set_state(ProductStates.waiting_for_category)
 
@@ -291,8 +291,8 @@ async def process_product_category(message: Message, state: FSMContext):
     data = await state.get_data()
     
     await fsm_edit(state, message,
-                   f"✅ Название: {data['name']}\n"
-                   f"✅ Категория: {category}\n\n"
+                   f"✅ Название: {he(data['name'])}\n"
+                   f"✅ Категория: {he(category)}\n\n"
                    f"3️⃣ Введите цену товара:",
                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
     await state.set_state(ProductStates.waiting_for_price)
@@ -368,8 +368,8 @@ async def process_product_price(message: Message, state: FSMContext):
         await fsm_edit(
             state, message,
             f"✅ Товар успешно добавлен!\n\n"
-            f"🏷 Название: {data['name']}\n"
-            f"📂 Категория: {data['category']}\n"
+            f"🏷 Название: {he(data['name'])}\n"
+            f"📂 Категория: {he(data['category'])}\n"
             f"💰 Цена: {format_currency(price)}\n\n"
             f"💡 <i>Хотите сразу настроить дополнительные параметры?</i>{_gs_sfx}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -377,7 +377,7 @@ async def process_product_price(message: Message, state: FSMContext):
     else:
         await fsm_edit(
             state, message,
-            f"❌ Ошибка! Товар с названием '{data['name']}' уже существует.",
+            f"❌ Ошибка! Товар с названием '{he(data['name'])}' уже существует.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
         )
         await clear_state_keep_org(state)
