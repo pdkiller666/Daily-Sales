@@ -1504,7 +1504,7 @@ async def process_bulk_list(message: Message, state: FSMContext):
     for idx, item in enumerate(valid[:20], 1):
         price_str = format_currency(item['price']) if item['price'] > 0 else "0 ₽"
         preview_lines.append(
-            f"{idx}. <b>{item['name']}</b> | {item['category']} | {price_str}"
+            f"{idx}. <b>{he(item['name'])}</b> | {he(item['category'])} | {price_str}"
         )
     preview = "\n".join(preview_lines)
     if len(valid) > 20:

@@ -818,7 +818,10 @@ async def main():
         send_sales_alerts,
         CronTrigger(minute='*', second=0),
         args=[bot],
-        id='personalized_sales_alerts'
+        id='personalized_sales_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     # Задача платежных уведомлений — каждую минуту, старт на секунде 12
@@ -826,7 +829,10 @@ async def main():
         send_payment_alerts,
         CronTrigger(minute='*', second=12),
         args=[bot],
-        id='personalized_payment_alerts'
+        id='personalized_payment_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     # Задача ежедневных отчетов — каждую минуту, старт на секунде 24
@@ -834,7 +840,10 @@ async def main():
         send_daily_reports,
         CronTrigger(minute='*', second=24),
         args=[bot],
-        id='personalized_daily_reports'
+        id='personalized_daily_reports',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     # Задача проверки остатков — каждую минуту, старт на секунде 36
@@ -842,7 +851,10 @@ async def main():
         send_personalized_notifications,
         CronTrigger(minute='*', second=36),
         args=[bot],
-        id='personalized_stock_check'
+        id='personalized_stock_check',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     # Задача выполнения запланированных уведомлений — каждую минуту, старт на секунде 48
@@ -850,7 +862,10 @@ async def main():
         check_scheduled_notifications,
         CronTrigger(minute='*', second=48),
         args=[bot],
-        id='check_scheduled_notifications'
+        id='check_scheduled_notifications',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
     )
 
     # Upsell при истечении пробного периода — каждый час в 05 минут
@@ -858,7 +873,10 @@ async def main():
         send_trial_expired_upsell,
         CronTrigger(hour='*', minute=5),
         args=[bot],
-        id='trial_expired_upsell'
+        id='trial_expired_upsell',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
     )
 
     # Автозавершение конкурсов каждый час в начале часа
@@ -866,7 +884,10 @@ async def main():
         auto_finish_contests,
         CronTrigger(hour='*', minute=0),
         args=[bot],
-        id='auto_finish_contests'
+        id='auto_finish_contests',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
     )
 
     # Авто-отклонение просроченных заявок СБП (>72ч) — ежедневно в 10:15
@@ -874,19 +895,25 @@ async def main():
         auto_reject_stale_payments,
         CronTrigger(hour=10, minute=15),
         args=[bot],
-        id='auto_reject_stale_payments'
+        id='auto_reject_stale_payments',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
     )
 
     # Добавляем задачу ежедневного резервного копирования в 03:00
     backup_manager = BackupManager()
-    
+
     async def backup_job():
         await daily_backup_task(backup_manager)
-    
+
     scheduler.add_job(
         backup_job,
         CronTrigger(hour=3, minute=0),
-        id='daily_backup'
+        id='daily_backup',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
     )
     
     scheduler.start()

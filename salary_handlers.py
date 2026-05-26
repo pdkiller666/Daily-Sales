@@ -15,6 +15,7 @@ from env_manager import env_manager
 from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
+from timezone_utils import get_current_user_time
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 from states import AdjustmentStates
 
@@ -782,7 +783,8 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
     await callback.answer()
-    now = datetime.now()
+    user_tz = await current_db.get_user_timezone(uid)
+    now = get_current_user_time(user_tz)
     year, month = now.year, now.month
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
@@ -897,7 +899,8 @@ async def slr_adj_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
     current_db = await get_db(uid, state)
-    now = datetime.now()
+    user_tz = await current_db.get_user_timezone(uid)
+    now = get_current_user_time(user_tz)
     summary = await current_db.get_team_salary_summary(now.year, now.month)
     employees = [r for r in summary if not env_manager.is_super_admin(r[7])]
     if not employees:

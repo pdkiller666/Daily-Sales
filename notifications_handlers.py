@@ -185,7 +185,7 @@ async def _show_notif_send_preview(callback: CallbackQuery, state: FSMContext, c
             pass
     preview = (
         f"📨 <b>Предпросмотр уведомления</b>\n\n"
-        f"👥 <b>Получатели:</b> {rcpt_label}{count_str}\n\n"
+        f"👥 <b>Получатели:</b> {he(rcpt_label)}{count_str}\n\n"
         f"<b>Текст:</b>\n{he(text)}"
     )
     await callback.message.edit_text(

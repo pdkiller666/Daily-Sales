@@ -283,7 +283,8 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     date_key = parts[3]
 
     if period_type == "current":
-        current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        user_tz = await current_db.get_user_timezone(callback.from_user.id)
+        current_month_start = get_current_user_time(user_tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         earnings = await current_db.get_seller_earnings(user_id, current_month_start.isoformat())
         back_callback = "earnings_detailed_current"
     else:

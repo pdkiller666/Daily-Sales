@@ -357,7 +357,9 @@ async def view_ratings(callback: CallbackQuery, state: FSMContext):
     """Просмотр рейтинга продавцов за текущий месяц"""
     await callback.answer("⏳ Загрузка...")
     current_db = await get_db(callback.from_user.id, state)
-    today = datetime.now()
+    _user_tz = await current_db.get_user_timezone(callback.from_user.id)
+    from timezone_utils import get_current_user_time
+    today = get_current_user_time(_user_tz)
     start_date = today.replace(day=1).strftime('%Y-%m-%d')
     end_date = today.strftime('%Y-%m-%d')
 
