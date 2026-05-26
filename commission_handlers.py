@@ -75,7 +75,7 @@ async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="🗑️ Удалить мотивацию", callback_data="remove_motivation")
     builder.button(text="📈 Топ продавцов", callback_data="top_sellers")
     builder.button(text="⚙️ Доп. условия", callback_data="motivation_extra")
-    builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.button(text="⬅️ Назад", callback_data="motivation_hub")
     builder.add(home_button())
     builder.adjust(1)
 

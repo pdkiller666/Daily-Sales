@@ -48,6 +48,21 @@ def _translit_filename(text: str) -> str:
     result = re.sub(r'_+', '_', result).strip('_')
     return result or 'report'
 
+@reports_router.callback_query(F.data == "analytics_hub")
+async def analytics_hub_handler(callback: CallbackQuery, state: FSMContext):
+    """Хаб аналитики: отчёты + рейтинги"""
+    await callback.answer()
+    from keyboards import analytics_hub_menu
+    from db_utils import is_any_admin
+    _is_admin = is_any_admin(callback.from_user.id)
+    await callback.message.edit_text(
+        "📊 <b>Аналитика</b>\n\n"
+        "Отчёты по продажам и рейтинги продавцов, магазинов и городов.",
+        reply_markup=analytics_hub_menu(is_admin=_is_admin),
+        parse_mode="HTML"
+    )
+
+
 @reports_router.callback_query(F.data == "reports")
 async def reports_menu(callback: CallbackQuery, state: FSMContext):
     """Меню отчетов с дашбордом и проверкой ограничений подписки"""
@@ -174,7 +189,7 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
                 ))
         except Exception:
             pass
-    builder.add(back_button("main_menu"))
+    builder.add(back_button("analytics_hub"))
 
     reports_header = "━━━━━━━━━━━━━━━━\n📊 <b>Отчеты по продажам</b>"
     if is_super_admin:
@@ -1310,7 +1325,7 @@ async def rankings_menu_admin(callback: CallbackQuery, state: FSMContext):
     if filter_row:
         kb_rows.append(filter_row)
     kb_rows.append([InlineKeyboardButton(text="🗑️ Очистить рейтинги", callback_data="clear_rankings_confirm")])
-    kb_rows.append([back_button("main_menu")])
+    kb_rows.append([back_button("analytics_hub")])
 
     await callback.message.edit_text(
         "🏆 <b>Рейтинги</b>\n\nВыберите тип:",
@@ -1328,7 +1343,7 @@ async def user_rankings_menu(callback: CallbackQuery):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="👤 Продавцы", callback_data="rank_sel_month"),
              InlineKeyboardButton(text="🏪 Магазины",  callback_data="rank_shp_month")],
-            [back_button("main_menu")],
+            [back_button("analytics_hub")],
         ]),
         parse_mode="HTML"
     )

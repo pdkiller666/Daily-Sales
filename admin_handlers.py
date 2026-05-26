@@ -316,12 +316,12 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             title = "👥 <b>Все пользователи системы</b>"
         elif selected_org_id == 0:
             users = [u for u in await asyncio.to_thread(_read_users, 'data/shop_bot.db') if u[1] == user_id]
-            back_target = "admin_management"
+            back_target = "team_hub"
             show_admin_management = False
             title = "👤 <b>Личный кабинет</b>"
         else:
             users = tenant_manager.get_org_users(selected_org_id)
-            back_target = "admin_management"
+            back_target = "team_hub"
             show_admin_management = True
             org_name = data.get("selected_org_name", "Организация")
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
@@ -359,7 +359,7 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             elif _af.get("networks"):
                 users = [u for u in users if u[7] in _af["networks"]]
 
-        back_target = "admin_management"
+        back_target = "team_hub"
 
     return users, title, back_target, show_admin_management, current_db, is_super_user, data
 
@@ -906,6 +906,38 @@ async def generate_invite_handler(callback: CallbackQuery, state: FSMContext):
         )
     else:
         await callback.answer("❌ Ошибка при генерации кода", show_alert=True)
+
+@admin_router.callback_query(F.data == "motivation_hub")
+async def motivation_hub_handler(callback: CallbackQuery, state: FSMContext):
+    """Хаб мотивации: мотивация + планы + конкурсы"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    from keyboards import motivation_hub_menu
+    await callback.message.edit_text(
+        "🎯 <b>Мотивация и планирование</b>\n\n"
+        "Управляйте мотивацией продавцов, задавайте планы продаж и проводите конкурсы.",
+        reply_markup=motivation_hub_menu(),
+        parse_mode="HTML"
+    )
+
+
+@admin_router.callback_query(F.data == "team_hub")
+async def team_hub_handler(callback: CallbackQuery, state: FSMContext):
+    """Хаб команды: сотрудники + оклады"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
+    await callback.answer()
+    from keyboards import team_hub_menu
+    await callback.message.edit_text(
+        "👥 <b>Команда</b>\n\n"
+        "Управление сотрудниками и настройка окладов и графиков работы.",
+        reply_markup=team_hub_menu(),
+        parse_mode="HTML"
+    )
+
 
 @admin_router.callback_query(F.data.startswith("select_org_"))
 async def select_org_handler(callback: CallbackQuery, state: FSMContext):

@@ -124,7 +124,7 @@ async def sales_plans_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="📊 Прогресс планов", callback_data="plans_progress")
     builder.button(text="✏️ Редактировать план", callback_data="editpln_start")
     builder.button(text="🗑 Удалить план", callback_data="delpln_start")
-    builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.button(text="⬅️ Назад", callback_data="motivation_hub")
     builder.add(home_button())
     builder.adjust(1)
 

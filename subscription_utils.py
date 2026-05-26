@@ -175,6 +175,77 @@ def get_plan_limits(telegram_id):
     return limits
 
 
+def get_subscription_days_remaining(telegram_id) -> "int | None":
+    """
+    Возвращает количество дней до истечения подписки, или None если лимит неограничен / нет подписки.
+    Возвращает 0 если подписка уже истекла в этот же день.
+    Используется только для вывода баннера — не для ограничения доступа.
+    """
+    if env_manager.is_super_admin(telegram_id):
+        return None
+    if _has_active_trial(telegram_id):
+        try:
+            conn = sqlite3.connect(SHOP_BOT_DB)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT s.end_date FROM subscriptions s "
+                "JOIN users u ON s.user_id = u.id "
+                "WHERE u.telegram_id = ? AND s.is_trial = 1 AND s.end_date > ? "
+                "ORDER BY s.end_date DESC LIMIT 1",
+                (telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                end_dt = datetime.fromisoformat(row[0])
+                return max(0, (end_dt - datetime.now()).days)
+        except Exception:
+            pass
+        return None
+    # Проверяем org подписку (только owner)
+    try:
+        conn = sqlite3.connect(MAIN_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT o.subscription_plan, o.subscription_end FROM organizations o "
+            "JOIN user_org_mapping m ON o.id = m.org_id "
+            "WHERE m.telegram_id = ? AND m.role = 'owner'",
+            (telegram_id,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            plan_name = row[0] or 'Бесплатный'
+            subscription_end = row[1]
+            if subscription_end and plan_name not in ('Бесплатный', 'free', None):
+                try:
+                    end_dt = datetime.fromisoformat(subscription_end)
+                    return max(0, (end_dt - datetime.now()).days)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    # Проверяем личную подписку
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT s.end_date FROM subscriptions s "
+            "JOIN users u ON s.user_id = u.id "
+            "WHERE u.telegram_id = ? AND s.is_trial = 0 AND s.end_date > ? "
+            "ORDER BY s.end_date DESC LIMIT 1",
+            (telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            end_dt = datetime.fromisoformat(row[0])
+            return max(0, (end_dt - datetime.now()).days)
+    except Exception:
+        pass
+    return None
+
+
 def check_product_limit(telegram_id):
     """Проверка лимита на количество товаров. Возвращает (ok: bool, message: str|None)."""
     if env_manager.is_super_admin(telegram_id):

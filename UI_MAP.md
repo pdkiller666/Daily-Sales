@@ -8,6 +8,37 @@
 
 ## История изменений интерфейса
 
+### v3 — 2026-05-26: UX-рефакторинг (Средний + Низкий приоритет)
+
+**Изменение 3: Мотивация + Планы + Конкурсы → «Мотивация» (хаб)**
+- **Было:** три отдельных кнопки в `admin_management`: `🎯 Упр. мотивацией [admin_motivation]`, `📋 Планы продаж [admin_sales_plans]`, `🏆 Конкурсы [contests_menu]`
+- **Стало:** одна кнопка `🎯 Мотивация [motivation_hub]` → новое хаб-меню `motivation_hub_menu()` с тремя пунктами
+- **Затронуты:** `keyboards.py` (новая `motivation_hub_menu()`, обновлена `admin_management_menu()`), `admin_handlers.py` (новый хендлер `motivation_hub`), `commission_handlers.py`/`sales_plans_handlers.py`/`contests_handlers.py` (back `admin_management` → `motivation_hub`)
+
+**Изменение 4: Сотрудники + Оклады → «Команда» (хаб)**
+- **Было:** два пункта в `admin_management`: `👥 Упр. сотрудниками [admin_users]`, `💰 Оклады и смены [admin_salary_menu]`
+- **Стало:** одна кнопка `👥 Команда [team_hub]` → новое хаб-меню `team_hub_menu()`
+- **Затронуты:** `keyboards.py` (новая `team_hub_menu()`), `admin_handlers.py` (новый хендлер `team_hub`; `back_target` → `team_hub` в `_get_admin_users_params` строки 319/324/362), `salary_handlers.py` (back `admin_management` → `team_hub`)
+
+**Изменение 5: Отчёты + Рейтинги → «Аналитика» (хаб в главном меню)**
+- **Было:** два пункта в главном меню: `📊 Отчеты [reports]`, `🏆 Рейтинги [user_rankings_menu]`
+- **Стало:** одна кнопка `📊 Аналитика [analytics_hub]` → новое хаб-меню (для admin: `rankings_menu`; для user: `user_rankings_menu`)
+- **Затронуты:** `keyboards.py` (новая `analytics_hub_menu()`), `reports_handlers.py` (новый хендлер `analytics_hub`; back → `analytics_hub` в `reports_menu`, `rankings_menu_admin`, `user_rankings_menu`)
+
+**Изменение 6: Баннер истечения подписки в главном меню**
+- **Было:** главное меню без упоминания подписки
+- **Стало:** если до истечения ≤7 дней — в заголовке главного меню появляется ⚠️-баннер с числом дней
+- **Затронуты:** `subscription_utils.py` (новая функция `get_subscription_days_remaining()`), `handlers.py` (`main_menu_callback` — HTML parse_mode, баннер в тексте)
+
+**Изменение 7: «Мой график» → в «Мой профиль»**
+- **Было:** кнопка `📅 Мой график [my_schedule]` в главном меню
+- **Стало:** кнопка перемещена в `user_profile_menu` (между «Редактировать профиль» и «Уведомления»)
+- **Затронуты:** `keyboards.py` (`main_menu()` — убрана), `handlers.py` (`user_profile_menu` — добавлена)
+
+**Откат v3:** восстановить из блоков «Было» выше, откатив правки в указанных файлах.
+
+---
+
 ### v2 — 2026-05-26: Рефакторинг «Управление орг.» (Высокий приоритет)
 
 **Изменение 1: Товары + Остатки → «Каталог»**

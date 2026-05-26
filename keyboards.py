@@ -36,9 +36,7 @@ def main_menu(chat_id: int, user_shop: str = None):
         buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 
     buttons.extend([
-        [InlineKeyboardButton(text="📊 Отчеты", callback_data="reports")],
-        [InlineKeyboardButton(text="🏆 Рейтинги", callback_data="user_rankings_menu")],
-        [InlineKeyboardButton(text="📅 Мой график", callback_data="my_schedule")],
+        [InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics_hub")],
         [InlineKeyboardButton(text="👤 Мой профиль", callback_data="user_profile")],
         [InlineKeyboardButton(text="ℹ Помощь", callback_data="help")]
     ])
@@ -65,11 +63,8 @@ def admin_management_menu(chat_id: int):
     builder.add(
         InlineKeyboardButton(text="📦 Каталог товаров", callback_data="catalog_menu"),
         InlineKeyboardButton(text="📝 Упр. продажами", callback_data="edit_sales"),
-        InlineKeyboardButton(text="🎯 Упр. мотивацией", callback_data="admin_motivation"),
-        InlineKeyboardButton(text="📋 Планы продаж", callback_data="admin_sales_plans"),
-        InlineKeyboardButton(text="💰 Оклады и смены", callback_data="admin_salary_menu"),
-        InlineKeyboardButton(text="🏆 Конкурсы", callback_data="contests_menu"),
-        InlineKeyboardButton(text="👥 Упр. сотрудниками", callback_data="admin_users"),
+        InlineKeyboardButton(text="🎯 Мотивация", callback_data="motivation_hub"),
+        InlineKeyboardButton(text="👥 Команда", callback_data="team_hub"),
         InlineKeyboardButton(text="🏪 Упр. магазинами", callback_data="admin_shops"),
         InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_menu"),
         InlineKeyboardButton(text="📨 Рассылка сотрудникам", callback_data="admin_send_notification"),
@@ -103,6 +98,44 @@ def products_menu():
         back_button("catalog_menu")
     )
     builder.adjust(2, 1, 1, 1, 2, 1)
+    return builder.as_markup()
+
+
+def motivation_hub_menu():
+    """Меню мотивации: система мотивации + планы продаж + конкурсы"""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="🎯 Система мотивации", callback_data="admin_motivation"),
+        InlineKeyboardButton(text="📋 Планы продаж", callback_data="admin_sales_plans"),
+        InlineKeyboardButton(text="🏆 Конкурсы", callback_data="contests_menu"),
+        back_button("admin_management"),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def team_hub_menu():
+    """Меню команды: сотрудники + оклады"""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="👥 Управление сотрудниками", callback_data="admin_users"),
+        InlineKeyboardButton(text="💰 Оклады и смены", callback_data="admin_salary_menu"),
+        back_button("admin_management"),
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def analytics_hub_menu(is_admin: bool = False):
+    """Меню аналитики: отчёты + рейтинги"""
+    rankings_cb = "rankings_menu" if is_admin else "user_rankings_menu"
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="📊 Отчёты по продажам", callback_data="reports"),
+        InlineKeyboardButton(text="🏆 Рейтинги", callback_data=rankings_cb),
+        back_button("main_menu"),
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

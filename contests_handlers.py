@@ -126,7 +126,7 @@ async def contests_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="➕ Создать конкурс", callback_data="contest_create")
     builder.button(text="🏆 Активные конкурсы", callback_data="contest_list_active")
     builder.button(text="📋 Архив конкурсов", callback_data="contest_list_archive")
-    builder.button(text="⬅️ Назад", callback_data="admin_management")
+    builder.button(text="⬅️ Назад", callback_data="motivation_hub")
     builder.add(home_button())
     builder.adjust(1)
 

@@ -776,17 +776,28 @@ async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
     # Очищаем состояния при возврате в меню, сохраняя выбранную организацию
     await clear_state_keep_org(state)
     
+    from subscription_utils import get_subscription_days_remaining
+    _days = get_subscription_days_remaining(callback.from_user.id)
+    _banner = ""
+    if _days is not None and _days <= 7:
+        if _days == 0:
+            _banner = "\n\n⚠️ <b>Подписка истекла.</b> Перейдите в Профиль → Подписка."
+        else:
+            _banner = f"\n\n⚠️ <b>Подписка истекает через {_days} дн.</b> Не забудьте продлить."
+
     if user:
         await callback.message.edit_text(
-            "🏪 Главное меню:",
-            reply_markup=main_menu(callback.from_user.id, user[8])
+            f"🏪 <b>Главное меню</b>{_banner}",
+            reply_markup=main_menu(callback.from_user.id, user[8]),
+            parse_mode="HTML"
         )
     else:
         # Для супер-админов без регистрации
         if env_manager.is_super_admin(callback.from_user.id):
             await callback.message.edit_text(
-                "🏪 Главное меню (Админ):",
-                reply_markup=main_menu(callback.from_user.id, "Системный")
+                "🏪 <b>Главное меню (Админ)</b>",
+                reply_markup=main_menu(callback.from_user.id, "Системный"),
+                parse_mode="HTML"
             )
         else:
             # Сначала проверяем основную БД
@@ -796,8 +807,9 @@ async def main_menu_callback(callback: CallbackQuery, state: FSMContext):
             
             if user_central:
                 await callback.message.edit_text(
-                    "🏪 Главное меню:",
-                    reply_markup=main_menu(callback.from_user.id, user_central[8])
+                    f"🏪 <b>Главное меню</b>{_banner}",
+                    reply_markup=main_menu(callback.from_user.id, user_central[8]),
+                    parse_mode="HTML"
                 )
             else:
                 await callback.message.edit_text(
@@ -859,6 +871,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     # Создаем клавиатуру профиля
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="✏️ Редактировать профиль", callback_data="edit_profile"))
+    builder.add(InlineKeyboardButton(text="📅 Мой график", callback_data="my_schedule"))
     builder.add(InlineKeyboardButton(text="🔔 Уведомления", callback_data="notifications_menu"))
     
     # Кнопка подписки и контактов доступны всем пользователям
