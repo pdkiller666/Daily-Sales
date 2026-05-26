@@ -50,11 +50,18 @@ def he(text) -> str:
     return _html.escape(str(text))
 
 _shop_db_for_tz = None
+_main_db_for_tz  = None
+
+_DEFAULT_TZ = 'Europe/Moscow'
 
 
 def format_date_for_user(date_str, telegram_id):
     """
-    Форматирование даты с автоматическим получением часового пояса пользователя
+    Форматирование даты с автоматическим получением часового пояса пользователя.
+
+    Порядок поиска timezone (первый не-дефолтный выигрывает):
+      1. main.db        — пишется при любом изменении TZ (org + personal)
+      2. shop_bot.db    — пишется для personal-режима и после фикса орг-юзеров
 
     Args:
         date_str: Дата в виде строки или объекта datetime
@@ -63,12 +70,19 @@ def format_date_for_user(date_str, telegram_id):
     Returns:
         Отформатированная строка с датой в часовом поясе пользователя
     """
-    global _shop_db_for_tz
+    global _shop_db_for_tz, _main_db_for_tz
+    from database import Database
+    if _main_db_for_tz is None:
+        _main_db_for_tz = Database('data/main.db')
     if _shop_db_for_tz is None:
-        from database import Database
         _shop_db_for_tz = Database('data/shop_bot.db')
-    user_timezone = _shop_db_for_tz.get_user_timezone(telegram_id)
-    return format_date_display(date_str, user_timezone)
+
+    tz = _main_db_for_tz.get_user_timezone(telegram_id)
+    if not tz or tz == _DEFAULT_TZ:
+        tz2 = _shop_db_for_tz.get_user_timezone(telegram_id)
+        if tz2 and tz2 != _DEFAULT_TZ:
+            tz = tz2
+    return format_date_display(date_str, tz or _DEFAULT_TZ)
 
 def format_date_display(date_str, user_timezone=None):
     """

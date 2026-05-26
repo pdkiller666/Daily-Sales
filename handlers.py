@@ -1202,6 +1202,7 @@ async def process_profile_timezone(callback: CallbackQuery, state: FSMContext):
         await asyncio.gather(
             _apply_user_field(callback.from_user.id, current_db.db_file, 'timezone', new_tz),
             _apply_user_field(callback.from_user.id, 'data/main.db', 'timezone', new_tz),
+            _apply_user_field(callback.from_user.id, 'data/shop_bot.db', 'timezone', new_tz),
             return_exceptions=True,
         )
         
