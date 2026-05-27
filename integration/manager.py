@@ -529,6 +529,163 @@ class IntegrationManager:
             db_conn.commit()
             db_conn.close()
 
+        elif import_type == 'sales':
+            def _parse_date(s: str) -> str:
+                s = s.strip()
+                for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%d/%m/%Y',
+                            '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S',
+                            '%d.%m.%Y %H:%M', '%d.%m.%Y %H:%M:%S'):
+                    try:
+                        return datetime.strptime(s, fmt).isoformat()
+                    except ValueError:
+                        pass
+                return ''
+
+            date_col    = col_mapping.get('date', 0)
+            product_col = col_mapping.get('product', 1)
+            shop_col    = col_mapping.get('shop', 2)
+            qty_col     = col_mapping.get('quantity', 3)
+            price_col   = col_mapping.get('price', 4)
+            db_conn = db.get_connection()
+            cur = db_conn.cursor()
+            for row in rows:
+                try:
+                    date_s = str(row[date_col]).strip() if date_col < len(row) else ''
+                    pname  = str(row[product_col]).strip() if product_col < len(row) else ''
+                    shop   = str(row[shop_col]).strip() if shop_col < len(row) else ''
+                    if not pname or not shop:
+                        skipped += 1
+                        continue
+                    qs    = str(row[qty_col]).strip() if qty_col < len(row) else '1'
+                    ps    = str(row[price_col]).strip() if price_col < len(row) else ''
+                    qty   = int(float(_clean_num(qs))) if qs else 1
+                    price = float(_clean_num(ps)) if ps else None
+                    cur.execute("SELECT id, price FROM products WHERE LOWER(name) = LOWER(?)", (pname,))
+                    prod = cur.fetchone()
+                    if not prod:
+                        skipped += 1
+                        continue
+                    pid = prod[0]
+                    if price is None:
+                        price = float(prod[1] or 0)
+                    sale_date = _parse_date(date_s) or datetime.now().isoformat()
+                    cur.execute(
+                        "INSERT INTO sales (product_id, shop_name, quantity_sold, sale_date, user_id, sale_price)"
+                        " VALUES (?, ?, ?, ?, NULL, ?)",
+                        (pid, shop, qty, sale_date, price)
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"Строка: {e}")
+            db_conn.commit()
+            db_conn.close()
+
+        elif import_type == 'staff':
+            name_col  = col_mapping.get('name', 0)
+            shop_col  = col_mapping.get('shop', 1)
+            phone_col = col_mapping.get('phone', 2)
+            db_conn = db.get_connection()
+            cur = db_conn.cursor()
+            for row in rows:
+                try:
+                    full_name = str(row[name_col]).strip() if name_col < len(row) else ''
+                    shop      = str(row[shop_col]).strip() if shop_col < len(row) else ''
+                    phone     = str(row[phone_col]).strip() if phone_col < len(row) else ''
+                    if not full_name:
+                        skipped += 1
+                        continue
+                    parts = full_name.split(None, 1)
+                    fname = parts[0]
+                    lname = parts[1] if len(parts) > 1 else ''
+                    cur.execute(
+                        "SELECT id FROM users WHERE LOWER(first_name) = LOWER(?)"
+                        " AND (? = '' OR LOWER(COALESCE(last_name,'')) = LOWER(?))",
+                        (fname, lname, lname)
+                    )
+                    urow = cur.fetchone()
+                    if not urow:
+                        skipped += 1
+                        continue
+                    uid = urow[0]
+                    updates, params = [], []
+                    if shop:
+                        updates.append("shop_name = ?"); params.append(shop)
+                    if phone:
+                        updates.append("phone = ?"); params.append(phone)
+                    if not updates:
+                        skipped += 1
+                        continue
+                    params.append(uid)
+                    cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"Строка: {e}")
+            db_conn.commit()
+            db_conn.close()
+
+        elif import_type == 'plans':
+            _TYPE_MAP   = {'seller': 'seller', 'продавец': 'seller', 'сотрудник': 'seller',
+                           'shop': 'shop', 'магазин': 'shop'}
+            _METRIC_MAP = {'turnover': 'turnover', 'оборот': 'turnover', 'сумма': 'turnover',
+                           'выручка': 'turnover', 'quantity': 'quantity', 'кол-во': 'quantity',
+                           'количество': 'quantity', 'штук': 'quantity'}
+            _PERIOD_MAP = {'weekly': 'weekly', 'неделя': 'weekly', 'week': 'weekly',
+                           'еженедельно': 'weekly', 'monthly': 'monthly', 'месяц': 'monthly',
+                           'month': 'monthly', 'ежемесячно': 'monthly'}
+            shop_col   = col_mapping.get('shop', 4)
+            seller_col = col_mapping.get('seller', 5)
+            type_col   = col_mapping.get('type', 0)
+            metric_col = col_mapping.get('metric', 1)
+            target_col = col_mapping.get('target', 2)
+            period_col = col_mapping.get('period', 3)
+            db_conn = db.get_connection()
+            cur = db_conn.cursor()
+            for row in rows:
+                try:
+                    plan_type   = _TYPE_MAP.get(
+                        str(row[type_col]).strip().lower() if type_col < len(row) else '', '')
+                    metric_type = _METRIC_MAP.get(
+                        str(row[metric_col]).strip().lower() if metric_col < len(row) else '', '')
+                    target_s    = str(row[target_col]).strip() if target_col < len(row) else ''
+                    target_type = _PERIOD_MAP.get(
+                        str(row[period_col]).strip().lower() if period_col < len(row) else '', '')
+                    shop_name   = str(row[shop_col]).strip() if shop_col < len(row) else ''
+                    seller_name = str(row[seller_col]).strip() if seller_col < len(row) else ''
+                    if not plan_type or not metric_type or not target_s or not target_type:
+                        skipped += 1
+                        continue
+                    target_value = float(_clean_num(target_s))
+                    user_id = None
+                    if plan_type == 'seller':
+                        if not seller_name:
+                            skipped += 1
+                            continue
+                        parts = seller_name.split(None, 1)
+                        fname = parts[0]
+                        lname = parts[1] if len(parts) > 1 else ''
+                        cur.execute(
+                            "SELECT id FROM users WHERE LOWER(first_name) = LOWER(?)"
+                            " AND (? = '' OR LOWER(COALESCE(last_name,'')) = LOWER(?))",
+                            (fname, lname, lname)
+                        )
+                        urow = cur.fetchone()
+                        if not urow:
+                            skipped += 1
+                            continue
+                        user_id = urow[0]
+                    cur.execute(
+                        "INSERT INTO sales_plans"
+                        " (plan_type, metric_type, target_value, target_type, user_id, shop_name, filter_type)"
+                        " VALUES (?, ?, ?, ?, ?, ?, 'all')",
+                        (plan_type, metric_type, target_value, target_type,
+                         user_id, shop_name or None)
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"Строка: {e}")
+            db_conn.commit()
+            db_conn.close()
+
         try:
             db.add_integration_log(conn_id, None, 'success',
                                    f'import {import_type}: {imported} записей')
