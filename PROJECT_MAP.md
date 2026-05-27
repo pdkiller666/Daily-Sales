@@ -194,7 +194,13 @@ generate_excel_report(sales, title, start_date, end_date) → Workbook
 get_user_db_path(telegram_id)       ← путь к БД пользователя (main.db → user_org_mapping)
 create_organization(name, owner_id) ← создаёт org + db-файл + запись в main.db
 join_organization_by_invite(telegram_id, invite_code)
-generate_invite_code(org_id)
+generate_invite_code(org_id)        ← создаёт/перезаписывает invite_code
+rotate_invite_code(org_id)          ← Б) генерирует новый код, сохраняет в БД, возвращает str
+set_invite_preset(org_id, role, shop)← Д) записывает invite_preset_role + invite_preset_shop
+get_invite_preset_by_code(code)     ← Д) → dict {preset_role, preset_shop} по инвайт-коду
+get_invite_preset_by_org(org_id)    ← Д) → dict {preset_role, preset_shop} по org_id
+get_org_admin_telegram_ids(org_id)  ← В) → list[int] telegram_id всех owner+admin орги
+get_user_org_id(telegram_id)        ← → int|None текущий org_id пользователя
 delete_organization(org_id)
 get_all_organizations()             ← для супер-адмна
 change_user_role(telegram_id, org_id, role, scope_type, scope_value)
@@ -330,6 +336,12 @@ adm_net_pick_*          safe_cb("adm_net_pick_", network)
 change_org_context      "change_org_context"  — переключение орг для супер-адмна
 select_org_*            "select_org_{id}"
 generate_invite         "generate_invite"
+reset_invite            "reset_invite_{org_id}"           ← Б) ротация кода
+invite_preset_start     "invite_preset_start_{org_id}"    ← Д) выбор роли пресета
+ipr_role_X              "ipr_role_{role}_{org_id}"        ← Д) user/admin/none
+ipr_shop_TOKEN          "ipr_shop_{token}_{org_id}"       ← Д) выбор магазина / NONE
+name_tg_use             "name_tg_use"                     ← Г) использовать имя из TG
+name_tg_manual          "name_tg_manual"                  ← Г) ввести имя вручную
 ```
 
 ### sales_handlers.py (sales_router)

@@ -7,6 +7,7 @@ import sqlite3
 import logging
 from datetime import datetime, date, timedelta
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -65,9 +66,13 @@ async def cmd_menu(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Пользователь не найден. Используйте /start для регистрации.")
 
-@router.message(F.text == "/start")
+@router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    """Команда старт"""
+    """Команда старт (поддерживает deep-link: /start INVITE_CODE)"""
+    # Извлекаем payload из deep-link (/start CODE)
+    parts = (message.text or '').strip().split(maxsplit=1)
+    invite_arg = parts[1].strip().upper() if len(parts) > 1 else None
+
     is_super = env_manager.is_super_admin(message.from_user.id)
     
     # Сначала ищем пользователя в основной БД (main.db)
@@ -149,12 +154,103 @@ async def cmd_start(message: Message, state: FSMContext):
             )
     else:
         from keyboards import usage_mode_keyboard
-        await message.answer(
-            "👋 Добро пожаловать в систему управления товарами!\n\n"
-            "Как вы планируете использовать систему?",
-            reply_markup=usage_mode_keyboard()
+        # A) Deep-link: /start INVITE_CODE — сразу начать join-регистрацию
+        if invite_arg and len(invite_arg) == 8 and invite_arg.isalnum():
+            anchor = await message.answer("🔗 Проверяем код приглашения...")
+            await state.update_data(usage_mode="join", anchor_msg_id=anchor.message_id)
+            success, result = tenant_manager.join_organization_by_invite(message.from_user.id, invite_arg)
+            if success:
+                preset = tenant_manager.get_invite_preset_by_code(invite_arg) or {}
+                await state.update_data(
+                    org_name=result,
+                    invite_code=invite_arg,
+                    preset_role=preset.get('preset_role'),
+                    preset_shop=preset.get('preset_shop'),
+                )
+                await _show_name_prefill_fsm(message.from_user, result, state, message)
+            elif result == "KICKED":
+                await anchor.edit_text(
+                    "🚫 <b>Доступ ограничен</b>\n\nВы были исключены из этой организации. "
+                    "Обратитесь к администратору для восстановления доступа.",
+                    parse_mode="HTML",
+                )
+                await state.clear()
+            else:
+                await anchor.edit_text(
+                    "❌ Ссылка приглашения недействительна.\n\nКак вы планируете использовать систему?",
+                    reply_markup=usage_mode_keyboard(),
+                )
+                await state.set_state(UserRegistrationStates.waiting_for_usage_mode)
+        else:
+            await message.answer(
+                "👋 Добро пожаловать в систему управления товарами!\n\n"
+                "Как вы планируете использовать систему?",
+                reply_markup=usage_mode_keyboard()
+            )
+            await state.set_state(UserRegistrationStates.waiting_for_usage_mode)
+
+# ── Вспомогательные функции инвайт-регистрации ───────────────────────────────
+
+async def _show_name_prefill_fsm(tg_user, org_name: str, state: FSMContext, message):
+    """Г) Показать предложение использовать имя из Telegram или ввести вручную."""
+    tg_first = (tg_user.first_name or '').strip()
+    tg_last = (tg_user.last_name or '').strip()
+    if tg_first:
+        display = f"<b>{he(tg_first)}" + (f" {he(tg_last)}" if tg_last else "") + "</b>"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, использовать", callback_data="name_tg_use"),
+                InlineKeyboardButton(text="✏️ Ввести вручную", callback_data="name_tg_manual"),
+            ],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_registration")],
+        ])
+        await fsm_edit(
+            state, message,
+            f"✅ Вы присоединились к организации <b>{he(org_name)}</b>!\n\n"
+            f"👤 Использовать имя из Telegram-профиля?\n{display}",
+            reply_markup=kb,
         )
-        await state.set_state(UserRegistrationStates.waiting_for_usage_mode)
+        await state.update_data(tg_first_name=tg_first, tg_last_name=tg_last)
+    else:
+        await fsm_edit(
+            state, message,
+            f"✅ Вы присоединились к организации <b>{he(org_name)}</b>!\n\n1️⃣ Введите ваше имя:",
+            reply_markup=cancel_registration_keyboard(),
+        )
+    await state.set_state(UserRegistrationStates.waiting_for_first_name)
+
+
+async def _notify_org_join(telegram_id: int, first_name: str, last_name: str,
+                           shop_name: str, org_name: str):
+    """В) Отправить уведомление owner/admin орг о новом участнике."""
+    try:
+        from bot_holder import get_bot
+        bot = get_bot()
+        if not bot:
+            return
+        org_id = tenant_manager.get_user_org_id(telegram_id)
+        if not org_id:
+            return
+        admin_tids = tenant_manager.get_org_admin_telegram_ids(org_id)
+        if not admin_tids:
+            return
+        full_name = f"{first_name} {last_name}".strip()
+        text = (
+            f"👤 <b>Новый сотрудник</b>\n\n"
+            f"Имя: {he(full_name)}\n"
+            f"Магазин: {he(shop_name or '—')}\n"
+            f"Организация: {he(org_name or '—')}\n\n"
+            f"Присоединился через приглашение ✅"
+        )
+        for tid in admin_tids:
+            if tid != telegram_id:
+                try:
+                    await bot.send_message(tid, text, parse_mode="HTML")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 
 @router.callback_query(F.data == "mode_personal", UserRegistrationStates.waiting_for_usage_mode)
 async def process_mode_personal(callback: CallbackQuery, state: FSMContext):
@@ -189,19 +285,57 @@ async def process_mode_join(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(UserRegistrationStates.waiting_for_invite_code)
 
+@router.callback_query(F.data == "name_tg_use")
+async def name_tg_use(callback: CallbackQuery, state: FSMContext):
+    """Г) Пользователь подтвердил использование имени из Telegram."""
+    await callback.answer()
+    data = await state.get_data()
+    first = data.get('tg_first_name', '').strip()
+    last = data.get('tg_last_name', '').strip()
+    if not first:
+        await fsm_edit(
+            state, callback.message,
+            "1️⃣ Введите ваше имя:",
+            reply_markup=cancel_registration_keyboard(),
+        )
+        await state.set_state(UserRegistrationStates.waiting_for_first_name)
+        return
+    await state.update_data(first_name=first, last_name=last)
+    await fsm_edit(
+        state, callback.message,
+        f"✅ Имя: {he(first)} {he(last)}\n\n3️⃣ Введите отчество (или «нет»/«-» для пропуска):",
+        reply_markup=cancel_registration_keyboard(),
+    )
+    await state.set_state(UserRegistrationStates.waiting_for_middle_name)
+
+
+@router.callback_query(F.data == "name_tg_manual")
+async def name_tg_manual(callback: CallbackQuery, state: FSMContext):
+    """Г) Пользователь хочет ввести имя вручную."""
+    await callback.answer()
+    await fsm_edit(
+        state, callback.message,
+        "1️⃣ Введите ваше имя:",
+        reply_markup=cancel_registration_keyboard(),
+    )
+    await state.set_state(UserRegistrationStates.waiting_for_first_name)
+
+
 @router.message(UserRegistrationStates.waiting_for_invite_code)
 async def process_reg_invite_code(message: Message, state: FSMContext):
     invite_code = message.text.strip().upper()
     success, result = tenant_manager.join_organization_by_invite(message.from_user.id, invite_code)
     
     if success:
-        await state.update_data(org_name=result, invite_code=invite_code)
-        await fsm_edit(
-            state, message,
-            f"✅ Вы успешно присоединились к организации <b>{he(result)}</b>!\n\n1️⃣ Введите ваше имя:",
-            reply_markup=cancel_registration_keyboard(),
+        # Д) Загружаем пресет магазина/роли, Г) предлагаем имя из Telegram
+        preset = tenant_manager.get_invite_preset_by_code(invite_code) or {}
+        await state.update_data(
+            org_name=result,
+            invite_code=invite_code,
+            preset_role=preset.get('preset_role'),
+            preset_shop=preset.get('preset_shop'),
         )
-        await state.set_state(UserRegistrationStates.waiting_for_first_name)
+        await _show_name_prefill_fsm(message.from_user, result, state, message)
     elif result == "KICKED":
         await fsm_edit(
             state, message,
@@ -338,6 +472,31 @@ async def select_trade_network(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     network_name = callback.data.replace("select_network_", "")
     await state.update_data(trade_network=network_name)
+
+    # Д) Пресет магазина — пропустить выбор
+    user_data = await state.get_data()
+    preset_shop = user_data.get('preset_shop')
+    if preset_shop:
+        await state.update_data(shop_name=preset_shop)
+        existing_cities = await db.get_all_cities()
+        if existing_cities:
+            keyboard = create_registration_selection_keyboard(existing_cities, "select_city", "create_new_city")
+            await callback.message.edit_text(
+                f"✅ Торговая сеть: {network_name}\n"
+                f"✅ Магазин (назначен администратором): {he(preset_shop)}\n\n"
+                f"🏙️ Выберите город или создайте новый:",
+                reply_markup=keyboard, parse_mode="HTML"
+            )
+        else:
+            await callback.message.edit_text(
+                f"✅ Торговая сеть: {network_name}\n"
+                f"✅ Магазин (назначен администратором): {he(preset_shop)}\n\n"
+                f"🏙️ Введите название города:",
+                reply_markup=cancel_registration_keyboard(), parse_mode="HTML"
+            )
+        await state.set_state(UserRegistrationStates.waiting_for_city)
+        return
+
     existing_shops = await db.get_all_shops()
     
     if existing_shops:
@@ -384,6 +543,33 @@ async def process_trade_network(message: Message, state: FSMContext):
         return
     
     await state.update_data(trade_network=trade_network)
+
+    # Д) Пресет магазина — пропустить выбор
+    user_data = await state.get_data()
+    preset_shop = user_data.get('preset_shop')
+    if preset_shop:
+        await state.update_data(shop_name=preset_shop)
+        existing_cities = await db.get_all_cities()
+        if existing_cities:
+            keyboard = create_registration_selection_keyboard(existing_cities, "select_city", "create_new_city")
+            await fsm_edit(
+                state, message,
+                f"✅ Торговая сеть: {trade_network}\n"
+                f"✅ Магазин (назначен администратором): {he(preset_shop)}\n\n"
+                f"🏙️ Выберите город или создайте новый:",
+                reply_markup=keyboard,
+            )
+        else:
+            await fsm_edit(
+                state, message,
+                f"✅ Торговая сеть: {trade_network}\n"
+                f"✅ Магазин (назначен администратором): {he(preset_shop)}\n\n"
+                f"🏙️ Введите название города:",
+                reply_markup=cancel_registration_keyboard(),
+            )
+        await state.set_state(UserRegistrationStates.waiting_for_city)
+        return
+
     existing_shops = await db.get_all_shops()
     
     if existing_shops:
@@ -533,6 +719,13 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
             city=city_name,
             username=callback.from_user.username
         )
+        # Д) Применить пресет роли если задан администратором
+        preset_role = user_data.get('preset_role')
+        if preset_role and preset_role in ('admin', 'user'):
+            try:
+                tenant_manager.change_user_role(callback.from_user.id, preset_role)
+            except Exception:
+                pass
 
     welcome_text = (
         f"✅ Регистрация завершена!\n\n"
@@ -571,6 +764,16 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
             callback, _inv_db, _inv_user[0],
             is_any_admin(callback.from_user.id)
         )
+    # В) Уведомить owner/admin об новом участнике
+    if user_data.get('usage_mode') == 'join':
+        import asyncio as _aio
+        _aio.create_task(_notify_org_join(
+            callback.from_user.id,
+            user_data.get('first_name', ''),
+            user_data.get('last_name', ''),
+            user_data.get('shop_name', ''),
+            user_data.get('org_name', ''),
+        ))
 
 @router.callback_query(lambda c: c.data == "create_new_city")
 async def create_new_city(callback: CallbackQuery, state: FSMContext):
@@ -657,6 +860,13 @@ async def process_city(message: Message, state: FSMContext):
                 city=city,
                 username=message.from_user.username
             )
+            # Д) Применить пресет роли если задан администратором
+            _preset_role = user_data.get('preset_role')
+            if _preset_role and _preset_role in ('admin', 'user'):
+                try:
+                    tenant_manager.change_user_role(message.from_user.id, _preset_role)
+                except Exception:
+                    pass
     except Exception as e:
         import logging
         logging.error(f"process_city: registration DB error: {e}")
@@ -755,6 +965,16 @@ async def process_city(message: Message, state: FSMContext):
             message, _reg_db, _reg_user[0],
             is_any_admin(message.from_user.id)
         )
+    # В) Уведомить owner/admin об новом участнике
+    if user_data.get('usage_mode') == 'join':
+        import asyncio as _aio
+        _aio.create_task(_notify_org_join(
+            message.from_user.id,
+            user_data.get('first_name', ''),
+            user_data.get('last_name', ''),
+            user_data.get('shop_name', ''),
+            user_data.get('org_name', ''),
+        ))
 
 @router.callback_query(F.data.startswith("hint_dismiss:"))
 async def hint_dismiss_handler(callback: CallbackQuery):

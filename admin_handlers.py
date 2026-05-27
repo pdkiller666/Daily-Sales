@@ -897,15 +897,205 @@ async def generate_invite_handler(callback: CallbackQuery, state: FSMContext):
     invite_code = tenant_manager.generate_invite_code(org_id)
     if invite_code:
         await callback.answer()
-        await callback.message.edit_text(
-            f"📩 <b>Код приглашения создан!</b>\n\n"
-            f"Код: <code>{invite_code}</code>\n\n"
-            f"Отправьте этот код сотруднику. Он должен будет выбрать '🔗 Войти по приглашению' при регистрации.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]),
-            parse_mode="HTML"
-        )
+        await _show_invite_screen(callback.message, org_id, invite_code)
     else:
         await callback.answer("❌ Ошибка при генерации кода", show_alert=True)
+
+
+async def _show_invite_screen(message, org_id: int, invite_code: str):
+    """Показать экран инвайта с deep-link, пресетом и кнопками."""
+    from bot_holder import get_username
+    bot_uname = get_username()
+    preset = tenant_manager.get_invite_preset_by_org(org_id)
+    preset_role = preset.get('preset_role')
+    preset_shop = preset.get('preset_shop')
+
+    # Deep-link URL
+    if bot_uname:
+        deep_link = f"https://t.me/{bot_uname}?start={invite_code}"
+        link_line = f"\n🔗 Ссылка: <code>{deep_link}</code>"
+    else:
+        link_line = ""
+
+    # Пресет
+    role_labels = {'admin': 'Администратор', 'user': 'Сотрудник'}
+    preset_line = ""
+    if preset_role or preset_shop:
+        parts = []
+        if preset_role:
+            parts.append(f"роль: {role_labels.get(preset_role, preset_role)}")
+        if preset_shop:
+            parts.append(f"магазин: {preset_shop}")
+        preset_line = f"\n⚙️ Пресет: {', '.join(parts)}"
+    else:
+        preset_line = "\n⚙️ Пресет: не задан"
+
+    text = (
+        f"📩 <b>Код приглашения</b>\n\n"
+        f"Код: <code>{invite_code}</code>{link_line}\n"
+        f"{preset_line}\n\n"
+        f"Сотрудник может:\n"
+        f"• Перейти по ссылке (автоматически)\n"
+        f"• Или ввести код вручную при регистрации"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Сбросить код", callback_data=f"reset_invite_{org_id}"),
+            InlineKeyboardButton(text="⚙️ Пресет", callback_data=f"invite_preset_start_{org_id}"),
+        ],
+        [back_button("admin_management")],
+    ])
+    try:
+        await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data.startswith("reset_invite_"))
+async def reset_invite_handler(callback: CallbackQuery, state: FSMContext):
+    """Б) Сбросить код приглашения (сгенерировать новый)."""
+    await callback.answer()
+    try:
+        org_id = int(callback.data.replace("reset_invite_", ""))
+    except ValueError:
+        await callback.answer("❌ Ошибка", show_alert=True)
+        return
+    new_code = tenant_manager.rotate_invite_code(org_id)
+    if new_code:
+        await _show_invite_screen(callback.message, org_id, new_code)
+    else:
+        await callback.answer("❌ Не удалось сбросить код", show_alert=True)
+
+
+@admin_router.callback_query(F.data.startswith("invite_preset_start_"))
+async def invite_preset_start_handler(callback: CallbackQuery, state: FSMContext):
+    """Д) Начало настройки пресета инвайта — выбор роли."""
+    await callback.answer()
+    try:
+        org_id = int(callback.data.replace("invite_preset_start_", ""))
+    except ValueError:
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="👤 Сотрудник", callback_data=f"ipr_role_user_{org_id}"),
+            InlineKeyboardButton(text="🔑 Администратор", callback_data=f"ipr_role_admin_{org_id}"),
+        ],
+        [InlineKeyboardButton(text="🚫 Без пресета роли", callback_data=f"ipr_role_none_{org_id}")],
+        [back_button(f"generate_invite")],
+    ])
+    await callback.message.edit_text(
+        "⚙️ <b>Пресет приглашения</b>\n\n"
+        "Выберите роль, которая будет автоматически назначена новому участнику:",
+        reply_markup=kb, parse_mode="HTML"
+    )
+
+
+@admin_router.callback_query(F.data.startswith("ipr_role_"))
+async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext):
+    """Д) Выбор роли пресета → показать выбор магазина."""
+    await callback.answer()
+    parts = callback.data.split("_")
+    # ipr_role_user_123 → parts = ['ipr', 'role', 'user', '123']
+    # ipr_role_admin_123 → parts = ['ipr', 'role', 'admin', '123']
+    # ipr_role_none_123 → parts = ['ipr', 'role', 'none', '123']
+    try:
+        role_val = parts[2]  # 'user', 'admin', 'none'
+        org_id = int(parts[3])
+    except (IndexError, ValueError):
+        return
+
+    preset_role = None if role_val == 'none' else role_val
+    await state.update_data(ipreset_role=preset_role, ipreset_org_id=org_id)
+
+    # Получаем список магазинов из tenant DB
+    shops = []
+    try:
+        org_row = await _db_run(
+            'data/main.db', "SELECT db_path FROM organizations WHERE id=?",
+            (org_id,), fetch="one"
+        )
+        if org_row and org_row[0]:
+            shop_rows = await _db_run(
+                org_row[0],
+                "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL ORDER BY shop_name",
+                fetch="all"
+            )
+            shops = [r[0] for r in (shop_rows or []) if r[0]]
+    except Exception:
+        pass
+
+    from keyboards import safe_cb
+    role_labels = {'admin': 'Администратор', 'user': 'Сотрудник'}
+    role_label = role_labels.get(preset_role, 'не задана') if preset_role else 'не задана'
+
+    if shops:
+        builder = InlineKeyboardBuilder()
+        for shop in shops[:20]:
+            builder.button(
+                text=f"🏪 {shop}",
+                callback_data=f"ipr_shop_{safe_cb(shop)}_{org_id}"
+            )
+        builder.button(
+            text="🚫 Без пресета магазина",
+            callback_data=f"ipr_shop_NONE_{org_id}"
+        )
+        builder.adjust(1)
+        builder.row(back_button(f"invite_preset_start_{org_id}"))
+        await callback.message.edit_text(
+            f"⚙️ <b>Пресет:</b> роль = {role_label}\n\n"
+            f"Выберите магазин для нового участника:",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+    else:
+        # Нет магазинов — сразу сохраняем пресет без магазина
+        _invite_code = await _get_org_invite_code(org_id)
+        tenant_manager.set_invite_preset(org_id, preset_role, None)
+        if _invite_code:
+            await _show_invite_screen(callback.message, org_id, _invite_code)
+        else:
+            await callback.message.edit_text("✅ Пресет сохранён.")
+
+
+@admin_router.callback_query(F.data.startswith("ipr_shop_"))
+async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext):
+    """Д) Выбор магазина пресета → сохранить и вернуться к инвайту."""
+    await callback.answer()
+    from keyboards import resolve_cb_name
+    raw = callback.data[len("ipr_shop_"):]  # e.g. "NONE_123" or "cb_abc_123"
+    # Отрезаем org_id (последнее число)
+    rparts = raw.rsplit("_", 1)
+    if len(rparts) != 2:
+        return
+    shop_token, org_id_str = rparts
+    try:
+        org_id = int(org_id_str)
+    except ValueError:
+        return
+
+    shop_name = None if shop_token == "NONE" else resolve_cb_name(shop_token)
+
+    data = await state.get_data()
+    preset_role = data.get('ipreset_role')
+
+    tenant_manager.set_invite_preset(org_id, preset_role, shop_name)
+
+    _invite_code = await _get_org_invite_code(org_id)
+    if _invite_code:
+        await _show_invite_screen(callback.message, org_id, _invite_code)
+    else:
+        await callback.message.edit_text("✅ Пресет сохранён. Вернитесь к инвайту.")
+
+
+async def _get_org_invite_code(org_id: int) -> str | None:
+    """Вернуть текущий invite_code организации (или создать новый)."""
+    row = await _db_run(
+        'data/main.db', "SELECT invite_code FROM organizations WHERE id=?",
+        (org_id,), fetch="one"
+    )
+    if row and row[0]:
+        return row[0]
+    return tenant_manager.generate_invite_code(org_id)
 
 @admin_router.callback_query(F.data == "motivation_hub")
 async def motivation_hub_handler(callback: CallbackQuery, state: FSMContext):

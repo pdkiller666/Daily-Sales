@@ -63,6 +63,14 @@ class TenantManager:
         # Миграция: переименовываем роль super_admin → owner
         cursor.execute("UPDATE user_org_mapping SET role = 'owner' WHERE role = 'super_admin'")
 
+        # Миграция: invite_preset_role и invite_preset_shop в organizations
+        cursor.execute("PRAGMA table_info(organizations)")
+        org_cols = [c[1] for c in cursor.fetchall()]
+        if 'invite_preset_role' not in org_cols:
+            cursor.execute("ALTER TABLE organizations ADD COLUMN invite_preset_role TEXT DEFAULT NULL")
+        if 'invite_preset_shop' not in org_cols:
+            cursor.execute("ALTER TABLE organizations ADD COLUMN invite_preset_shop TEXT DEFAULT NULL")
+
         conn.commit()
         conn.close()
 
@@ -88,6 +96,102 @@ class TenantManager:
             conn.commit()
             return code
         except sqlite3.Error:
+            return None
+        finally:
+            conn.close()
+
+    def rotate_invite_code(self, org_id) -> str | None:
+        """Генерация нового кода приглашения (всегда создаёт новый, заменяя старый)."""
+        import secrets
+        import string
+        code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            conn.execute("UPDATE organizations SET invite_code = ? WHERE id = ?", (code, org_id))
+            conn.commit()
+            return code
+        except sqlite3.Error:
+            return None
+        finally:
+            conn.close()
+
+    def set_invite_preset(self, org_id, role: str | None, shop_name: str | None) -> bool:
+        """Установить пресет роли и магазина для новых участников по этому приглашению."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            conn.execute(
+                "UPDATE organizations SET invite_preset_role=?, invite_preset_shop=? WHERE id=?",
+                (role, shop_name, org_id)
+            )
+            conn.commit()
+            return True
+        except sqlite3.Error:
+            return False
+        finally:
+            conn.close()
+
+    def get_invite_preset_by_code(self, invite_code: str) -> dict | None:
+        """Вернуть пресет и данные орг по коду приглашения."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT invite_preset_role, invite_preset_shop, id, name FROM organizations WHERE invite_code=?",
+                (invite_code,)
+            ).fetchone()
+            if row:
+                return {
+                    'preset_role': row[0],
+                    'preset_shop': row[1],
+                    'org_id': row[2],
+                    'org_name': row[3],
+                }
+            return None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def get_invite_preset_by_org(self, org_id: int) -> dict:
+        """Вернуть текущий пресет для организации."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT invite_preset_role, invite_preset_shop FROM organizations WHERE id=?",
+                (org_id,)
+            ).fetchone()
+            if row:
+                return {'preset_role': row[0], 'preset_shop': row[1]}
+            return {'preset_role': None, 'preset_shop': None}
+        except Exception:
+            return {'preset_role': None, 'preset_shop': None}
+        finally:
+            conn.close()
+
+    def get_org_admin_telegram_ids(self, org_id: int) -> list:
+        """Telegram ID всех owner и admin данной организации."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            rows = conn.execute(
+                "SELECT telegram_id FROM user_org_mapping "
+                "WHERE org_id=? AND role IN ('owner','admin') AND is_active=1",
+                (org_id,)
+            ).fetchall()
+            return [r[0] for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_user_org_id(self, telegram_id: int) -> int | None:
+        """Получить org_id для активного пользователя."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+                (telegram_id,)
+            ).fetchone()
+            return row[0] if row else None
+        except Exception:
             return None
         finally:
             conn.close()

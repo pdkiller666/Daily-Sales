@@ -940,7 +940,16 @@ async def main():
         logging.warning(f"Integration schedule_exports: {_ie}")
 
     logging.info("Бот запущен")
-    
+
+    # Сохраняем username бота для генерации deep-link
+    try:
+        _me = await bot.get_me()
+        import bot_holder as _bh
+        _bh.set_username(_me.username)
+        logging.info(f"Bot username: @{_me.username}")
+    except Exception as _me_err:
+        logging.warning(f"Не удалось получить username бота: {_me_err}")
+
     # Проверяем, нужно ли отправить post-restart сообщение
     asyncio.create_task(send_post_restart_start(bot))
     

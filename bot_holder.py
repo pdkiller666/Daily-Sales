@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from aiogram import Bot
 
 _bot = None
+_username: str | None = None
 
 
 def set_bot(bot) -> None:
@@ -21,3 +22,12 @@ def set_bot(bot) -> None:
 
 def get_bot():
     return _bot
+
+
+def set_username(username: str) -> None:
+    global _username
+    _username = username
+
+
+def get_username() -> str | None:
+    return _username

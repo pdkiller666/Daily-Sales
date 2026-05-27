@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-27 (сессия 223)
+> Последнее обновление: 2026-05-27 (сессия 224)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,7 +26,18 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `4b3213d` · Amvera `7172966` (2026-05-27, сессия 223). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub и Amvera — сессия 224 (2026-05-27). Оба хэша верифицированы через `git ls-remote`.
+
+**Сессия 224 (2026-05-27) — INVITE SYSTEM IMPROVEMENTS (A–E):**
+- **А) Deep-link**: `/start CODE` через `Command("start")` filter в `handlers.py`; парсит аргумент инвайт-кода и автоматически привязывает к орге без ручного ввода
+- **Б) Ротация кода**: `rotate_invite_code(org_id)` в `tenant_manager.py`; кнопка «🔄 Сбросить код» на экране инвайта → новый код генерируется и обновляется в БД
+- **В) Уведомление owner/admin**: `_notify_org_join()` в `handlers.py` — вызывается в `process_city` через `asyncio.create_task()`; получает список admin telegram_ids из `get_org_admin_telegram_ids()`
+- **Г) Имя из Telegram**: `_show_name_prefill_fsm()` в `handlers.py` при join-режиме предлагает кнопки «✅ Использовать имя из профиля» / «✏️ Ввести вручную»; callbacks `name_tg_use` / `name_tg_manual`
+- **Д) Пресет роли и магазина**: `invite_preset_role`, `invite_preset_shop` в таблице `organizations`; `set_invite_preset()`, `get_invite_preset_by_code()`, `get_invite_preset_by_org()` в tenant_manager; экран настройки через `invite_preset_start_N` → `ipr_role_X_N` → `ipr_shop_TOKEN_N`; при регистрации по инвайту пресет из БД пропускает шаги выбора роли/магазина
+- **Экран инвайта**: `_show_invite_screen()` — universal helper в `admin_handlers.py`; показывает код + deep-link URL + пресет + кнопки «🔄 Сбросить» / «⚙️ Пресет» / «◀️ Назад»
+- **bot_holder.py**: добавлены `set_username()` / `get_username()`; в `main.py` username бота сохраняется при старте через `get_me()`
+- **README.md**: полная перепись с разделом про invite-систему
+- **Тесты**: 45 импортов OK, 702 сценария OK
 
 **Сессия 200 (2026-05-26) — фичи и фиксы:**
 - **Фильтры получателей уведомлений** (`notifications_handlers.py`): после ввода текста → выбор «👥 Всем / 🏪 По магазину / 🎭 По роли»; превью с числом получателей; запланированные уведомления сохраняют фильтр в `recipients_list` (JSON); `check_scheduled_notifications` применяет фильтр при отправке. Супер-admin: только «Всем».
@@ -326,7 +337,7 @@ build:
 
 | Таблица | Ключевые колонки |
 |---|---|
-| `organizations` | id, name, owner_id, invite_code, db_path, subscription_plan, is_active |
+| `organizations` | id, name, owner_id, invite_code, db_path, subscription_plan, is_active, invite_preset_role (NULL/'admin'/'user'), invite_preset_shop (NULL/str) |
 | `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title |
 
 ### data/shop_bot.db и data/tenants/org_*.db — идентичная схема
