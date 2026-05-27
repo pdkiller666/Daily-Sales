@@ -38,6 +38,8 @@ from contests_handlers import contests_router
 from dashboard_handlers import router as dashboard_router
 from filter_handlers import filter_router
 from integration_handlers import integration_router
+from referral_handlers import referral_router
+from addon_handlers import addon_router
 import scheduler_module
 from utils import he
 
@@ -131,6 +133,8 @@ dp.include_router(contests_router)
 dp.include_router(dashboard_router)
 dp.include_router(filter_router)
 dp.include_router(integration_router)
+dp.include_router(referral_router)
+dp.include_router(addon_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):

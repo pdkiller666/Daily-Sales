@@ -319,14 +319,29 @@ async def confirm_payment_request(callback: CallbackQuery):
                         pass
 
                     _fname = he(first_name or '')
-                    receipt_text = (
-                        f"✅ <b>{_fname}, подписка активирована!</b>\n\n"
-                        f"📋 <b>Тариф:</b> {he(plan_name)}\n"
-                        f"{_plan_price_str}"
-                        f"{_end_str}"
-                        f"\n🎉 Спасибо за покупку! Все возможности тарифа "
-                        f"доступны прямо сейчас."
-                    )
+                    # Различаем обычные подписки и надстройки (add-ons)
+                    if plan_name and plan_name.startswith('addon_'):
+                        _addon_labels = {
+                            'addon_shops_1': '🏪 Дополнительный магазин (+1)',
+                            'addon_products_1': '📦 +100 товаров',
+                        }
+                        _addon_label = _addon_labels.get(plan_name, plan_name)
+                        receipt_text = (
+                            f"✅ <b>{_fname}, надстройка активирована!</b>\n\n"
+                            f"➕ <b>Надстройка:</b> {_addon_label}\n"
+                            f"{_plan_price_str}"
+                            f"📅 <b>Действует:</b> 30 дней\n"
+                            f"\n🎉 Надстройка добавлена к вашим лимитам прямо сейчас."
+                        )
+                    else:
+                        receipt_text = (
+                            f"✅ <b>{_fname}, подписка активирована!</b>\n\n"
+                            f"📋 <b>Тариф:</b> {he(plan_name)}\n"
+                            f"{_plan_price_str}"
+                            f"{_end_str}"
+                            f"\n🎉 Спасибо за покупку! Все возможности тарифа "
+                            f"доступны прямо сейчас."
+                        )
                     await callback.bot.send_message(
                         chat_id=user_telegram_id,
                         text=receipt_text,

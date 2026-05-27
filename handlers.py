@@ -181,6 +181,19 @@ async def cmd_start(message: Message, state: FSMContext):
                     reply_markup=usage_mode_keyboard(),
                 )
                 await state.set_state(UserRegistrationStates.waiting_for_usage_mode)
+        # B) Deep-link: /start ref_TELEGRAMID — реферальная программа
+        elif invite_arg and invite_arg.startswith('REF_'):
+            referrer_id_str = invite_arg[4:]  # e.g. '123456789'
+            if referrer_id_str.isdigit() and int(referrer_id_str) != message.from_user.id:
+                await state.update_data(referrer_telegram_id=referrer_id_str)
+            await message.answer(
+                "👋 Добро пожаловать в систему управления товарами!\n\n"
+                "🔗 <i>Вы перешли по реферальной ссылке. Приятного использования!</i>\n\n"
+                "Как вы планируете использовать систему?",
+                reply_markup=usage_mode_keyboard(),
+                parse_mode="HTML"
+            )
+            await state.set_state(UserRegistrationStates.waiting_for_usage_mode)
         else:
             await message.answer(
                 "👋 Добро пожаловать в систему управления товарами!\n\n"
@@ -727,6 +740,18 @@ async def select_city(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
+    # Реферальная программа: начислить +30 дней рефереру если пришли по реф-ссылке
+    if user_data.get('usage_mode') in ('personal', 'corporate'):
+        referrer_id_str = user_data.get('referrer_telegram_id')
+        if referrer_id_str:
+            try:
+                from database import Database as _RefDB
+                _rdb = _RefDB('data/shop_bot.db')
+                _rdb.create_referral(int(referrer_id_str), callback.from_user.id)
+                _rdb.apply_referral_bonus(callback.from_user.id)
+            except Exception:
+                pass
+
     welcome_text = (
         f"✅ Регистрация завершена!\n\n"
         f"👤 {he(user_data['first_name'])} {he(user_data['last_name'])}\n"
@@ -879,6 +904,18 @@ async def process_city(message: Message, state: FSMContext):
         )
         await clear_state_keep_org(state)
         return
+
+    # Реферальная программа: начислить +30 дней рефереру
+    if user_data.get('usage_mode') in ('personal', 'corporate'):
+        _ref_str2 = user_data.get('referrer_telegram_id')
+        if _ref_str2:
+            try:
+                from database import Database as _RefDB2
+                _rdb2 = _RefDB2('data/shop_bot.db')
+                _rdb2.create_referral(int(_ref_str2), message.from_user.id)
+                _rdb2.apply_referral_bonus(message.from_user.id)
+            except Exception:
+                pass
 
     # Пробный период — для личного и корпоративного режимов
     if user_data.get('usage_mode') in ('personal', 'corporate'):

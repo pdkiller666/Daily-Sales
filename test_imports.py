@@ -55,6 +55,9 @@ MODULES = [
     'integration.manager',
     'integration.auth.google_oauth',
     'integration.providers.google_sheets',
+    'referral_handlers',
+    'addon_handlers',
+    'pdf_utils',
 ]
 
 passed = 0

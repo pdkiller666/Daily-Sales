@@ -390,6 +390,14 @@ class Database:
                 "UPDATE subscription_plans SET can_use_integrations=1 WHERE name != 'Бесплатный'"
             )
 
+        # Миграция таблицы products: фото и описание товара
+        cursor.execute("PRAGMA table_info(products)")
+        _prod_cols = [c[1] for c in cursor.fetchall()]
+        if 'photo_file_id' not in _prod_cols:
+            cursor.execute("ALTER TABLE products ADD COLUMN photo_file_id TEXT")
+        if 'description' not in _prod_cols:
+            cursor.execute("ALTER TABLE products ADD COLUMN description TEXT")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS promocodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -584,6 +592,34 @@ class Database:
                 edited_by INTEGER,
                 edited_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(contest_id, shop_name)
+            )
+        ''')
+
+        # Реферальная программа
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                referrer_telegram_id INTEGER NOT NULL,
+                referred_telegram_id INTEGER NOT NULL UNIQUE,
+                bonus_days INTEGER DEFAULT 30,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                applied INTEGER DEFAULT 0,
+                applied_at TEXT
+            )
+        ''')
+
+        # Надстройки к подписке (add-ons)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS subscription_addons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_telegram_id INTEGER NOT NULL,
+                addon_type TEXT NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                price REAL NOT NULL,
+                purchased_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                expires_at TEXT NOT NULL,
+                payment_request_id INTEGER,
+                is_active INTEGER DEFAULT 1
             )
         ''')
 
@@ -958,6 +994,8 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_history_user  ON notification_history(user_id, is_read)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sched_notif_dt      ON scheduled_notifications(scheduled_datetime, status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_plan_milestones     ON plan_milestone_alerts(user_id, plan_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer  ON referrals(referrer_telegram_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_addons_user         ON subscription_addons(user_telegram_id, is_active, expires_at)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -1739,14 +1777,14 @@ class Database:
         conn.close()
         return product
 
-    def add_product(self, name, category, price):
+    def add_product(self, name, category, price, photo_file_id=None, description=None):
         """Добавление нового товара"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO products (name, category, price)
-            VALUES (?, ?, ?)
-        ''', (name, category, price))
+            INSERT INTO products (name, category, price, photo_file_id, description)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (name, category, price, photo_file_id, description))
         product_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -1777,7 +1815,8 @@ class Database:
             conn.close()
         return added, skipped
 
-    def update_product(self, product_id, name=None, category=None, price=None):
+    def update_product(self, product_id, name=None, category=None, price=None,
+                       photo_file_id=None, description=None):
         """Обновление товара"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -1794,6 +1833,12 @@ class Database:
         if price is not None:
             updates.append('price = ?')
             params.append(price)
+        if photo_file_id is not None:
+            updates.append('photo_file_id = ?')
+            params.append(photo_file_id)
+        if description is not None:
+            updates.append('description = ?')
+            params.append(description)
 
         if updates:
             params.append(product_id)
@@ -2283,6 +2328,24 @@ class Database:
 
             conn.commit()
             conn.close()
+
+            # Обработка надстроек (add-ons): addon_shops_1 или addon_products_1
+            if plan_type and plan_type.startswith('addon_'):
+                _parts = plan_type.split('_')
+                if len(_parts) >= 3:
+                    _addon_key = _parts[1]   # 'shops' или 'products'
+                    try:
+                        _qty = int(_parts[2])
+                    except (ValueError, IndexError):
+                        _qty = 1
+                    _user_info = self.get_user_by_id(user_id)
+                    if _user_info:
+                        _tg_id = _user_info[1]
+                        if _addon_key == 'shops':
+                            self.create_subscription_addon(_tg_id, 'extra_shops', _qty, 150.0 * _qty, days=30)
+                        elif _addon_key == 'products':
+                            self.create_subscription_addon(_tg_id, 'extra_products', _qty, 100.0 * _qty, days=30)
+                return True
 
             # Создаем подписку (и сбрасываем старые напоминания — подписка продлена)
             success = self.create_subscription(user_id, plan_type)
@@ -7106,4 +7169,167 @@ class Database:
         except Exception as e:
             logger.error(f"get_inventory_log: {e}")
             return []
+
+    # ─── Referrals ────────────────────────────────────────────────────────
+    def create_referral(self, referrer_telegram_id: int, referred_telegram_id: int) -> bool:
+        """Записать реферала. Возвращает True если добавлено (не дубликат)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT OR IGNORE INTO referrals (referrer_telegram_id, referred_telegram_id)
+                VALUES (?, ?)
+            ''', (referrer_telegram_id, referred_telegram_id))
+            inserted = cursor.rowcount > 0
+            conn.commit()
+            return inserted
+        except Exception as e:
+            logger.error(f"create_referral: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_referral_stats(self, telegram_id: int) -> dict:
+        """Статистика: сколько рефералов пригласил и сколько бонусных дней получил."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND bonus_granted = 1',
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            paid_count = row[0] if row else 0
+            cursor.execute(
+                'SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ?',
+                (telegram_id,)
+            )
+            row = cursor.fetchone()
+            total_count = row[0] if row else 0
+            return {
+                'total_referred': total_count,
+                'bonus_granted': paid_count,
+                'bonus_days': paid_count * 30,
+            }
+        except Exception as e:
+            logger.error(f"get_referral_stats: {e}")
+            return {'total_referred': 0, 'bonus_granted': 0, 'bonus_days': 0}
+        finally:
+            conn.close()
+
+    def apply_referral_bonus(self, referred_telegram_id: int) -> bool:
+        """Начислить +30 дней рефереру по telegram_id рефери."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT referrer_telegram_id FROM referrals
+                WHERE referred_telegram_id = ? AND bonus_granted = 0
+                LIMIT 1
+            ''', (referred_telegram_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+            referrer_tg_id = row[0]
+            cursor.execute('''
+                UPDATE referrals SET bonus_granted = 1
+                WHERE referred_telegram_id = ? AND referrer_telegram_id = ?
+            ''', (referred_telegram_id, referrer_tg_id))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"apply_referral_bonus stage 1: {e}")
+            conn.close()
+            return False
+        conn.close()
+        return self._extend_subscription_by_days(referrer_tg_id, 30)
+
+    def _extend_subscription_by_days(self, telegram_id: int, days: int) -> bool:
+        """Продлить активную/истёкшую подписку пользователя на N дней."""
+        from datetime import datetime as _dt, timedelta as _td
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT id, end_date FROM subscriptions
+                WHERE user_id = (SELECT id FROM users WHERE telegram_id = ? LIMIT 1)
+                ORDER BY end_date DESC LIMIT 1
+            ''', (telegram_id,))
+            row = cursor.fetchone()
+            if row:
+                sub_id = row[0]
+                try:
+                    end_dt = _dt.fromisoformat(row[1])
+                except Exception:
+                    end_dt = _dt.now()
+                base_dt = max(end_dt, _dt.now())
+                new_end = (base_dt + _td(days=days)).isoformat()
+                cursor.execute('UPDATE subscriptions SET end_date = ? WHERE id = ?', (new_end, sub_id))
+            else:
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ? LIMIT 1', (telegram_id,))
+                u_row = cursor.fetchone()
+                if u_row:
+                    end_dt2 = (_dt.now() + _td(days=days)).isoformat()
+                    cursor.execute('''
+                        INSERT INTO subscriptions (user_id, plan_type, start_date, end_date, is_active)
+                        VALUES (?, 'referral_bonus', date('now'), ?, 1)
+                    ''', (u_row[0], end_dt2))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"_extend_subscription_by_days: {e}")
+            return False
+        finally:
+            conn.close()
+
+    # ─── Subscription Add-ons ─────────────────────────────────────────────
+    def create_subscription_addon(self, telegram_id: int, addon_type: str, quantity: int,
+                                  amount_paid: float, days: int = 30) -> int:
+        """Создать надстройку подписки. Возвращает id новой записи."""
+        from datetime import datetime as _dt, timedelta as _td
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            expires_at = (_dt.now() + _td(days=days)).isoformat()
+            cursor.execute('''
+                INSERT INTO subscription_addons
+                    (user_telegram_id, addon_type, quantity, amount_paid, expires_at, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)
+            ''', (telegram_id, addon_type, quantity, amount_paid, expires_at))
+            addon_id = cursor.lastrowid
+            conn.commit()
+            return addon_id
+        except Exception as e:
+            logger.error(f"create_subscription_addon: {e}")
+            return 0
+        finally:
+            conn.close()
+
+    def get_active_addons(self, telegram_id: int) -> list:
+        """Вернуть активные надстройки пользователя."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT id, addon_type, quantity, amount_paid, expires_at
+                FROM subscription_addons
+                WHERE user_telegram_id = ? AND is_active = 1
+                  AND (expires_at IS NULL OR expires_at > datetime('now'))
+            ''', (telegram_id,))
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"get_active_addons: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_addon_totals(self, telegram_id: int) -> dict:
+        """Суммарные надстройки по типам (extra_shops, extra_products)."""
+        rows = self.get_active_addons(telegram_id)
+        result = {'extra_shops': 0, 'extra_products': 0}
+        for row in rows:
+            addon_type = row[1]
+            qty = row[2] or 0
+            if addon_type in result:
+                result[addon_type] += qty
+        return result
 

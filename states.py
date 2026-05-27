@@ -7,14 +7,22 @@ class ProductStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_category = State()
     waiting_for_price = State()
+    waiting_for_description = State()
+    waiting_for_photo = State()
     waiting_for_edit_choice = State()
     waiting_for_edit_product = State()
     waiting_for_edit_parameter = State()
     waiting_for_edit_value = State()
+    waiting_for_edit_description = State()
+    waiting_for_edit_photo = State()
     waiting_for_category_rename = State()
     waiting_for_bulk_list = State()
     confirming_bulk_import = State()
     searching_product = State()
+
+
+class AddonStates(StatesGroup):
+    waiting_for_proof = State()
 
 class InventoryStates(StatesGroup):
     choosing_product = State()

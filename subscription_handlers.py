@@ -168,12 +168,16 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
             org_buttons = [[InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")]]
             if is_org_admin:
                 org_buttons.append([InlineKeyboardButton(text="💳 Купить подписку для организации", callback_data="subscription_plans")])
+                org_buttons.append([InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")])
+            org_buttons.append([InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")])
             org_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
             keyboard = InlineKeyboardMarkup(inline_keyboard=org_buttons)
         else:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Купить подписку", callback_data="subscription_plans")],
                 [InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")],
+                [InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")],
+                [InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")],
                 [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
             ])
 

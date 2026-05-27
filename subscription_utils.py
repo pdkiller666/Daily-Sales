@@ -5,12 +5,16 @@
   - Суп-адмн → безлимит
   - Org-пользователь → лимиты берутся из плана ОРГАНИЗАЦИИ (organizations.subscription_plan → shop_bot.db subscription_plans)
   - Личный пользователь → лимиты берутся из его личной подписки в shop_bot.db
+  - Надстройки (add-ons) суммируются поверх базовых лимитов тарифа
 """
 
+import logging
 import sqlite3
 import time as _time
 from datetime import datetime
 from env_manager import env_manager
+
+_logger = logging.getLogger(__name__)
 
 SHOP_BOT_DB = 'data/shop_bot.db'
 MAIN_DB = 'data/main.db'
@@ -246,8 +250,19 @@ def get_subscription_days_remaining(telegram_id) -> "int | None":
     return None
 
 
+def _get_addon_totals_for_user(telegram_id: int) -> dict:
+    """Получить суммарные активные надстройки пользователя из shop_bot.db."""
+    try:
+        from database import Database
+        db = Database(SHOP_BOT_DB)
+        return db.get_addon_totals(telegram_id)
+    except Exception as e:
+        _logger.debug(f"_get_addon_totals_for_user: {e}")
+        return {}
+
+
 def check_product_limit(telegram_id):
-    """Проверка лимита на количество товаров. Возвращает (ok: bool, message: str|None)."""
+    """Проверка лимита на количество товаров (с учётом надстроек). Возвращает (ok: bool, message: str|None)."""
     if env_manager.is_super_admin(telegram_id):
         return True, None
 
@@ -255,17 +270,24 @@ def check_product_limit(telegram_id):
     if limits['max_products'] == -1:
         return True, None
 
+    # Учитываем надстройки: extra_products (каждая единица = +100 товаров)
+    addons = _get_addon_totals_for_user(telegram_id)
+    addon_extra = addons.get('extra_products', 0) * 100
+    effective_limit = limits['max_products'] + addon_extra
+
     from tenant_manager import tenant_manager
     from database import Database
     db_path = tenant_manager.get_user_db_path(telegram_id)
     db = Database(db_path)
     current = len(db.get_all_products())
 
-    if current >= limits['max_products']:
-        return False, (
-            f"❌ Достигнут лимит товаров по вашему тарифу: {limits['max_products']}.\n"
-            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа."
+    if current >= effective_limit:
+        base_msg = (
+            f"❌ Достигнут лимит товаров по вашему тарифу: {effective_limit}.\n"
+            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа"
         )
+        base_msg += " или купите надстройку «+100 товаров»." if addon_extra == 0 else "."
+        return False, base_msg
     return True, None
 
 
@@ -310,7 +332,7 @@ def check_sales_limit(telegram_id):
 
 
 def check_shop_limit(telegram_id):
-    """Проверка лимита на количество магазинов. Возвращает (ok: bool, message: str|None)."""
+    """Проверка лимита на количество магазинов (с учётом надстроек). Возвращает (ok: bool, message: str|None)."""
     if env_manager.is_super_admin(telegram_id):
         return True, None
 
@@ -318,16 +340,23 @@ def check_shop_limit(telegram_id):
     if limits['max_shops'] == -1:
         return True, None
 
+    # Учитываем надстройки: extra_shops (каждая единица = +1 магазин)
+    addons = _get_addon_totals_for_user(telegram_id)
+    addon_extra = addons.get('extra_shops', 0)
+    effective_limit = limits['max_shops'] + addon_extra
+
     from tenant_manager import tenant_manager
     from database import Database
     db_path = tenant_manager.get_user_db_path(telegram_id)
     db = Database(db_path)
     shops = db.get_all_shops()
-    if len(shops) >= limits['max_shops']:
-        return False, (
-            f"❌ Достигнут лимит магазинов по вашему тарифу: {limits['max_shops']}.\n"
-            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа."
+    if len(shops) >= effective_limit:
+        base_msg = (
+            f"❌ Достигнут лимит магазинов по вашему тарифу: {effective_limit}.\n"
+            f"Перейдите в раздел «🔔 Подписка» для улучшения тарифа"
         )
+        base_msg += " или купите надстройку «Доп. магазин»." if addon_extra == 0 else "."
+        return False, base_msg
     return True, None
 
 

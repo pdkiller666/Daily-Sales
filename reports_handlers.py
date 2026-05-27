@@ -352,8 +352,9 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_full"))
+    builder.add(InlineKeyboardButton(text="📄 Скачать PDF", callback_data="download_pdf_full"))
     builder.add(back_button("reports"))
-    builder.adjust(1)
+    builder.adjust(2, 1)
 
     await callback.message.edit_text(
         message_text,
@@ -1799,6 +1800,126 @@ async def download_excel_full(callback: CallbackQuery, state: FSMContext):
             os.unlink(file_path)
         except Exception:
             pass
+
+@reports_router.callback_query(F.data == "download_pdf_full")
+async def download_pdf_full(callback: CallbackQuery, state: FSMContext):
+    """Скачивание полного отчёта в PDF"""
+    current_db = await get_db(callback.from_user.id, state)
+    user_id = await current_db.get_user_id(callback.from_user.id)
+    if not user_id:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    can_export, error_message = check_excel_export_permission(current_db, user_id, env_manager, callback.from_user.id)
+    if not can_export:
+        await callback.answer(error_message, show_alert=True)
+        return
+
+    await callback.answer("⏳ Формирую PDF...")
+
+    try:
+        from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
+        fsm_data = await state.get_data()
+        _af = fsm_data.get(ADMIN_FILTER_KEY, empty_filter())
+        _sc, _sv = get_user_org_scope(callback.from_user.id)
+        _fkw = merge_scope_with_filter(_sc, _sv, _af)
+        sales = await current_db.get_sales_report(**_fkw)
+    except Exception:
+        sales = await current_db.get_sales_report()
+
+    if not sales:
+        await callback.message.answer("❌ Нет данных для экспорта")
+        return
+
+    # Получаем название организации
+    try:
+        from tenant_manager import tenant_manager as _tm
+        org_name = _tm.get_user_org_name(callback.from_user.id) or "Организация"
+    except Exception:
+        org_name = "Организация"
+
+    try:
+        from pdf_utils import generate_pdf_for_report
+        from datetime import datetime as _dt
+        today_str = _dt.now().strftime("%Y-%m-%d")
+
+        # Сводка
+        total_rev = sum(float(r[3] or 0) * int(r[4] or 1) for r in sales) if sales else 0
+        summary = {
+            'total_sales': len(sales),
+            'total_revenue': total_rev,
+            'avg_sale': total_rev / len(sales) if sales else 0,
+        }
+
+        # Топ продавцы
+        from collections import defaultdict
+        _sellers: dict = defaultdict(lambda: [0, 0])
+        for r in sales:
+            seller = str(r[9] or r[7] or "—") if len(r) > 9 else "—"
+            _sellers[seller][0] += float(r[3] or 0) * int(r[4] or 1)
+            _sellers[seller][1] += 1
+        top_sellers = sorted(
+            [(k, v[0], v[1]) for k, v in _sellers.items()],
+            key=lambda x: x[1], reverse=True
+        )[:10]
+
+        # Топ товары
+        _prods: dict = defaultdict(lambda: [0, 0])
+        for r in sales:
+            prod = str(r[1] or "—") if len(r) > 1 else "—"
+            qty = int(r[4] or 1) if len(r) > 4 else 1
+            _prods[prod][0] += qty
+            _prods[prod][1] += float(r[3] or 0) * qty
+        top_products = sorted(
+            [(k, v[0], v[1]) for k, v in _prods.items()],
+            key=lambda x: x[1], reverse=True
+        )[:10]
+
+        # Детализация
+        detail_rows = []
+        for r in sales:
+            date    = str(r[0] or "")[:10] if r else ""
+            product = str(r[1] or "—") if len(r) > 1 else "—"
+            shop    = str(r[2] or "—") if len(r) > 2 else "—"
+            price   = float(r[3] or 0) if len(r) > 3 else 0
+            qty     = int(r[4] or 1) if len(r) > 4 else 1
+            seller  = str(r[9] or r[7] or "—") if len(r) > 9 else "—"
+            detail_rows.append((date, product, shop, qty, price * qty, seller))
+
+        from pdf_utils import generate_pdf_report
+        import asyncio
+        pdf_path = await asyncio.to_thread(
+            generate_pdf_report,
+            org_name=org_name,
+            start_date=today_str,
+            end_date=today_str,
+            sales_rows=detail_rows,
+            summary=summary,
+            top_sellers=top_sellers,
+            top_products=top_products,
+        )
+    except Exception as _pe:
+        logger.error(f"download_pdf_full: pdf generation error: {_pe}")
+        await callback.message.answer("❌ Ошибка при создании PDF")
+        return
+
+    if not pdf_path:
+        await callback.message.answer("❌ Ошибка при создании PDF")
+        return
+
+    try:
+        await callback.message.answer_document(
+            FSInputFile(pdf_path, filename="Polnyy_otchet.pdf"),
+            caption=f"📄 PDF-отчёт · {len(sales)} строк"
+        )
+    except Exception:
+        await callback.message.answer("❌ Ошибка при отправке PDF")
+    finally:
+        try:
+            os.unlink(pdf_path)
+        except Exception:
+            pass
+
 
 @reports_router.callback_query(F.data.startswith("download_excel_shop_"))
 async def download_excel_shop(callback: CallbackQuery, state: FSMContext):
