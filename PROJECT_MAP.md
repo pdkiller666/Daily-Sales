@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-05-19 (сессия 143) · 45 модулей · 45 test_imports · GitHub `0ffc019` · Amvera `7355f9a`
+> Последнее обновление: 2026-05-27 (сессия 229) · 48 модулей · 48 test_imports · GitHub `91ef931` · Amvera `ef1edd7`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -9,7 +9,7 @@ Telegram API
    main.py  ──── запускает polling, регистрирует роутеры, инициализирует планировщик
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
-   │                    РОУТЕРЫ (19 штук)                           │
+   │                    РОУТЕРЫ (21 штука)                          │
    │  router              ← handlers.py         (старт, профиль)   │
    │  admin_router        ← admin_handlers.py   (орг, юзеры)       │
    │  sales_router        ← sales_handlers.py   (продажи)          │
@@ -29,12 +29,14 @@ Telegram API
    │  contests_router     ← contests_handlers.py (конкурсы)         │
    │  dashboard_router    ← dashboard_handlers.py (дашборд)         │
    │  filter_router       ← filter_handlers.py  (общий фильтр)      │
+   │  referral_router     ← referral_handlers.py (реф. программа)   │
+   │  addon_router        ← addon_handlers.py   (надстройки)        │
    └────────────────────────────────────────────────────────────────┘
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
    │                  СЛОЙ ДАННЫХ                                   │
    │  db_utils.py   ← get_db(id, state), is_any_admin()            │
-   │  database.py   ← класс Database (163 метода)                  │
+   │  database.py   ← класс Database (170+ методов)                │
    │  tenant_manager.py ← маршрутизация БД по org                  │
    │  env_manager.py    ← ADMIN_CHAT_ID, BOT_TOKEN                 │
    └────────────────────────────────────────────────────────────────┘
@@ -63,8 +65,8 @@ Telegram API
 
 | Таблица | Описание |
 |---|---|
-| `users` | id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone |
-| `products` | id, name, category, price, motivation_type, motivation_value |
+| `users` | id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, **username** (индекс 12) |
+| `products` | id, name, category, price, motivation_type, motivation_value, **photo_file_id** TEXT (Telegram file_id), **description** TEXT — добавлены ALTER TABLE миграцией |
 | `inventory` | id, shop_name, product_id, quantity, last_updated |
 | `inventory_history` | id, shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
 | `sales` | id, product_id, shop_name, quantity_sold, sale_price, user_id, sale_date |
@@ -93,9 +95,11 @@ Telegram API
 | `subscription_reminder_log` | user_id, threshold, subscription_end, sent_at |
 | `payment_requests` | id, user_id, plan_type, amount, payment_proof_file_id, status, created_at, promocode_id |
 | `payment_settings` | key, value — карта, реквизиты, trial_days, trial_plan, **payment_provider** ('sbp'/'yookassa'), **yookassa_shop_id**, **yookassa_secret_key**, **yookassa_return_url** |
-| `subscription_plans` | id, name, price, duration_days, max_products, max_shops, features (JSON) |
+| `subscription_plans` | id, name, price, duration_days, max_products, max_shops, features (JSON), **can_use_integrations** (0 для Базового!) |
 | `promocodes` | id, code, discount_percent, max_usage, current_usage, is_active |
 | `yookassa_payments` | id, yookassa_payment_id UNIQUE, user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
+| `referrals` | id, referrer_id (telegram_id), referred_id (telegram_id), created_at, bonus_applied (0/1) |
+| `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at |
 
 ### Индексы (create_tables, все IF NOT EXISTS)
 
@@ -304,6 +308,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `ContestStates` | contests_handlers.py | Мастер создания конкурса |
 | `BackupStates` | backup_handlers.py | Восстановление из бэкапа |
 | `PaymentSystemStates` | payment_system_admin.py | Настройка ЮKassa (shop_id, secret_key, return_url) |
+| `AddonStates` | addon_handlers.py | `entering_qty` — ввод кол-ва надстроек |
 
 ---
 
@@ -386,6 +391,11 @@ download_excel_shop     "download_excel_shop"          — по магазину
 download_excel_city     "download_excel_city"          — по городу (один SQL-запрос)
 download_excel_my       "download_excel_my"            — «Мои продажи» (текущий месяц)
 
+download_pdf_full       "download_pdf_full"            — PDF полного отчёта (pdf_utils.py)
+download_pdf_period     "download_pdf_period"          — PDF за период (из FSM)
+download_pdf_shop       "download_pdf_shop"            — PDF по магазину
+download_pdf_user       "download_pdf_user"            — PDF отчёт пользователя
+
 _translit_filename(text) → str                         — транслитерация имён файлов .xlsx
 ```
 
@@ -467,6 +477,44 @@ pay_{plan}              — начало оплаты; маршрутизаци�
 proceed_to_payment      — СБП: экран с реквизитами; ЮKassa: создать платёж + URL
 check_yookassa_payment  "yk_check_{payment_id}" — проверить статус → auto-confirm при 'succeeded'
 upload_payment_proof    — загрузка скриншота (СБП)
+subscription_menu       — меню подписки (содержит кнопки «🔗 Реферальная» + «➕ Надстройки»)
+```
+
+### referral_handlers.py (referral_router)
+
+```
+subscription_referral   — экран реф. программы: ссылка + статистика (total/applied/bonus_days)
+                          Deep-link разбирается в handlers.py:
+                          /start ref_TELEGRAMID → select_city (callback) / process_city (message)
+                          → create_referral(referrer_id, referred_id) сразу;
+                          → apply_referral_bonus(referrer_id) при create_organization()
+```
+
+### addon_handlers.py (addon_router)
+
+```
+subscription_addons         — меню надстроек; get_addon_totals() → суммарные активные
+addon_buy_shops_1           — экран покупки +1 магазин (150₽/30д)
+addon_buy_products_1        — экран покупки +100 товаров (100₽/30д)
+addon_confirm_{type}        — подтверждение; redirect → confirm_payment_request с plan_type 'addon_shops_1'/'addon_products_1'
+```
+
+### pdf_utils.py (без роутера)
+
+```python
+generate_pdf_report(
+    org_name, start_date, end_date,
+    sales_rows,       # [(date, product, shop, qty, price, total, seller), ...]
+    summary,          # {'total_sales': N, 'total_revenue': F, 'avg_sale': F}
+    top_sellers,      # [(name, total_revenue, sales_count), ...]
+    top_products,     # [(name, qty_sold, total_revenue), ...]
+    output_path=None  # None → tempfile
+) → str | None
+
+generate_pdf_for_report(db, scope, start_date, end_date, scope_value=None) → str | None
+  — фасад: делает SQL-запросы, собирает summary/tops, вызывает generate_pdf_report
+  — scope: 'full' / 'period' / 'shop' / 'user'
+  — требует reportlab; при ImportError → None без краша
 ```
 
 ---
@@ -577,6 +625,10 @@ data = current_db.get_something()                     # без await — пол�
 20. **Новый метод в `Database`** → использовать `self.get_connection()`, НЕ `sqlite3.connect(self.db_file)`
 21. **`asyncio.gather()` + `return_exceptions=True`** → всегда проверять `isinstance(r, Exception)`
 22. **`sales_handlers.py`** не имеет глобального `logger` — только `import logging` + `logging.error()`
+23. **`confirm_payment_request`**: plan_type начинающийся с `'addon_'` → `create_subscription_addon()` (не `create_subscription()`). Формат: `addon_shops_1` / `addon_products_1`
+24. **Реф. deep-link**: аргумент `/start ref_TELEGRAMID` → после `.upper()` сохраняется как `REF_{ID}` в FSM. Бонус применяется в **обоих** путях создания орги: `select_city` (callback) и `process_city` (message-handler) в `handlers.py`
+25. **`products` колонки `photo_file_id` + `description`** — добавлены ALTER TABLE миграцией в `create_tables()`. При SELECT всех полей — индексы: photo_file_id=6, description=7. Старый код с `row[0:6]` unpacking не сломается, но новые данные не получит
+26. **`pdf_utils.py`** требует `reportlab`. При `ImportError` возвращает `None` без краша — обработать в handler и уведомить пользователя
 
 ---
 
@@ -596,6 +648,17 @@ data = current_db.get_something()                     # без await — пол�
 Провайдеры оплаты (payment_provider в payment_settings):
   'sbp'      — ручное подтверждение скриншота чека; pending >72ч → auto_reject_stale_payments
   'yookassa' — автоматическая оплата через API ЮKassa (shop_id + secret_key + return_url)
+
+Надстройки (subscription_addons в shop_bot.db):
+  extra_shops    — 150₽/30д, +1 к лимиту магазинов; plan_type = 'addon_shops_1'
+  extra_products — 100₽/30д, +100 к лимиту товаров; plan_type = 'addon_products_1'
+  Несколько надстроек суммируются. get_addon_totals(user_id) → {'extra_shops': N, 'extra_products': N}
+  get_plan_limits() в subscription_utils.py суммирует addon-значения с лимитами тарифа.
+  confirm_payment_request: plan_type.startswith('addon_') → create_subscription_addon() (не create_subscription)
+
+Реферальная программа (referrals в shop_bot.db):
+  Deep-link /start ref_TELEGRAMID → бонус +30 дней к подписке реферера за каждого,
+  кто создал организацию. apply_referral_bonus(referrer_id) → _extend_subscription_by_days(tg_id, 30).
 
 Промокоды: discount_percent, max_usage, current_usage
 Лимиты по тарифу: max_products, max_shops (-1 = безлимит)

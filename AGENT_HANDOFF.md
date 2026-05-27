@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-05-27 (сессия 228)
+> Последнее обновление: 2026-05-27 (сессия 229)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -61,7 +61,7 @@ Telegram API
 main.py  — polling, регистрация роутеров, APScheduler (9 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
-│  19 РОУТЕРОВ (handlers)                                          │
+│  21 РОУТЕР (handlers)                                            │
 │  router               ← handlers.py         (старт, профиль)    │
 │  admin_router         ← admin_handlers.py   (орг, юзеры)        │
 │  sales_router         ← sales_handlers.py   (продажи)           │
@@ -82,12 +82,14 @@ main.py  — polling, регистрация роутеров, APScheduler (9 з
 │  dashboard_router     ← dashboard_handlers.py (дашборд-сводка)  │
 │  filter_router        ← filter_handlers.py    (общий фильтр)    │
 │  integration_router   ← integration_handlers.py (Google Sheets) │
+│  referral_router      ← referral_handlers.py  (реф. программа)  │
+│  addon_router         ← addon_handlers.py     (надстройки)      │
 └──────────────────────────────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  СЛОЙ ДАННЫХ                                                     │
 │  db_utils.py        — get_db(), is_any_admin() [ГЛАВНЫЙ]        │
-│  database.py        — класс Database (163 метода)               │
+│  database.py        — класс Database (170+ методов)             │
 │  tenant_manager.py  — маршрутизация БД по организации           │
 │  env_manager.py     — BOT_TOKEN, ADMIN_CHAT_ID                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -125,6 +127,9 @@ main.py  — polling, регистрация роутеров, APScheduler (9 з
 | `integration/auth/google_oauth.py` | Device Flow OAuth 2.0: `get_client_credentials()` ← env vars; `initiate_device_flow()` → {device_code, user_code, verification_url}; `poll_for_token(device_code)` → access_token; `refresh_access_token(refresh_token)` → новый access_token |
 | `integration/manager.py` | `integration_manager` синглтон; `trigger_export(db, export_type, event_data)` — вызывается из `complete_sale` для типа `'sales'`; читает `integration_connections`+`integration_exports` из той же org DB |
 | `integration_handlers.py` | `integration_router`: настройка подключений GS, авторизация через Device Flow, просмотр/удаление связей |
+| `referral_handlers.py` | `referral_router`: экран реф. программы (`subscription_referral`); статистика рефералов; deep-link `/start ref_TELEGRAMID` |
+| `addon_handlers.py` | `addon_router`: надстройки к подписке (`subscription_addons`); покупка доп. магазинов (150₽/30д) и товаров (100₽/30д); `AddonStates.entering_qty`; маршрутизирует оплату в `confirm_payment_request` с prefix `addon_` |
+| `pdf_utils.py` | `generate_pdf_report(org_name, start_date, end_date, sales_rows, summary, top_sellers, top_products)` → path\|None; `generate_pdf_for_report(db, scope, ...)` → path\|None — фасад для handlers; требует `reportlab` |
 
 ---
 
@@ -345,7 +350,7 @@ build:
 | Таблица | Назначение |
 |---|---|
 | `users` | telegram_id, first_name, last_name, phone, email, trade_network, shop_name, city, timezone, **username** (индекс 12) |
-| `products` | id, name, category, price, motivation_type, motivation_value |
+| `products` | id, name, category, price, motivation_type, motivation_value, **photo_file_id** (Telegram file_id фото), **description** (TEXT, описание товара) — добавлены миграцией ALTER TABLE |
 | `inventory` | shop_name, product_id, quantity, last_updated |
 | `inventory_history` | shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
 | `sales` | product_id, shop_name, quantity_sold, sale_price, user_id, sale_date |
@@ -381,6 +386,8 @@ build:
 | `subscription_plans` | name, price, duration_days, max_products, max_shops, max_sales_per_month, can_export_reports, can_view_analytics, can_use_notifications, **can_use_integrations** (0 для Базового!), is_active |
 | `promocodes` | code, discount_percent, max_usage, current_usage, is_active |
 | `yookassa_payments` | yookassa_payment_id (UNIQUE), user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
+| `referrals` | id, referrer_id (telegram_id), referred_id (telegram_id), created_at, bonus_applied (0/1) — реф. программа |
+| `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at — надстройки |
 
 ---
 
@@ -846,6 +853,39 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 5. **Нераздражающий techdebt**: 3 строки `BROADCAST DEBUG` в `notifications_handlers.py` (logging.info) — не баги, но стоит убрать перед масштабированием.
 6. GitHub `077ce67` · Amvera `790cabe`. 559 тестов ✅.
 
+**Сессия 228 (2026-05-27) — РЕФЕРАЛЫ + НАДСТРОЙКИ + PDF + ФОТО/ОПИСАНИЕ ТОВАРОВ:**
+
+**D) Реферальная программа** (`referral_handlers.py`, `database.py`):
+- Новая таблица `referrals` в `shop_bot.db`: `referrer_id`, `referred_id`, `bonus_applied`.
+- Deep-link: `/start ref_TELEGRAMID` → парсится в `handlers.py` (`select_city` callback + `process_city` message handler); сохраняется как `REF_{id.upper()}` в FSM.
+- Бонус начисляется через `apply_referral_bonus(referrer_id)` → `_extend_subscription_by_days(tg_id, 30)` при создании организации приглашённым.
+- Новые методы DB: `create_referral(referrer_id, referred_id)`, `apply_referral_bonus(referrer_id)`, `_extend_subscription_by_days(tg_id, days)`, `get_referral_stats(tg_id)` → (total, applied, bonus_days).
+- Экран: `subscription_referral` callback → `referral_router`; ссылка через `get_me()` с fallback.
+
+**E) Надстройки к подписке** (`addon_handlers.py`, `database.py`):
+- Новая таблица `subscription_addons` в `shop_bot.db`: `addon_type`, `quantity`, `expires_at`.
+- Типы: `extra_shops` (150₽/30д, +1 магазин), `extra_products` (100₽/30д, +100 товаров).
+- `addon_router`: `subscription_addons` → меню; `addon_buy_shops_1` / `addon_buy_products_1` → экран покупки; оплата через стандартный `confirm_payment_request` с plan_type `addon_shops_1` / `addon_products_1` (prefix `addon_`).
+- Новые методы DB: `create_subscription_addon(user_id, addon_type, qty, days)`, `get_active_addons(user_id)`, `get_addon_totals(user_id)` → dict {'extra_shops': N, 'extra_products': N}.
+- `subscription_utils.py`: `get_plan_limits()` суммирует addon-значения с лимитами тарифа.
+- `confirm_payment_request` (payment_admin_handlers.py): plan_type начинающийся с `addon_` → вызывает `create_subscription_addon` вместо `create_subscription`.
+
+**F) PDF экспорт** (`pdf_utils.py`, `reports_handlers.py`):
+- `generate_pdf_report(org_name, start_date, end_date, sales_rows, summary, top_sellers, top_products)` → path|None — строит A4 PDF с шапкой, таблицей продаж, топами.
+- `generate_pdf_for_report(db, scope, start_date, end_date, scope_value)` → path|None — фасад: делает SQL-запросы, собирает данные, вызывает `generate_pdf_report`.
+- Требует `reportlab` (в requirements.txt). Кириллица через системные шрифты с fallback на Helvetica.
+- Кнопки `download_pdf_full`, `download_pdf_period`, `download_pdf_shop`, `download_pdf_user` в `reports_handlers.py`.
+
+**G) Фото и описание товаров** (`products_handlers.py`, `database.py`):
+- Таблица `products`: новые колонки `photo_file_id TEXT` и `description TEXT` — добавлены `ALTER TABLE IF NOT EXISTS` миграцией в `create_tables()`.
+- `add_product` / `update_product` принимают `photo_file_id=None` и `description=None`.
+- В карточке товара показывается фото (если есть) + описание. При продаже `sale_product_{id}` — также отображается фото/описание.
+- `products_handlers.py`: `ProductStates` расширены `entering_photo` + `entering_description`; кнопка «📷 Фото» и «📝 Описание» в меню редактирования.
+
+**Деплой:** GitHub `91ef931` · Amvera `ef1edd7` · 48/48 test_imports ✅
+
+---
+
 **Сессия 200 (2026-05-26) — ФИЛЬТРЫ УВЕДОМЛЕНИЙ + GOOGLE SHEETS FIXES + ПЕРЕНОС ЭКСПОРТОВ:**
 
 **1. Фильтры получателей уведомлений** (`notifications_handlers.py`, `main.py`):
@@ -919,8 +959,8 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ## 8. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Импорт-аудит (45 модулей):
-python test_imports.py   # должно быть: Итог: 45 ОК, 0 ошибок
+# 1. Импорт-аудит (48 модулей):
+python test_imports.py   # должно быть: Итог: 48 ОК, 0 ошибок
 
 # 2. Синтаксис:
 python -c "
