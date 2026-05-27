@@ -232,18 +232,21 @@ async def manage_promocodes_menu(callback: CallbackQuery):
     promocodes = db.get_all_promocodes()
     
     text = "🎁 <b>Управление промокодами</b>\n\n"
-    
+
     if promocodes:
-        text += "📋 <b>Активные промокоды:</b>\n"
+        text += "📋 <b>Промокоды:</b>\n"
         for promo in promocodes:
-            promo_id, code, discount, usage_count, max_usage, is_active, created_at = promo
+            promo_id, code, discount, disc_type, usage_count, max_usage, is_active, expires_at, allowed_plans, last_used, created_at = promo
             status = "✅" if is_active else "❌"
-            text += f"{status} <code>{code}</code> - {discount}% скидка ({usage_count}/{max_usage})\n"
+            disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+            exp_label = f" до {expires_at}" if expires_at else ""
+            text += f"{status} <code>{code}</code> — {disc_label} скидка ({usage_count}/{max_usage}){exp_label}\n"
     else:
         text += "Промокоды не созданы\n"
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promocode")],
+        [InlineKeyboardButton(text="📦 Пакетное создание", callback_data="batch_promocode_start")],
         [InlineKeyboardButton(text="✏️ Редактировать", callback_data="edit_promocode")],
         [InlineKeyboardButton(text="📊 Статистика использования", callback_data="promocode_stats")],
         [InlineKeyboardButton(text="🗑 Удалить промокод", callback_data="delete_promocode")],
@@ -888,111 +891,483 @@ async def process_plan_field_edit(message: Message, state: FSMContext):
     
     await clear_state_keep_org(state)
 
-# Обработчики для управления промокодами
+# ─────────────────── CREATION WIZARD ───────────────────
+
+_SKIP_EXPIRES_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="⏩ Без срока (пропустить)", callback_data="promo_skip_expires")],
+    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add_promo")],
+])
+_SKIP_PLANS_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="⏩ Все тарифы (пропустить)", callback_data="promo_skip_plans")],
+    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add_promo")],
+])
+
 @payment_system_router.callback_query(F.data == "create_promocode")
 async def create_promocode_start(callback: CallbackQuery, state: FSMContext):
-    """Начало создания промокода"""
-    db = _get_db()
+    """Шаг 1: Ввод кода промокода или генерация случайного."""
     if not env_manager.is_super_admin(callback.from_user.id):
         await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
         return
-    
     await callback.answer()
-    text = "🎁 <b>Создание промокода</b>\n\n"
-    text += "Введите код промокода:\n"
-    text += "Пример: SALE20, NEWCLIENT, VIP50\n"
-    text += "Только латинские буквы и цифры"
-    
+    text = (
+        "🎁 <b>Создание промокода — шаг 1/5</b>\n\n"
+        "Введите код промокода:\n"
+        "<i>Пример: SALE20, NEWCLIENT, VIP50</i>\n"
+        "Только латиница, цифры и знак подчёркивания, минимум 3 символа.\n\n"
+        "Или нажмите «🎲 Случайный» для автоматической генерации."
+    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [back_button("manage_promocodes")]
+        [InlineKeyboardButton(text="🎲 Случайный код", callback_data="gen_promo_code")],
+        [back_button("manage_promocodes")],
     ])
-    
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(PaymentSystemStates.waiting_promocode)
 
-@payment_system_router.message(PaymentSystemStates.waiting_promocode)
-async def process_promocode(message: Message, state: FSMContext):
-    """Обработка кода промокода"""
-    db = _get_db()
-    code = message.text.strip().upper()
-    
-    if not code.replace('_', '').isalnum() or len(code) < 3:
-        await message.answer("❌ Код должен содержать только латинские буквы, цифры и подчеркивания (минимум 3 символа)", reply_markup=_CANCEL_PROMO_KB)
+
+@payment_system_router.callback_query(F.data == "gen_promo_code")
+async def gen_promo_code(callback: CallbackQuery, state: FSMContext):
+    """Генерировать случайный код и перейти к шагу 2."""
+    import random, string
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
         return
-    
+    await callback.answer()
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
     await state.update_data(promocode=code)
-    
-    text = f"🎁 <b>Промокод: {code}</b>\n\n"
-    text += "Введите размер скидки в процентах:\n"
-    text += "Пример: 10, 20, 50"
-    
-    await message.answer(text, reply_markup=_CANCEL_PROMO_KB, parse_mode="HTML")
+    await _ask_discount_type(callback.message, code)
+    await state.set_state(PaymentSystemStates.waiting_discount_type)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_promocode)
+async def process_promocode_code(message: Message, state: FSMContext):
+    """Принять введённый код и перейти к шагу 2."""
+    code = message.text.strip().upper()
+    if not code.replace('_', '').isalnum() or len(code) < 3:
+        await message.answer(
+            "❌ Код должен содержать только латинские буквы, цифры и подчёркивания (минимум 3 символа)",
+            reply_markup=_CANCEL_PROMO_KB
+        )
+        return
+    await state.update_data(promocode=code)
+    await _ask_discount_type(message, code)
+    await state.set_state(PaymentSystemStates.waiting_discount_type)
+
+
+async def _ask_discount_type(target, code: str):
+    """Шаг 2: выбор типа скидки."""
+    text = (
+        f"🎁 <b>Создание промокода — шаг 2/5</b>\n\n"
+        f"Код: <code>{code}</code>\n\n"
+        f"Выберите тип скидки:"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Процент (%)", callback_data="promo_disc_type_percent")],
+        [InlineKeyboardButton(text="💵 Фиксированная сумма (₽)", callback_data="promo_disc_type_fixed")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_add_promo")],
+    ])
+    if hasattr(target, 'edit_text'):
+        await target.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@payment_system_router.callback_query(F.data.in_({"promo_disc_type_percent", "promo_disc_type_fixed"}))
+async def promo_disc_type_chosen(callback: CallbackQuery, state: FSMContext):
+    """Шаг 3: ввод размера скидки."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+    await callback.answer()
+    disc_type = 'fixed' if 'fixed' in callback.data else 'percent'
+    await state.update_data(discount_type=disc_type)
+    data = await state.get_data()
+    code = data.get('promocode', '')
+    if disc_type == 'fixed':
+        hint = "Введите сумму скидки в рублях:\n<i>Пример: 100, 250, 500</i>"
+    else:
+        hint = "Введите размер скидки в процентах (1–90):\n<i>Пример: 10, 20, 50</i>"
+    text = (
+        f"🎁 <b>Создание промокода — шаг 3/5</b>\n\n"
+        f"Код: <code>{code}</code>\n"
+        f"Тип: {'Фиксированная (₽)' if disc_type == 'fixed' else 'Процент (%)'}\n\n"
+        f"{hint}"
+    )
+    await callback.message.edit_text(text, reply_markup=_CANCEL_PROMO_KB, parse_mode="HTML")
     await state.set_state(PaymentSystemStates.waiting_discount)
+
 
 @payment_system_router.message(PaymentSystemStates.waiting_discount)
 async def process_discount(message: Message, state: FSMContext):
-    """Обработка размера скидки"""
-    db = _get_db()
+    """Шаг 4 (одиночный) или финал (batch): ввод скидки."""
+    data = await state.get_data()
+    disc_type = data.get('discount_type', 'percent')
     try:
         discount = int(message.text.strip())
-        if discount <= 0 or discount > 90:
-            raise ValueError("Скидка должна быть от 1 до 90 процентов")
+        if disc_type == 'percent' and not (1 <= discount <= 90):
+            raise ValueError()
+        if disc_type == 'fixed' and discount <= 0:
+            raise ValueError()
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите число от 1 до 90", reply_markup=_CANCEL_PROMO_KB)
+        hint = "от 1 до 90" if disc_type == 'percent' else "больше 0"
+        await message.answer(f"❌ Неверный формат. Введите число {hint}", reply_markup=_CANCEL_PROMO_KB)
         return
-    
     await state.update_data(discount=discount)
-    
-    text = f"🎁 <b>Скидка: {discount}%</b>\n\n"
-    text += "Введите максимальное количество использований:\n"
-    text += "Пример: 10, 50, 100"
-    
+
+    # Batch mode: сразу сохраняем набор кодов (max_usage=1 у каждого)
+    if data.get('batch_mode'):
+        await _save_batch_promocodes(message, state)
+        return
+
+    code = data.get('promocode', '')
+    disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+    text = (
+        f"🎁 <b>Создание промокода — шаг 4/5</b>\n\n"
+        f"Код: <code>{code}</code> · Скидка: {disc_label}\n\n"
+        f"Введите максимальное количество использований:\n"
+        f"<i>Пример: 10, 50, 100</i>"
+    )
     await message.answer(text, reply_markup=_CANCEL_PROMO_KB, parse_mode="HTML")
     await state.set_state(PaymentSystemStates.waiting_max_usage)
 
+
 @payment_system_router.message(PaymentSystemStates.waiting_max_usage)
 async def process_max_usage(message: Message, state: FSMContext):
-    """Обработка максимального количества использований"""
-    db = _get_db()
+    """Шаг 5: срок действия."""
     try:
         max_usage = int(message.text.strip())
         if max_usage <= 0:
-            raise ValueError("Количество должно быть больше 0")
+            raise ValueError()
     except ValueError:
         await message.answer("❌ Неверный формат. Введите число больше 0", reply_markup=_CANCEL_PROMO_KB)
         return
-    
-    # Получаем все данные
+    await state.update_data(max_usage=max_usage)
     data = await state.get_data()
-    code = data['promocode']
-    discount = data['discount']
-    
-    # Сохраняем в базу данных
+    code = data.get('promocode', '')
+    disc_type = data.get('discount_type', 'percent')
+    discount = data.get('discount', 0)
+    disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+    text = (
+        f"🎁 <b>Создание промокода — шаг 5/5</b>\n\n"
+        f"Код: <code>{code}</code> · Скидка: {disc_label} · Лимит: {max_usage}\n\n"
+        f"Введите дату окончания действия промокода в формате <b>ГГГГ-ММ-ДД</b>:\n"
+        f"<i>Пример: 2025-12-31</i>\n\n"
+        f"Или нажмите «Пропустить» — промокод будет бессрочным."
+    )
+    await message.answer(text, reply_markup=_SKIP_EXPIRES_KB, parse_mode="HTML")
+    await state.set_state(PaymentSystemStates.waiting_expires_at)
+
+
+@payment_system_router.callback_query(F.data == "promo_skip_expires")
+async def promo_skip_expires(callback: CallbackQuery, state: FSMContext):
+    """Пропустить срок действия → спросить о тарифах."""
+    await callback.answer()
+    await state.update_data(expires_at=None)
+    await _ask_allowed_plans(callback.message, state)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_expires_at)
+async def process_expires_at(message: Message, state: FSMContext):
+    """Обработать дату окончания действия."""
+    from datetime import datetime
+    raw = message.text.strip()
     try:
-        db.create_promocode(code, discount, max_usage)
-        
-        text = f"✅ <b>Промокод создан!</b>\n\n"
-        text += f"🎁 Код: <code>{code}</code>\n"
-        text += f"💸 Скидка: {discount}%\n"
-        text += f"📊 Максимум использований: {max_usage}\n"
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Управление промокодами", callback_data="manage_promocodes")]
-        ])
-        
-        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-        
+        dt = datetime.strptime(raw, '%Y-%m-%d')
+        if dt.date() <= datetime.utcnow().date():
+            await message.answer("❌ Дата должна быть в будущем. Введите в формате ГГГГ-ММ-ДД.", reply_markup=_SKIP_EXPIRES_KB)
+            return
+        expires_at = raw
+    except ValueError:
+        await message.answer("❌ Неверный формат. Введите дату как ГГГГ-ММ-ДД (например, 2025-12-31).", reply_markup=_SKIP_EXPIRES_KB)
+        return
+    await state.update_data(expires_at=expires_at)
+    await _ask_allowed_plans(message, state)
+
+
+async def _ask_allowed_plans(target, state: FSMContext):
+    """Спросить об ограничении по тарифным планам."""
+    from subscription_handlers import get_current_subscription_plans
+    plans = get_current_subscription_plans()
+    plan_names = [v['name'] for v in plans.values()]
+    plan_list = "\n".join(f"• <code>{n}</code>" for n in plan_names) if plan_names else "(нет активных планов)"
+    text = (
+        f"🎁 <b>Ограничение по тарифу (необязательно)</b>\n\n"
+        f"Доступные тарифы:\n{plan_list}\n\n"
+        f"Введите названия тарифов через запятую, чтобы промокод работал только для них:\n"
+        f"<i>Пример: Стандарт, Премиум</i>\n\n"
+        f"Или нажмите «Пропустить» — промокод будет работать для всех тарифов."
+    )
+    if hasattr(target, 'edit_text'):
+        await target.edit_text(text, reply_markup=_SKIP_PLANS_KB, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=_SKIP_PLANS_KB, parse_mode="HTML")
+    await state.set_state(PaymentSystemStates.waiting_allowed_plans)
+
+
+@payment_system_router.callback_query(F.data == "promo_skip_plans")
+async def promo_skip_plans(callback: CallbackQuery, state: FSMContext):
+    """Пропустить ограничение по тарифам → сохранить промокод."""
+    await callback.answer()
+    await state.update_data(allowed_plans=None)
+    await _save_new_promocode(callback.message, state)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_allowed_plans)
+async def process_allowed_plans(message: Message, state: FSMContext):
+    """Обработать список разрешённых тарифов → сохранить промокод."""
+    import json
+    raw = message.text.strip()
+    plan_names = [p.strip() for p in raw.split(',') if p.strip()]
+    allowed_plans = json.dumps(plan_names, ensure_ascii=False) if plan_names else None
+    await state.update_data(allowed_plans=allowed_plans)
+    await _save_new_promocode(message, state)
+
+
+async def _save_new_promocode(target, state: FSMContext):
+    """Финальное сохранение промокода после всех шагов wizard'а."""
+    db = _get_db()
+    data = await state.get_data()
+    code = data.get('promocode', '')
+    discount = data.get('discount', 0)
+    disc_type = data.get('discount_type', 'percent')
+    max_usage = data.get('max_usage', 1)
+    expires_at = data.get('expires_at')
+    allowed_plans = data.get('allowed_plans')
+
+    disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+    exp_label = expires_at or "бессрочный"
+    plans_label = allowed_plans or "все тарифы"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Управление промокодами", callback_data="manage_promocodes")]
+    ])
+
+    try:
+        db.create_promocode(
+            code=code,
+            discount_percent=discount,
+            max_usage=max_usage,
+            discount_type=disc_type,
+            expires_at=expires_at,
+            allowed_plans=allowed_plans,
+        )
+        text = (
+            f"✅ <b>Промокод создан!</b>\n\n"
+            f"🎁 Код: <code>{code}</code>\n"
+            f"💸 Скидка: {disc_label}\n"
+            f"📊 Лимит: {max_usage} использований\n"
+            f"⏳ Срок: {exp_label}\n"
+            f"📋 Тарифы: {plans_label}"
+        )
     except Exception as e:
-        await message.answer(f"❌ Ошибка создания промокода: {str(e)}")
-    
+        text = f"❌ Ошибка создания промокода: {he(str(e))}"
+
+    if hasattr(target, 'edit_text'):
+        await target.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
     await clear_state_keep_org(state)
+
 
 @payment_system_router.callback_query(F.data == "cancel_add_promo")
 async def cancel_add_promo(callback: CallbackQuery, state: FSMContext):
-    """Отмена создания промокода"""
+    """Отмена создания промокода."""
     await clear_state_keep_org(state)
     await callback.answer()
     await manage_promocodes_menu(callback)
+
+
+# ─────────────────── BATCH CREATION ───────────────────
+
+@payment_system_router.callback_query(F.data == "batch_promocode_start")
+async def batch_promocode_start(callback: CallbackQuery, state: FSMContext):
+    """Начало пакетного создания промокодов."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+    await callback.answer()
+    text = (
+        "📦 <b>Пакетное создание промокодов</b>\n\n"
+        "Создаёт набор уникальных одноразовых кодов (max_usage=1).\n"
+        "Каждый код = префикс + 6 случайных символов.\n\n"
+        "Введите количество промокодов (1–100):"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await state.set_state(PaymentSystemStates.waiting_batch_count)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_batch_count)
+async def process_batch_count(message: Message, state: FSMContext):
+    """Принять количество → спросить префикс."""
+    try:
+        count = int(message.text.strip())
+        if not (1 <= count <= 100):
+            raise ValueError()
+    except ValueError:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
+        ])
+        await message.answer("❌ Введите число от 1 до 100.", reply_markup=kb)
+        return
+    await state.update_data(batch_count=count)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏩ Без префикса", callback_data="batch_promo_no_prefix")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")],
+    ])
+    await message.answer(
+        f"📦 <b>Количество:</b> {count}\n\n"
+        "Введите префикс для кодов (лат. буквы/цифры, мин. 2):\n"
+        "<i>Пример: PARTNER → PARTNER_A3K9X2</i>\n\n"
+        "Или нажмите «Без префикса».",
+        reply_markup=kb, parse_mode="HTML"
+    )
+    await state.set_state(PaymentSystemStates.waiting_batch_prefix)
+
+
+@payment_system_router.callback_query(F.data == "batch_promo_no_prefix")
+async def batch_promo_no_prefix(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.update_data(batch_prefix='')
+    await _ask_batch_discount(callback.message, state)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_batch_prefix)
+async def process_batch_prefix(message: Message, state: FSMContext):
+    prefix = message.text.strip().upper()
+    if not prefix.replace('_', '').isalnum() or len(prefix) < 2:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
+        ])
+        await message.answer("❌ Префикс: только лат. буквы/цифры, минимум 2 символа.", reply_markup=kb)
+        return
+    await state.update_data(batch_prefix=prefix + '_')
+    await _ask_batch_discount(message, state)
+
+
+async def _ask_batch_discount(target, state: FSMContext):
+    data = await state.get_data()
+    count = data.get('batch_count', 1)
+    prefix = data.get('batch_prefix', '')
+    text = (
+        f"📦 <b>Пакет: {count} кодов · префикс: {prefix or 'нет'}</b>\n\n"
+        "Введите размер скидки в процентах (1–90):\n"
+        "<i>Все коды получат одинаковую скидку. Каждый код — одноразовый.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
+    ])
+    await state.update_data(batch_mode=True, discount_type='percent')
+    await state.set_state(PaymentSystemStates.waiting_discount)
+    if hasattr(target, 'edit_text'):
+        await target.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+async def _save_batch_promocodes(message: Message, state: FSMContext):
+    """Создать все коды пакета и отчитаться."""
+    db = _get_db()
+    data = await state.get_data()
+    count = data.get('batch_count', 1)
+    prefix = data.get('batch_prefix', '')
+    discount = data.get('discount', 10)
+    disc_type = data.get('discount_type', 'percent')
+
+    # Метод DB сам генерирует коды вида {prefix}{6 символов}
+    created = db.create_promocodes_batch(
+        prefix=prefix,
+        discount_percent=discount,
+        count=count,
+        discount_type=disc_type,
+    )
+    disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+    lines = "\n".join(f"• <code>{c}</code>" for c in created[:10])
+    more = f"\n<i>...и ещё {len(created) - 10}</i>" if len(created) > 10 else ""
+    skipped = count - len(created)
+    skip_note = f"\n⚠️ Пропущено (дубликаты): {skipped}" if skipped > 0 else ""
+    text = (
+        f"✅ <b>Пакет создан!</b>\n\n"
+        f"📦 Создано кодов: <b>{len(created)}</b> · скидка: {disc_label}\n"
+        f"{skip_note}\n\n"
+        f"{lines}{more}"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Управление промокодами", callback_data="manage_promocodes")]
+    ])
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    await clear_state_keep_org(state)
+
+
+# ─────────────────── EDIT: EXPIRES_AT ───────────────────
+
+@payment_system_router.callback_query(F.data.startswith("edit_promo_expires_"))
+async def edit_promo_expires_start(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования срока действия промокода."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+    promo_id = int(callback.data.split("_")[3])
+    db = _get_db()
+    promo = db.get_promocode_by_id(promo_id)
+    if not promo:
+        await callback.answer("❌ Промокод не найден")
+        return
+    await callback.answer()
+    code = promo[1]
+    current_exp = promo[7] or "не задан"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Убрать срок", callback_data=f"promo_clear_exp_{promo_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")],
+    ])
+    await state.set_data({'promo_id': promo_id})
+    await state.set_state(PaymentSystemStates.editing_promocode_expires)
+    await callback.message.edit_text(
+        f"⏳ <b>Срок действия промокода {code}</b>\n\n"
+        f"Текущий срок: {current_exp}\n\n"
+        "Введите новую дату в формате <b>ГГГГ-ММ-ДД</b>:\n"
+        "<i>Пример: 2025-12-31</i>",
+        reply_markup=kb, parse_mode="HTML"
+    )
+
+
+@payment_system_router.callback_query(F.data.startswith("promo_clear_exp_"))
+async def promo_clear_expires(callback: CallbackQuery, state: FSMContext):
+    """Убрать срок действия → сделать промокод бессрочным."""
+    promo_id = int(callback.data.split("_")[3])
+    db = _get_db()
+    db.update_promocode(promo_id, expires_at=None)
+    await callback.answer("✅ Срок действия убран — промокод стал бессрочным")
+    await clear_state_keep_org(state)
+    data_cb = type('obj', (object,), {'data': f"edit_promo_{promo_id}", 'from_user': callback.from_user, 'message': callback.message, 'answer': callback.answer})()
+    await edit_specific_promocode(data_cb)
+
+
+@payment_system_router.message(PaymentSystemStates.editing_promocode_expires)
+async def process_promo_expires_edit(message: Message, state: FSMContext):
+    """Сохранить новую дату окончания."""
+    from datetime import datetime
+    data = await state.get_data()
+    promo_id = data.get('promo_id')
+    raw = message.text.strip()
+    try:
+        dt = datetime.strptime(raw, '%Y-%m-%d')
+        if dt.date() <= datetime.utcnow().date():
+            raise ValueError("past")
+    except ValueError:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")]
+        ])
+        await message.answer("❌ Дата должна быть будущей, формат ГГГГ-ММ-ДД.", reply_markup=kb)
+        return
+    db = _get_db()
+    db.update_promocode(promo_id, expires_at=raw)
+    await clear_state_keep_org(state)
+    await message.answer(f"✅ Срок действия обновлён: {raw}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"edit_promo_{promo_id}")]
+    ]))
+
 
 # Тестовый платеж
 @payment_system_router.callback_query(F.data == "test_payment")
@@ -1731,12 +2106,13 @@ async def delete_promocode(callback: CallbackQuery):
     else:
         text += "Выберите промокод для удаления:\n\n"
         keyboard_buttons = []
-        
+
         for promo in promocodes:
-            promo_id, code, discount_percent, current_usage, max_usage, is_active, created_at = promo
-            text += f"🎁 <b>{code}</b> - {discount_percent}% (использован {current_usage}/{max_usage})\n"
+            promo_id, code, discount, disc_type, usage_count, max_usage, is_active, expires_at, allowed_plans, last_used, created_at = promo
+            disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+            text += f"🎁 <b>{code}</b> — {disc_label} (использован {usage_count}/{max_usage})\n"
             keyboard_buttons.append([InlineKeyboardButton(
-                text=f"🗑 {code}", 
+                text=f"🗑 {code}",
                 callback_data=f"delete_promo_{promo_id}"
             )])
         
@@ -1832,12 +2208,14 @@ async def edit_promocode(callback: CallbackQuery):
         keyboard_buttons = []
         
         for promo in promocodes:
-            promo_id, code, discount_percent, current_usage, max_usage, is_active, created_at = promo
-            status = "✅ Активен" if is_active else "❌ Неактивен"
-            text += f"🎁 <b>{code}</b> - {discount_percent}% ({status})\n"
-            text += f"   Использован: {current_usage}/{max_usage}\n\n"
+            promo_id, code, discount, disc_type, usage_count, max_usage, is_active, expires_at, allowed_plans, last_used, created_at = promo
+            status = "✅" if is_active else "❌"
+            disc_label = f"{discount}₽" if disc_type == 'fixed' else f"{discount}%"
+            exp_label = f" до {expires_at}" if expires_at else ""
+            text += f"{status} <b>{code}</b> — {disc_label}{exp_label}\n"
+            text += f"   Использован: {usage_count}/{max_usage}\n\n"
             keyboard_buttons.append([InlineKeyboardButton(
-                text=f"✏️ {code}", 
+                text=f"✏️ {code}",
                 callback_data=f"edit_promo_{promo_id}"
             )])
         
@@ -1862,30 +2240,35 @@ async def edit_specific_promocode(callback: CallbackQuery):
         return
     
     await callback.answer()
-    promo_id, code, discount_percent, current_usage, max_usage, is_active, created_at = promo
+    promo_id, code, discount_percent, disc_type, current_usage, max_usage, is_active, expires_at, allowed_plans, last_used, created_at = promo
     status = "✅ Активен" if is_active else "❌ Неактивен"
-    
-    text = f"✏️ <b>Редактирование промокода</b>\n\n" \
-           f"🎁 <b>Код:</b> {code}\n" \
-           f"💰 <b>Скидка:</b> {discount_percent}%\n" \
-           f"📊 <b>Использований:</b> {current_usage}/{max_usage}\n" \
-           f"📈 <b>Статус:</b> {status}\n" \
-           f"📅 <b>Создан:</b> {created_at[:10]}\n\n" \
-           f"Что вы хотите изменить?"
-    
+    disc_label = f"{discount_percent}₽" if disc_type == 'fixed' else f"{discount_percent}%"
+    exp_label = expires_at or "не задан"
+    plans_label = allowed_plans or "все тарифы"
+
+    text = (
+        f"✏️ <b>Редактирование промокода</b>\n\n"
+        f"🎁 <b>Код:</b> {code}\n"
+        f"💰 <b>Скидка:</b> {disc_label} ({disc_type})\n"
+        f"📊 <b>Использований:</b> {current_usage}/{max_usage}\n"
+        f"⏳ <b>Действует до:</b> {exp_label}\n"
+        f"📋 <b>Тарифы:</b> {plans_label}\n"
+        f"📈 <b>Статус:</b> {status}\n"
+        f"📅 <b>Создан:</b> {created_at[:10]}\n\n"
+        f"Что изменить?"
+    )
+
     keyboard_buttons = []
-    
-    # Кнопка переключения активности
+
     if is_active:
         keyboard_buttons.append([InlineKeyboardButton(text="❌ Деактивировать", callback_data=f"toggle_promo_status_{promo_id}")])
     else:
         keyboard_buttons.append([InlineKeyboardButton(text="✅ Активировать", callback_data=f"toggle_promo_status_{promo_id}")])
-    
-    # Кнопки редактирования полей
+
     keyboard_buttons.append([InlineKeyboardButton(text="✏️ Изменить скидку", callback_data=f"edit_promo_discount_{promo_id}")])
     keyboard_buttons.append([InlineKeyboardButton(text="🔢 Изменить лимит использований", callback_data=f"edit_promo_max_usage_{promo_id}")])
-    
-    # Кнопки навигации
+    keyboard_buttons.append([InlineKeyboardButton(text="⏳ Срок действия", callback_data=f"edit_promo_expires_{promo_id}")])
+
     keyboard_buttons.append([InlineKeyboardButton(text="🗑 Удалить промокод", callback_data=f"delete_promo_{promo_id}")])
     keyboard_buttons.append([InlineKeyboardButton(text="🔙 К списку промокодов", callback_data="edit_promocode")])
     
@@ -1908,7 +2291,7 @@ async def toggle_promocode_status(callback: CallbackQuery):
         await callback.answer("❌ Промокод не найден")
         return
     
-    current_status = bool(promo[5])  # is_active поле
+    current_status = bool(promo[6])  # is_active поле (индекс 6 в новой схеме)
     new_status = not current_status
     
     success = db.update_promocode(promo_id, is_active=new_status)
@@ -2047,37 +2430,48 @@ async def process_promocode_max_usage_edit(message: Message, state: FSMContext):
 
 @payment_system_router.callback_query(F.data == "promocode_stats")
 async def promocode_stats(callback: CallbackQuery):
-    """Статистика использования промокодов"""
+    """Расширенная статистика использования промокодов."""
     db = _get_db()
     if not env_manager.is_super_admin(callback.from_user.id):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
-    
+
     await callback.answer()
-    promocodes = db.get_all_promocodes()
-    
-    text = "📊 <b>Статистика использования промокодов</b>\n\n"
-    
-    if not promocodes:
+    stats = db.get_promocode_stats_detailed()
+
+    text = "📊 <b>Статистика промокодов</b>\n\n"
+
+    if not stats:
         text += "📭 Нет промокодов для анализа"
     else:
         total_usage = 0
-        for promo in promocodes:
-            promo_id, code, discount_percent, current_usage, max_usage, is_active, created_at = promo
-            usage_percent = (current_usage / max_usage * 100) if max_usage > 0 else 0
-            
-            text += f"🎁 <b>{code}</b>\n"
-            text += f"   💰 Скидка: {discount_percent}%\n"
-            text += f"   📈 Использовано: {current_usage}/{max_usage} ({usage_percent:.1f}%)\n\n"
-            
-            total_usage += current_usage
-        
-        text += f"📊 <b>Всего использований промокодов:</b> {total_usage}"
-    
+        total_discount_rub = 0.0
+        for p in stats:
+            usage_pct = (p['usage_count'] / p['max_usage'] * 100) if p['max_usage'] > 0 else 0
+            filled = int(usage_pct / 10)
+            bar = "█" * filled + "░" * (10 - filled)
+            disc_label = f"{p['discount_percent']}₽" if p['discount_type'] == 'fixed' else f"{p['discount_percent']}%"
+            status = "✅" if p['is_active'] else "❌"
+            last_used = (p['last_used_at'] or '')[:10] or "—"
+            exp = f" · до {p['expires_at']}" if p['expires_at'] else ""
+            text += (
+                f"{status} <b>{p['code']}</b> — {disc_label}{exp}\n"
+                f"   [{bar}] {p['usage_count']}/{p['max_usage']} ({usage_pct:.0f}%)\n"
+                f"   💸 Скидок выдано: {p['total_discount_rub']:.0f}₽ · последнее: {last_used}\n\n"
+            )
+            total_usage += p['usage_count']
+            total_discount_rub += p['total_discount_rub']
+
+        text += (
+            f"──────────────\n"
+            f"📊 Итого использований: <b>{total_usage}</b>\n"
+            f"💸 Итого скидок: <b>{total_discount_rub:.0f}₽</b>"
+        )
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")]
     ])
-    
+
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 @payment_system_router.callback_query(F.data == "extend_subscription")

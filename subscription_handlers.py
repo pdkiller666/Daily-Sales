@@ -665,8 +665,10 @@ async def process_promocode(message: Message, state: FSMContext):
     plan_info = plans[plan_key]
     original_amount = plan_info['price']
     
-    validation_result = await db.validate_promocode(promocode)
-    
+    validation_result = await db.validate_promocode(
+        promocode, user_id=message.from_user.id, plan_key=plan_key
+    )
+
     if not validation_result['valid']:
         await state.update_data(promo_attempts=promo_attempts + 1)
         remaining = _MAX_PROMO_ATTEMPTS - promo_attempts - 1
@@ -678,12 +680,13 @@ async def process_promocode(message: Message, state: FSMContext):
                            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
                        ]))
         return
-    
-    # Рассчитываем скидку
-    discount_percent = validation_result['discount_percent']
-    final_amount = await db.calculate_discounted_price(original_amount, discount_percent)
+
+    # Рассчитываем скидку с учётом типа (процент или фиксированная сумма)
+    discount_value = validation_result['discount_percent']
+    discount_type = validation_result.get('discount_type', 'percent')
+    final_amount = await db.calculate_discounted_price(original_amount, discount_value, discount_type)
     discount_amount = original_amount - final_amount
-    
+
     # Обновляем данные состояния с полной информацией
     await state.update_data(
         plan_key=plan_key,
@@ -693,13 +696,31 @@ async def process_promocode(message: Message, state: FSMContext):
         promocode_applied=validation_result,
         discount_amount=discount_amount
     )
-    
-    text = f"✅ <b>Промокод применен!</b>\n\n" \
-           f"🎁 <b>Промокод:</b> {promocode}\n" \
-           f"💰 <b>Скидка:</b> {discount_percent}% (-{discount_amount:.0f}₽)\n\n" \
-           f"💸 <b>Было:</b> {original_amount:.0f}₽\n" \
-           f"💳 <b>К оплате:</b> {final_amount:.0f}₽\n\n" \
-           f"Продолжить оформление?"
+
+    # Формируем строку скидки для отображения
+    if discount_type == 'fixed':
+        discount_str = f"{discount_value:.0f}₽ → -{discount_amount:.0f}₽"
+    else:
+        discount_str = f"{discount_value}% → -{discount_amount:.0f}₽"
+
+    # Дополнительная информация
+    extra_lines = ""
+    remaining_slots = validation_result.get('remaining_usage', 0) - 1
+    if remaining_slots >= 0 and remaining_slots <= 5:
+        extra_lines += f"🔥 Осталось использований: {remaining_slots}\n"
+    expires = validation_result.get('expires_at')
+    if expires:
+        extra_lines += f"⏳ Действует до: {expires}\n"
+
+    text = (
+        f"✅ <b>Промокод применён!</b>\n\n"
+        f"🎁 <b>Промокод:</b> {promocode}\n"
+        f"💰 <b>Скидка:</b> {discount_str}\n"
+        f"{extra_lines}\n"
+        f"💸 <b>Было:</b> {original_amount:.0f}₽\n"
+        f"💳 <b>К оплате:</b> {final_amount:.0f}₽\n\n"
+        f"Продолжить оформление?"
+    )
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Продолжить к оплате", callback_data=f"proceed_payment_{plan_key}")],

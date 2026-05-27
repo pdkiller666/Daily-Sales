@@ -395,10 +395,24 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 code TEXT UNIQUE NOT NULL,
                 discount_percent INTEGER NOT NULL,
+                discount_type TEXT NOT NULL DEFAULT 'percent',
                 usage_count INTEGER DEFAULT 0,
                 max_usage INTEGER NOT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
+                expires_at TEXT DEFAULT NULL,
+                allowed_plans TEXT DEFAULT NULL,
+                last_used_at TEXT DEFAULT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS promocode_usage_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                promocode_id INTEGER NOT NULL,
+                used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, promocode_id)
             )
         ''')
 
@@ -652,6 +666,31 @@ class Database:
         pr_cols = [c[1] for c in cursor.fetchall()]
         if 'promocode_id' not in pr_cols:
             cursor.execute("ALTER TABLE payment_requests ADD COLUMN promocode_id INTEGER")
+
+        # Миграции для таблицы promocodes
+        cursor.execute("PRAGMA table_info(promocodes)")
+        promo_cols = [c[1] for c in cursor.fetchall()]
+        if 'discount_type' not in promo_cols:
+            cursor.execute("ALTER TABLE promocodes ADD COLUMN discount_type TEXT NOT NULL DEFAULT 'percent'")
+        if 'expires_at' not in promo_cols:
+            cursor.execute("ALTER TABLE promocodes ADD COLUMN expires_at TEXT DEFAULT NULL")
+        if 'allowed_plans' not in promo_cols:
+            cursor.execute("ALTER TABLE promocodes ADD COLUMN allowed_plans TEXT DEFAULT NULL")
+        if 'last_used_at' not in promo_cols:
+            cursor.execute("ALTER TABLE promocodes ADD COLUMN last_used_at TEXT DEFAULT NULL")
+
+        # Миграция: создаём promocode_usage_log если отсутствует
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='promocode_usage_log'")
+        if not cursor.fetchone():
+            cursor.execute('''
+                CREATE TABLE promocode_usage_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    promocode_id INTEGER NOT NULL,
+                    used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, promocode_id)
+                )
+            ''')
 
         # Миграция: создаём sales_plans если отсутствует
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sales_plans'")
@@ -2253,7 +2292,7 @@ class Database:
             # Применяем промокод только при успешном подтверждении оплаты
             if success and promocode_id:
                 try:
-                    self.apply_promocode(promocode_id)
+                    self.apply_promocode(promocode_id, user_id)
                 except Exception as e:
                     logger.error(f"Ошибка применения промокода {promocode_id} при подтверждении заявки {request_id}: {e}")
 
@@ -3612,32 +3651,76 @@ class Database:
         conn.close()
         return subscriptions
 
-    def get_all_promocodes(self):
-        """Получение всех промокодов"""
+    def get_all_promocodes(self, include_inactive: bool = True):
+        """Получение всех промокодов."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM promocodes ORDER BY created_at DESC')
+        if include_inactive:
+            cursor.execute(
+                'SELECT id, code, discount_percent, discount_type, usage_count, max_usage, '
+                'is_active, expires_at, allowed_plans, last_used_at, created_at '
+                'FROM promocodes ORDER BY is_active DESC, created_at DESC'
+            )
+        else:
+            cursor.execute(
+                'SELECT id, code, discount_percent, discount_type, usage_count, max_usage, '
+                'is_active, expires_at, allowed_plans, last_used_at, created_at '
+                'FROM promocodes WHERE is_active = 1 ORDER BY created_at DESC'
+            )
         promocodes = cursor.fetchall()
         conn.close()
         return promocodes
 
-    def create_promocode(self, code, discount_percent, max_usage):
-        """Создание промокода"""
+    def create_promocode(self, code: str, discount_percent: int, max_usage: int,
+                         discount_type: str = 'percent',
+                         expires_at: str = None,
+                         allowed_plans: str = None):
+        """Создание промокода с поддержкой типа скидки, срока действия и ограничений по тарифу."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO promocodes (code, discount_percent, max_usage)
-            VALUES (?, ?, ?)
-        ''', (code, discount_percent, max_usage))
+            INSERT INTO promocodes (code, discount_percent, discount_type, max_usage, expires_at, allowed_plans)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (code, discount_percent, discount_type, max_usage, expires_at, allowed_plans))
         promocode_id = cursor.lastrowid
         conn.commit()
         conn.close()
         return promocode_id
 
-    def delete_promocode(self, promocode_id):
-        """Удаление промокода"""
+    def create_promocodes_batch(self, prefix: str, discount_percent: int, count: int,
+                                discount_type: str = 'percent',
+                                expires_at: str = None,
+                                allowed_plans: str = None) -> list:
+        """Пакетное создание уникальных одноразовых промокодов с общим префиксом.
+        Возвращает список созданных кодов."""
+        import random
+        import string
         conn = self.get_connection()
         cursor = conn.cursor()
+        created = []
+        attempts = 0
+        max_attempts = count * 10
+        while len(created) < count and attempts < max_attempts:
+            attempts += 1
+            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            code = f"{prefix}{suffix}" if prefix else suffix
+            try:
+                cursor.execute('''
+                    INSERT INTO promocodes (code, discount_percent, discount_type, max_usage, expires_at, allowed_plans)
+                    VALUES (?, ?, ?, 1, ?, ?)
+                ''', (code, discount_percent, discount_type, expires_at, allowed_plans))
+                created.append(code)
+            except Exception:
+                continue
+        conn.commit()
+        conn.close()
+        return created
+
+    def delete_promocode(self, promocode_id):
+        """Удаление промокода и его лога использований."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM promocode_usage_log WHERE promocode_id = ?', (promocode_id,))
         cursor.execute('DELETE FROM promocodes WHERE id = ?', (promocode_id,))
         deleted = cursor.rowcount > 0
         conn.commit()
@@ -3645,11 +3728,12 @@ class Database:
         return deleted
 
     def update_promocode(self, promocode_id, **kwargs):
-        """Обновление промокода"""
+        """Обновление промокода."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        valid_fields = ['code', 'discount_percent', 'max_usage', 'is_active']
+        valid_fields = ['code', 'discount_percent', 'discount_type', 'max_usage',
+                        'is_active', 'expires_at', 'allowed_plans']
         updates = []
         values = []
 
@@ -3671,61 +3755,164 @@ class Database:
         return updated
 
     def get_promocode_by_id(self, promocode_id):
-        """Получение промокода по ID"""
+        """Получение промокода по ID."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM promocodes WHERE id = ?', (promocode_id,))
+        cursor.execute(
+            'SELECT id, code, discount_percent, discount_type, usage_count, max_usage, '
+            'is_active, expires_at, allowed_plans, last_used_at, created_at '
+            'FROM promocodes WHERE id = ?', (promocode_id,)
+        )
         promocode = cursor.fetchone()
         conn.close()
         return promocode
 
-    def validate_promocode(self, code):
-        """Проверка промокода на валидность"""
+    def validate_promocode(self, code: str, user_id: int = None, plan_key: str = None):
+        """Проверка промокода на валидность.
+
+        Проверяет:
+        - Существование и активность
+        - Срок действия (expires_at)
+        - Лимит использований (max_usage)
+        - Ограничение per-user (promocode_usage_log)
+        - Ограничение по тарифному плану (allowed_plans)
+        """
+        import json
+        from datetime import datetime
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, code, discount_percent, usage_count, max_usage, is_active
-            FROM promocodes 
+            SELECT id, code, discount_percent, discount_type, usage_count, max_usage,
+                   is_active, expires_at, allowed_plans
+            FROM promocodes
             WHERE code = ? AND is_active = 1
         ''', (code,))
         promocode = cursor.fetchone()
-        conn.close()
 
         if not promocode:
+            conn.close()
             return {'valid': False, 'error': 'Промокод не найден или неактивен'}
 
-        promo_id, promo_code, discount_percent, usage_count, max_usage, is_active = promocode
+        (promo_id, promo_code, discount_value, discount_type,
+         usage_count, max_usage, is_active, expires_at, allowed_plans) = promocode
 
+        # Проверка срока действия
+        if expires_at:
+            try:
+                exp_dt = datetime.strptime(expires_at, '%Y-%m-%d')
+                if datetime.utcnow().date() > exp_dt.date():
+                    conn.close()
+                    return {'valid': False, 'error': f'Срок действия промокода истёк ({expires_at})'}
+            except ValueError:
+                pass
+
+        # Проверка лимита использований
         if usage_count >= max_usage:
-            return {'valid': False, 'error': 'Превышен лимит использований промокода'}
+            conn.close()
+            return {'valid': False, 'error': 'Промокод исчерпал лимит использований'}
 
+        # Проверка per-user (один код — один пользователь)
+        if user_id is not None:
+            cursor.execute(
+                'SELECT 1 FROM promocode_usage_log WHERE user_id = ? AND promocode_id = ?',
+                (user_id, promo_id)
+            )
+            if cursor.fetchone():
+                conn.close()
+                return {'valid': False, 'error': 'Вы уже использовали этот промокод'}
+
+        # Проверка ограничения по тарифному плану
+        if allowed_plans and plan_key:
+            try:
+                plans_list = json.loads(allowed_plans)
+                if plans_list and plan_key not in plans_list:
+                    conn.close()
+                    return {'valid': False, 'error': 'Этот промокод не действует для выбранного тарифа'}
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+        remaining = max_usage - usage_count
         return {
             'valid': True,
             'id': promo_id,
             'code': promo_code,
-            'discount_percent': discount_percent,
-            'remaining_usage': max_usage - usage_count
+            'discount_percent': discount_value,
+            'discount_type': discount_type,
+            'remaining_usage': remaining,
+            'expires_at': expires_at,
+            'allowed_plans': allowed_plans,
         }
 
-    def apply_promocode(self, promocode_id):
-        """Применение промокода — атомарный инкремент с проверкой лимита и активности."""
+    def apply_promocode(self, promocode_id: int, user_id: int = None):
+        """Применение промокода — атомарный инкремент + лог per-user + обновление last_used_at."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE promocodes
-            SET usage_count = usage_count + 1
+            SET usage_count = usage_count + 1,
+                last_used_at = CURRENT_TIMESTAMP
             WHERE id = ? AND usage_count < max_usage AND is_active = 1
         ''', (promocode_id,))
         success = cursor.rowcount > 0
+        if success and user_id is not None:
+            try:
+                cursor.execute(
+                    'INSERT OR IGNORE INTO promocode_usage_log (user_id, promocode_id) VALUES (?, ?)',
+                    (user_id, promocode_id)
+                )
+            except Exception:
+                pass
         conn.commit()
         conn.close()
         return success
 
-    def calculate_discounted_price(self, original_price, discount_percent):
-        """Расчет цены со скидкой"""
-        discount_amount = original_price * (discount_percent / 100)
-        discounted_price = original_price - discount_amount
-        return max(0, discounted_price)  # Не может быть отрицательной
+    def calculate_discounted_price(self, original_price: float, discount_value,
+                                   discount_type: str = 'percent') -> float:
+        """Расчёт итоговой цены. discount_type: 'percent' или 'fixed'."""
+        if discount_type == 'fixed':
+            discounted = original_price - float(discount_value)
+        else:
+            discounted = original_price * (1 - float(discount_value) / 100)
+        return max(0.0, discounted)
+
+    def get_promocode_stats_detailed(self) -> list:
+        """Расширенная статистика по всем промокодам с финансовыми данными.
+        Возвращает список dict с полями code, discount_percent, discount_type,
+        usage_count, max_usage, is_active, expires_at, last_used_at, total_discount_rub."""
+        import json
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.id, p.code, p.discount_percent, p.discount_type,
+                   p.usage_count, p.max_usage, p.is_active,
+                   p.expires_at, p.allowed_plans, p.last_used_at, p.created_at,
+                   COALESCE(
+                       (SELECT SUM(
+                           CASE WHEN p.discount_type = 'fixed'
+                               THEN p.discount_percent
+                               ELSE ROUND(pr.amount * p.discount_percent / (100.0 - p.discount_percent), 2)
+                           END
+                       )
+                        FROM payment_requests pr
+                        WHERE pr.promocode_id = p.id AND pr.status = 'approved'), 0
+                   ) AS total_discount_rub
+            FROM promocodes p
+            ORDER BY p.is_active DESC, p.usage_count DESC
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            result.append({
+                'id': row[0], 'code': row[1],
+                'discount_percent': row[2], 'discount_type': row[3],
+                'usage_count': row[4], 'max_usage': row[5],
+                'is_active': bool(row[6]), 'expires_at': row[7],
+                'allowed_plans': row[8], 'last_used_at': row[9],
+                'created_at': row[10], 'total_discount_rub': row[11] or 0,
+            })
+        return result
 
     def add_subscription_plan(self, name, duration_days, price, description):
         """Добавление нового тарифного плана"""
