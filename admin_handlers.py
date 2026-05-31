@@ -1025,7 +1025,6 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
     except Exception:
         pass
 
-    from keyboards import safe_cb
     role_labels = {'admin': 'Администратор', 'user': 'Сотрудник'}
     role_label = role_labels.get(preset_role, 'не задана') if preset_role else 'не задана'
 
@@ -1034,11 +1033,11 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
         for shop in shops[:20]:
             builder.button(
                 text=f"🏪 {shop}",
-                callback_data=f"ipr_shop_{safe_cb(shop)}_{org_id}"
+                callback_data=safe_cb("ipr_shop_", shop)
             )
         builder.button(
             text="🚫 Без пресета магазина",
-            callback_data=f"ipr_shop_NONE_{org_id}"
+            callback_data="ipr_shop_NONE"
         )
         builder.adjust(1)
         builder.row(back_button(f"invite_preset_start_{org_id}"))
@@ -1048,43 +1047,61 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
             reply_markup=builder.as_markup(), parse_mode="HTML"
         )
     else:
-        # Нет магазинов — сразу сохраняем пресет без магазина
-        _invite_code = await _get_org_invite_code(org_id)
-        tenant_manager.set_invite_preset(org_id, preset_role, None)
-        if _invite_code:
-            await _show_invite_screen(callback.message, org_id, _invite_code)
-        else:
-            await callback.message.edit_text("✅ Пресет сохранён.")
+        try:
+            _invite_code = await _get_org_invite_code(org_id)
+            tenant_manager.set_invite_preset(org_id, preset_role, None)
+            if _invite_code:
+                await _show_invite_screen(callback.message, org_id, _invite_code)
+            else:
+                await callback.message.edit_text("✅ Пресет сохранён.")
+        except Exception:
+            await callback.message.edit_text("❌ Ошибка при сохранении пресета.")
 
 
 @admin_router.callback_query(F.data.startswith("ipr_shop_"))
 async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext):
     """Д) Выбор магазина пресета → сохранить и вернуться к инвайту."""
     await callback.answer()
-    from keyboards import resolve_cb_name
-    raw = callback.data[len("ipr_shop_"):]  # e.g. "NONE_123" or "cb_abc_123"
-    # Отрезаем org_id (последнее число)
-    rparts = raw.rsplit("_", 1)
-    if len(rparts) != 2:
-        return
-    shop_token, org_id_str = rparts
-    try:
-        org_id = int(org_id_str)
-    except ValueError:
-        return
-
-    shop_name = None if shop_token == "NONE" else resolve_cb_name(shop_token)
 
     data = await state.get_data()
+    org_id = data.get('ipreset_org_id')
     preset_role = data.get('ipreset_role')
 
-    tenant_manager.set_invite_preset(org_id, preset_role, shop_name)
+    if not org_id:
+        await callback.message.edit_text("❌ Сессия устарела. Откройте настройку пресета заново.")
+        return
 
-    _invite_code = await _get_org_invite_code(org_id)
-    if _invite_code:
-        await _show_invite_screen(callback.message, org_id, _invite_code)
+    shop_token = callback.data[len("ipr_shop_"):]
+
+    if shop_token == "NONE":
+        shop_name = None
     else:
-        await callback.message.edit_text("✅ Пресет сохранён. Вернитесь к инвайту.")
+        shops = []
+        try:
+            org_row = await _db_run(
+                'data/main.db', "SELECT db_path FROM organizations WHERE id=?",
+                (org_id,), fetch="one"
+            )
+            if org_row and org_row[0]:
+                shop_rows = await _db_run(
+                    org_row[0],
+                    "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL ORDER BY shop_name",
+                    fetch="all"
+                )
+                shops = [r[0] for r in (shop_rows or []) if r[0]]
+        except Exception:
+            pass
+        shop_name = resolve_cb_name(shop_token, shops) if shops else shop_token
+
+    try:
+        tenant_manager.set_invite_preset(org_id, preset_role, shop_name)
+        _invite_code = await _get_org_invite_code(org_id)
+        if _invite_code:
+            await _show_invite_screen(callback.message, org_id, _invite_code)
+        else:
+            await callback.message.edit_text("✅ Пресет сохранён.")
+    except Exception:
+        await callback.message.edit_text("❌ Ошибка при сохранении пресета.")
 
 
 async def _get_org_invite_code(org_id: int) -> str | None:
