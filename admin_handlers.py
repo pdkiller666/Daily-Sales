@@ -1026,6 +1026,7 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
                     "SELECT DISTINCT name FROM ("
                     f"  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f}"
                     f"  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{_sys_fn}"
+                    f"  UNION SELECT DISTINCT shop_name AS name FROM inventory WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f}"
                     ") ORDER BY name",
                     fetch="all"
                 )
@@ -1107,6 +1108,7 @@ async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext)
                         "SELECT DISTINCT name FROM ("
                         f"  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f2}"
                         f"  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{_sys_fn2}"
+                        f"  UNION SELECT DISTINCT shop_name AS name FROM inventory WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f2}"
                         ") ORDER BY name",
                         fetch="all"
                     )
