@@ -1693,7 +1693,11 @@ class Database:
         """Возвращает список уникальных магазинов из таблицы inventory"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT shop_name FROM inventory WHERE shop_name IS NOT NULL AND shop_name != ''")
+        cursor.execute(
+            "SELECT DISTINCT shop_name FROM inventory "
+            "WHERE shop_name IS NOT NULL AND shop_name != '' "
+            "AND shop_name NOT IN ('Системный', 'System')"
+        )
         shops = [row[0] for row in cursor.fetchall()]
         conn.close()
         return shops
