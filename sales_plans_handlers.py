@@ -1225,13 +1225,24 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
         plans_data = plans_data_all
 
     if not plans_data:
+        builder_empty = InlineKeyboardBuilder()
+        if plans_data_all and is_filter_active(_af_p):
+            ft = filter_active_text(_af_p)
+            empty_text = (
+                f"📊 <b>Прогресс планов</b>\n\n"
+                f"🔍 Фильтр: <b>{he(ft)}</b>\n\n"
+                f"По выбранному фильтру активных планов нет.\n"
+                f"Сбросьте фильтр, чтобы увидеть все планы."
+            )
+            builder_empty.button(text="🗑 Сбросить фильтр", callback_data="plnprog_reset_filter")
+        else:
+            empty_text = "📊 <b>Прогресс планов</b>\n\n❌ Нет активных планов"
+            builder_empty.button(text="➕ Создать план", callback_data="plnwiz_start")
+        builder_empty.button(text="⬅️ Назад", callback_data="admin_sales_plans")
+        builder_empty.adjust(1)
         await callback.message.edit_text(
-            "📊 <b>Прогресс планов</b>\n\n❌ Нет активных планов",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="➕ Создать план", callback_data="plnwiz_start"
-            ).button(
-                text="⬅️ Назад", callback_data="admin_sales_plans"
-            ).adjust(1).as_markup(), parse_mode="HTML"
+            empty_text,
+            reply_markup=builder_empty.as_markup(), parse_mode="HTML"
         )
         await callback.answer()
         return
@@ -1271,6 +1282,19 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
     builder.adjust(1)
 
     await safe_edit_message(callback, text, builder.as_markup())
+
+
+# ── Сброс фильтра в прогрессе планов ─────────────────────────────────────────
+
+@sales_plans_router.callback_query(F.data == "plnprog_reset_filter")
+async def plnprog_reset_filter(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+    from filter_utils import ADMIN_FILTER_KEY, empty_filter
+    await state.update_data(**{ADMIN_FILTER_KEY: empty_filter()})
+    await callback.answer("🗑 Фильтр сброшен")
+    await show_plans_progress(callback, state)
 
 
 # ── Удаление плана ────────────────────────────────────────────────────────────
