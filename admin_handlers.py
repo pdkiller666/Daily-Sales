@@ -1016,11 +1016,22 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
             (org_id,), fetch="one"
         )
         if org_row and org_row[0]:
-            shop_rows = await _db_run(
-                org_row[0],
-                "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL ORDER BY shop_name",
-                fetch="all"
-            )
+            db_path = org_row[0]
+            try:
+                shop_rows = await _db_run(
+                    db_path,
+                    "SELECT DISTINCT name FROM ("
+                    "  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
+                    "  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                    ") ORDER BY name",
+                    fetch="all"
+                )
+            except Exception:
+                shop_rows = await _db_run(
+                    db_path,
+                    "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name",
+                    fetch="all"
+                )
             shops = [r[0] for r in (shop_rows or []) if r[0]]
     except Exception:
         pass
@@ -1083,11 +1094,22 @@ async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext)
                 (org_id,), fetch="one"
             )
             if org_row and org_row[0]:
-                shop_rows = await _db_run(
-                    org_row[0],
-                    "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL ORDER BY shop_name",
-                    fetch="all"
-                )
+                db_path = org_row[0]
+                try:
+                    shop_rows = await _db_run(
+                        db_path,
+                        "SELECT DISTINCT name FROM ("
+                        "  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
+                        "  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                        ") ORDER BY name",
+                        fetch="all"
+                    )
+                except Exception:
+                    shop_rows = await _db_run(
+                        db_path,
+                        "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name",
+                        fetch="all"
+                    )
                 shops = [r[0] for r in (shop_rows or []) if r[0]]
         except Exception:
             pass
