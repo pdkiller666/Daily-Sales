@@ -51,11 +51,32 @@ def get_available_filter_values(current_db, scope_type: str, scope_values: list)
             _conn = None
             try:
                 _conn = _sqlite3.connect(db_path)
-                all_shops = [r[0] for r in _conn.execute(
-                    "SELECT DISTINCT shop_name FROM users "
-                    "WHERE shop_name IS NOT NULL AND shop_name != '' "
-                    "AND shop_name != 'Системный' AND shop_name != 'System'"
-                ).fetchall()]
+                _shops_set: set = set()
+                try:
+                    _shops_set.update(r[0] for r in _conn.execute(
+                        "SELECT DISTINCT shop_name FROM users "
+                        "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                        "AND shop_name NOT IN ('Системный', 'System')"
+                    ).fetchall())
+                except Exception:
+                    pass
+                try:
+                    _shops_set.update(r[0] for r in _conn.execute(
+                        "SELECT DISTINCT name FROM shops "
+                        "WHERE name IS NOT NULL AND name != '' "
+                        "AND name NOT IN ('Системный', 'System')"
+                    ).fetchall())
+                except Exception:
+                    pass
+                try:
+                    _shops_set.update(r[0] for r in _conn.execute(
+                        "SELECT DISTINCT shop_name FROM inventory "
+                        "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                        "AND shop_name NOT IN ('Системный', 'System')"
+                    ).fetchall())
+                except Exception:
+                    pass
+                all_shops = sorted(_shops_set)
                 all_cities = [r[0] for r in _conn.execute(
                     "SELECT DISTINCT city FROM users "
                     "WHERE city IS NOT NULL AND city != '' AND city != 'System'"

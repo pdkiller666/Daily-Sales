@@ -437,11 +437,21 @@ def _low_stock_count(db_file: str, threshold: int = 5,
         elif scope_type in ('city', 'network') and vals:
             field = 'city' if scope_type == 'city' else 'trade_network'
             ph = ','.join('?' * len(vals))
+            shops_set = set()
             cursor.execute(
                 f'SELECT DISTINCT shop_name FROM users WHERE {field} IN ({ph}) AND shop_name IS NOT NULL',
                 vals
             )
-            shops = [r[0] for r in cursor.fetchall()]
+            shops_set.update(r[0] for r in cursor.fetchall())
+            try:
+                cursor.execute(
+                    f'SELECT DISTINCT name FROM shops WHERE {field} IN ({ph}) AND name IS NOT NULL AND name != \'\'',
+                    vals
+                )
+                shops_set.update(r[0] for r in cursor.fetchall())
+            except Exception:
+                pass
+            shops = list(shops_set)
             if shops:
                 sph = ','.join('?' * len(shops))
                 cursor.execute(

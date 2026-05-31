@@ -429,8 +429,10 @@ async def plnwiz_metric_selected(callback: CallbackQuery, state: FSMContext):
     await state.update_data(pln_metric=metric)
 
     current_db = await get_db(callback.from_user.id, state)
-    categories = await current_db.get_all_categories()
-    products = await current_db.get_all_products()
+    categories, products = await asyncio.gather(
+        current_db.get_all_categories(),
+        current_db.get_all_products()
+    )
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🌐 Все товары", callback_data="plnflt_all")

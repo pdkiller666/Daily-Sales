@@ -1,6 +1,7 @@
 """
 Обработчики для системы мотивации и комиссий продавцов
 """
+import asyncio
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
@@ -519,7 +520,10 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions = await current_db.get_all_product_motivations()
+    commissions, all_products = await asyncio.gather(
+        current_db.get_all_product_motivations(),
+        current_db.get_all_products()
+    )
     products_with_comm = [c for c in commissions if c[2] is not None]
 
     if not products_with_comm:
@@ -534,7 +538,6 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         return
 
     # Группируем по категориям
-    all_products = await current_db.get_all_products()
     prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
     cat_comms: dict = {}
     for commission in products_with_comm:
@@ -568,7 +571,10 @@ async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    commissions = await current_db.get_all_product_motivations()
+    commissions, all_products = await asyncio.gather(
+        current_db.get_all_product_motivations(),
+        current_db.get_all_products()
+    )
     products_with_commission = [c for c in commissions if c[2] is not None]
 
     if not products_with_commission:
@@ -583,7 +589,6 @@ async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):
         return
 
     # Группируем по категориям
-    all_products = await current_db.get_all_products()
     prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
     cat_products: dict = {}
     for commission in products_with_commission:
@@ -639,10 +644,12 @@ async def remove_motiv_cat_selected(callback: CallbackQuery, state: FSMContext):
         return
     raw = callback.data[len("remove_motiv_cat_"):]
     current_db = await get_db(callback.from_user.id, state)
-    all_cats = await current_db.get_all_categories()
+    all_cats, commissions, all_products = await asyncio.gather(
+        current_db.get_all_categories(),
+        current_db.get_all_product_motivations(),
+        current_db.get_all_products()
+    )
     cat_name = resolve_cb_name(raw, all_cats)
-    commissions = await current_db.get_all_product_motivations()
-    all_products = await current_db.get_all_products()
     prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
     products = [
         (c[0], c[1], c[2], c[3])
