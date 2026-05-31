@@ -1576,54 +1576,54 @@ class Database:
             return False
 
     # Заглушки для остальных методов
-    def get_all_shops(self):
+    def get_all_shops(self, include_system: bool = False):
         conn = self.get_connection()
         cursor = conn.cursor()
+        sys_filter = "" if include_system else " AND name NOT IN ('Системный', 'System')"
+        sys_filter_u = "" if include_system else " AND shop_name NOT IN ('Системный', 'System')"
         try:
             cursor.execute(
                 "SELECT DISTINCT name FROM ("
-                "  SELECT shop_name AS name FROM users "
-                "  WHERE shop_name IS NOT NULL AND shop_name != '' "
-                "  AND shop_name NOT IN ('Системный', 'System')"
+                f"  SELECT shop_name AS name FROM users "
+                f"  WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
                 "  UNION"
-                "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                f"  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{sys_filter}"
                 "  UNION"
-                "  SELECT shop_name AS name FROM inventory "
-                "  WHERE shop_name IS NOT NULL AND shop_name != ''"
+                f"  SELECT shop_name AS name FROM inventory "
+                f"  WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
                 ") ORDER BY name"
             )
         except Exception:
             cursor.execute(
                 "SELECT DISTINCT shop_name FROM users "
-                "WHERE shop_name IS NOT NULL AND shop_name != '' "
-                "AND shop_name NOT IN ('Системный', 'System')"
+                f"WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
             )
         shops = [row[0] for row in cursor.fetchall()]
         conn.close()
         return shops
 
-    def get_shops_with_stats(self):
+    def get_shops_with_stats(self, include_system: bool = False):
         """Возвращает список (name, user_count, inventory_items) для всех магазинов."""
         conn = self.get_connection()
         cursor = conn.cursor()
+        sys_filter = "" if include_system else " AND name NOT IN ('Системный', 'System')"
+        sys_filter_u = "" if include_system else " AND shop_name NOT IN ('Системный', 'System')"
         try:
             cursor.execute(
                 "SELECT DISTINCT name FROM ("
-                "  SELECT shop_name AS name FROM users "
-                "  WHERE shop_name IS NOT NULL AND shop_name != '' "
-                "  AND shop_name NOT IN ('Системный', 'System')"
+                f"  SELECT shop_name AS name FROM users "
+                f"  WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
                 "  UNION"
-                "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                f"  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{sys_filter}"
                 "  UNION"
-                "  SELECT shop_name AS name FROM inventory "
-                "  WHERE shop_name IS NOT NULL AND shop_name != ''"
+                f"  SELECT shop_name AS name FROM inventory "
+                f"  WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
                 ") ORDER BY name"
             )
         except Exception:
             cursor.execute(
                 "SELECT DISTINCT shop_name AS name FROM users "
-                "WHERE shop_name IS NOT NULL AND shop_name != '' "
-                "AND shop_name NOT IN ('Системный', 'System')"
+                f"WHERE shop_name IS NOT NULL AND shop_name != ''{sys_filter_u}"
             )
         shop_names = [r[0] for r in cursor.fetchall()]
         result = []

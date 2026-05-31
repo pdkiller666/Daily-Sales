@@ -1009,6 +1009,9 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
     await state.update_data(ipreset_role=preset_role, ipreset_org_id=org_id)
 
     # Получаем список магазинов из tenant DB
+    _ipr_super = env_manager.is_super_admin(callback.from_user.id)
+    _sys_f = "" if _ipr_super else " AND shop_name NOT IN ('Системный','System')"
+    _sys_fn = "" if _ipr_super else " AND name NOT IN ('Системный','System')"
     shops = []
     try:
         org_row = await _db_run(
@@ -1021,15 +1024,15 @@ async def invite_preset_role_handler(callback: CallbackQuery, state: FSMContext)
                 shop_rows = await _db_run(
                     db_path,
                     "SELECT DISTINCT name FROM ("
-                    "  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
-                    "  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                    f"  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f}"
+                    f"  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{_sys_fn}"
                     ") ORDER BY name",
                     fetch="all"
                 )
             except Exception:
                 shop_rows = await _db_run(
                     db_path,
-                    "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name",
+                    f"SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f} ORDER BY shop_name",
                     fetch="all"
                 )
             shops = [r[0] for r in (shop_rows or []) if r[0]]
@@ -1087,6 +1090,9 @@ async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext)
     if shop_token == "NONE":
         shop_name = None
     else:
+        _ipr_super2 = env_manager.is_super_admin(callback.from_user.id)
+        _sys_f2 = "" if _ipr_super2 else " AND shop_name NOT IN ('Системный','System')"
+        _sys_fn2 = "" if _ipr_super2 else " AND name NOT IN ('Системный','System')"
         shops = []
         try:
             org_row = await _db_run(
@@ -1099,15 +1105,15 @@ async def invite_preset_shop_handler(callback: CallbackQuery, state: FSMContext)
                     shop_rows = await _db_run(
                         db_path,
                         "SELECT DISTINCT name FROM ("
-                        "  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
-                        "  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+                        f"  SELECT shop_name AS name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f2}"
+                        f"  UNION SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{_sys_fn2}"
                         ") ORDER BY name",
                         fetch="all"
                     )
                 except Exception:
                     shop_rows = await _db_run(
                         db_path,
-                        "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name",
+                        f"SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''{_sys_f2} ORDER BY shop_name",
                         fetch="all"
                     )
                 shops = [r[0] for r in (shop_rows or []) if r[0]]
@@ -2164,7 +2170,7 @@ async def admin_edit_user_field(callback: CallbackQuery, state: FSMContext):
     # Магазин — выпадающий список из БД организации
     if callback.data == "admin_edit_shop":
         current_db = await get_db(callback.from_user.id, state)
-        shops = await current_db.get_all_shops()
+        shops = await current_db.get_all_shops(include_system=env_manager.is_super_admin(callback.from_user.id))
         if shops:
             shop_buttons = [
                 [InlineKeyboardButton(text=f"🏪 {s}", callback_data=safe_cb("adm_shop_pick_", s))]
@@ -2472,8 +2478,10 @@ async def _get_shop_db_path(state: FSMContext) -> str:
     return data.get('selected_org_db') or 'data/shop_bot.db'
 
 
-async def _get_shops_with_stats(db_path: str) -> list:
+async def _get_shops_with_stats(db_path: str, include_system: bool = False) -> list:
     """Возвращает список (name[0], users[1], inv[2], city[3], trade_network[4], notes[5])."""
+    sys_f = "" if include_system else " AND shop_name NOT IN ('Системный','System')"
+    sys_fn = "" if include_system else " AND name NOT IN ('Системный','System')"
     try:
         rows = await _db_run(
             db_path,
@@ -2485,14 +2493,13 @@ async def _get_shops_with_stats(db_path: str) -> list:
             " COALESCE(s.trade_network, '') as trade_network,"
             " COALESCE(s.notes, '') as notes"
             " FROM ("
-            "  SELECT DISTINCT shop_name AS name FROM users"
-            "   WHERE shop_name IS NOT NULL AND shop_name != ''"
-            "   AND shop_name NOT IN ('Системный','System')"
+            f"  SELECT DISTINCT shop_name AS name FROM users"
+            f"   WHERE shop_name IS NOT NULL AND shop_name != ''{sys_f}"
             "  UNION"
-            "  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''"
+            f"  SELECT name FROM shops WHERE name IS NOT NULL AND name != ''{sys_fn}"
             "  UNION"
-            "  SELECT DISTINCT shop_name AS name FROM inventory"
-            "   WHERE shop_name IS NOT NULL AND shop_name != ''"
+            f"  SELECT DISTINCT shop_name AS name FROM inventory"
+            f"   WHERE shop_name IS NOT NULL AND shop_name != ''{sys_f}"
             " ) q LEFT JOIN shops s ON s.name = q.name ORDER BY q.name",
             fetch="all"
         ) or []
@@ -2500,8 +2507,7 @@ async def _get_shops_with_stats(db_path: str) -> list:
         rows = await _db_run(
             db_path,
             "SELECT DISTINCT shop_name, 0, 0, '', '', '' FROM users"
-            " WHERE shop_name IS NOT NULL AND shop_name != ''"
-            " AND shop_name NOT IN ('Системный','System')"
+            f" WHERE shop_name IS NOT NULL AND shop_name != ''{sys_f}"
             " ORDER BY shop_name",
             fetch="all"
         ) or []
@@ -2532,7 +2538,7 @@ async def admin_shops_list(callback: CallbackQuery, state: FSMContext):
     # Гарантируем create_tables() для текущей org-БД (создаёт shops table если её нет)
     await get_db(callback.from_user.id, state)
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
 
     total = len(shops)
     text = f"🏪 <b>Управление магазинами</b> · {total} шт.\n\n"
@@ -2570,7 +2576,7 @@ async def admin_shop_edit_detail(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_edit_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     stat  = next((s for s in shops if s[0] == shop_name), None)
     users = stat[1] if stat else 0
@@ -2614,7 +2620,7 @@ async def admin_shop_city_start(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_city_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     await state.update_data(shop_edit_name=shop_name)
     await fsm_edit(
@@ -2660,7 +2666,7 @@ async def admin_shop_network_start(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_net_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     await state.update_data(shop_edit_name=shop_name)
     await fsm_edit(
@@ -2764,7 +2770,7 @@ async def admin_shop_rename_start(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_ren_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops_data = await _get_shops_with_stats(db_path)
+    shops_data = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops_data])
     await state.update_data(shop_rename_old=shop_name)
     await fsm_edit(
@@ -2822,7 +2828,7 @@ async def admin_shop_delete_confirm(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_del_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     stat  = next((s for s in shops if s[0] == shop_name), None)
     users = stat[1] if stat else 0
@@ -2862,7 +2868,7 @@ async def admin_shop_delete_execute(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_delok_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops_data = await _get_shops_with_stats(db_path)
+    shops_data = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops_data])
     try:
         row = await _db_run(
@@ -2904,7 +2910,7 @@ async def admin_shop_stats(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_stats_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
 
     today  = datetime.utcnow().date()
@@ -2943,7 +2949,7 @@ async def admin_shop_employees(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_empl_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
 
     user_rows = await _db_run(
@@ -3003,7 +3009,7 @@ async def admin_shop_shifts_today(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_shifts_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     today_str = datetime.utcnow().date().isoformat()
 
@@ -3049,7 +3055,7 @@ async def admin_shop_inventory_quick(callback: CallbackQuery, state: FSMContext)
     key = callback.data[len("ashop_inv_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
 
     rows = await _db_run(
@@ -3104,7 +3110,7 @@ async def admin_shop_notes_start(callback: CallbackQuery, state: FSMContext):
     key = callback.data[len("ashop_notes_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     await state.update_data(shop_edit_name=shop_name)
     await fsm_edit(
@@ -3152,7 +3158,7 @@ async def admin_shop_delete_transfer_pick(callback: CallbackQuery, state: FSMCon
         return
     key = callback.data[len("ashop_deltrans_"):]
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     shop_name = resolve_cb_name(key, [s[0] for s in shops])
     await state.update_data(shop_del_from=shop_name)
     other_shops = [s for s in shops if s[0] != shop_name]
@@ -3188,7 +3194,7 @@ async def admin_shop_delete_transfer_confirm(callback: CallbackQuery, state: FSM
     key = callback.data[len("ashop_delto_"):]
     await callback.answer()
     db_path = await _get_shop_db_path(state)
-    shops = await _get_shops_with_stats(db_path)
+    shops = await _get_shops_with_stats(db_path, env_manager.is_super_admin(callback.from_user.id))
     target_name = resolve_cb_name(key, [s[0] for s in shops])
     data = await state.get_data()
     source_name = data.get('shop_del_from', '')
