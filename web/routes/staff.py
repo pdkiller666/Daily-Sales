@@ -234,9 +234,8 @@ def staff_detail(request: Request, user_id: int):
         ctx["recent_sales"] = db.get_user_sales(user_id, limit=20) or []
 
         # Salary info
-        rate_row = db.get_salary_rate(user_id)
-        # get_salary_rate returns (daily_rate,) or None
-        ctx["daily_rate"] = float(rate_row[0] if rate_row else 0)
+        # get_salary_rate returns a float directly
+        ctx["daily_rate"] = float(db.get_salary_rate(user_id) or 0)
         ctx["worked_days"] = db.get_worked_days_count(user_id, year, month)
 
         # Calendar grid

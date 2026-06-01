@@ -96,7 +96,8 @@
                        updated_by[5] name[6] category[7] price[8] updated_by_name[9]
                 #}
                 {% set qty = r[3]|int %}
-                <tr class="hover:bg-slate-50/70 transition-colors {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}">
+                <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}"
+                    onclick="window.location='/products/{{ r[1] }}'">
                     <td class="px-5 py-3">
                         <p class="font-medium text-slate-800 max-w-[200px] truncate" title="{{ r[6] }}">{{ r[6] }}</p>
                     </td>
