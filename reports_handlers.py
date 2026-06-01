@@ -1260,9 +1260,10 @@ def _ordinal_ru(n: int) -> str:
     return f"{suffixes.get(n, f'{n}-е')} место"
 
 
-def _ranking_period(period: str, custom_start: str = None, custom_end: str = None):
+def _ranking_period(period: str, custom_start: str = None, custom_end: str = None, today=None):
     """Возвращает (start_date, end_date, label) для заданного периода"""
-    today = date.today()
+    if today is None:
+        today = date.today()
     if period == 'custom' and custom_start and custom_end:
         label = f"{format_date_display(custom_start)} – {format_date_display(custom_end)}"
         return custom_start, custom_end, label
@@ -1354,13 +1355,16 @@ async def user_rankings_menu(callback: CallbackQuery):
 
 async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str):
     await callback.answer()
+    current_db  = await get_db(callback.from_user.id, state)
+    from timezone_utils import get_current_user_time as _gcrt
+    _tz_rk = await current_db.get_user_timezone(callback.from_user.id)
+    _today_rk = _gcrt(_tz_rk).date()
     if period == 'custom':
         data = await state.get_data()
         cs, ce = data.get('rank_start', ''), data.get('rank_end', '')
-        start, end, label = _ranking_period('custom', cs, ce)
+        start, end, label = _ranking_period('custom', cs, ce, today=_today_rk)
     else:
-        start, end, label = _ranking_period(period)
-    current_db  = await get_db(callback.from_user.id, state)
+        start, end, label = _ranking_period(period, today=_today_rk)
     is_admin    = is_any_admin(callback.from_user.id)
     back_cb     = "rankings_menu" if is_admin else "user_rankings_menu"
     from filter_utils import ADMIN_FILTER_KEY, empty_filter, merge_scope_with_filter
@@ -1473,13 +1477,16 @@ async def rank_sel_prev(callback: CallbackQuery, state: FSMContext):
 
 async def _show_shops(callback: CallbackQuery, state: FSMContext, period: str):
     await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    from timezone_utils import get_current_user_time as _gcrt
+    _tz_rks = await current_db.get_user_timezone(callback.from_user.id)
+    _today_rks = _gcrt(_tz_rks).date()
     if period == 'custom':
         data = await state.get_data()
         cs, ce = data.get('rank_start', ''), data.get('rank_end', '')
-        start, end, label = _ranking_period('custom', cs, ce)
+        start, end, label = _ranking_period('custom', cs, ce, today=_today_rks)
     else:
-        start, end, label = _ranking_period(period)
-    current_db = await get_db(callback.from_user.id, state)
+        start, end, label = _ranking_period(period, today=_today_rks)
     is_admin   = is_any_admin(callback.from_user.id)
     back_cb    = "rankings_menu" if is_admin else "user_rankings_menu"
     ranking    = await current_db.get_shop_ranking(start, end)
@@ -1527,13 +1534,16 @@ async def _show_cities(callback: CallbackQuery, state: FSMContext, period: str):
         await callback.answer("❌ Доступ запрещен!", show_alert=True)
         return
     await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    from timezone_utils import get_current_user_time as _gcrt
+    _tz_rkc = await current_db.get_user_timezone(callback.from_user.id)
+    _today_rkc = _gcrt(_tz_rkc).date()
     if period == 'custom':
         data = await state.get_data()
         cs, ce = data.get('rank_start', ''), data.get('rank_end', '')
-        start, end, label = _ranking_period('custom', cs, ce)
+        start, end, label = _ranking_period('custom', cs, ce, today=_today_rkc)
     else:
-        start, end, label = _ranking_period(period)
-    current_db = await get_db(callback.from_user.id, state)
+        start, end, label = _ranking_period(period, today=_today_rkc)
     ranking    = await current_db.get_city_ranking(start, end)
     medals     = ["🥇", "🥈", "🥉"]
 

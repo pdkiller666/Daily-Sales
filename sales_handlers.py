@@ -20,6 +20,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin, maybe_refresh_u
 from keyboards import safe_cb, resolve_cb_name
 from message_utils import fsm_edit, delete_message_safe
 from hints import hint_suffix
+from timezone_utils import get_current_user_time as _gcur_tz
 
 # ПРОДАЖИ
 
@@ -1681,8 +1682,8 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             if not bot:
                 raise RuntimeError("bot not initialized")
             from notif_utils import add_read_btn as _add_read_btn
-            from datetime import date as _date
-            today_str = _date.today().isoformat()
+            _usr_tz_cw = await current_db.get_user_timezone(callback.from_user.id)
+            today_str = _gcur_tz(_usr_tz_cw).date().isoformat()
             coworkers = await current_db.get_shop_coworkers_on_shift(
                 shop_name, today_str, user_id
             )
@@ -1807,8 +1808,8 @@ async def edit_sales_today(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     is_admin = is_any_admin(callback.from_user.id)
     current_db = await get_db(callback.from_user.id, state)
-    from datetime import date
-    today = date.today().strftime('%Y-%m-%d')
+    _usr_tz_est = await current_db.get_user_timezone(callback.from_user.id)
+    today = _gcur_tz(_usr_tz_est).date().strftime('%Y-%m-%d')
 
     if is_admin:
         # Для админа - выбор магазина (включая магазины без сотрудников)
@@ -2383,9 +2384,11 @@ async def back_to_sales_list(callback: CallbackQuery, state: FSMContext):
 async def edit_sale_date_menu(callback: CallbackQuery, state: FSMContext):
     """Меню смены даты продажи — быстрые варианты + календарь."""
     await callback.answer()
-    from datetime import date, timedelta
+    from datetime import timedelta
     data = await state.get_data()
-    today_dt  = date.today()
+    _cur_db_esd = await get_db(callback.from_user.id, state)
+    _tz_esd = await _cur_db_esd.get_user_timezone(callback.from_user.id)
+    today_dt  = _gcur_tz(_tz_esd).date()
     yesterday = today_dt - timedelta(days=1)
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
@@ -2522,10 +2525,11 @@ async def edit_sale_date_calendar_handler(callback: CallbackQuery, state: FSMCon
 async def edit_sales_period_start(callback: CallbackQuery, state: FSMContext):
     """Начало выбора периода для редактирования продаж"""
     await callback.answer()
-    from datetime import date, timedelta
+    from datetime import timedelta
     from keyboards import generate_calendar
-
-    today = date.today()
+    _cur_db_esp = await get_db(callback.from_user.id, state)
+    _tz_esp = await _cur_db_esp.get_user_timezone(callback.from_user.id)
+    today = _gcur_tz(_tz_esp).date()
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
@@ -2791,13 +2795,19 @@ async def sales_bulk_delete_shop(callback: CallbackQuery, state: FSMContext):
     shops = await current_db.get_all_shops() or []
     shop_name = resolve_cb_name(key, shops)
     await state.update_data(sbd_shop_name=shop_name)
-    await _sbd_show_period_menu(callback, shop_name)
+    await _sbd_show_period_menu(callback, shop_name, state)
 
 
-async def _sbd_show_period_menu(callback: CallbackQuery, shop_name: str):
+async def _sbd_show_period_menu(callback: CallbackQuery, shop_name: str, state=None):
     """Показывает меню выбора периода для массового удаления"""
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import timedelta
+    if state is not None:
+        _cur_db_sbd = await get_db(callback.from_user.id, state)
+        _tz_sbd = await _cur_db_sbd.get_user_timezone(callback.from_user.id)
+        today = _gcur_tz(_tz_sbd).date()
+    else:
+        from datetime import date
+        today = date.today()
     yesterday = today - timedelta(days=1)
     week_ago  = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
@@ -2888,7 +2898,7 @@ async def sales_bulk_delete_calendar_cancel(callback: CallbackQuery, state: FSMC
     await callback.answer()
     data = await state.get_data()
     shop_name = data.get("sbd_shop_name", "")
-    await _sbd_show_period_menu(callback, shop_name)
+    await _sbd_show_period_menu(callback, shop_name, state)
 
 
 @sales_router.callback_query(F.data.startswith("sbd_cal_"))
