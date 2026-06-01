@@ -254,6 +254,33 @@ def staff_detail(request: Request, user_id: int):
         ctx["cal_grid"] = cal_grid
         ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
 
+        # Active plans for this user
+        try:
+            from timezone_utils import get_current_user_time
+            tz_local = db.get_user_timezone(telegram_id)
+            today_local = get_current_user_time(tz_local).date()
+            all_progress = db.get_plans_progress(local_today=today_local) or []
+            member_shop = member.get('shop_name', '')
+            user_plans = []
+            for plan_row, actual, pct in all_progress:
+                is_user_plan = (plan_row[1] == 'user' and plan_row[5] == user_id)
+                is_shop_plan = (plan_row[1] == 'shop' and plan_row[6] == member_shop)
+                if is_user_plan or is_shop_plan:
+                    target = float(plan_row[3] or 1)
+                    user_plans.append({
+                        "id": plan_row[0],
+                        "plan_type": plan_row[1],
+                        "metric_type": plan_row[2],
+                        "target_value": target,
+                        "target_type": plan_row[4],
+                        "shop_name": plan_row[6] or "",
+                        "current": float(actual or 0),
+                        "pct": min(100, int(pct or 0)),
+                    })
+            ctx["user_plans"] = user_plans
+        except Exception:
+            ctx["user_plans"] = []
+
     except Exception as exc:
         ctx["error"] = str(exc)
 

@@ -119,6 +119,47 @@
 </div>
 {% endif %}
 
+<!-- Active plans progress -->
+{% if user_plans %}
+<div class="card p-5 mb-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-800">🎯 Активные планы</h2>
+        <a href="/plans" class="text-xs text-blue-500 hover:underline">Все планы →</a>
+    </div>
+    <div class="space-y-3">
+        {% for plan in user_plans %}
+        {% set metric_label = 'Выручка' if plan.metric_type == 'revenue' else 'Продаж' %}
+        {% set unit = '₽' if plan.metric_type == 'revenue' else 'шт.' %}
+        {% set period_label = 'неделя' if plan.target_type == 'weekly' else 'месяц' %}
+        <a href="/plans/{{ plan.id }}" class="block group">
+            <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-slate-700 font-medium group-hover:text-blue-600 transition-colors">
+                    {{ '👤 Личный' if plan.plan_type == 'user' else ('🏪 ' + plan.shop_name) }} · {{ metric_label }} / {{ period_label }}
+                </span>
+                <span class="text-xs font-semibold {{ 'text-emerald-600' if plan.pct >= 100 else 'text-slate-600' }}">
+                    {{ plan.pct }}%
+                </span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5">
+                <div class="h-1.5 rounded-full transition-all
+                    {{ 'bg-emerald-500' if plan.pct >= 100 else ('bg-amber-500' if plan.pct >= 60 else 'bg-blue-500') }}"
+                    style="width: {{ plan.pct }}%"></div>
+            </div>
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5">
+                {% if plan.metric_type == 'revenue' %}
+                <span>{{ plan.current|int|fmt_currency }}</span>
+                <span>{{ plan.target_value|int|fmt_currency }}</span>
+                {% else %}
+                <span>{{ plan.current|int }} шт.</span>
+                <span>{{ plan.target_value|int }} шт.</span>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Recent sales table -->
 {% if recent_sales %}
 <div class="card overflow-hidden">
