@@ -50,9 +50,15 @@ def create_web_app() -> FastAPI:
 
     from web.routes.auth_routes import router as auth_router
     from web.routes.dashboard import router as dash_router
+    from web.routes.sales import router as sales_router
+    from web.routes.products import router as products_router
+    from web.routes.inventory import router as inventory_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
+    app.include_router(sales_router)
+    app.include_router(products_router)
+    app.include_router(inventory_router)
 
     @app.get("/")
     async def root():

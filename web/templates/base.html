@@ -46,17 +46,17 @@
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Операции</p>
 
-        <a href="#" class="nav-link disabled">
+        <a href="/sales"
+           class="nav-link {% if request.url.path.startswith('/sales') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💰</span>Продажи
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/products"
+           class="nav-link {% if request.url.path.startswith('/products') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📦</span>Товары
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/inventory"
+           class="nav-link {% if request.url.path.startswith('/inventory') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🏪</span>Остатки
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Аналитика</p>

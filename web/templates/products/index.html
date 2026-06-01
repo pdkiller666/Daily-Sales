@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Товары{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Товары</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Товары</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Каталог товаров</p>
+    </div>
+    <span class="text-sm text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
+        {{ total_count }} позиций
+    </span>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Search + category filter -->
+<div class="card p-4 mb-5">
+    <form method="get" action="/products" class="flex flex-wrap gap-3 items-end">
+        <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
+            <label class="text-xs font-medium text-slate-500">Поиск</label>
+            <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+                <input type="text" name="q" value="{{ q }}" placeholder="Название или категория…"
+                       class="w-full border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+        {% if categories %}
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-500">Категория</label>
+            <select name="category"
+                    class="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]">
+                <option value="">Все категории</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if cat == selected_category %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+        <button type="submit"
+                class="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            Найти
+        </button>
+        {% if q or selected_category %}
+        <a href="/products" class="text-sm text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Category tab pills -->
+{% if categories and not q %}
+<div class="flex flex-wrap gap-2 mb-5">
+    <a href="/products"
+       class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors {{ 'bg-blue-600 text-white' if not selected_category else 'bg-white border border-slate-200 text-slate-600 hover:border-blue-300' }}">
+        Все
+    </a>
+    {% for cat in categories %}
+    <a href="/products?category={{ cat|urlencode }}"
+       class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors {{ 'bg-blue-600 text-white' if cat == selected_category else 'bg-white border border-slate-200 text-slate-600 hover:border-blue-300' }}">
+        {{ cat }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Products table -->
+<div class="card overflow-hidden">
+    {% if products %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">#</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Название</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Категория</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Цена</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Остаток</th>
+                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Статус</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for p in products %}
+                {# p: id[0] name[1] category[2] price[3] created_at[4] #}
+                {% set qty = stock.get(p[0], 0) %}
+                <tr class="hover:bg-slate-50/70 transition-colors">
+                    <td class="px-5 py-3 text-xs text-slate-400">{{ loop.index }}</td>
+                    <td class="px-3 py-3">
+                        <p class="font-medium text-slate-800 max-w-[220px] truncate" title="{{ p[1] }}">{{ p[1] }}</p>
+                    </td>
+                    <td class="px-3 py-3 hidden sm:table-cell">
+                        {% if p[2] %}
+                        <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{{ p[2] }}</span>
+                        {% else %}
+                        <span class="text-slate-300">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-3 text-right font-semibold text-slate-700">{{ p[3]|int|fmt_currency }}</td>
+                    <td class="px-3 py-3 text-right hidden md:table-cell">
+                        <span class="font-medium {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-700' }}">
+                            {{ qty }}&thinsp;шт.
+                        </span>
+                    </td>
+                    <td class="px-5 py-3 text-right hidden md:table-cell">
+                        {% if qty <= 0 %}
+                        <span class="text-xs bg-red-50 text-red-600 border border-red-100 px-2 py-0.5 rounded-full">Нет</span>
+                        {% elif qty <= 5 %}
+                        <span class="text-xs bg-orange-50 text-orange-600 border border-orange-100 px-2 py-0.5 rounded-full">Мало</span>
+                        {% else %}
+                        <span class="text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full">В наличии</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="py-16 text-center text-slate-400">
+        <p class="text-5xl mb-3">📦</p>
+        <p class="text-sm font-medium">
+            {% if q or selected_category %}Товары не найдены{% else %}Каталог пуст{% endif %}
+        </p>
+        {% if q or selected_category %}
+        <a href="/products" class="text-xs text-blue-500 hover:underline mt-1 inline-block">Сбросить фильтры</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer_info %}{{ total_count }} товаров{% endblock %}
