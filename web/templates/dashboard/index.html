@@ -99,12 +99,15 @@
 
     <!-- Top shops -->
     <div class="card p-5">
-        <h2 class="font-semibold text-slate-800 mb-4">🏪 Топ магазинов <span class="text-xs text-slate-400 font-normal">(месяц)</span></h2>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold text-slate-800">🏪 Топ магазинов <span class="text-xs text-slate-400 font-normal">(месяц)</span></h2>
+            <a href="/rankings?tab=shops&period=month" class="text-xs text-blue-500 hover:underline shrink-0">Все →</a>
+        </div>
         {% if shop_ranking %}
         <div class="space-y-3">
             {% for shop in shop_ranking %}
             {% set medals = ['🥇','🥈','🥉'] %}
-            <div class="flex items-center gap-2 min-w-0">
+            <a href="/rankings?tab=shops&period=month" class="flex items-center gap-2 min-w-0 hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors">
                 <span class="shrink-0 text-base w-6 text-center">
                     {% if loop.index0 < 3 %}{{ medals[loop.index0] }}{% else %}<span class="text-xs font-bold text-slate-400">{{ loop.index }}</span>{% endif %}
                 </span>
@@ -115,7 +118,7 @@
                 <span class="text-xs font-semibold text-emerald-600 shrink-0 whitespace-nowrap">
                     {{ shop[2]|int|fmt_currency }}
                 </span>
-            </div>
+            </a>
             {% endfor %}
         </div>
         {% else %}
@@ -184,12 +187,15 @@
         <!-- Top sellers -->
         {% if seller_ranking %}
         <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-4">🏅 Топ продавцов <span class="text-xs text-slate-400 font-normal">(месяц)</span></h2>
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="font-semibold text-slate-800">🏅 Топ продавцов <span class="text-xs text-slate-400 font-normal">(месяц)</span></h2>
+                <a href="/rankings?tab=sellers&period=month" class="text-xs text-blue-500 hover:underline shrink-0">Все →</a>
+            </div>
             <div class="space-y-3">
                 {% for r in seller_ranking %}
-                {# r: first_name[0] last_name[1] shop[2] qty[3] revenue[4] sales[5] earnings[6] #}
+                {# r: first_name[0] last_name[1] shop[2] qty[3] revenue[4] sales[5] earnings[6] user_db_id[7] #}
                 {% set medals = ['🥇','🥈','🥉'] %}
-                <div class="flex items-center gap-2 min-w-0">
+                <a href="/rankings?tab=sellers&period=month" class="flex items-center gap-2 min-w-0 hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors">
                     <span class="shrink-0 text-base w-6 text-center">
                         {% if loop.index0 < 3 %}{{ medals[loop.index0] }}{% else %}<span class="text-xs font-bold text-slate-400">{{ loop.index }}</span>{% endif %}
                     </span>
@@ -198,7 +204,7 @@
                         <p class="text-xs text-slate-400">{{ r[5]|int }} прод.</p>
                     </div>
                     <span class="text-xs font-semibold text-indigo-600 shrink-0 whitespace-nowrap">{{ r[4]|int|fmt_currency }}</span>
-                </div>
+                </a>
                 {% endfor %}
             </div>
         </div>

@@ -38,6 +38,7 @@ def settings_page(request: Request, saved: str = ""):
         "saved": saved == "1",
         "error": None,
         "scheduled_notifications": [],
+        "notification_history": [],
     }
 
     try:
@@ -54,6 +55,23 @@ def settings_page(request: Request, saved: str = ""):
                 "admin_notifications": True, "stock_threshold": 5,
                 "notification_time": "09:00", "shift_sale_alerts": True,
             }
+
+        # Notification history for current user
+        if user_db_id:
+            try:
+                hist_raw = db.get_notification_history(user_db_id, limit=15) or []
+                # id[0] user_id[1] notification_type[2] message[3] is_read[4] created_at[5]
+                ctx["notification_history"] = [
+                    {
+                        "type": h[2] or "",
+                        "message": (h[3] or "")[:200],
+                        "is_read": bool(h[4]),
+                        "created_at": (h[5] or "")[:16].replace("T", " "),
+                    }
+                    for h in hist_raw
+                ]
+            except Exception:
+                ctx["notification_history"] = []
 
         # Scheduled notifications (admin only)
         if user.get("role") in ("owner", "admin", "super_admin"):
