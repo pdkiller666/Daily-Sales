@@ -725,26 +725,10 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
             callback_data=f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
         )
     builder.adjust(1)
-    # Кнопки «Применить на N месяцев»
-    builder.row(
-        InlineKeyboardButton(
-            text=f"📅 Заполнить {_MONTH_NAMES[mo - 1]}",
-            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_1"
-        )
-    )
-    # Следующие 2 и 3 месяца
-    mo2, yr2 = (mo + 1, yr) if mo < 12 else (1, yr + 1)
-    mo3, yr3 = (mo2 + 1, yr2) if mo2 < 12 else (1, yr2 + 1)
-    builder.row(
-        InlineKeyboardButton(
-            text=f"📅📅 + {_MONTH_NAMES[mo2 - 1]}",
-            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_2"
-        ),
-        InlineKeyboardButton(
-            text=f"📅📅📅 + {_MONTH_NAMES[mo3 - 1]}",
-            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_3"
-        )
-    )
+    builder.row(InlineKeyboardButton(
+        text="🗓 Применить к месяцам →",
+        callback_data=f"slr_fwd_{target_uid}_{yr}_{mo}"
+    ))
     builder.add(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
 
     await callback.message.edit_text(
@@ -937,7 +921,57 @@ async def salary_fill_month_execute(callback: CallbackQuery, state: FSMContext):
     await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
 
 
-# ── Применить шаблон на несколько месяцев (кнопка на экране шаблона) ──────────
+# ── Экран выбора периода для заполнения по шаблону ────────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_fwd_"))
+async def salary_fill_period_select(callback: CallbackQuery, state: FSMContext):
+    """Экран выбора: на сколько месяцев заполнить по шаблону."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_fwd_{uid}_{yr}_{mo}
+    target_uid = int(parts[2])
+    yr = int(parts[3])
+    mo = int(parts[4])
+
+    user_obj = await (await get_db(uid, state)).get_user_by_id(target_uid)
+    name = he(f"{user_obj[2]} {user_obj[3]}".strip() if user_obj else f"id={target_uid}")
+
+    mo2, yr2 = (mo + 1, yr) if mo < 12 else (1, yr + 1)
+    mo3, yr3 = (mo2 + 1, yr2) if mo2 < 12 else (1, yr2 + 1)
+
+    m1 = _MONTH_NAMES[mo - 1]
+    m2 = _MONTH_NAMES[mo2 - 1]
+    m3 = _MONTH_NAMES[mo3 - 1]
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text=f"📅 Только {m1} {yr}",
+        callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_1"
+    ))
+    builder.row(InlineKeyboardButton(
+        text=f"📅 {m1} + {m2}",
+        callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_2"
+    ))
+    builder.row(InlineKeyboardButton(
+        text=f"📅 {m1} + {m2} + {m3}",
+        callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_3"
+    ))
+    builder.row(back_button(f"slr_tmpl_{target_uid}_{yr}_{mo}"))
+
+    await callback.message.edit_text(
+        f"🗓 <b>Применить шаблон: {name}</b>\n\n"
+        "Выберите период заполнения:\n"
+        "<i>Уже отмеченные дни не будут затронуты.</i>",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+# ── Применить шаблон на несколько месяцев ─────────────────────────────────────
 
 @salary_router.callback_query(F.data.startswith("slr_fwdok_"))
 async def salary_fill_forward_execute(callback: CallbackQuery, state: FSMContext):
