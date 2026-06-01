@@ -19,6 +19,7 @@ from subscription_utils import check_integrations_permission
 from keyboards import back_button, home_button
 from states import IntegrationStates, GSImportStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
+from timezone_utils import get_current_user_time as _get_cur_user_time
 from message_utils import fsm_edit, delete_message_safe
 
 integration_router = Router()
@@ -1720,13 +1721,16 @@ async def gs_exp_sync_week_confirm(callback: CallbackQuery, state: FSMContext):
     exp_id = int(callback.data.split("_")[4])
     await callback.answer()
 
-    now = datetime.now()
+    current_db = await get_db(callback.from_user.id, state)
+    _tz = await current_db.get_user_timezone(callback.from_user.id)
+    now = _get_cur_user_time(_tz)
     week_start = now - timedelta(days=now.weekday())
     week_end   = week_start + timedelta(days=6)
     date_from  = week_start.strftime('%Y-%m-%d')
     date_to    = week_end.strftime('%Y-%m-%d')
+    date_from_disp = week_start.strftime('%d.%m.%Y')
+    date_to_disp   = week_end.strftime('%d.%m.%Y')
 
-    current_db = await get_db(callback.from_user.id, state)
     exp = await current_db.get_integration_export(exp_id)
     if not exp:
         await callback.answer("❌ Экспорт не найден", show_alert=True)
@@ -1736,7 +1740,7 @@ async def gs_exp_sync_week_confirm(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         f"🔄 <b>Синхронизировать продажи за текущую неделю?</b>\n\n"
-        f"📅 Период: <b>{date_from} — {date_to}</b>\n"
+        f"📅 Период: <b>{date_from_disp} — {date_to_disp}</b>\n"
         f"📋 Лист: <code>{rendered_sheet}</code>\n\n"
         f"Все ячейки матрицы будут <b>перезаписаны</b> агрегированными данными "
         f"из базы. Операция идемпотентна — повторный запуск не задвоит данные.\n\n"
@@ -1755,18 +1759,21 @@ async def gs_exp_sync_week_execute(callback: CallbackQuery, state: FSMContext):
     exp_id = int(callback.data.split("_")[5])
     await callback.answer()
 
-    now = datetime.now()
+    current_db = await get_db(callback.from_user.id, state)
+    _tz = await current_db.get_user_timezone(callback.from_user.id)
+    now = _get_cur_user_time(_tz)
     week_start = now - timedelta(days=now.weekday())
     week_end   = week_start + timedelta(days=6)
     date_from  = week_start.strftime('%Y-%m-%d')
     date_to    = week_end.strftime('%Y-%m-%d')
+    date_from_disp = week_start.strftime('%d.%m.%Y')
+    date_to_disp   = week_end.strftime('%d.%m.%Y')
 
     await callback.message.edit_text(
         "⏳ <b>Синхронизация...</b>\n\nЧитаю продажи из базы и записываю в таблицу...",
         parse_mode="HTML"
     )
 
-    current_db = await get_db(callback.from_user.id, state)
     try:
         result = await integration_manager.sync_matrix_for_period(
             current_db, exp_id, date_from, date_to
@@ -1780,7 +1787,7 @@ async def gs_exp_sync_week_execute(callback: CallbackQuery, state: FSMContext):
         text = (
             f"✅ <b>Синхронизация завершена!</b>\n\n"
             f"📋 Лист: <code>{sheet}</code>\n"
-            f"📅 Период: {date_from} — {date_to}\n"
+            f"📅 Период: {date_from_disp} — {date_to_disp}\n"
             f"🛒 Строк продаж в базе: {total_sales}\n"
             f"✅ Ячеек обновлено: <b>{cells_updated}</b>\n"
         )

@@ -183,7 +183,9 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 Ставки сотрудников", callback_data="slr_rates")
     builder.button(text="📅 Графики работы", callback_data="slr_scheds")
-    now = datetime.now()
+    current_db = await get_db(uid, state)
+    _tz = await current_db.get_user_timezone(uid)
+    now = get_current_user_time(_tz)
     builder.button(text=f"📊 Сводка ФОТ — {_MONTH_NAMES[now.month - 1]} {now.year}",
                    callback_data=f"slr_sum_{now.year}_{now.month}")
     builder.button(text="✏️ Корректировки зарплат", callback_data="slr_adj_menu")
@@ -320,9 +322,10 @@ async def salary_rate_enter(message: Message, state: FSMContext):
 
 # ── Выбор сотрудника для просмотра графика (admin) ────────────────────────────
 
-def _build_scheds_content(users: list, page: int):
+def _build_scheds_content(users: list, page: int, now=None):
     """Return (text, markup) for schedules list, paginated."""
-    now = datetime.now()
+    if now is None:
+        now = datetime.now()
     page_items, has_prev, has_next, total_pages, page = paginate(users, page, PAGE_SIZE_BTN)
     pg_line = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(users)}</i>" if total_pages > 1 else ""
     builder = InlineKeyboardBuilder()
@@ -347,6 +350,8 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
     current_db = await get_db(uid, state)
+    _tz = await current_db.get_user_timezone(uid)
+    _now = get_current_user_time(_tz)
     users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
     if not users:
         builder = InlineKeyboardBuilder()
@@ -354,7 +359,7 @@ async def salary_schedules_list(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("❌ Нет зарегистрированных продавцов",
                                          reply_markup=builder.as_markup())
         return
-    text, markup = _build_scheds_content(users, 0)
+    text, markup = _build_scheds_content(users, 0, now=_now)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
@@ -367,8 +372,10 @@ async def salary_sched_page(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.removeprefix("slr_sched_pg_"))
     await callback.answer()
     current_db = await get_db(uid, state)
+    _tz = await current_db.get_user_timezone(uid)
+    _now = get_current_user_time(_tz)
     users = [r for r in await current_db.get_all_salary_rates() if not env_manager.is_super_admin(r[4])]
-    text, markup = _build_scheds_content(users, page)
+    text, markup = _build_scheds_content(users, page, now=_now)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
 
 
@@ -463,12 +470,13 @@ async def salary_scheds_search_process(message: Message, state: FSMContext):
                        reply_markup=builder.as_markup())
         return
     current_db = await get_db(uid, state)
+    _tz = await current_db.get_user_timezone(uid)
     all_users = [r for r in await current_db.get_all_salary_rates()
                  if not env_manager.is_super_admin(r[4])]
     matches = [r for r in all_users
                if query in (r[1] or "").lower() or query in (r[2] or "").lower()]
     await state.set_state(None)
-    now = datetime.now()
+    now = get_current_user_time(_tz)
     builder = InlineKeyboardBuilder()
     if not matches:
         for user_id, fn, ln, _, tg_id in all_users[:PAGE_SIZE_BTN]:

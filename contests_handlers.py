@@ -20,6 +20,7 @@ from states import SearchStates
 from message_utils import fsm_edit, safe_edit_message
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_DEFAULT
 from notif_utils import add_read_btn
+from timezone_utils import get_current_user_time as _get_cur_user_time
 
 contests_router = Router()
 logger = logging.getLogger(__name__)
@@ -1022,7 +1023,9 @@ async def contest_reward_entered(message: Message, state: FSMContext):
 
 
 async def _show_period_step_from_message(message: Message, state: FSMContext):
-    now = datetime.now()
+    _cdb = await get_db(message.from_user.id, state)
+    _tz = await _cdb.get_user_timezone(message.from_user.id)
+    now = _get_cur_user_time(_tz)
     week_start = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
     week_end = (now - timedelta(days=now.weekday()) + timedelta(days=6)).strftime('%Y-%m-%d')
     month_start = now.replace(day=1).strftime('%Y-%m-%d')
@@ -1049,7 +1052,9 @@ async def _show_period_step_from_message(message: Message, state: FSMContext):
 
 
 async def _show_period_step(callback: CallbackQuery, state: FSMContext):
-    now = datetime.now()
+    _cdb = await get_db(callback.from_user.id, state)
+    _tz = await _cdb.get_user_timezone(callback.from_user.id)
+    now = _get_cur_user_time(_tz)
     week_start = (now - timedelta(days=now.weekday())).strftime('%Y-%m-%d')
     week_end = (now - timedelta(days=now.weekday()) + timedelta(days=6)).strftime('%Y-%m-%d')
     month_start = now.replace(day=1).strftime('%Y-%m-%d')

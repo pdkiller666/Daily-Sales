@@ -1251,7 +1251,7 @@ async def show_plans_progress(callback: CallbackQuery, state: FSMContext):
 
     text = "📊 <b>Прогресс планов продаж</b>\n\n"
 
-    now = datetime.now()
+    now = _now_sp
     weekly_start = (now - timedelta(days=now.weekday())).strftime('%d.%m')
     monthly_start = now.replace(day=1).strftime('%d.%m')
 
