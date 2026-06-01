@@ -104,12 +104,13 @@ def rankings_page(
             for i, r in enumerate(raw):
                 fname = (r[0] or "").strip()
                 lname = (r[1] or "").strip()
-                name = f"{fname} {lname}".strip() or f"@{r[8]}" if r[8] else "—"
+                name = f"{fname} {lname}".strip() or (f"@{r[8]}" if r[8] else "—")
                 rev = float(r[4] or 0)
                 ranking.append({
                     "pos": i + 1, "medal": MEDALS[i] if i < 3 else "",
                     "label": name, "sub": r[2] or "—",
                     "username": r[8] or "",
+                    "user_db_id": r[7],
                     "qty": int(r[3] or 0), "revenue": rev,
                     "count": int(r[5] or 0), "earnings": float(r[6] or 0),
                     "pct": round(rev / max_rev * 100) if max_rev else 0,
