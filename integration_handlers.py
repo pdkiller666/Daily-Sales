@@ -3,7 +3,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
+from datetime import datetime, timedelta
 
 from aiogram import Router, F
 from aiogram.types import (CallbackQuery, Message,
@@ -1427,6 +1429,15 @@ def _build_exp_detail_content(exp, exp_id: int):
         if len(aliases) > 4:
             text += f"  ...ещё {len(aliases) - 4}\n"
 
+    if re.match(r'^w\d+$', target_sheet):
+        week_num = datetime.now().isocalendar()[1]
+        text += (
+            f"\n💡 <i>Лист <code>{target_sheet}</code> — фиксированный номер недели. "
+            f"Замените на <code>w{{week}}</code> чтобы экспорт автоматически "
+            f"переходил на новый лист каждую неделю "
+            f"(сейчас = <code>w{week_num}</code>).</i>\n"
+        )
+
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(
         text="❌ Отключить" if enabled else "✅ Включить",
@@ -1436,6 +1447,15 @@ def _build_exp_detail_content(exp, exp_id: int):
         kb.row(InlineKeyboardButton(
             text="📝 Псевдонимы",
             callback_data=f"gs_alias_edit_{exp_id}_{conn_id}"
+        ))
+    kb.row(InlineKeyboardButton(
+        text="✏️ Изменить лист",
+        callback_data=f"gs_exp_edit_sheet_{exp_id}_{conn_id}"
+    ))
+    if export_type == 'sales' and operation == 'update_cell':
+        kb.row(InlineKeyboardButton(
+            text="🔄 Синхронизировать за неделю",
+            callback_data=f"gs_exp_sync_week_{exp_id}"
         ))
     kb.row(InlineKeyboardButton(
         text="🗑 Удалить",
@@ -1577,6 +1597,208 @@ async def gs_alias_input(message: Message, state: FSMContext):
     ])
     await _edit_anchor(message.bot, message.chat.id, anchor_id, result, reply_markup=kb)
     await clear_state_keep_org(state)
+
+
+# ═══════════════════════════════════════════════════════════
+#  EDIT TARGET SHEET NAME
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data.startswith("gs_exp_edit_sheet_"))
+async def gs_exp_edit_sheet_start(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    exp_id, conn_id = int(parts[4]), int(parts[5])
+    await callback.answer()
+    await state.update_data(
+        edit_sheet_exp_id=exp_id,
+        edit_sheet_conn_id=conn_id,
+        gs_conn_id=conn_id,
+        anchor_msg_id=callback.message.message_id,
+    )
+
+    sheets = []
+    try:
+        provider, cfg = await _fetch_gs_config(callback.from_user.id, state)
+        if provider:
+            sheets = await asyncio.wait_for(provider.get_sheets_list(cfg), timeout=6.0)
+    except Exception:
+        sheets = []
+
+    now_week = datetime.now().isocalendar()[1]
+    hint = (
+        f"💡 Используйте <code>w{{week}}</code> для автоматического перехода "
+        f"на новый лист каждую неделю (сейчас = <code>w{now_week}</code>)\n\n"
+    )
+
+    if sheets:
+        await state.update_data(gs_edit_available_sheets=sheets)
+        kb = InlineKeyboardBuilder()
+        for i, s in enumerate(sheets[:12]):
+            kb.row(InlineKeyboardButton(text=f"📋 {s}",
+                                        callback_data=f"gs_editsheet_pick_{i}"))
+        kb.row(InlineKeyboardButton(text="✏️ Ввести вручную",
+                                    callback_data="gs_editsheet_manual"))
+        kb.row(_back(f"gs_exp_{exp_id}"))
+        await callback.message.edit_text(
+            f"✏️ <b>Изменить название листа</b>\n\n{hint}"
+            "Выберите лист из таблицы или введите вручную:",
+            reply_markup=kb.as_markup(), parse_mode="HTML"
+        )
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Ввести вручную",
+                                  callback_data="gs_editsheet_manual")],
+            [_back(f"gs_exp_{exp_id}")],
+        ])
+        await callback.message.edit_text(
+            f"✏️ <b>Изменить название листа</b>\n\n{hint}"
+            "Введите новое название листа:",
+            reply_markup=kb, parse_mode="HTML"
+        )
+        await state.set_state(IntegrationStates.waiting_exp_sheet_edit)
+
+
+@integration_router.callback_query(F.data == "gs_editsheet_manual")
+async def gs_editsheet_manual(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    exp_id = data.get('edit_sheet_exp_id')
+    now_week = datetime.now().isocalendar()[1]
+    await callback.message.edit_text(
+        f"✏️ <b>Введите название листа</b>\n\n"
+        f"Поддерживаются макросы:\n"
+        f"<code>{{year}}</code>  <code>{{month}}</code>  "
+        f"<code>{{week}}</code>  <code>{{day}}</code>\n\n"
+        f"Пример: <code>w{{{{week}}}}</code> → сейчас <code>w{now_week}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_exp_{exp_id}")]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(IntegrationStates.waiting_exp_sheet_edit)
+
+
+@integration_router.callback_query(F.data.startswith("gs_editsheet_pick_"))
+async def gs_editsheet_pick(callback: CallbackQuery, state: FSMContext):
+    idx = int(callback.data.replace("gs_editsheet_pick_", ""))
+    data = await state.get_data()
+    sheets = data.get('gs_edit_available_sheets', [])
+    if idx >= len(sheets):
+        await callback.answer("❌ Лист не найден", show_alert=True)
+        return
+    sheet_name = sheets[idx]
+    exp_id = data.get('edit_sheet_exp_id')
+    current_db = await get_db(callback.from_user.id, state)
+    await current_db.update_integration_export(exp_id, target_sheet=sheet_name)
+    await callback.answer("✅ Лист обновлён")
+    exp = await current_db.get_integration_export(exp_id)
+    text, markup = _build_exp_detail_content(exp, exp_id)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await clear_state_keep_org(state)
+
+
+@integration_router.message(IntegrationStates.waiting_exp_sheet_edit)
+async def gs_editsheet_input(message: Message, state: FSMContext):
+    sheet = message.text.strip()
+    data = await state.get_data()
+    exp_id    = data.get('edit_sheet_exp_id')
+    anchor_id = data.get('anchor_msg_id')
+    await delete_message_safe(message)
+    if not sheet:
+        return
+    current_db = await get_db(message.from_user.id, state)
+    await current_db.update_integration_export(exp_id, target_sheet=sheet)
+    exp = await current_db.get_integration_export(exp_id)
+    text, markup = _build_exp_detail_content(exp, exp_id)
+    await _edit_anchor(message.bot, message.chat.id, anchor_id, text, reply_markup=markup)
+    await clear_state_keep_org(state)
+
+
+# ═══════════════════════════════════════════════════════════
+#  SYNC MATRIX FOR CURRENT WEEK (ретро-синхронизация)
+# ═══════════════════════════════════════════════════════════
+
+@integration_router.callback_query(F.data.regexp(r'^gs_exp_sync_week_\d+$'))
+async def gs_exp_sync_week_confirm(callback: CallbackQuery, state: FSMContext):
+    exp_id = int(callback.data.split("_")[4])
+    await callback.answer()
+
+    now = datetime.now()
+    week_start = now - timedelta(days=now.weekday())
+    week_end   = week_start + timedelta(days=6)
+    date_from  = week_start.strftime('%Y-%m-%d')
+    date_to    = week_end.strftime('%Y-%m-%d')
+
+    current_db = await get_db(callback.from_user.id, state)
+    exp = await current_db.get_integration_export(exp_id)
+    if not exp:
+        await callback.answer("❌ Экспорт не найден", show_alert=True)
+        return
+
+    rendered_sheet = _render_sheet_macro(exp[4])
+
+    await callback.message.edit_text(
+        f"🔄 <b>Синхронизировать продажи за текущую неделю?</b>\n\n"
+        f"📅 Период: <b>{date_from} — {date_to}</b>\n"
+        f"📋 Лист: <code>{rendered_sheet}</code>\n\n"
+        f"Все ячейки матрицы будут <b>перезаписаны</b> агрегированными данными "
+        f"из базы. Операция идемпотентна — повторный запуск не задвоит данные.\n\n"
+        f"⚠️ Убедитесь что лист <code>{rendered_sheet}</code> уже существует в таблице.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Синхронизировать",
+                                  callback_data=f"gs_exp_sync_week_ok_{exp_id}")],
+            [_back(f"gs_exp_{exp_id}")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_exp_sync_week_ok_"))
+async def gs_exp_sync_week_execute(callback: CallbackQuery, state: FSMContext):
+    exp_id = int(callback.data.split("_")[5])
+    await callback.answer()
+
+    now = datetime.now()
+    week_start = now - timedelta(days=now.weekday())
+    week_end   = week_start + timedelta(days=6)
+    date_from  = week_start.strftime('%Y-%m-%d')
+    date_to    = week_end.strftime('%Y-%m-%d')
+
+    await callback.message.edit_text(
+        "⏳ <b>Синхронизация...</b>\n\nЧитаю продажи из базы и записываю в таблицу...",
+        parse_mode="HTML"
+    )
+
+    current_db = await get_db(callback.from_user.id, state)
+    try:
+        result = await integration_manager.sync_matrix_for_period(
+            current_db, exp_id, date_from, date_to
+        )
+        cells_updated = result['cells_updated']
+        cells_skipped = result['cells_skipped']
+        sheet         = result['sheet']
+        errors        = result.get('errors', [])
+        total_sales   = result.get('total_sales', 0)
+
+        text = (
+            f"✅ <b>Синхронизация завершена!</b>\n\n"
+            f"📋 Лист: <code>{sheet}</code>\n"
+            f"📅 Период: {date_from} — {date_to}\n"
+            f"🛒 Строк продаж в базе: {total_sales}\n"
+            f"✅ Ячеек обновлено: <b>{cells_updated}</b>\n"
+        )
+        if cells_skipped:
+            text += f"⚠️ Пропущено (не найдено в таблице): {cells_skipped}\n"
+        if errors:
+            text += "\n<b>Примеры ошибок:</b>\n"
+            for err in errors[:3]:
+                text += f"• <code>{he(str(err)[:100])}</code>\n"
+            text += "\n💡 Добавьте псевдонимы для сопоставления названий."
+        if cells_skipped and not errors:
+            text += "\n💡 Некоторые товары/магазины не найдены в таблице — добавьте псевдонимы."
+    except Exception as e:
+        text = f"❌ <b>Ошибка синхронизации:</b>\n<code>{he(str(e)[:300])}</code>"
+
+    exp = await current_db.get_integration_export(exp_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_exp_{exp_id}")]])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 
 # ═══════════════════════════════════════════════════════════

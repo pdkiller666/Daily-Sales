@@ -427,6 +427,126 @@ class IntegrationManager:
             )
         return e
 
+    async def sync_matrix_for_period(
+            self, db, export_id: int, date_from: str, date_to: str
+    ) -> dict:
+        """
+        Read all sales for the given period, aggregate by (row_field × col_field),
+        and write values to the sheet using SET operation (idempotent — safe to repeat).
+        Returns {'cells_updated': N, 'cells_skipped': N, 'errors': [...],
+                 'sheet': sheet_name, 'total_sales': N}.
+        """
+        from collections import defaultdict
+        db = self._unwrap(db)
+
+        exp = db.get_integration_export(export_id)
+        if not exp:
+            raise ValueError("Экспорт не найден")
+
+        export_type = exp[0]
+        conn_id     = exp[1]
+        sheet_tpl   = exp[4]
+        operation   = exp[5]
+        lookup      = json.loads(exp[7] or '{}')
+
+        if operation != 'update_cell':
+            raise ValueError(
+                "Синхронизация поддерживается только для операции «Обновить ячейку (матрица)»"
+            )
+
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            raise ValueError("Подключение не найдено")
+        conn_config = json.loads(conn[3] or '{}')
+        conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
+
+        sheet_name = self._render_sheet_name(sheet_tpl, {})
+
+        sales_raw = db.get_sales_for_matrix_sync(date_from, date_to)
+
+        row_field       = lookup.get('row_search_field', 'shop_name')
+        col_field       = lookup.get('col_search_field', 'product_name')
+        value_field     = lookup.get('value_field', 'quantity')
+        row_search_col  = int(lookup.get('row_search_col', 1))
+        col_search_row  = int(lookup.get('col_search_row', 1))
+        data_start_row  = int(lookup.get('data_start_row', col_search_row + 1))
+        data_start_col  = int(lookup.get('data_start_col', 1))
+        aliases         = lookup.get('aliases', {})
+
+        # Tuple indices from get_sales_for_matrix_sync:
+        # 0=product_name  1=category  2=shop_name  3=quantity_sold
+        # 4=sale_price    5=total     6=seller_name
+        FIELD_IDX = {
+            'product_name': 0,
+            'category':     1,
+            'shop_name':    2,
+            'quantity':     3,
+            'price':        4,
+            'total':        5,
+            'seller_name':  6,
+        }
+        row_fi = FIELD_IDX.get(row_field, 2)
+        col_fi = FIELD_IDX.get(col_field, 0)
+        val_fi = FIELD_IDX.get(value_field, 3)
+
+        aggregated: dict = defaultdict(float)
+        for row in sales_raw:
+            r_val = str(row[row_fi]).strip()
+            c_val = str(row[col_fi]).strip()
+            v_val = float(row[val_fi]) if row[val_fi] else 0.0
+            aggregated[(r_val, c_val)] += v_val
+
+        if not aggregated:
+            return {
+                'cells_updated': 0, 'cells_skipped': 0,
+                'errors': [], 'sheet': sheet_name, 'total_sales': len(sales_raw),
+            }
+
+        provider = self.providers.get('google_sheets')
+        cells_updated = 0
+        cells_skipped = 0
+        errors: list = []
+
+        for (row_val, col_val), agg_val in aggregated.items():
+            try:
+                write_val = (int(agg_val) if value_field == 'quantity'
+                             else round(agg_val, 2))
+                await provider.update_cell_matrix(
+                    conn_config, sheet_name,
+                    row_col=row_search_col,
+                    row_value=aliases.get(row_val, row_val),
+                    col_row=col_search_row,
+                    col_value=aliases.get(col_val, col_val),
+                    upd_op='set',
+                    new_value=write_val,
+                    start_row=data_start_row,
+                    start_col=data_start_col,
+                    row_raw=row_val,
+                    col_raw=col_val,
+                )
+                cells_updated += 1
+            except ValueError as e:
+                cells_skipped += 1
+                errors.append(str(e))
+            except Exception as e:
+                cells_skipped += 1
+                errors.append(f"{row_val} × {col_val}: {e}")
+
+        status = 'success' if cells_skipped == 0 else 'warning'
+        db.add_integration_log(
+            conn_id, export_id, status,
+            f'matrix sync {date_from}–{date_to}: '
+            f'{cells_updated} ячеек обновлено, {cells_skipped} пропущено'
+        )
+
+        return {
+            'cells_updated': cells_updated,
+            'cells_skipped': cells_skipped,
+            'errors':        errors[:5],
+            'sheet':         sheet_name,
+            'total_sales':   len(sales_raw),
+        }
+
     async def _notify_admins(self, db, text: str):
         try:
             from bot_holder import get_bot

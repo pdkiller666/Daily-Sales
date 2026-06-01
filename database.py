@@ -7064,6 +7064,33 @@ class Database:
             logger.error(f"get_all_sales_for_export: {e}")
             return []
 
+    def get_sales_for_matrix_sync(self, date_from: str, date_to: str) -> list:
+        """Return raw sales for a date range for matrix sync.
+        Returns list of tuples:
+        (product_name, category, shop_name, quantity_sold, sale_price, total, seller_name)
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT p.name, p.category, s.shop_name,
+                          s.quantity_sold, s.sale_price,
+                          ROUND(s.quantity_sold * s.sale_price, 2) AS total,
+                          COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '') AS seller_name
+                   FROM sales s
+                   JOIN products p ON p.id = s.product_id
+                   LEFT JOIN users u ON u.id = s.user_id
+                   WHERE date(s.sale_date) BETWEEN ? AND ?
+                   ORDER BY s.shop_name, p.name''',
+                (date_from, date_to)
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_sales_for_matrix_sync: {e}")
+            return []
+
     def get_all_inventory_for_export(self) -> list:
         """Return all inventory for replace_sheet export."""
         try:
