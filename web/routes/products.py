@@ -137,7 +137,7 @@ def product_detail(request: Request, product_id: int):
         cur = conn.cursor()
         cur.execute(
             """SELECT s.id, s.shop_name, s.quantity_sold, s.sale_price, s.sale_date,
-                      u.first_name, u.last_name
+                      u.first_name, u.last_name, s.user_id
                FROM sales s
                LEFT JOIN users u ON u.id = s.user_id
                WHERE s.product_id = ?

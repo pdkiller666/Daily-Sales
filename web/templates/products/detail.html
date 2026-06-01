@@ -120,7 +120,7 @@
             </thead>
             <tbody class="divide-y divide-slate-50">
                 {% for s in recent_sales %}
-                {# id[0] shop[1] qty[2] price[3] date[4] first_name[5] last_name[6] #}
+                {# id[0] shop[1] qty[2] price[3] date[4] first_name[5] last_name[6] user_id[7] #}
                 <tr class="hover:bg-slate-50/70">
                     <td class="px-5 py-2.5 text-slate-500">{{ (s[4] or '')[:10]|fmt_date }}</td>
                     <td class="px-3 py-2.5 text-slate-700">{{ s[1] }}</td>
@@ -130,7 +130,13 @@
                         {{ (s[2] * s[3])|int|fmt_currency }}
                     </td>
                     <td class="px-3 py-2.5 text-slate-500 hidden sm:table-cell">
+                        {% if s[7] %}
+                        <a href="/staff/{{ s[7] }}" class="hover:text-blue-600 transition-colors">
+                            {{ s[5] or '' }} {{ s[6] or '' }}
+                        </a>
+                        {% else %}
                         {{ s[5] or '' }} {{ s[6] or '' }}
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}

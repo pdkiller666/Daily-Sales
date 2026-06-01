@@ -185,8 +185,15 @@
                 <tr class="hover:bg-slate-50/70">
                     <td class="px-5 py-2.5 text-slate-400 text-xs">{{ (s[6] or '')[:10]|fmt_date }}</td>
                     <td class="px-3 py-2.5">
+                        {% if s[1] %}
+                        <a href="/products/{{ s[1] }}" class="group">
+                            <p class="font-medium text-slate-800 truncate max-w-[160px] group-hover:text-blue-600 transition-colors">{{ s[7] or '—' }}</p>
+                            <p class="text-xs text-slate-400">{{ s[8] or '' }}</p>
+                        </a>
+                        {% else %}
                         <p class="font-medium text-slate-800 truncate max-w-[160px]">{{ s[7] or '—' }}</p>
                         <p class="text-xs text-slate-400">{{ s[8] or '' }}</p>
+                        {% endif %}
                     </td>
                     <td class="px-3 py-2.5 text-slate-500 hidden sm:table-cell">{{ s[2] }}</td>
                     <td class="px-3 py-2.5 text-right font-medium text-slate-700">{{ s[3] }}</td>
