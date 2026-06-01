@@ -7,3 +7,4 @@ meta:
 run:
   persistenceMount: /app/data
   command: python main.py
+  ingressPort: 5000

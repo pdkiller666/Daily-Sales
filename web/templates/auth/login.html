@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — ShopBot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+
+    <!-- Background pattern -->
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute -top-40 -right-32 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl"></div>
+        <div class="absolute -bottom-40 -left-32 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="relative w-full max-w-sm mx-4">
+        <!-- Card -->
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+
+            <!-- Header gradient -->
+            <div class="relative bg-gradient-to-br from-blue-600 to-blue-700 px-8 pt-10 pb-8 text-center overflow-hidden">
+                <div class="absolute inset-0 opacity-10">
+                    <div class="absolute top-2 right-4 text-6xl">🛒</div>
+                    <div class="absolute bottom-2 left-4 text-5xl">📊</div>
+                </div>
+                <div class="relative">
+                    <div class="text-5xl mb-3">🛍</div>
+                    <h1 class="text-2xl font-bold text-white">ShopBot</h1>
+                    <p class="text-blue-200 text-sm mt-1.5">Панель управления</p>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-8 py-8">
+                {% if error %}
+                <div class="mb-5 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+                    <span class="shrink-0 mt-0.5">⚠️</span>
+                    <span>
+                        {% if error == 'invalid' %}Не удалось подтвердить данные Telegram. Попробуйте ещё раз.
+                        {% elif error == 'no_hash' %}Некорректный запрос авторизации.
+                        {% elif error == 'no_bot' %}Имя бота не настроено — обратитесь к администратору.
+                        {% else %}Ошибка авторизации. Попробуйте ещё раз.{% endif %}
+                    </span>
+                </div>
+                {% endif %}
+
+                <p class="text-slate-500 text-sm text-center mb-6 leading-relaxed">
+                    Войдите через Telegram для доступа к панели управления магазином
+                </p>
+
+                {% if bot_username %}
+                    <div class="flex justify-center">
+                        <script async src="https://telegram.org/js/telegram-widget.js?22"
+                            data-telegram-login="{{ bot_username }}"
+                            data-size="large"
+                            data-radius="10"
+                            data-auth-url="{{ auth_url }}"
+                            data-request-access="write">
+                        </script>
+                    </div>
+                {% else %}
+                    <div class="text-center p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
+                        <p class="font-semibold mb-1">⚙️ Требуется настройка</p>
+                        <p class="text-xs text-amber-600">Убедитесь что бот запущен. После запуска перезагрузите страницу.</p>
+                    </div>
+                {% endif %}
+
+                <div class="mt-6 space-y-2 text-center">
+                    <p class="text-xs text-slate-400">
+                        Доступ только для пользователей, зарегистрированных в боте
+                    </p>
+                    <div class="border-t border-slate-100 pt-4">
+                        <p class="text-xs text-slate-300">
+                            После первого входа установите домен в BotFather:
+                            <code class="bg-slate-50 px-1 py-0.5 rounded text-slate-500">/setdomain</code>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-center text-slate-600 text-xs mt-4">© ShopBot Web Interface</p>
+    </div>
+
+</body>
+</html>

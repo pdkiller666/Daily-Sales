@@ -956,11 +956,34 @@ async def main():
 
     # Проверяем, нужно ли отправить post-restart сообщение
     asyncio.create_task(send_post_restart_start(bot))
-    
+
+    # Запускаем веб-интерфейс на порту 8080 вместе с ботом
     try:
-        await dp.start_polling(bot)
+        import uvicorn
+        from web.app import create_web_app
+        web_app = create_web_app()
+        _web_port = int(os.getenv('WEB_PORT', '5000'))
+        web_config = uvicorn.Config(
+            web_app,
+            host="0.0.0.0",
+            port=_web_port,
+            log_level="warning",
+            access_log=False,
+        )
+        web_server = uvicorn.Server(web_config)
+        logging.info(f"Веб-интерфейс запущен на порту {_web_port}")
+        await asyncio.gather(
+            dp.start_polling(bot),
+            web_server.serve(),
+        )
     except KeyboardInterrupt:
         logging.info("Получен сигнал остановки")
+    except Exception as _web_err:
+        logging.error(f"Ошибка веб-сервера: {_web_err}")
+        try:
+            await dp.start_polling(bot)
+        except KeyboardInterrupt:
+            pass
     finally:
         await bot.session.close()
         scheduler.shutdown()

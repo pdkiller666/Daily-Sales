@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ShopBot{% endblock %} — ShopBot Web</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        [x-cloak]{display:none!important}
+        .nav-active{background:rgba(59,130,246,.15);color:#93c5fd}
+        .nav-active .nav-icon{color:#60a5fa}
+        .nav-link{display:flex;align-items:center;padding:.625rem .75rem;border-radius:.5rem;font-size:.875rem;font-weight:500;color:#94a3b8;transition:background .15s,color .15s}
+        .nav-link:hover:not(.disabled){background:#1e293b;color:#e2e8f0}
+        .nav-link.disabled{opacity:.4;cursor:default;pointer-events:none}
+        .card{background:#fff;border-radius:.75rem;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid #f1f5f9}
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-track{background:#f1f5f9}
+        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+    </style>
+</head>
+<body class="h-full bg-slate-100" x-data="{open:false}">
+
+<!-- Mobile overlay -->
+<div x-show="open" x-cloak @click="open=false"
+     class="fixed inset-0 z-20 bg-black/50 lg:hidden"></div>
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside :class="open?'translate-x-0':'-translate-x-full'"
+       class="fixed inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 transform transition-transform duration-200 lg:translate-x-0 lg:static lg:inset-0">
+
+    <!-- Logo -->
+    <div class="flex items-center justify-center h-16 shrink-0 bg-slate-800 border-b border-slate-700/50">
+        <span class="text-xl font-bold text-white tracking-tight">🛍&nbsp;ShopBot</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+
+        <a href="/dashboard"
+           class="nav-link {% if request.url.path=='/dashboard' %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">📊</span>Дашборд
+        </a>
+
+        <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Операции</p>
+
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">💰</span>Продажи
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">📦</span>Товары
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">🏪</span>Остатки
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+
+        <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Аналитика</p>
+
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">📈</span>Отчёты
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">🏆</span>Рейтинги
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+
+        <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Команда</p>
+
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">👥</span>Сотрудники
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">💸</span>Зарплата
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">🎯</span>Планы
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+
+        <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Система</p>
+
+        <a href="#" class="nav-link disabled">
+            <span class="nav-icon mr-3 text-base">⚙️</span>Настройки
+            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
+        </a>
+
+    </nav>
+
+    <!-- User info -->
+    <div class="shrink-0 border-t border-slate-700/50 p-3">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                {% if user and user.name %}{{ user.name[0]|upper }}{% else %}?{% endif %}
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-white truncate">
+                    {{ user.name if user else 'Пользователь' }}
+                </p>
+                <p class="text-xs text-slate-400">
+                    {% if user %}
+                        {% if user.role=='super_admin' %}Суперадмин
+                        {% elif user.role=='owner' %}Владелец
+                        {% elif user.role=='admin' %}Администратор
+                        {% else %}Сотрудник{% endif %}
+                    {% endif %}
+                </p>
+            </div>
+            <a href="/logout" title="Выйти"
+               class="shrink-0 p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
+            </a>
+        </div>
+    </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<div class="flex flex-col min-h-screen lg:ml-64">
+
+    <!-- Topbar -->
+    <header class="sticky top-0 z-10 flex items-center justify-between h-14 px-4 sm:px-6 bg-white border-b border-slate-200 shadow-sm">
+        <div class="flex items-center gap-3">
+            <button @click="open=!open"
+                    class="lg:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+            <div class="flex items-center gap-1.5 text-sm text-slate-500">
+                {% block breadcrumb %}{% endblock %}
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            {% set _bu = bot_username() %}
+            {% if _bu %}
+            <a href="https://t.me/{{ _bu }}" target="_blank"
+               class="hidden sm:flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors">
+                <span>🤖</span> Открыть бот
+            </a>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="flex-1 px-4 sm:px-6 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="shrink-0 py-3 px-6 text-center text-xs text-slate-400 border-t border-slate-100">
+        ShopBot Web&nbsp;·&nbsp;{% block footer_info %}{% endblock %}
+    </footer>
+</div>
+
+</body>
+</html>
