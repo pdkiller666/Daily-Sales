@@ -57,6 +57,9 @@ def create_web_app() -> FastAPI:
     from web.routes.rankings import router as rankings_router
     from web.routes.staff import router as staff_router
     from web.routes.plans import router as plans_router
+    from web.routes.salary import router as salary_router
+    from web.routes.contests import router as contests_router
+    from web.routes.settings import router as settings_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -67,6 +70,9 @@ def create_web_app() -> FastAPI:
     app.include_router(rankings_router)
     app.include_router(staff_router)
     app.include_router(plans_router)
+    app.include_router(salary_router)
+    app.include_router(contests_router)
+    app.include_router(settings_router)
 
     @app.get("/")
     async def root():

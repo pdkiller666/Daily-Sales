@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Зарплата{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Зарплата</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Зарплата</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Расчёт выплат сотрудникам</p>
+    </div>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Month navigation -->
+<div class="flex items-center justify-between mb-5">
+    <a href="/salary?year={{ prev_y }}&month={{ prev_m }}"
+       class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+        ← {{ prev_m }}/{{ prev_y }}
+    </a>
+    <div class="text-center">
+        <h2 class="text-lg font-bold text-slate-800">{{ month_name }} {{ year }}</h2>
+        {% if is_future %}
+        <span class="text-xs text-amber-500">будущий период</span>
+        {% endif %}
+    </div>
+    <a href="/salary?year={{ next_y }}&month={{ next_m }}"
+       class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+        {{ next_m }}/{{ next_y }} →
+    </a>
+</div>
+
+{% if staff_salary %}
+<!-- Fund summary -->
+<div class="grid grid-cols-3 gap-4 mb-5">
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Сотрудников</p>
+        <p class="text-2xl font-bold text-slate-800">{{ staff_salary|length }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Фонд з/п</p>
+        <p class="text-2xl font-bold text-emerald-600">{{ total_salary_fund|int|fmt_currency }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Сред. з/п</p>
+        <p class="text-2xl font-bold text-slate-700">
+            {{ (total_salary_fund / staff_salary|length)|int|fmt_currency if staff_salary else '0 ₽' }}
+        </p>
+    </div>
+</div>
+
+<!-- Staff salary table -->
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-800">Расчётный листок</h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Сотрудник</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Ставка/день</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Смен</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Оклад</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Корр.</th>
+                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Итого</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for s in staff_salary %}
+                <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer
+                           {% if s.user_id == selected_user_id %}bg-blue-50/40{% endif %}"
+                    onclick="window.location='/salary?year={{ year }}&month={{ month }}&user_id={{ s.user_id }}'">
+                    <td class="px-5 py-3">
+                        <p class="font-medium text-slate-800">{{ s.first_name }} {{ s.last_name }}</p>
+                    </td>
+                    <td class="px-3 py-3 text-right text-slate-500 hidden sm:table-cell">
+                        {{ s.daily_rate|int|fmt_currency }}
+                    </td>
+                    <td class="px-3 py-3 text-right">
+                        <span class="font-semibold {% if s.worked_days == 0 %}text-slate-300{% else %}text-slate-800{% endif %}">
+                            {{ s.worked_days }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-3 text-right text-slate-600 hidden md:table-cell">
+                        {{ s.base_salary|int|fmt_currency }}
+                    </td>
+                    <td class="px-3 py-3 text-right hidden md:table-cell">
+                        {% if s.adj_sum > 0 %}
+                        <span class="text-emerald-600">+{{ s.adj_sum|int|fmt_currency }}</span>
+                        {% elif s.adj_sum < 0 %}
+                        <span class="text-red-500">{{ s.adj_sum|int|fmt_currency }}</span>
+                        {% else %}
+                        <span class="text-slate-300">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-5 py-3 text-right">
+                        <span class="font-bold {% if s.total > 0 %}text-emerald-600{% else %}text-slate-300{% endif %}">
+                            {{ s.total|int|fmt_currency }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail panel for selected user -->
+{% if detail_user %}
+<div class="card p-5">
+    <div class="flex items-center gap-3 mb-5">
+        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold">
+            {{ (detail_user.first_name or '?')[0] }}{{ (detail_user.last_name or '')[0] if detail_user.last_name else '' }}
+        </div>
+        <div>
+            <p class="font-semibold text-slate-800">{{ detail_user.first_name }} {{ detail_user.last_name }}</p>
+            <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }} смен × {{ detail_user.daily_rate|int|fmt_currency }}</p>
+        </div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="mb-5">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">График смен</p>
+        <div class="grid grid-cols-7 gap-1 text-center">
+            {% for day_name in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] %}
+            <div class="text-xs text-slate-400 font-medium py-1">{{ day_name }}</div>
+            {% endfor %}
+
+            {% import 'calendar' as cal %}
+            {# Build calendar rows for the month #}
+            {% set ns = namespace(day=1) %}
+            {% set first_weekday = (year|string + '-' + '%02d'|format(month) + '-01')|string %}
+
+            {# Simple day grid — render days 01..31 of current month #}
+            {% set days_in_month = [31,28,31,30,31,30,31,31,30,31,30,31][month-1] %}
+            {# Account for leap year #}
+            {% if month == 2 and (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) %}
+            {% set days_in_month = 29 %}
+            {% endif %}
+
+            {# Get weekday of first day (0=Mon) using Python's date #}
+            {# We'll pass a sequence and use Jinja2's loop #}
+            {% for day in range(1, days_in_month + 1) %}
+                {% set day_str = '%02d'|format(day) %}
+                {% set worked = day_str in work_days_set %}
+                <div class="aspect-square flex items-center justify-center rounded-lg text-xs font-medium
+                            {% if worked %}bg-emerald-500 text-white shadow-sm
+                            {% else %}bg-slate-50 text-slate-400{% endif %}">
+                    {{ day }}
+                </div>
+            {% endfor %}
+        </div>
+        <p class="text-xs text-slate-400 mt-2">🟢 Рабочая смена</p>
+    </div>
+
+    <!-- Adjustments -->
+    {% if adjustments %}
+    <div>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Корректировки</p>
+        <div class="space-y-2">
+            {% for adj in adjustments %}
+            {# adj: id[0] amount[1] comment[2] created_by[3] created_at[4] creator_name[5] #}
+            <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                <div>
+                    <p class="text-sm text-slate-700">{{ adj[2] or 'Без комментария' }}</p>
+                    <p class="text-xs text-slate-400">{{ (adj[4] or '')[:10] }} · {{ adj[5] or '' }}</p>
+                </div>
+                <span class="font-semibold text-sm {% if adj[1] >= 0 %}text-emerald-600{% else %}text-red-500{% endif %}">
+                    {% if adj[1] >= 0 %}+{% endif %}{{ adj[1]|int|fmt_currency }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="mt-3 flex justify-between font-semibold text-sm px-1">
+            <span class="text-slate-600">Итого корректировок:</span>
+            <span class="{% if adj_sum >= 0 %}text-emerald-600{% else %}text-red-500{% endif %}">
+                {% if adj_sum >= 0 %}+{% endif %}{{ adj_sum|int|fmt_currency }}
+            </span>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-xs text-slate-400 text-center py-4">Корректировок нет</p>
+    {% endif %}
+
+    <!-- Final total -->
+    <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+        <span class="text-sm text-slate-600 font-medium">Итого к выплате:</span>
+        <span class="text-xl font-bold text-emerald-600">{{ detail_user.total|int|fmt_currency }}</span>
+    </div>
+</div>
+{% else %}
+<div class="card p-4 text-center text-sm text-slate-400">
+    <p>Нажмите на строку сотрудника, чтобы увидеть детальный расчёт и график смен</p>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card py-20 text-center text-slate-400">
+    <p class="text-6xl mb-4">💸</p>
+    <p class="text-base font-medium text-slate-600">Ставки не заданы</p>
+    <p class="text-sm mt-1">Дневные ставки настраиваются через бота в разделе «Зарплата»</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block footer_info %}{{ month_name }} {{ year }}{% endblock %}

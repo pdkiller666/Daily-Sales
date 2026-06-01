@@ -76,24 +76,24 @@
            class="nav-link {% if request.url.path.startswith('/staff') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">👥</span>Сотрудники
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/salary"
+           class="nav-link {% if request.url.path.startswith('/salary') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💸</span>Зарплата
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
         <a href="/plans"
            class="nav-link {% if request.url.path.startswith('/plans') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎯</span>Планы
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/contests"
+           class="nav-link {% if request.url.path.startswith('/contests') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Система</p>
 
-        <a href="#" class="nav-link disabled">
+        <a href="/settings"
+           class="nav-link {% if request.url.path.startswith('/settings') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">⚙️</span>Настройки
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
 
     </nav>

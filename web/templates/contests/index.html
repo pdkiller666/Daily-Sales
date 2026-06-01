@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Конкурсы{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Конкурсы</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Конкурсы</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Соревнования и рейтинги</p>
+    </div>
+    <span class="text-sm text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
+        {{ contests|length }} конкурсов
+    </span>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Status filter -->
+<div class="flex flex-wrap gap-2 mb-5">
+    {% for sf, lbl in [('','Все'),('active','Активные'),('pending','Запланированные'),('finished','Завершённые')] %}
+    <a href="/contests?status_filter={{ sf }}"
+       class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+              {{ 'bg-blue-600 text-white border-blue-600' if status_filter == sf else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
+        {{ lbl }}
+    </a>
+    {% endfor %}
+</div>
+
+{% if contests %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% for c in contests %}
+    <a href="/contests?status_filter={{ status_filter }}&contest_id={{ c.id }}"
+       class="card p-5 block hover:shadow-md transition-all duration-200
+              {% if selected_contest and selected_contest.id == c.id %}ring-2 ring-blue-500{% endif %}">
+
+        <!-- Header -->
+        <div class="flex items-start justify-between gap-3 mb-3">
+            <div class="flex-1 min-w-0">
+                <p class="font-semibold text-slate-800 truncate">{{ c.title }}</p>
+                {% if c.desc %}
+                <p class="text-xs text-slate-400 mt-0.5 line-clamp-2">{{ c.desc }}</p>
+                {% endif %}
+            </div>
+            <span class="shrink-0 text-xs px-2 py-0.5 rounded-full font-medium {{ c.status_cls }}">
+                {{ c.status_label }}
+            </span>
+        </div>
+
+        <!-- Meta tags -->
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">
+                {{ contest_type_labels.get(c.contest_type, c.contest_type) }}
+            </span>
+            <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                {{ metric_labels.get(c.metric_type, c.metric_type) }}
+            </span>
+            {% if c.reward_value %}
+            <span class="text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full">
+                🎁 {{ c.reward_value }}
+            </span>
+            {% endif %}
+        </div>
+
+        <!-- Dates + progress -->
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span>{{ c.start_date|fmt_date if c.start_date else '—' }}</span>
+            <span>{{ c.end_date|fmt_date if c.end_date else '—' }}</span>
+        </div>
+        {% if c.status in ('active', 'finished') and c.start_date and c.end_date %}
+        <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div class="h-full rounded-full transition-all
+                        {% if c.status == 'finished' %}bg-slate-400
+                        {% elif c.progress >= 80 %}bg-emerald-500
+                        {% else %}bg-blue-500{% endif %}"
+                 style="width: {{ c.progress }}%"></div>
+        </div>
+        <p class="text-xs text-slate-400 mt-1 text-right">{{ c.progress }}% времени прошло</p>
+        {% endif %}
+
+        {% if c.target_value %}
+        <div class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
+            Цель: <span class="font-medium text-slate-700">
+                {% if c.metric_type == 'turnover' %}{{ c.target_value|int|fmt_currency }}
+                {% else %}{{ c.target_value|int }}&thinsp;шт.{% endif %}
+            </span>
+        </div>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- Leaderboard panel -->
+{% if selected_contest %}
+<div class="card overflow-hidden mt-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+        <h2 class="font-semibold text-slate-800">🏆 Рейтинг: {{ selected_contest.title }}</h2>
+        <span class="text-xs {{ selected_contest.status_cls }} px-2 py-0.5 rounded-full">
+            {{ selected_contest.status_label }}
+        </span>
+    </div>
+
+    {% if leaderboard %}
+    <div class="divide-y divide-slate-50">
+        {% for r in leaderboard %}
+        <div class="px-5 py-3 flex items-center gap-4 hover:bg-slate-50/60 transition-colors
+                    {% if r.pos == 1 %}bg-amber-50/40{% elif r.pos == 2 %}bg-slate-50/60{% elif r.pos == 3 %}bg-orange-50/30{% endif %}">
+            <div class="w-8 text-center shrink-0">
+                {% if r.pos == 1 %}🥇{% elif r.pos == 2 %}🥈{% elif r.pos == 3 %}🥉
+                {% else %}<span class="text-sm font-bold text-slate-300">#{{ r.pos }}</span>{% endif %}
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="font-medium text-slate-800 truncate">{{ r.label }}</p>
+                {% if r.get('sub') %}<p class="text-xs text-slate-400">{{ r.sub }}</p>{% endif %}
+                <div class="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full {{ 'bg-amber-400' if r.pos==1 else 'bg-slate-400' if r.pos==2 else 'bg-orange-400' if r.pos==3 else 'bg-blue-300' }}"
+                         style="width: {{ r.pct }}%"></div>
+                </div>
+            </div>
+            <div class="text-right shrink-0">
+                {% if selected_contest.metric_type == 'turnover' %}
+                <p class="font-bold text-emerald-600">{{ r.value|int|fmt_currency }}</p>
+                {% else %}
+                <p class="font-bold text-slate-700">{{ r.value|int }}&thinsp;шт.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="py-12 text-center text-slate-400">
+        <p class="text-4xl mb-2">📭</p>
+        <p class="text-sm">Продаж за период конкурса нет</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="card py-20 text-center text-slate-400">
+    <p class="text-6xl mb-4">🎁</p>
+    <p class="text-base font-medium text-slate-600">
+        {% if status_filter %}Конкурсов с таким статусом нет{% else %}Конкурсы не созданы{% endif %}
+    </p>
+    <p class="text-sm mt-1">Конкурсы создаются через бота</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block footer_info %}{{ contests|length }} конкурсов{% endblock %}
