@@ -34,24 +34,23 @@ def _aggregate(all_sales, group_by: str):
         if group_by == "product":
             key = s[1]
             if key not in groups:
-                groups[key] = {"label": s[7] or "—", "sub": s[8] or "—", "qty": 0, "revenue": 0.0, "count": 0}
+                groups[key] = {"id": s[1], "label": s[7] or "—", "sub": s[8] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": f"/products/{s[1]}"}
         elif group_by == "category":
             key = s[8] or "Без категории"
             if key not in groups:
-                groups[key] = {"label": key, "sub": "", "qty": 0, "revenue": 0.0, "count": 0}
+                groups[key] = {"id": None, "label": key, "sub": "", "qty": 0, "revenue": 0.0, "count": 0, "link": None}
         elif group_by == "shop":
             key = s[2] or "—"
             if key not in groups:
-                groups[key] = {"label": key, "sub": "", "qty": 0, "revenue": 0.0, "count": 0}
+                groups[key] = {"id": None, "label": key, "sub": "", "qty": 0, "revenue": 0.0, "count": 0, "link": f"/inventory?shop={key}"}
         else:  # seller
             key = s[5]
             fname = (s[9] or "").strip()
             lname = (s[10] or "").strip()
             name = f"{fname} {lname}".strip() or f"id{key}"
             if key not in groups:
-                groups[key] = {"label": name, "sub": s[2] or "—", "qty": 0, "revenue": 0.0, "count": 0}
+                groups[key] = {"id": key, "label": name, "sub": s[2] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": f"/staff/{key}"}
             else:
-                # accumulate shops
                 pass
 
         groups[key]["qty"] += qty
