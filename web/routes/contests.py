@@ -132,12 +132,13 @@ def contests_page(
                         leaderboard.append({
                             "pos": i + 1,
                             "label": r[0] or "—",
+                            "shop_name": r[0] or None,
                             "value": val,
                             "pct": round(val / max(max_val, 1) * 100),
                         })
                 else:
                     raw_lb = db.get_sales_ranking(**kwargs) or []
-                    # first_name[0] last_name[1] shop_name[2] total_sold[3] total_revenue[4]
+                    # first_name[0] last_name[1] shop_name[2] total_sold[3] total_revenue[4] ... user_db_id[7]
                     max_val = float(raw_lb[0][4] if raw_lb else 1)
                     leaderboard = []
                     for i, r in enumerate(raw_lb[:10]):
@@ -149,6 +150,7 @@ def contests_page(
                             "sub": r[2] or "—",
                             "value": val,
                             "pct": round(val / max(max_val, 1) * 100),
+                            "user_db_id": r[7] if len(r) > 7 else None,
                         })
                 ctx["leaderboard"] = leaderboard
 
