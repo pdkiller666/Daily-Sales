@@ -17,6 +17,7 @@ def sales_page(
     date_from: str = "",
     date_to: str = "",
     shop: str = "",
+    seller_id: int = 0,
     page: int = 1,
 ):
     from web.auth import get_session_user
@@ -31,8 +32,9 @@ def sales_page(
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "sales": [], "shops": [],
+        "sales": [], "shops": [], "sellers": [],
         "date_from": date_from, "date_to": date_to, "selected_shop": shop,
+        "selected_seller_id": seller_id,
         "page": 1, "total_pages": 1, "total_count": 0,
         "summary": _summary_empty(), "error": None,
     }
@@ -54,11 +56,27 @@ def sales_page(
 
         ctx["shops"] = db.get_all_shops() or []
 
+        # Build sellers list for dropdown
+        try:
+            all_users = db.get_all_users() or []
+            # users: id[0] telegram_id[1] first_name[2] last_name[3] ... shop_name[8]
+            sellers = [
+                {"id": u[0], "name": f"{u[2] or ''} {u[3] or ''}".strip()}
+                for u in all_users if u[8] not in ("Системный", "System", None)
+            ]
+            ctx["sellers"] = sorted(sellers, key=lambda x: x["name"].lower())
+        except Exception:
+            pass
+
         kwargs: dict = {"start_date": date_from, "end_date": date_to}
         if shop:
             kwargs["shop_name"] = shop
 
         all_sales = db.get_sales_report(**kwargs) or []
+
+        # Filter by seller if requested
+        if seller_id:
+            all_sales = [s for s in all_sales if s[5] == seller_id]
 
         total = len(all_sales)
         total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
