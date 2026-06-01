@@ -13,6 +13,10 @@
         <h1 class="text-2xl font-bold text-slate-800">Отчёты</h1>
         <p class="text-sm text-slate-500 mt-0.5">Аналитика продаж</p>
     </div>
+    <a href="/sales/export.xlsx?date_from={{ date_from }}&date_to={{ date_to }}{% if selected_shop %}&shop={{ selected_shop|urlencode }}{% endif %}"
+       class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
+        📥 Excel
+    </a>
 </div>
 
 {% if error %}
