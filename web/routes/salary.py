@@ -97,15 +97,31 @@ def salary_page(
 
         # If a specific user is selected, show their calendar + adjustments
         if user_id:
+            import calendar as _cal
             work_days = db.get_work_schedule(user_id, year, month)
             adj_rows = db.get_salary_adjustments(user_id, year, month) or []
             adj_sum_val = db.get_salary_adjustments_sum(user_id, year, month)
             rate_row = next((s for s in staff_salary if s["user_id"] == user_id), None)
 
+            # Build calendar grid: list of weeks, each week = list of (day_num | 0)
+            first_weekday, days_in_month = _cal.monthrange(year, month)
+            # first_weekday: 0=Mon..6=Sun
+            cal_grid: list[list[int]] = []
+            week: list[int] = [0] * first_weekday
+            for d in range(1, days_in_month + 1):
+                week.append(d)
+                if len(week) == 7:
+                    cal_grid.append(week)
+                    week = []
+            if week:
+                week += [0] * (7 - len(week))
+                cal_grid.append(week)
+
             ctx["detail_user"] = rate_row
-            ctx["work_days_set"] = {d[8:10] for d in work_days}  # day numbers as "01".."31"
+            ctx["work_days_set"] = {int(d[8:10]) for d in work_days}  # day numbers as ints
             ctx["adjustments"] = adj_rows
             ctx["adj_sum"] = adj_sum_val
+            ctx["cal_grid"] = cal_grid
 
     except Exception as exc:
         ctx["error"] = str(exc)

@@ -131,36 +131,25 @@
     <!-- Calendar -->
     <div class="mb-5">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">График смен</p>
-        <div class="grid grid-cols-7 gap-1 text-center">
+        <div class="grid grid-cols-7 gap-1 text-center text-xs">
             {% for day_name in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] %}
-            <div class="text-xs text-slate-400 font-medium py-1">{{ day_name }}</div>
+            <div class="text-slate-400 font-semibold py-1">{{ day_name }}</div>
             {% endfor %}
-
-            {% import 'calendar' as cal %}
-            {# Build calendar rows for the month #}
-            {% set ns = namespace(day=1) %}
-            {% set first_weekday = (year|string + '-' + '%02d'|format(month) + '-01')|string %}
-
-            {# Simple day grid — render days 01..31 of current month #}
-            {% set days_in_month = [31,28,31,30,31,30,31,31,30,31,30,31][month-1] %}
-            {# Account for leap year #}
-            {% if month == 2 and (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) %}
-            {% set days_in_month = 29 %}
-            {% endif %}
-
-            {# Get weekday of first day (0=Mon) using Python's date #}
-            {# We'll pass a sequence and use Jinja2's loop #}
-            {% for day in range(1, days_in_month + 1) %}
-                {% set day_str = '%02d'|format(day) %}
-                {% set worked = day_str in work_days_set %}
-                <div class="aspect-square flex items-center justify-center rounded-lg text-xs font-medium
-                            {% if worked %}bg-emerald-500 text-white shadow-sm
-                            {% else %}bg-slate-50 text-slate-400{% endif %}">
-                    {{ day }}
-                </div>
+            {% for week in cal_grid %}
+                {% for day in week %}
+                    {% if day == 0 %}
+                    <div></div>
+                    {% else %}
+                    <div class="aspect-square flex items-center justify-center rounded-lg font-medium
+                                {% if day in work_days_set %}bg-emerald-500 text-white shadow-sm
+                                {% else %}bg-slate-50 text-slate-400{% endif %}">
+                        {{ day }}
+                    </div>
+                    {% endif %}
+                {% endfor %}
             {% endfor %}
         </div>
-        <p class="text-xs text-slate-400 mt-2">🟢 Рабочая смена</p>
+        <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена</p>
     </div>
 
     <!-- Adjustments -->

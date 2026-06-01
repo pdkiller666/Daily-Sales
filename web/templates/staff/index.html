@@ -74,7 +74,8 @@
             </thead>
             <tbody class="divide-y divide-slate-50">
                 {% for s in staff %}
-                <tr class="hover:bg-slate-50/70 transition-colors">
+                <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                    onclick="window.location='/staff/{{ s.id }}'">
                     <td class="px-5 py-3">
                         <div class="flex items-center gap-2.5">
                             <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
