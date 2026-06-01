@@ -128,8 +128,15 @@
                 <tr class="hover:bg-slate-50/70 transition-colors">
                     <td class="px-5 py-3 text-xs text-slate-400">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-3">
+                        {% if s[1] %}
+                        <a href="/products/{{ s[1] }}" class="group">
+                            <p class="font-medium text-slate-800 max-w-[180px] truncate group-hover:text-blue-600 transition-colors" title="{{ s[7] }}">{{ s[7] }}</p>
+                            <p class="text-xs text-slate-400">{{ s[8] or '—' }}</p>
+                        </a>
+                        {% else %}
                         <p class="font-medium text-slate-800 max-w-[180px] truncate" title="{{ s[7] }}">{{ s[7] }}</p>
                         <p class="text-xs text-slate-400">{{ s[8] or '—' }}</p>
+                        {% endif %}
                     </td>
                     <td class="px-3 py-3 hidden sm:table-cell">
                         <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{{ s[2] }}</span>

@@ -6,7 +6,7 @@ router = APIRouter()
 
 
 @router.get("/inventory")
-def inventory_page(request: Request, shop: str = ""):
+def inventory_page(request: Request, shop: str = "", q: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -19,7 +19,7 @@ def inventory_page(request: Request, shop: str = ""):
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "shops": [], "selected_shop": shop,
+        "shops": [], "selected_shop": shop, "q": q,
         "inventory": [], "total_items": 0,
         "out_of_stock": 0, "low_stock": 0, "error": None,
     }
@@ -44,6 +44,11 @@ def inventory_page(request: Request, shop: str = ""):
             return (1 if qty > 0 else 0, qty, (r[6] or "").lower())
 
         inventory = sorted(raw, key=_sort_key)
+
+        # Client-side search filter by product name / category
+        if q:
+            ql = q.lower()
+            inventory = [r for r in inventory if ql in (r[6] or "").lower() or ql in (r[7] or "").lower()]
 
         ctx["inventory"] = inventory
         ctx["total_items"] = len(inventory)
