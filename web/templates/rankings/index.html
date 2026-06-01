@@ -68,8 +68,12 @@
         {% for r in ranking %}
         <div class="px-5 py-4 transition-colors
                     {% if r.pos == 1 %}bg-amber-50/40{% elif r.pos == 2 %}bg-slate-50/60{% elif r.pos == 3 %}bg-orange-50/30{% endif %}
-                    {% if tab == 'sellers' and r.user_db_id %}hover:bg-blue-50/40 cursor-pointer{% else %}hover:bg-slate-50/60{% endif %}"
-             {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}'"{% endif %}>
+                    {% if tab == 'sellers' and r.user_db_id %}hover:bg-blue-50/40 cursor-pointer
+                    {% elif tab == 'shops' and r.label %}hover:bg-blue-50/40 cursor-pointer
+                    {% else %}hover:bg-slate-50/60{% endif %}"
+             {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}'"
+             {% elif tab == 'shops' and r.label %}onclick="window.location='/inventory?shop={{ r.label|urlencode }}'"
+             {% endif %}>
             <div class="flex items-center gap-4">
 
                 <!-- Position -->
