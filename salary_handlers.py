@@ -725,10 +725,6 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
             callback_data=f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
         )
     builder.adjust(1)
-    builder.row(InlineKeyboardButton(
-        text="🗓 Применить к месяцам →",
-        callback_data=f"slr_fwd_{target_uid}_{yr}_{mo}"
-    ))
     builder.add(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
 
     await callback.message.edit_text(
@@ -886,6 +882,10 @@ async def salary_fill_month_confirm(callback: CallbackQuery, state: FSMContext):
         text=f"✅ Да, заполнить {month_name}",
         callback_data=f"slr_fillok_{target_uid}_{yr}_{mo}"
     ))
+    builder.row(InlineKeyboardButton(
+        text="🗓 Применить к нескольким месяцам →",
+        callback_data=f"slr_fwd_{target_uid}_{yr}_{mo}"
+    ))
     builder.row(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
 
     await callback.message.edit_text(
@@ -942,10 +942,13 @@ async def salary_fill_period_select(callback: CallbackQuery, state: FSMContext):
 
     mo2, yr2 = (mo + 1, yr) if mo < 12 else (1, yr + 1)
     mo3, yr3 = (mo2 + 1, yr2) if mo2 < 12 else (1, yr2 + 1)
+    # Кол-во месяцев до конца года (включая текущий)
+    months_till_dec = 13 - mo
 
     m1 = _MONTH_NAMES[mo - 1]
     m2 = _MONTH_NAMES[mo2 - 1]
     m3 = _MONTH_NAMES[mo3 - 1]
+    m_dec = _MONTH_NAMES[11]  # Декабрь
 
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(
@@ -960,7 +963,13 @@ async def salary_fill_period_select(callback: CallbackQuery, state: FSMContext):
         text=f"📅 {m1} + {m2} + {m3}",
         callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_3"
     ))
-    builder.row(back_button(f"slr_tmpl_{target_uid}_{yr}_{mo}"))
+    # «Весь год» — показываем только если охватывает больше 3 месяцев
+    if months_till_dec > 3:
+        builder.row(InlineKeyboardButton(
+            text=f"📅 Весь год ({m1} – {m_dec})",
+            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_{months_till_dec}"
+        ))
+    builder.row(back_button(f"slr_fill_{target_uid}_{yr}_{mo}"))
 
     await callback.message.edit_text(
         f"🗓 <b>Применить шаблон: {name}</b>\n\n"
