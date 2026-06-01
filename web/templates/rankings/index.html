@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Рейтинги{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Рейтинги</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Рейтинги</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Топ продавцов, магазинов и городов</p>
+    </div>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Period selector -->
+<div class="flex flex-wrap gap-2 mb-4">
+    {% for p, lbl in [('week','7 дней'),('month','Месяц'),('prev_month','Прошлый месяц'),('all','Всё время')] %}
+    <a href="/rankings?tab={{ tab }}&period={{ p }}"
+       class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+              {{ 'bg-blue-600 text-white border-blue-600' if period == p else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
+        {{ lbl }}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- Tab selector -->
+<div class="flex gap-2 mb-5">
+    {% for t, lbl, icon in [('sellers','Продавцы','👤'),('shops','Магазины','🏪'),('cities','Города','🌆')] %}
+    <a href="/rankings?tab={{ t }}&period={{ period }}"
+       class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors border
+              {{ 'bg-blue-600 text-white border-blue-600 shadow-sm' if tab == t else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600' }}">
+        <span>{{ icon }}</span>{{ lbl }}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- Ranking list -->
+<div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+        <h2 class="font-semibold text-slate-800">
+            {% if tab == 'sellers' %}Рейтинг продавцов
+            {% elif tab == 'shops' %}Рейтинг магазинов
+            {% else %}Рейтинг городов{% endif %}
+        </h2>
+        {% if date_from %}
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+            {{ date_from|fmt_date }} — {{ date_to|fmt_date }}
+        </span>
+        {% else %}
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Всё время</span>
+        {% endif %}
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
+            {{ ranking|length }} позиций
+        </span>
+    </div>
+
+    {% if ranking %}
+    <div class="divide-y divide-slate-50">
+        {% for r in ranking %}
+        <div class="px-5 py-4 hover:bg-slate-50/60 transition-colors
+                    {% if r.pos == 1 %}bg-amber-50/40{% elif r.pos == 2 %}bg-slate-50/60{% elif r.pos == 3 %}bg-orange-50/30{% endif %}">
+            <div class="flex items-center gap-4">
+
+                <!-- Position -->
+                <div class="w-10 text-center shrink-0">
+                    {% if r.medal %}
+                    <span class="text-2xl">{{ r.medal }}</span>
+                    {% else %}
+                    <span class="text-lg font-bold text-slate-300">#{{ r.pos }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- Info -->
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold text-slate-800">{{ r.label }}</span>
+                        {% if r.username %}
+                        <span class="text-xs text-slate-400">@{{ r.username }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="text-xs text-slate-500">{{ r.sub }}</span>
+                        <span class="text-xs text-slate-300">·</span>
+                        <span class="text-xs text-slate-500">{{ r.count }}&thinsp;продаж</span>
+                        <span class="text-xs text-slate-300">·</span>
+                        <span class="text-xs text-slate-500">{{ r.qty }}&thinsp;шт.</span>
+                    </div>
+                    <!-- Progress bar vs leader -->
+                    <div class="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full transition-all
+                                    {% if r.pos == 1 %}bg-amber-400
+                                    {% elif r.pos == 2 %}bg-slate-400
+                                    {% elif r.pos == 3 %}bg-orange-400
+                                    {% else %}bg-blue-300{% endif %}"
+                             style="width: {{ r.pct }}%"></div>
+                    </div>
+                </div>
+
+                <!-- Revenue -->
+                <div class="text-right shrink-0">
+                    <p class="text-base font-bold text-emerald-600">{{ r.revenue|int|fmt_currency }}</p>
+                    {% if r.earnings > 0 %}
+                    <p class="text-xs text-slate-400">з/п {{ r.earnings|int|fmt_currency }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="py-16 text-center text-slate-400">
+        <p class="text-5xl mb-3">🏆</p>
+        <p class="text-sm font-medium">Нет данных за выбранный период</p>
+        <p class="text-xs mt-1">Выберите другой период</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block footer_info %}
+{% if tab == 'sellers' %}Продавцы{% elif tab == 'shops' %}Магазины{% else %}Города{% endif %}
+· {{ ranking|length }} позиций
+{% endblock %}

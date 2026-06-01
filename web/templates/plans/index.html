@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Планы продаж{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Планы продаж</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Планы продаж</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Прогресс выполнения планов</p>
+    </div>
+    <!-- Toggle active/all -->
+    <div class="flex gap-1 bg-slate-100 p-1 rounded-lg">
+        <a href="/plans?active_only=1"
+           class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+                  {{ 'bg-white text-slate-800 shadow-sm' if active_only == '1' else 'text-slate-500 hover:text-slate-700' }}">
+            Активные
+        </a>
+        <a href="/plans?active_only=0"
+           class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+                  {{ 'bg-white text-slate-800 shadow-sm' if active_only == '0' else 'text-slate-500 hover:text-slate-700' }}">
+            Все
+        </a>
+    </div>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if plans_data %}
+<!-- Summary strip -->
+{% set done_count = plans_data | selectattr('pct_raw', 'ge', 100) | list | length %}
+{% set in_progress = plans_data | selectattr('pct_raw', 'lt', 100) | selectattr('pct_raw', 'gt', 0) | list | length %}
+<div class="grid grid-cols-3 gap-4 mb-5">
+    <div class="card p-4 text-center">
+        <p class="text-2xl font-bold text-slate-800">{{ plans_data|length }}</p>
+        <p class="text-xs text-slate-400 mt-1">Всего планов</p>
+    </div>
+    <div class="card p-4 text-center">
+        <p class="text-2xl font-bold text-emerald-600">{{ done_count }}</p>
+        <p class="text-xs text-slate-400 mt-1">Выполнено</p>
+    </div>
+    <div class="card p-4 text-center">
+        <p class="text-2xl font-bold text-blue-500">{{ in_progress }}</p>
+        <p class="text-xs text-slate-400 mt-1">В процессе</p>
+    </div>
+</div>
+
+<!-- Plans cards -->
+<div class="space-y-3">
+    {% for p in plans_data %}
+    <div class="card p-5 {% if not p.is_active %}opacity-60{% endif %}">
+        <div class="flex items-start justify-between gap-4 mb-3">
+            <div class="flex-1 min-w-0">
+                <!-- Header row -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold text-slate-800">{{ p.target_who }}</span>
+                    <!-- Plan type badge -->
+                    <span class="text-xs px-2 py-0.5 rounded-full font-medium
+                                 {{ 'bg-indigo-50 text-indigo-600' if p.plan_type == 'weekly' else 'bg-purple-50 text-purple-600' }}">
+                        {{ plan_type_labels.get(p.plan_type, p.plan_type) }}
+                    </span>
+                    <!-- Target type -->
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                        {{ target_labels.get(p.target_type, p.target_type) }}
+                    </span>
+                    {% if not p.is_active %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">завершён</span>
+                    {% endif %}
+                </div>
+                <!-- Metric and filter -->
+                <div class="flex items-center gap-2 mt-1 flex-wrap">
+                    <span class="text-xs text-slate-500">
+                        Метрика: <span class="font-medium">{{ metric_labels.get(p.metric_type, p.metric_type) }}</span>
+                    </span>
+                    {% if p.filter_desc %}
+                    <span class="text-xs text-slate-300">·</span>
+                    <span class="text-xs text-indigo-500">{{ p.filter_desc }}</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Percent bubble -->
+            <div class="shrink-0 w-16 h-16 rounded-full flex items-center justify-center border-4
+                        {% if p.pct_raw >= 100 %}border-emerald-400 bg-emerald-50
+                        {% elif p.pct_raw >= 70 %}border-blue-400 bg-blue-50
+                        {% elif p.pct_raw >= 40 %}border-amber-400 bg-amber-50
+                        {% else %}border-red-300 bg-red-50{% endif %}">
+                <span class="text-sm font-bold {{ p.pct_cls }}">{{ p.pct_raw|int }}%</span>
+            </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden mb-3">
+            <div class="h-full rounded-full transition-all {{ p.bar_cls }}"
+                 style="width: {{ p.pct }}%"></div>
+        </div>
+
+        <!-- Numbers -->
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div>
+                    <p class="text-xs text-slate-400">Факт</p>
+                    <p class="text-sm font-bold text-slate-800">
+                        {% if p.is_metric_revenue %}{{ p.actual|int|fmt_currency }}{% else %}{{ p.actual|int }}&thinsp;шт.{% endif %}
+                    </p>
+                </div>
+                <div class="text-slate-200 text-lg">→</div>
+                <div>
+                    <p class="text-xs text-slate-400">План</p>
+                    <p class="text-sm font-bold text-slate-500">
+                        {% if p.is_metric_revenue %}{{ p.target_value|int|fmt_currency }}{% else %}{{ p.target_value|int }}&thinsp;шт.{% endif %}
+                    </p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-400">Остаток</p>
+                    <p class="text-sm font-medium {{ 'text-emerald-600' if p.pct_raw >= 100 else 'text-red-500' }}">
+                        {% set remaining = p.target_value - p.actual %}
+                        {% if remaining <= 0 %}
+                        ✅ выполнен
+                        {% elif p.is_metric_revenue %}
+                        {{ remaining|int|fmt_currency }}
+                        {% else %}
+                        {{ remaining|int }}&thinsp;шт.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            <span class="text-xs text-slate-400">{{ p.created_at|fmt_date }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="card py-20 text-center text-slate-400">
+    <p class="text-6xl mb-4">🎯</p>
+    <p class="text-base font-medium text-slate-600">
+        {% if active_only == '1' %}Нет активных планов{% else %}Планы не созданы{% endif %}
+    </p>
+    <p class="text-sm mt-1">Планы создаются в боте разделом «Планы продаж»</p>
+    {% if active_only == '1' %}
+    <a href="/plans?active_only=0" class="text-xs text-blue-500 hover:underline mt-2 inline-block">Показать все</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block footer_info %}{{ plans_data|length }} планов{% endblock %}

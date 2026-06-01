@@ -61,28 +61,28 @@
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Аналитика</p>
 
-        <a href="#" class="nav-link disabled">
+        <a href="/reports"
+           class="nav-link {% if request.url.path.startswith('/reports') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📈</span>Отчёты
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/rankings"
+           class="nav-link {% if request.url.path.startswith('/rankings') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🏆</span>Рейтинги
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Команда</p>
 
-        <a href="#" class="nav-link disabled">
+        <a href="/staff"
+           class="nav-link {% if request.url.path.startswith('/staff') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">👥</span>Сотрудники
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
         <a href="#" class="nav-link disabled">
             <span class="nav-icon mr-3 text-base">💸</span>Зарплата
             <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
-        <a href="#" class="nav-link disabled">
+        <a href="/plans"
+           class="nav-link {% if request.url.path.startswith('/plans') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎯</span>Планы
-            <span class="ml-auto text-[10px] bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded-full">скоро</span>
         </a>
         <a href="#" class="nav-link disabled">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
