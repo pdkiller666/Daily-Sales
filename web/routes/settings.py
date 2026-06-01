@@ -37,6 +37,7 @@ def settings_page(request: Request, saved: str = ""):
         "user_db_id": None,
         "saved": saved == "1",
         "error": None,
+        "scheduled_notifications": [],
     }
 
     try:
@@ -53,6 +54,29 @@ def settings_page(request: Request, saved: str = ""):
                 "admin_notifications": True, "stock_threshold": 5,
                 "notification_time": "09:00", "shift_sale_alerts": True,
             }
+
+        # Scheduled notifications (admin only)
+        if user.get("role") in ("owner", "admin", "super_admin"):
+            raw_sched = db.get_scheduled_notifications(status=None) or []
+            scheduled = []
+            for sn in raw_sched:
+                # id[0] job_id[1] created_by[2] text[3] recipients_type[4]
+                # recipients_list[5] scheduled_datetime[6] status[7] created_at[8]
+                # first_name[9] last_name[10]
+                fname = (sn[9] if len(sn) > 9 else "") or ""
+                lname = (sn[10] if len(sn) > 10 else "") or ""
+                creator = f"{fname} {lname}".strip() or "—"
+                scheduled.append({
+                    "id": sn[0], "text": (sn[3] or "")[:120],
+                    "recipients_type": sn[4] or "",
+                    "scheduled_at": (sn[6] or "")[:16].replace("T", " "),
+                    "status": sn[7] or "pending",
+                    "creator": creator,
+                    "created_at": (sn[8] or "")[:10],
+                })
+            ctx["scheduled_notifications"] = scheduled
+        else:
+            ctx["scheduled_notifications"] = []
 
         # Org info from main.db
         import sqlite3

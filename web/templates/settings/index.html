@@ -206,6 +206,53 @@
 
     </div>
 </div>
+
+<!-- Scheduled notifications (admins only) -->
+{% if is_admin and scheduled_notifications %}
+<div class="card overflow-hidden mt-6">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+            <h2 class="font-semibold text-slate-800">📅 Запланированные уведомления</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Созданы в боте, отправятся автоматически</p>
+        </div>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+            {{ scheduled_notifications|length }}
+        </span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% for sn in scheduled_notifications %}
+        <div class="px-5 py-3.5 flex items-start gap-3">
+            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0
+                        {% if sn.status == 'sent' %}bg-emerald-400
+                        {% elif sn.status == 'pending' %}bg-blue-400
+                        {% else %}bg-slate-300{% endif %}">
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-slate-700 leading-snug">{{ sn.text }}</p>
+                <div class="flex items-center gap-3 mt-1 flex-wrap">
+                    <span class="text-xs text-slate-400">📤 {{ sn.recipients_type }}</span>
+                    <span class="text-xs text-slate-400">🕐 {{ sn.scheduled_at }}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded font-medium
+                                 {% if sn.status == 'sent' %}bg-emerald-50 text-emerald-600
+                                 {% elif sn.status == 'pending' %}bg-blue-50 text-blue-600
+                                 {% else %}bg-slate-50 text-slate-500{% endif %}">
+                        {{ sn.status }}
+                    </span>
+                    {% if sn.creator %}
+                    <span class="text-xs text-slate-400">от {{ sn.creator }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% elif is_admin %}
+<div class="card p-5 mt-6 text-center text-slate-400">
+    <p class="text-sm">Запланированных уведомлений нет</p>
+    <p class="text-xs mt-1">Создаются в боте через раздел «Уведомления»</p>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block footer_info %}Настройки аккаунта{% endblock %}

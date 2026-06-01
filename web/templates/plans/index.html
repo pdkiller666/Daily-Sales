@@ -56,7 +56,9 @@
 <!-- Plans cards -->
 <div class="space-y-3">
     {% for p in plans_data %}
-    <div class="card p-5 {% if not p.is_active %}opacity-60{% endif %}">
+    <div class="card p-5 cursor-pointer hover:shadow-md transition-shadow {% if not p.is_active %}opacity-60{% endif %}"
+         onclick="window.location='/plans/{{ p.id }}'"
+         title="Открыть детальный просмотр плана">
         <div class="flex items-start justify-between gap-4 mb-3">
             <div class="flex-1 min-w-0">
                 <!-- Header row -->
