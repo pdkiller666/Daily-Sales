@@ -28,6 +28,11 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `cc5507d` · Amvera `f4792e4` (2026-05-31, сессия 237). Оба хэша верифицированы через `git ls-remote`.
 
+**Сессии 234–237 (2026-05-31) — «Системный» shop fix + filter panel + perf:**
+- 234-235: `get_all_shops()` / `get_inventory_shops()` — параметр `include_system=False`; суперадмин передаёт `include_system=True`
+- 236: Пресет инвайта — UNION с inventory (ТЦ Бум теперь виден)
+- 237: `filter_utils.py` — shops из users+shops+inventory; `_low_stock_count` — shops из users+shops; `asyncio.gather` в commission_handlers (3 места) и sales_plans_handlers
+
 **Сессия 224 (2026-05-27) — INVITE SYSTEM IMPROVEMENTS (A–E):**
 - **А) Deep-link**: `/start CODE` через `Command("start")` filter в `handlers.py`; парсит аргумент инвайт-кода и автоматически привязывает к орге без ручного ввода
 - **Б) Ротация кода**: `rotate_invite_code(org_id)` в `tenant_manager.py`; кнопка «🔄 Сбросить код» на экране инвайта → новый код генерируется и обновляется в БД
@@ -917,6 +922,25 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 ---
 
+**Сессии 234–235 (2026-05-31) — ИСПРАВЛЕНИЕ ВИДИМОСТИ МАГАЗИНА «СИСТЕМНЫЙ»:**
+1. `database.py`: добавлен параметр `include_system=False` в `get_all_shops()`, `get_shops_with_stats()`; все UNION-части (users + shops + inventory) фильтруют «Системный»/«System» для обычных пользователей. Супер-администратор передаёт `include_system=True`.
+2. `database.py`: `get_inventory_shops()` — аналогично фильтрует «Системный».
+3. `admin_handlers.py`: `_get_shops_with_stats()` + все 14 точек вызова обновлены под новый параметр.
+4. GitHub `974aa37` · Amvera `c496f12`.
+
+**Сессия 236 (2026-05-31) — ПРЕСЕТ: ИСПРАВЛЕНИЕ ОТСУТСТВИЯ ТЦ БУМ:**
+1. `admin_handlers.py`: `invite_preset_role_handler` и `invite_preset_shop_handler` — добавлен третий UNION-блок `inventory` к UNION-запросу. Пресет теперь показывает магазины из users + shops + inventory.
+2. GitHub `f86e21d` · Amvera `f86e21d`.
+
+**Сессия 237 (2026-05-31) — АУДИТ + ФИКС filter_utils + LOW-STOCK + asyncio.gather:**
+1. **`filter_utils.py` (Bug fix)**: `get_available_filter_values()` — список магазинов объединяет три источника: `users.shop_name`, `shops.name`, `inventory.shop_name` — каждый с отдельным `try/except`. Магазины без сотрудников (типа ТЦ Бум) теперь появляются в панели 🔍 Фильтр в Отчётах / Рейтингах / Прогрессе планов.
+2. **`dashboard_handlers.py` (Bug fix)**: `_low_stock_count()` для scope city/network теперь ищет магазины в `users` и в `shops` (с `try/except` fallback). Инвентарные магазины без сотрудников включены в подсчёт.
+3. **`commission_handlers.py` (Оптимизация)**: добавлен `import asyncio`; три хендлера переведены на `asyncio.gather()`: `view_motivations` (motivations+products параллельно), `remove_motivation_start` (то же), `remove_motiv_cat_selected` (categories + motivations + products — все три параллельно).
+4. **`sales_plans_handlers.py` (Оптимизация)**: `plnwiz_metric_selected` — `get_all_categories()` + `get_all_products()` параллельно через `asyncio.gather()`.
+5. GitHub `cc5507d` · Amvera `f4792e4`. 48/48 test_imports ✅.
+
+---
+
 ## 7. ТИПИЧНЫЕ ЛОВУШКИ
 
 1. **`clear_state_keep_org` ПОСЛЕ `fsm_edit`** — не до! Иначе anchor_msg_id теряется.
@@ -953,6 +977,8 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 32. **`wrap_db(db)` обязателен** для inline `Database('data/shop_bot.db')` в обычных handlers — иначе методы не будут async. Исключение: payment/subscription handlers, где `Database` допустим напрямую (всегда sync контекст).
 33. **Thread-local pool**: каждый рабочий поток (`asyncio.to_thread`) получает своё соединение. `_PooledConn.close()` НЕ закрывает соединение — только откатывает незакрытые транзакции. Соединение живёт пока живёт поток. При добавлении нового метода в `Database` — используй `self.get_connection()`, не `sqlite3.connect(self.db_file)`.
 34. **`asyncio.gather()` с `return_exceptions=True`**: используй в dashboard и любых экранах с 3+ независимыми DB-запросами. Всегда проверяй каждый результат: `if not isinstance(result, Exception)`. Паттерн: `_r = lambda i, default=None: results[i] if not isinstance(results[i], Exception) else default`.
+35. **`filter_utils.py` — магазины без сотрудников**: `get_available_filter_values()` собирает список магазинов из трёх таблиц: `users.shop_name`, `shops.name`, `inventory.shop_name`. Если новый магазин добавлен только в `inventory` (0 сотрудников) — он появится в фильтре. При изменении логики — обязательно поддерживать все три источника. Инвалидация: `invalidate_filter_values_cache(db_path)` при добавлении/удалении/переименовании магазина.
+36. **`_low_stock_count()` в dashboard**: при scope city/network магазины ищутся в `users` и `shops` таблицах. Таблица `shops` может не иметь сотрудников, но хранит city/trade_network — без неё inventory-only магазины исчезают из подсчёта низких остатков. Fallback `try/except` если таблица `shops` отсутствует.
 
 ---
 

@@ -6553,6 +6553,52 @@ class Database:
             if 'conn' in locals():
                 conn.close()
 
+    def fill_month_by_template(self, user_id: int, year: int, month: int,
+                               marked_by: int = None) -> int:
+        """Заполнить месяц рабочими днями по шаблону смен.
+        Пропускает уже отмеченные дни и дни, у которых шаблон = выходной (None).
+        Возвращает количество добавленных смен."""
+        import calendar as _calendar_mod
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT weekday, start_time, end_time FROM shift_templates WHERE user_id = ?',
+                (user_id,)
+            )
+            templates = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+            if not templates:
+                conn.close()
+                return 0
+            days_in_month = _calendar_mod.monthrange(year, month)[1]
+            added = 0
+            for day in range(1, days_in_month + 1):
+                from datetime import date as _date
+                weekday = _date(year, month, day).weekday()
+                tmpl = templates.get(weekday)
+                if tmpl is None:
+                    continue
+                start_t, end_t = tmpl
+                if start_t is None:
+                    continue
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                cursor.execute(
+                    'INSERT OR IGNORE INTO work_schedule '
+                    '(user_id, work_date, start_time, end_time, marked_by) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (user_id, date_str, start_t, end_t, marked_by)
+                )
+                if cursor.rowcount:
+                    added += 1
+            conn.commit()
+            conn.close()
+            return added
+        except Exception as e:
+            logger.error(f"Ошибка fill_month_by_template: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return 0
+
     def remove_work_day(self, user_id: int, work_date: str) -> None:
         """Удалить рабочий день."""
         try:

@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-05-27 (сессия 229) · 48 модулей · 48 test_imports · GitHub `91ef931` · Amvera `ef1edd7`
+> Последнее обновление: 2026-05-31 (сессия 237) · 48 модулей · 48 test_imports · GitHub `cc5507d` · Amvera `f4792e4`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -243,6 +243,9 @@ ADMIN_FILTER_KEY = "admin_filter"  — ключ в FSM data
 
 empty_filter()                     → dict {shops:[], cities:[], networks:[]}
 get_available_filter_values(db, scope_type, scope_values) → dict
+  # Магазины берутся из ТРЁХ источников: users.shop_name + shops.name + inventory.shop_name
+  # Каждый источник в отдельном try/except — магазины без сотрудников (ТЦ Бум) тоже видны
+  # TTL-кеш 60 сек по db_path; invalidate_filter_values_cache(db_path) при изменении магазинов
 merge_scope_with_filter(scope_type, scope_values, active_filter) → dict  — scope=потолок, filter=пол
 build_filter_keyboard(available, active, back_cb) → InlineKeyboardMarkup
 filter_button_text(active_filter)  → str  — «🔍 Фильтр» / «🔍 Фильтр ✅»

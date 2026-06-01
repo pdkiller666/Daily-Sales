@@ -190,7 +190,7 @@ bash deploy.sh "описание изменений" --no-amvera
 
 ## ✅ Качество кода
 
-- **45 модулей** — все импортируются без ошибок (`python test_imports.py`)
+- **48 модулей** — все импортируются без ошибок (`python test_imports.py`)
 - **702 сценария** — все проходят (`python test_scenarios.py`)
 - **0 bare except** — все исключения типизированы
 - **0 print()** — только `logging`
@@ -213,6 +213,6 @@ bash deploy.sh "описание изменений" --no-amvera
 - **APScheduler**: 9 фоновых задач стартуют в разные секунды минуты
 - **Timezone-aware**: все времена хранятся как UTC, отображаются в TZ пользователя
 - **Filter system**: scope роли — потолок, ручной фильтр — пол; FSM key `admin_filter` сохраняется при `clear_state_keep_org()`
-- **Migrations on access**: `create_tables()` при каждом `get_db()` — миграции применяются автоматически
+- **Migrations on access**: `create_tables()` кешируется в `_INITIALIZED_DBS` — выполняется один раз на путь БД за жизнь процесса, повторные вызовы — мгновенный return
 - **Hosting**: Amvera (production, persistent mount `/app/data`), Replit (development)
 - **Payments**: pluggable провайдеры (СБП / ЮKassa) через `payment_provider.py`

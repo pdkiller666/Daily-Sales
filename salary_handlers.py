@@ -128,6 +128,10 @@ def _calendar_kb(year: int, month: int, worked: set, uid: int = None,
             text="⏰ Расписание смен",
             callback_data=f"slr_tmpl_{tmpl_uid}_{tmpl_yr}_{tmpl_mo}"
         )])
+        rows.append([InlineKeyboardButton(
+            text="🗓 Заполнить месяц по шаблону",
+            callback_data=f"slr_fill_{tmpl_uid}_{tmpl_yr}_{tmpl_mo}"
+        )])
 
     rows.append([back_button(back_cb)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -721,6 +725,26 @@ async def salary_template_screen(callback: CallbackQuery, state: FSMContext):
             callback_data=f"slr_td_{target_uid}_{wd}_{yr}_{mo}"
         )
     builder.adjust(1)
+    # Кнопки «Применить на N месяцев»
+    builder.row(
+        InlineKeyboardButton(
+            text=f"📅 Заполнить {_MONTH_NAMES[mo - 1]}",
+            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_1"
+        )
+    )
+    # Следующие 2 и 3 месяца
+    mo2, yr2 = (mo + 1, yr) if mo < 12 else (1, yr + 1)
+    mo3, yr3 = (mo2 + 1, yr2) if mo2 < 12 else (1, yr2 + 1)
+    builder.row(
+        InlineKeyboardButton(
+            text=f"📅📅 + {_MONTH_NAMES[mo2 - 1]}",
+            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_2"
+        ),
+        InlineKeyboardButton(
+            text=f"📅📅📅 + {_MONTH_NAMES[mo3 - 1]}",
+            callback_data=f"slr_fwdok_{target_uid}_{yr}_{mo}_3"
+        )
+    )
     builder.add(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
 
     await callback.message.edit_text(
@@ -828,6 +852,124 @@ async def salary_template_day_save(callback: CallbackQuery, state: FSMContext):
     await callback.answer(f"✅ {_WEEKDAY_NAMES[wd]}: {start_t}–{end_t} сохранено")
 
     # Сразу возвращаемся в календарь (без промежуточного экрана шаблона)
+    await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
+
+
+# ── Заполнить месяц по шаблону (кнопка на календаре) ─────────────────────────
+
+@salary_router.callback_query(F.data.startswith("slr_fill_"))
+async def salary_fill_month_confirm(callback: CallbackQuery, state: FSMContext):
+    """Экран подтверждения: показывает шаблон и предлагает заполнить месяц."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    parts = callback.data.split("_")
+    # slr_fill_{uid}_{yr}_{mo}
+    target_uid = int(parts[2])
+    yr = int(parts[3])
+    mo = int(parts[4])
+    current_db = await get_db(uid, state)
+
+    templates = await current_db.get_shift_templates(target_uid)
+    user = await current_db.get_user_by_id(target_uid)
+    name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
+
+    if not templates or all(v[0] is None for v in templates.values()):
+        await callback.answer(
+            "⚠️ Шаблон пуст — сначала настройте расписание смен",
+            show_alert=True
+        )
+        return
+
+    month_name = _MONTH_NAMES[mo - 1]
+    lines = [
+        f"🗓 <b>Заполнить {month_name} {yr} по шаблону?</b>\n",
+        f"Сотрудник: <b>{name}</b>\n",
+        "Будут добавлены рабочие дни по расписанию:\n"
+    ]
+    for wd, wd_name in enumerate(_WEEKDAY_NAMES):
+        tmpl = templates.get(wd)
+        if tmpl and tmpl[0]:
+            lines.append(f"  <b>{wd_name}</b>: {_time_range_str(tmpl[0], tmpl[1])}")
+        else:
+            lines.append(f"  <b>{wd_name}</b>: выходной")
+    lines.append("\n⚠️ Уже отмеченные дни не будут затронуты.")
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(
+        text=f"✅ Да, заполнить {month_name}",
+        callback_data=f"slr_fillok_{target_uid}_{yr}_{mo}"
+    ))
+    builder.row(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@salary_router.callback_query(F.data.startswith("slr_fillok_"))
+async def salary_fill_month_execute(callback: CallbackQuery, state: FSMContext):
+    """Выполнить заполнение месяца по шаблону."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_fillok_{uid}_{yr}_{mo}
+    target_uid = int(parts[2])
+    yr = int(parts[3])
+    mo = int(parts[4])
+    current_db = await get_db(uid, state)
+
+    added = await current_db.fill_month_by_template(target_uid, yr, mo, marked_by=uid)
+    month_name = _MONTH_NAMES[mo - 1]
+    if added:
+        await callback.answer(f"✅ Добавлено смен: {added}", show_alert=True)
+    else:
+        await callback.answer(
+            f"ℹ️ {month_name}: все рабочие дни уже отмечены",
+            show_alert=True
+        )
+    await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
+
+
+# ── Применить шаблон на несколько месяцев (кнопка на экране шаблона) ──────────
+
+@salary_router.callback_query(F.data.startswith("slr_fwdok_"))
+async def salary_fill_forward_execute(callback: CallbackQuery, state: FSMContext):
+    """Выполнить заполнение N следующих месяцев по шаблону."""
+    uid = callback.from_user.id
+    if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
+        await callback.answer("❌ Нет доступа", show_alert=True)
+        return
+    parts = callback.data.split("_")
+    # slr_fwdok_{uid}_{yr}_{mo}_{n}
+    target_uid = int(parts[2])
+    yr = int(parts[3])
+    mo = int(parts[4])
+    n  = int(parts[5])
+    current_db = await get_db(uid, state)
+
+    total_added = 0
+    cur_yr, cur_mo = yr, mo
+    for _ in range(n):
+        total_added += await current_db.fill_month_by_template(
+            target_uid, cur_yr, cur_mo, marked_by=uid
+        )
+        cur_mo += 1
+        if cur_mo > 12:
+            cur_mo = 1
+            cur_yr += 1
+
+    if total_added:
+        await callback.answer(f"✅ Добавлено смен: {total_added}", show_alert=True)
+    else:
+        await callback.answer("ℹ️ Все рабочие дни уже отмечены", show_alert=True)
+    # Возвращаемся к календарю первого из заполненных месяцев
     await _refresh_admin_calendar(callback, state, uid, target_uid, yr, mo, current_db)
 
 
