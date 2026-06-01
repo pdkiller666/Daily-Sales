@@ -41,16 +41,34 @@
     <!-- Search by product name -->
     <form method="get" action="/inventory" class="flex gap-2 items-center">
         <input type="hidden" name="shop" value="{{ selected_shop }}">
+        {% if selected_category %}<input type="hidden" name="category" value="{{ selected_category }}">{% endif %}
         <div class="relative flex-1 max-w-xs">
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
             <input type="text" name="q" value="{{ q }}" placeholder="Поиск по названию…"
                    class="w-full border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">Найти</button>
-        {% if q %}
+        {% if q or selected_category %}
         <a href="/inventory?shop={{ selected_shop|urlencode }}" class="text-sm text-slate-400 hover:text-slate-600">× Сбросить</a>
         {% endif %}
     </form>
+    <!-- Category filter -->
+    {% if categories %}
+    <div class="flex flex-wrap gap-2">
+        <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
+           class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+                  {{ 'bg-indigo-600 text-white border-indigo-600' if not selected_category else 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300' }}">
+            Все категории
+        </a>
+        {% for cat in categories %}
+        <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}&category={{ cat|urlencode }}"
+           class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+                  {{ 'bg-indigo-600 text-white border-indigo-600' if cat == selected_category else 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300' }}">
+            {{ cat }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
 </div>
 
 <!-- Stats bar -->

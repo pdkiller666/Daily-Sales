@@ -6,7 +6,7 @@ router = APIRouter()
 
 
 @router.get("/inventory")
-def inventory_page(request: Request, shop: str = "", q: str = ""):
+def inventory_page(request: Request, shop: str = "", q: str = "", category: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -20,6 +20,7 @@ def inventory_page(request: Request, shop: str = "", q: str = ""):
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "shops": [], "selected_shop": shop, "q": q,
+        "categories": [], "selected_category": category,
         "inventory": [], "total_items": 0,
         "out_of_stock": 0, "low_stock": 0, "error": None,
     }
@@ -38,6 +39,10 @@ def inventory_page(request: Request, shop: str = "", q: str = ""):
         #       updated_by[5] name[6] category[7] price[8] updated_by_name[9]
         raw = db.get_all_inventory(shop_name=shop if shop else None) or []
 
+        # Collect unique categories from this shop's inventory
+        categories = sorted({r[7] for r in raw if r[7]})
+        ctx["categories"] = categories
+
         # Sort: out of stock first (qty ≤ 0), then by qty asc, then name
         def _sort_key(r):
             qty = int(r[3] or 0)
@@ -45,10 +50,14 @@ def inventory_page(request: Request, shop: str = "", q: str = ""):
 
         inventory = sorted(raw, key=_sort_key)
 
-        # Client-side search filter by product name / category
+        # Filter by search query (name or category)
         if q:
             ql = q.lower()
             inventory = [r for r in inventory if ql in (r[6] or "").lower() or ql in (r[7] or "").lower()]
+
+        # Filter by selected category
+        if category:
+            inventory = [r for r in inventory if (r[7] or "") == category]
 
         ctx["inventory"] = inventory
         ctx["total_items"] = len(inventory)
