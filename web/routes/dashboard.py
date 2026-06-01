@@ -80,7 +80,23 @@ def dashboard(request: Request):
             try:
                 uid = db.get_user_id(telegram_id)
                 if uid:
-                    ctx["low_stock"] = (db.get_low_stock_items_for_user(uid) or [])[:6]
+                    # Fetch low stock with product_id for clickable links
+                    conn2 = db.get_connection()
+                    cur2 = conn2.cursor()
+                    cur2.execute("""
+                        SELECT p.name, i.quantity, i.shop_name, i.product_id
+                        FROM inventory i
+                        JOIN products p ON i.product_id = p.id
+                        JOIN users u ON u.id = ?
+                        WHERE i.shop_name = u.shop_name
+                          AND i.quantity <= COALESCE(
+                              (SELECT ns.stock_threshold FROM notification_settings ns WHERE ns.user_id = ?), 5
+                          )
+                        ORDER BY i.quantity ASC
+                        LIMIT 6
+                    """, (uid, uid))
+                    ctx["low_stock"] = cur2.fetchall()
+                    conn2.close()
             except Exception:
                 pass
         else:
