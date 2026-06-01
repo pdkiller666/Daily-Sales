@@ -31,54 +31,54 @@
 <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
 
     <!-- Today sales count -->
-    <div class="card p-5">
+    <a href="/sales" class="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Продаж<br>сегодня</p>
             <span class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-xl shrink-0">🛒</span>
         </div>
         <p class="text-3xl font-bold text-slate-800">{{ today_sales }}</p>
         <p class="text-xs text-slate-400 mt-1">транзакций</p>
-    </div>
+    </a>
 
     <!-- Today revenue -->
-    <div class="card p-5">
+    <a href="/reports" class="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Выручка<br>сегодня</p>
             <span class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-xl shrink-0">💰</span>
         </div>
         <p class="text-2xl font-bold text-emerald-600 leading-tight">{{ today_revenue }}</p>
         <p class="text-xs text-slate-400 mt-1">сумма продаж</p>
-    </div>
+    </a>
 
     <!-- Month revenue -->
-    <div class="card p-5">
+    <a href="/reports" class="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Выручка<br>за месяц</p>
             <span class="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-xl shrink-0">📈</span>
         </div>
         <p class="text-2xl font-bold text-indigo-600 leading-tight">{{ month_revenue }}</p>
         <p class="text-xs text-slate-400 mt-1">{{ month_sales }} транзакций</p>
-    </div>
+    </a>
 
     <!-- Users / Products -->
     {% if is_admin %}
-    <div class="card p-5">
+    <a href="/staff" class="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Сотрудники<br>/ товары</p>
             <span class="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center text-xl shrink-0">👥</span>
         </div>
         <p class="text-3xl font-bold text-slate-800">{{ user_count }}</p>
         <p class="text-xs text-slate-400 mt-1">{{ product_count }} товаров в каталоге</p>
-    </div>
+    </a>
     {% else %}
-    <div class="card p-5">
+    <a href="/products" class="card p-5 block hover:shadow-md hover:-translate-y-0.5 transition-all">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Товаров<br>в каталоге</p>
             <span class="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center text-xl shrink-0">📦</span>
         </div>
         <p class="text-3xl font-bold text-slate-800">{{ product_count }}</p>
         <p class="text-xs text-slate-400 mt-1">позиций</p>
-    </div>
+    </a>
     {% endif %}
 
 </div>
