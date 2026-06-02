@@ -132,7 +132,7 @@
         html.dark .ds-dark-knob{transform:translateX(20px)}
     </style>
 </head>
-<body class="h-full bg-slate-100" x-data="{open:false, moreOpen:false}">
+<body class="h-full bg-slate-100" x-data="mainApp()">
 
 <!-- ── Toast notifications (reads ?success= / ?error= from URL) ── -->
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style="max-width:320px"
@@ -646,14 +646,16 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
         }
     });
 
-    /* Escape event → close Alpine sheet */
+    /* Escape event → close Alpine sheets */
     document.addEventListener('ds-escape', function () {
-        /* Try to find Alpine component with moreOpen and close it */
         const body = document.querySelector('[x-data]');
         if (body && body._x_dataStack) {
             try {
                 const data = Alpine.$data ? Alpine.$data(body) : null;
-                if (data && data.moreOpen) data.moreOpen = false;
+                if (data) {
+                    if (data.editNavOpen) data.editNavOpen = false;
+                    else if (data.moreOpen) data.moreOpen = false;
+                }
             } catch (_) {}
         }
     });
@@ -674,6 +676,123 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
         setTimeout(() => d.remove(), 3500);
     }
 })();
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════
+   mainApp() — Alpine root state
+   Handles: sidebar, bottom nav, more-sheet, nav editor
+══════════════════════════════════════════════════ */
+const DS_NAV_KEY = 'ds_nav_v1';
+const DS_NAV_DEFAULTS = ['pos', 'dashboard', 'sales', 'products'];
+const DS_NAV_ALL = [
+    {key:'pos',           icon:'🖥️', label:'Касса',        href:'/pos'},
+    {key:'dashboard',     icon:'📊', label:'Дашборд',      href:'/dashboard'},
+    {key:'sales',         icon:'💰', label:'Продажи',      href:'/sales'},
+    {key:'products',      icon:'📦', label:'Товары',       href:'/products'},
+    {key:'inventory',     icon:'🏪', label:'Остатки',      href:'/inventory'},
+    {key:'reports',       icon:'📈', label:'Отчёты',       href:'/reports'},
+    {key:'rankings',      icon:'🏆', label:'Рейтинги',     href:'/rankings'},
+    {key:'plans',         icon:'🎯', label:'Планы',         href:'/plans'},
+    {key:'salary',        icon:'💸', label:'Зарплата',     href:'/salary'},
+    {key:'schedule',      icon:'📅', label:'График',        href:'/schedule'},
+    {key:'contests',      icon:'🎁', label:'Конкурсы',     href:'/contests'},
+    {key:'staff',         icon:'👥', label:'Сотрудники',   href:'/staff',         adminOnly:true},
+    {key:'shops',         icon:'🏬', label:'Магазины',     href:'/shops',         adminOnly:true},
+    {key:'categories',    icon:'🗂️', label:'Категории',    href:'/categories',    adminOnly:true},
+    {key:'notifications', icon:'🔔', label:'Рассылки',     href:'/notifications', adminOnly:true},
+    {key:'motivation',    icon:'💎', label:'Мотивация',    href:'/motivation',    adminOnly:true},
+    {key:'settings',      icon:'⚙️', label:'Настройки',   href:'/settings'},
+];
+
+function mainApp() {
+    return {
+        open: false,
+        moreOpen: false,
+        editNavOpen: false,
+        navCfg: DS_NAV_DEFAULTS.slice(),
+        editSlots: [],
+        userRole: '{{ user.role if user else "user" }}',
+
+        init() {
+            /* 1. Read localStorage immediately (instant render, no flicker) */
+            try {
+                const s = localStorage.getItem(DS_NAV_KEY);
+                if (s) {
+                    const cfg = JSON.parse(s);
+                    if (Array.isArray(cfg) && cfg.length >= 1) this.navCfg = cfg;
+                }
+            } catch(_) {}
+
+            /* 2. Background sync from server — updates localStorage if different */
+            fetch('/api/nav-config')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.nav && Array.isArray(data.nav) && data.nav.length >= 1) {
+                        this.navCfg = data.nav;
+                        localStorage.setItem(DS_NAV_KEY, JSON.stringify(data.nav));
+                    }
+                })
+                .catch(() => {});
+        },
+
+        get availableItems() {
+            const isAdmin = ['owner', 'admin', 'super_admin'].includes(this.userRole);
+            return DS_NAV_ALL.filter(item => !item.adminOnly || isAdmin);
+        },
+
+        get navItems() {
+            return this.navCfg
+                .map(key => DS_NAV_ALL.find(i => i.key === key))
+                .filter(Boolean);
+        },
+
+        isNavActive(item) {
+            const p = window.location.pathname;
+            if (item.key === 'dashboard') return p === '/dashboard';
+            if (item.key === 'sales') return p.startsWith('/sales') && !p.startsWith('/sales/');
+            return p.startsWith(item.href);
+        },
+
+        get moreActive() {
+            return !this.navItems.some(item => this.isNavActive(item));
+        },
+
+        /* ── Nav Editor ── */
+        openEditNav() {
+            this.editSlots = this.navCfg.slice();
+            this.editNavOpen = true;
+            this.moreOpen = false;
+        },
+
+        isInEditSlots(key) { return this.editSlots.includes(key); },
+        editSlotIndex(key) { return this.editSlots.indexOf(key); },
+
+        toggleEditItem(key) {
+            const idx = this.editSlots.indexOf(key);
+            if (idx >= 0) {
+                this.editSlots.splice(idx, 1);
+            } else if (this.editSlots.length < 4) {
+                this.editSlots.push(key);
+            }
+        },
+
+        removeEditSlot(idx) { this.editSlots.splice(idx, 1); },
+
+        saveNavConfig() {
+            const cfg = this.editSlots.length ? this.editSlots.slice() : DS_NAV_DEFAULTS.slice();
+            this.navCfg = cfg;
+            localStorage.setItem(DS_NAV_KEY, JSON.stringify(cfg));
+            this.editNavOpen = false;
+            /* Background server sync */
+            fetch('/api/nav-config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'nav_json=' + encodeURIComponent(JSON.stringify(cfg)),
+            }).catch(() => {});
+        },
+    };
+}
 </script>
 
 {# ═══ BOTTOM NAV + MORE SHEET (mobile / tablet, hidden on lg+) ═══ #}
@@ -707,8 +826,14 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
     <!-- Sheet header -->
     <div class="flex items-center justify-between px-5 py-2.5 border-b border-slate-100">
         <p class="font-semibold text-slate-800 text-sm">Все разделы</p>
-        <button @click="moreOpen=false"
-                class="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 text-lg leading-none hover:bg-slate-200 transition-colors">×</button>
+        <div class="flex items-center gap-2">
+            <button @click="openEditNav()"
+                    class="flex items-center gap-1 text-xs text-blue-600 font-semibold px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 transition-colors">
+                ✏️ Настроить меню
+            </button>
+            <button @click="moreOpen=false"
+                    class="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 text-lg leading-none hover:bg-slate-200 transition-colors">×</button>
+        </div>
     </div>
 
     <!-- Sheet content -->
@@ -878,41 +1003,118 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
     </div>
 </div>
 
+<!-- ═══ NAV EDITOR SHEET ═══ -->
+<div x-show="editNavOpen" x-cloak @click="editNavOpen=false"
+     x-transition:enter="transition duration-200 ease-out"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="transition duration-150 ease-in"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
+
+<div x-show="editNavOpen" x-cloak
+     x-transition:enter="transition duration-300 ease-out"
+     x-transition:enter-start="sheet-from"
+     x-transition:enter-end="sheet-to"
+     x-transition:leave="transition duration-200 ease-in"
+     x-transition:leave-end="sheet-from"
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
+     style="max-height:84vh;padding-bottom:env(safe-area-inset-bottom,0)" @click.stop>
+
+    <div class="flex justify-center pt-3 pb-1">
+        <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+    </div>
+    <div class="flex items-center justify-between px-5 py-2.5 border-b border-slate-100">
+        <p class="font-semibold text-slate-800 text-sm">✏️ Настроить меню</p>
+        <button @click="editNavOpen=false"
+                class="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 text-lg leading-none hover:bg-slate-200 transition-colors">×</button>
+    </div>
+
+    <div class="px-5 py-4 space-y-5">
+        <!-- Слоты -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-3">Выбранные разделы (до 4)</p>
+            <div class="flex gap-2">
+                <template x-for="(key, idx) in editSlots" :key="'slot'+idx">
+                    <div class="flex-1 min-w-0 flex flex-col items-center gap-1 relative bg-blue-50 border-2 border-blue-300 rounded-xl py-2.5 px-1">
+                        <button @click="removeEditSlot(idx)"
+                                class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[11px] leading-none flex items-center justify-center shadow">×</button>
+                        <span class="text-xl leading-none" x-text="DS_NAV_ALL.find(i=>i.key===key)?.icon||'?'"></span>
+                        <span class="text-[10px] font-semibold text-blue-700 text-center leading-tight truncate w-full px-0.5"
+                              x-text="DS_NAV_ALL.find(i=>i.key===key)?.label||key"></span>
+                    </div>
+                </template>
+                <template x-for="n in Math.max(0, 4 - editSlots.length)" :key="'empty'+n">
+                    <div class="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl py-2.5 px-1">
+                        <span class="text-slate-300 text-xl font-light">+</span>
+                        <span class="text-[10px] text-slate-300">пусто</span>
+                    </div>
+                </template>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-2 text-center">Нажмите × чтобы убрать · выберите раздел ниже чтобы добавить</p>
+        </div>
+
+        <!-- Все разделы -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-3">Все разделы</p>
+            <div class="grid grid-cols-4 gap-2">
+                <template x-for="item in availableItems" :key="item.key">
+                    <button @click="toggleEditItem(item.key)"
+                            :disabled="!isInEditSlots(item.key) && editSlots.length >= 4"
+                            :class="isInEditSlots(item.key)
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300'"
+                            class="relative flex flex-col items-center gap-1 rounded-xl border py-3 px-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                        <span class="text-xl leading-none" x-text="item.icon"></span>
+                        <span class="text-[10px] font-semibold leading-tight text-center" x-text="item.label"></span>
+                        <div x-show="isInEditSlots(item.key)"
+                             class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border-2 border-blue-500 flex items-center justify-center">
+                            <span class="text-[9px] text-blue-600 font-bold" x-text="editSlotIndex(item.key)+1"></span>
+                        </div>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <!-- Кнопки -->
+        <div class="flex gap-3 pt-1">
+            <button @click="editNavOpen=false"
+                    class="flex-1 py-3 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+                Отмена
+            </button>
+            <button @click="saveNavConfig()"
+                    :disabled="editSlots.length === 0"
+                    class="flex-1 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">
+                Сохранить
+            </button>
+        </div>
+        <div class="text-center pb-2">
+            <button @click="editSlots=['pos','dashboard','sales','products']; saveNavConfig()"
+                    class="text-xs text-slate-400 hover:text-slate-600 underline">
+                Сбросить к настройкам по умолчанию
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- ═══ BOTTOM NAV BAR ═══ -->
 <nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 lg:hidden"
      style="box-shadow:0 -2px 16px rgba(0,0,0,.07);padding-bottom:env(safe-area-inset-bottom,0)">
     <div class="flex items-stretch h-16">
-
-        <a href="/pos"
-           class="bnav-item {% if _p.startswith('/pos') %}bn-active{% endif %}">
-            <span class="bnav-icon">🖥️</span>
-            <span class="bnav-label">Касса</span>
-        </a>
-
-        <a href="/dashboard"
-           class="bnav-item {% if _p == '/dashboard' %}bn-active{% endif %}">
-            <span class="bnav-icon">📊</span>
-            <span class="bnav-label">Дашборд</span>
-        </a>
-
-        <a href="/sales"
-           class="bnav-item {% if _p.startswith('/sales') %}bn-active{% endif %}">
-            <span class="bnav-icon">💰</span>
-            <span class="bnav-label">Продажи</span>
-        </a>
-
-        <a href="/products"
-           class="bnav-item {% if _p.startswith('/products') %}bn-active{% endif %}">
-            <span class="bnav-icon">📦</span>
-            <span class="bnav-label">Товары</span>
-        </a>
-
+        <template x-for="item in navItems" :key="item.key">
+            <a :href="item.href"
+               class="bnav-item"
+               :class="isNavActive(item) ? 'bn-active' : ''">
+                <span class="bnav-icon" x-text="item.icon"></span>
+                <span class="bnav-label" x-text="item.label"></span>
+            </a>
+        </template>
         <button @click="moreOpen=true"
-                class="bnav-item {% if _bn_more %}bn-active{% endif %}">
+                class="bnav-item"
+                :class="moreActive ? 'bn-active' : ''">
             <span class="bnav-icon" style="font-size:1.1rem">☰</span>
             <span class="bnav-label">Ещё</span>
         </button>
-
     </div>
 </nav>
 

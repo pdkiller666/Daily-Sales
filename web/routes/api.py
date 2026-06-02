@@ -53,3 +53,53 @@ def sales_feed(request: Request, since: str = ""):
         return {"ok": True, "count": len(items), "items": items}
     except Exception:
         return {"ok": False, "count": 0, "items": []}
+
+
+@router.get("/nav-config")
+def get_nav_config(request: Request):
+    """Return user's mobile nav config (list of 4 keys)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return {"nav": None}
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        cfg = db.get_user_nav_config(telegram_id)
+        return {"nav": cfg}
+    except Exception:
+        return {"nav": None}
+
+
+@router.post("/nav-config")
+async def set_nav_config(request: Request):
+    """Save user's mobile nav config."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        form = await request.form()
+        nav_json = form.get("nav_json", "[]")
+        cfg = _json.loads(nav_json)
+        if not isinstance(cfg, list) or not cfg:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"ok": False, "error": "Invalid config"}, status_code=400)
+        cfg = [str(k) for k in cfg[:4]]
+        db = get_web_db(telegram_id, org_db)
+        db.set_user_nav_config(telegram_id, cfg)
+        return {"ok": True}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)

@@ -191,6 +191,8 @@ class Database:
         users_cols = [col[1] for col in cursor.fetchall()]
         if 'username' not in users_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        if 'mobile_nav' not in users_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN mobile_nav TEXT DEFAULT NULL")
 
         # Добавляем недостающие столбцы в таблицу inventory если их нет
         cursor.execute("PRAGMA table_info(inventory)")
@@ -1184,6 +1186,40 @@ class Database:
                 return True
         except Exception as e:
             logger.error(f"Ошибка toggle_favorite_product: {e}")
+            return False
+
+    def get_user_nav_config(self, telegram_id: int):
+        """Вернуть список из 4 ключей навигации для пользователя (или None)."""
+        try:
+            import json
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT mobile_nav FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                cfg = json.loads(row[0])
+                if isinstance(cfg, list) and 1 <= len(cfg) <= 4:
+                    return cfg
+        except Exception:
+            pass
+        return None
+
+    def set_user_nav_config(self, telegram_id: int, config: list) -> bool:
+        """Сохранить список ключей навигации для пользователя."""
+        try:
+            import json
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET mobile_nav = ? WHERE telegram_id = ?",
+                (json.dumps(config[:4]), telegram_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"set_user_nav_config error: {e}")
             return False
 
     def check_and_mark_plan_milestones(self, telegram_id: int) -> list:
