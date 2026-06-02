@@ -204,9 +204,22 @@ def sales_page(
         except Exception:
             pass
 
+        # Determine if this user has a restricted shop scope (non-admin with fewer shops than org total)
+        _user_scoped = (
+            not ctx["is_admin"]
+            and bool(ctx["shops"])
+            and set(ctx["shops"]) != set(ctx.get("all_shops", ctx["shops"]))
+        )
+
         kwargs: dict = {"start_date": date_from, "end_date": date_to}
+        sum_kwargs: dict = {"start_date": date_from, "end_date": date_to}
         if shop:
             kwargs["shop_name"] = shop
+            sum_kwargs["shop_name"] = shop
+        elif _user_scoped:
+            # Auto-apply scope: user only sees sales from their allowed shops
+            kwargs["shop_names"] = ctx["shops"]
+            sum_kwargs["shop_names"] = ctx["shops"]
 
         all_sales = db.get_sales_report(**kwargs) or []
 
@@ -223,10 +236,7 @@ def sales_page(
         ctx["total_count"] = total
         ctx["total_pages"] = total_pages
         ctx["page"] = page
-        ctx["summary"] = db.get_sales_summary(
-            start_date=date_from, end_date=date_to,
-            shop_name=shop if shop else None
-        ) or _summary_empty()
+        ctx["summary"] = db.get_sales_summary(**sum_kwargs) or _summary_empty()
 
     except Exception as exc:
         ctx["error"] = str(exc)
@@ -266,9 +276,16 @@ def sales_export_xlsx(
         if not date_to:
             date_to = today.isoformat()
 
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        all_shops = db.get_all_shops() or []
+        _scoped = not is_admin and bool(allowed_shops) and set(allowed_shops) != set(all_shops)
+
         kwargs: dict = {"start_date": date_from, "end_date": date_to}
         if shop:
             kwargs["shop_name"] = shop
+        elif _scoped:
+            kwargs["shop_names"] = allowed_shops
 
         # id[0] pid[1] shop[2] qty[3] price[4] uid[5] date[6]
         # product_name[7] category[8] first_name[9] last_name[10]
