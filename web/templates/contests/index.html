@@ -144,6 +144,53 @@
         </span>
     </div>
 
+    <!-- Winner card for finished contests -->
+    {% if selected_contest.status == 'finished' and leaderboard %}
+    {% set winner = leaderboard[0] %}
+    <div class="mx-5 my-4 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200">
+        <div class="flex items-start gap-4">
+            <div class="text-4xl shrink-0">🏆</div>
+            <div class="flex-1 min-w-0">
+                <p class="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-0.5">Победитель</p>
+                <p class="text-lg font-bold text-slate-800 truncate">{{ winner.label }}</p>
+                {% if winner.get('sub') %}
+                <p class="text-sm text-slate-500">{{ winner.sub }}</p>
+                {% endif %}
+                <div class="flex flex-wrap gap-4 mt-2">
+                    <div>
+                        <p class="text-xs text-slate-400">Достигнутый результат</p>
+                        <p class="text-sm font-semibold text-emerald-700">
+                            {% if selected_contest.metric_type == 'turnover' %}
+                                {{ winner.value|int|fmt_currency }}
+                            {% else %}
+                                {{ winner.value|int }}&thinsp;шт.
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% if selected_contest.target_value %}
+                    <div>
+                        <p class="text-xs text-slate-400">Цель конкурса</p>
+                        <p class="text-sm font-semibold text-slate-600">
+                            {% if selected_contest.metric_type == 'turnover' %}
+                                {{ selected_contest.target_value|int|fmt_currency }}
+                            {% else %}
+                                {{ selected_contest.target_value|int }}&thinsp;шт.
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+                    {% if selected_contest.reward_value %}
+                    <div>
+                        <p class="text-xs text-slate-400">Приз</p>
+                        <p class="text-sm font-semibold text-amber-700">🎁 {{ selected_contest.reward_value }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if leaderboard %}
     <div class="divide-y divide-slate-50">
         {% for r in leaderboard %}

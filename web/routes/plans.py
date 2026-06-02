@@ -594,6 +594,41 @@ def plans_toggle(
     return RedirectResponse(url=f"/plans/{plan_id}", status_code=303)
 
 
+def _load_milestone_history(db, plan_id: int) -> list:
+    """Return milestone alert rows for a plan, newest first, with seller names resolved."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT pma.milestone, pma.period_start, pma.alerted_at,
+                   u.first_name, u.last_name, pma.user_id
+            FROM plan_milestone_alerts pma
+            LEFT JOIN users u ON u.id = pma.user_id
+            WHERE pma.plan_id = ?
+            ORDER BY pma.alerted_at DESC
+            """,
+            (plan_id,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            milestone, period_start, alerted_at, fname, lname, user_id = row
+            name = f"{(fname or '').strip()} {(lname or '').strip()}".strip() or f"user#{user_id}"
+            alerted_date = (alerted_at or "")[:10]
+            result.append({
+                "milestone": milestone,
+                "period_start": (period_start or "")[:10],
+                "alerted_at": alerted_date,
+                "seller_name": name,
+            })
+        return result
+    except Exception as exc:
+        logger.warning(f"_load_milestone_history plan {plan_id}: {exc}")
+        return []
+
+
 @router.get("/plans/{plan_id}")
 def plan_detail(request: Request, plan_id: int, error: str = ""):
     from web.auth import get_session_user, get_csrf_token
@@ -615,7 +650,7 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "plan": None, "sellers": [], "error": error_msg or None,
+        "plan": None, "sellers": [], "milestones": [], "error": error_msg or None,
         "plan_type_labels": PLAN_TYPE_LABELS,
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
@@ -659,6 +694,8 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
                 })
             sellers.sort(key=lambda s: -s["actual"])
             ctx["sellers"] = sellers
+
+        ctx["milestones"] = _load_milestone_history(db, plan_id)
 
     except Exception as exc:
         logger.error(f"plan_detail {plan_id} error: {exc}")

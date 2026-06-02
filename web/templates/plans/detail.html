@@ -195,6 +195,47 @@
 </div>
 {% endif %}
 
+<!-- Milestone history -->
+{% if milestones %}
+<div class="card overflow-hidden mt-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <span class="text-base">🏅</span>
+            <h2 class="font-semibold text-slate-800">История milestone-алертов</h2>
+        </div>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{{ milestones|length }}</span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% for m in milestones %}
+        <div class="px-5 py-3.5 flex items-center gap-4">
+            <!-- Badge -->
+            <div class="shrink-0">
+                {% if m.milestone >= 100 %}
+                <span class="inline-flex items-center justify-center w-12 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">100%</span>
+                {% elif m.milestone >= 75 %}
+                <span class="inline-flex items-center justify-center w-12 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">75%</span>
+                {% else %}
+                <span class="inline-flex items-center justify-center w-12 h-7 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">50%</span>
+                {% endif %}
+            </div>
+            <!-- Seller name -->
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ m.seller_name }}</p>
+                {% if m.period_start %}
+                <p class="text-xs text-slate-400 mt-0.5">Период с {{ m.period_start|fmt_date }}</p>
+                {% endif %}
+            </div>
+            <!-- Date fired -->
+            <div class="shrink-0 text-right">
+                <p class="text-xs text-slate-500 font-medium">{{ m.alerted_at|fmt_date }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">Дата алерта</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="card py-20 text-center text-slate-400">
     <p class="text-6xl mb-4">🎯</p>

@@ -18,6 +18,21 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
         return None
 
 
+def _get_org_id_for_user(telegram_id: int) -> int | None:
+    """Retrieve org_id from main.db for an active user."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect("data/main.db")
+        row = conn.execute(
+            "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+            (telegram_id,)
+        ).fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 @router.get("/settings")
 def settings_page(request: Request, saved: str = ""):
     from web.auth import get_session_user
@@ -29,16 +44,24 @@ def settings_page(request: Request, saved: str = ""):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     ctx: dict = {
         "request": request, "user": user,
-        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "is_admin": is_admin,
         "notif_settings": None,
         "user_db_id": None,
         "saved": saved == "1",
         "error": None,
         "scheduled_notifications": [],
         "notification_history": [],
+        # invite block
+        "org_id": None,
+        "invite_code": "",
+        "invite_deep_link": "",
+        "invite_preset_role": None,
+        "invite_preset_shop": None,
+        "invite_shops": [],
     }
 
     try:
@@ -60,7 +83,6 @@ def settings_page(request: Request, saved: str = ""):
         if user_db_id:
             try:
                 hist_raw = db.get_notification_history(user_db_id, limit=15) or []
-                # id[0] user_id[1] notification_type[2] message[3] is_read[4] created_at[5]
                 ctx["notification_history"] = [
                     {
                         "type": h[2] or "",
@@ -74,13 +96,10 @@ def settings_page(request: Request, saved: str = ""):
                 ctx["notification_history"] = []
 
         # Scheduled notifications (admin only)
-        if user.get("role") in ("owner", "admin", "super_admin"):
+        if is_admin:
             raw_sched = db.get_scheduled_notifications(status=None) or []
             scheduled = []
             for sn in raw_sched:
-                # id[0] job_id[1] created_by[2] text[3] recipients_type[4]
-                # recipients_list[5] scheduled_datetime[6] status[7] created_at[8]
-                # first_name[9] last_name[10]
                 fname = (sn[9] if len(sn) > 9 else "") or ""
                 lname = (sn[10] if len(sn) > 10 else "") or ""
                 creator = f"{fname} {lname}".strip() or "—"
@@ -93,15 +112,14 @@ def settings_page(request: Request, saved: str = ""):
                     "created_at": (sn[8] or "")[:10],
                 })
             ctx["scheduled_notifications"] = scheduled
-        else:
-            ctx["scheduled_notifications"] = []
 
         # Org info from main.db
         import sqlite3
         conn = sqlite3.connect("data/main.db")
         cur = conn.cursor()
         cur.execute(
-            "SELECT o.name, o.subscription_plan, o.subscription_end, o.invite_code "
+            "SELECT o.id, o.name, o.subscription_plan, o.subscription_end, o.invite_code, "
+            "o.invite_preset_role, o.invite_preset_shop "
             "FROM organizations o "
             "JOIN user_org_mapping m ON m.org_id = o.id "
             "WHERE m.telegram_id = ? AND m.is_active = 1 LIMIT 1",
@@ -109,10 +127,43 @@ def settings_page(request: Request, saved: str = ""):
         )
         org_row = cur.fetchone()
         conn.close()
-        ctx["org_name"] = org_row[0] if org_row else "—"
-        ctx["org_plan"] = org_row[1] if org_row else "—"
-        ctx["org_plan_end"] = (org_row[2] or "")[:10] if org_row else ""
-        ctx["invite_code"] = org_row[3] if org_row else ""
+
+        if org_row:
+            org_id = org_row[0]
+            ctx["org_name"] = org_row[1] or "—"
+            ctx["org_plan"] = org_row[2] or "—"
+            ctx["org_plan_end"] = (org_row[3] or "")[:10]
+            ctx["org_id"] = org_id
+
+            # Ensure invite code exists (auto-generate if missing)
+            invite_code = org_row[4]
+            if not invite_code and is_admin:
+                from tenant_manager import tenant_manager
+                invite_code = tenant_manager.generate_invite_code(org_id)
+            ctx["invite_code"] = invite_code or ""
+
+            # Build deep link using bot username
+            if invite_code:
+                try:
+                    import bot_holder
+                    bot_uname = bot_holder.get_username() or ""
+                except Exception:
+                    bot_uname = ""
+                if bot_uname:
+                    ctx["invite_deep_link"] = f"https://t.me/{bot_uname}?start={invite_code}"
+
+            ctx["invite_preset_role"] = org_row[5]
+            ctx["invite_preset_shop"] = org_row[6]
+
+            # Shops list for preset dropdown
+            try:
+                ctx["invite_shops"] = db.get_all_shops() or []
+            except Exception:
+                ctx["invite_shops"] = []
+        else:
+            ctx["org_name"] = "—"
+            ctx["org_plan"] = "—"
+            ctx["org_plan_end"] = ""
 
     except Exception as exc:
         ctx["error"] = str(exc)
@@ -163,3 +214,47 @@ async def settings_save(
         pass
 
     return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/settings/rotate_invite")
+async def rotate_invite(request: Request):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/settings#invite", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_id = _get_org_id_for_user(telegram_id)
+    if org_id:
+        from tenant_manager import tenant_manager
+        tenant_manager.rotate_invite_code(org_id)
+
+    return RedirectResponse(url="/settings#invite", status_code=303)
+
+
+@router.post("/settings/save_invite_preset")
+async def save_invite_preset(
+    request: Request,
+    preset_role: str = Form(default=""),
+    preset_shop: str = Form(default=""),
+):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/settings#invite", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_id = _get_org_id_for_user(telegram_id)
+    if org_id:
+        from tenant_manager import tenant_manager
+        role_val = preset_role if preset_role else None
+        shop_val = preset_shop if preset_shop else None
+        tenant_manager.set_invite_preset(org_id, role_val, shop_val)
+
+    return RedirectResponse(url="/settings#invite", status_code=303)
