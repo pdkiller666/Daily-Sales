@@ -13,7 +13,7 @@
         <h1 class="text-2xl font-bold text-slate-800">Планы продаж</h1>
         <p class="text-sm text-slate-500 mt-0.5">Прогресс выполнения планов</p>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-2">
         {% if is_admin %}
         <a href="/plans/new"
            class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
@@ -51,15 +51,15 @@
 {% set in_progress = plans_data | selectattr('pct_raw', 'lt', 100) | selectattr('pct_raw', 'gt', 0) | list | length %}
 <div class="grid grid-cols-3 gap-4 mb-5">
     <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-slate-800">{{ plans_data|length }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ plans_data|length }}</p>
         <p class="text-xs text-slate-400 mt-1">Всего планов</p>
     </div>
     <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-emerald-600">{{ done_count }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-emerald-600">{{ done_count }}</p>
         <p class="text-xs text-slate-400 mt-1">Выполнено</p>
     </div>
     <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-blue-500">{{ in_progress }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-blue-500">{{ in_progress }}</p>
         <p class="text-xs text-slate-400 mt-1">В процессе</p>
     </div>
 </div>
@@ -117,8 +117,8 @@
         </div>
 
         <!-- Numbers -->
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-y-1">
+            <div class="flex flex-wrap items-center gap-3">
                 <div>
                     <p class="text-xs text-slate-400">Факт</p>
                     <p class="text-sm font-bold text-slate-800">

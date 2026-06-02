@@ -83,7 +83,7 @@
 </div>
 
 <!-- Group by tabs -->
-<div class="flex gap-2 mb-4">
+<div class="flex flex-wrap gap-2 mb-4">
     {% for gb, lbl in [('product','По товарам'),('category','По категориям'),('seller','По продавцам'),('shop','По магазинам')] %}
     <a href="/reports?period={{ period }}&shop={{ shop }}&group_by={{ gb }}"
        class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border
