@@ -109,17 +109,42 @@ def reports_page(
 
         ctx["date_from"] = date_from
         ctx["date_to"] = date_to
-        ctx["shops"] = db.get_all_shops() or []
+
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        if is_admin:
+            ctx["shops"] = db.get_all_shops() or []
+        else:
+            from web.routes.sales import _get_user_allowed_shops
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            ctx["shops"] = allowed_shops
 
         kwargs: dict = {"start_date": df, "end_date": dt}
         if shop:
             kwargs["shop_name"] = shop
 
+        if not is_admin:
+            # Enforce scope: restrict sales to user's allowed shops
+            all_shops = db.get_all_shops() or []
+            if not shop:
+                # No manual shop filter — scope-restrict across all allowed shops
+                if set(allowed_shops) != set(all_shops):
+                    kwargs.pop("shop_name", None)
+                    kwargs["shop_names"] = allowed_shops
+            else:
+                # Manual shop filter — only allow if it's in the user's scope
+                if shop not in allowed_shops:
+                    kwargs["shop_name"] = allowed_shops[0] if allowed_shops else shop
+                    shop = kwargs["shop_name"]
+                    ctx["shop"] = shop
+
         all_sales = db.get_sales_report(**kwargs) or []
         ctx["all_sales"] = all_sales
-        ctx["summary"] = db.get_sales_summary(
-            start_date=df, end_date=dt, shop_name=shop if shop else None
-        ) or (0, 0, 0, 0)
+        summary_kwargs: dict = {"start_date": df, "end_date": dt}
+        if shop:
+            summary_kwargs["shop_name"] = shop
+        elif not is_admin and "shop_names" in kwargs:
+            summary_kwargs["shop_names"] = kwargs["shop_names"]
+        ctx["summary"] = db.get_sales_summary(**summary_kwargs) or (0, 0, 0, 0)
         ctx["groups"] = _aggregate(all_sales, group_by)
 
         # Daily chart: aggregate all_sales by date

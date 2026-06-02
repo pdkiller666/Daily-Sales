@@ -31,7 +31,15 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
     try:
         db = get_web_db(telegram_id, org_db)
 
-        shops = db.get_inventory_shops() or []
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        all_inv_shops = db.get_inventory_shops() or []
+        if is_admin:
+            shops = all_inv_shops
+        else:
+            from web.routes.sales import _get_user_allowed_shops
+            allowed = _get_user_allowed_shops(telegram_id, db)
+            shops = [s for s in all_inv_shops if s in allowed] or all_inv_shops
+
         if not shop or shop not in shops:
             shop = shops[0] if shops else ""
 
@@ -94,10 +102,27 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
 
         db = get_web_db(telegram_id, org_db)
 
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+        # Determine allowed shops for scope filtering
+        if not is_admin:
+            from web.routes.sales import _get_user_allowed_shops
+            allowed = _get_user_allowed_shops(telegram_id, db)
+            # If user specified a shop, validate it's in scope
+            if shop and shop not in allowed:
+                shop = allowed[0] if allowed else shop
+        else:
+            allowed = None
+
         # get_all_inventory_for_export: shop_name[0] name[1] category[2] quantity[3] last_updated[4]
         if shop:
             raw = db.get_all_inventory(shop_name=shop) or []
             data = [(r[2], r[6], r[7], r[3], (r[4] or "")[:16]) for r in raw]
+        elif not is_admin and allowed is not None:
+            # Export only allowed shops for non-admin scope
+            data = []
+            for s in allowed:
+                raw = db.get_all_inventory(shop_name=s) or []
+                data.extend((r[2], r[6], r[7], r[3], (r[4] or "")[:16]) for r in raw)
         else:
             data = db.get_all_inventory_for_export() or []
 
