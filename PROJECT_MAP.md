@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-02 (сессия 345) · 49 модулей · 49 test_imports · GitHub `ef29cac` · Amvera `933ef27`
+> Последнее обновление: 2026-06-02 (сессия 347) · 50 модулей · 50 test_imports · GitHub `02fea9d` · Amvera `11310d3`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -775,6 +775,9 @@ web/
     payments.py       — GET /payments, POST /payments/{id}/confirm, /payments/{id}/reject
     absences.py       — GET /absences, POST /absences/add, /absences/update,
                          GET /absences/settings, POST /absences/settings/update
+  sale_events.py    — async post_sale_effects(org_db_path, sale_id, shop_name, telegram_id)
+                       вызывается через asyncio.run_coroutine_threadsafe из sales_create;
+                       3 эффекта: GSheets trigger · shift-sale push · plan milestones
   templates/
     base.html         — сайдбар, nav (включает Платежи только для super_admin + pending badge)
     auth/, dashboard/, sales/, products/, inventory/, reports/, rankings/,

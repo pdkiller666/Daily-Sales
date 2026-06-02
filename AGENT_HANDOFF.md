@@ -1220,8 +1220,8 @@ templates.env.globals['pending_payments_count'] = get_pending_count  # из paym
 ## 10. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Импорт-аудит (49 модулей):
-python test_imports.py   # должно быть: Итог: 49 ОК, 0 ошибок
+# 1. Импорт-аудит (50 модулей):
+python test_imports.py   # должно быть: Итог: 50 ОК, 0 ошибок
 
 # 2. Синтаксис:
 python -c "
