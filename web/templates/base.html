@@ -792,7 +792,7 @@ function mainApp() {
             }
         },
 
-        removeEditSlot(idx) { this.editSlots.splice(idx, 1); },
+        removeEditSlot(idx) { this.selectedSlot = null; this.editSlots.splice(idx, 1); },
 
         saveNavConfig() {
             const cfg = this.editSlots.length ? this.editSlots.slice() : DS_NAV_DEFAULTS.slice();
@@ -808,6 +808,179 @@ function mainApp() {
         },
     };
 }
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════
+   Onboarding hints — shown once per section per user
+   Stored in localStorage ds_hints_v2 = [key, ...]
+══════════════════════════════════════════════════ */
+(function () {
+    const LS = 'ds_hints_v2';
+    const HINTS = {
+        dashboard: {
+            icon: '📊', title: 'Добро пожаловать на Дашборд!',
+            text: 'Здесь собрана ключевая статистика. Переключай периоды кнопками «Сегодня / Неделя / Месяц» или свайпом влево-вправо. Нажми на карточку для детального отчёта.',
+        },
+        pos: {
+            icon: '🖥️', title: 'Касса POS',
+            text: 'Нажми на товар — он попадёт в корзину. Кнопки [1][2][3][5][10][20][50] задают количество в один клик. ⭐ сохраняет в Избранное, 🔄 — быстрый доступ к недавним продажам.',
+        },
+        sales: {
+            icon: '💰', title: 'Журнал продаж',
+            text: 'Все продажи команды в хронологическом порядке. Нажми 🔍 Фильтр для выборки по дате, сотруднику или магазину. Кнопка 📊 — экспорт в Excel.',
+        },
+        products: {
+            icon: '📦', title: 'Каталог товаров',
+            text: 'Весь ассортимент в одном месте. Добавляй фото и описания, создавай категории. Можно импортировать сразу несколько позиций через Excel (📊 Импорт).',
+        },
+        inventory: {
+            icon: '🏪', title: 'Остатки на складе',
+            text: 'Актуальные запасы по каждому магазину. При продаже остаток списывается автоматически. Корректируй вручную при инвентаризации.',
+        },
+        reports: {
+            icon: '📈', title: 'Аналитические отчёты',
+            text: 'Детальная статистика с группировкой по товарам, сотрудникам и категориям. Выбирай период через кнопки или фильтр. Экспорт в Excel — кнопка 📊.',
+        },
+        rankings: {
+            icon: '🏆', title: 'Рейтинги',
+            text: 'Топ продавцов и магазинов по выручке. Переключай периоды: 7 дней / Месяц / Прошлый месяц. Свой результат всегда виден, даже если не попал в топ-10.',
+        },
+        plans: {
+            icon: '🎯', title: 'Планы продаж',
+            text: 'Ставь цели по выручке или количеству для продавцов и магазинов. Прогресс отображается на Дашборде, а при достижении 50 / 75 / 100% приходит уведомление в Telegram.',
+        },
+        staff: {
+            icon: '👥', title: 'Управление командой',
+            text: 'Выдавай роли: Владелец → Администратор → Сотрудник. Можно ограничить доступ конкретными магазинами или городами. Пригласи нового участника через код приглашения в боте.',
+        },
+        salary: {
+            icon: '💸', title: 'Расчёт зарплаты',
+            text: 'Итоговая выплата = смены + мотивация. Выбери период, закрой смену — сумма зафиксируется. Каждый сотрудник видит свою зарплату в боте.',
+        },
+        schedule: {
+            icon: '📅', title: 'График работы',
+            text: 'Отмечай рабочие дни и часы для каждого сотрудника. Шаблоны смен позволяют автоматически заполнять расписание по дням недели — настрой один раз.',
+        },
+        contests: {
+            icon: '🎁', title: 'Конкурсы',
+            text: 'Мотивируй команду соревнованием. Создай конкурс с призом и критерием (выручка или количество) — система сама определит победителя и уведомит всех в Telegram.',
+        },
+        motivation: {
+            icon: '💎', title: 'Мотивация и комиссии',
+            text: 'Назначь бонус за продажу каждого товара: фиксированную сумму или % от цены. Продавец видит свою комиссию прямо в кассе при добавлении товара в корзину.',
+        },
+        notifications: {
+            icon: '🔔', title: 'Рассылки',
+            text: 'Запланируй сообщение для команды — оно придёт в Telegram точно в нужное время. Подходит для объявлений, итогов дня и напоминаний.',
+        },
+        settings: {
+            icon: '⚙️', title: 'Настройки',
+            text: 'Управляй параметрами организации: название, магазины, часовой пояс, реквизиты. Изменения вступают в силу сразу для всей команды.',
+        },
+        integration: {
+            icon: '🔗', title: 'Интеграции',
+            text: 'Автоматический экспорт продаж в Google Sheets. Авторизуй Google-аккаунт один раз — таблица будет обновляться после каждой продажи. Доступно на тарифе Стандарт и выше.',
+        },
+        subscription: {
+            icon: '💳', title: 'Подписка',
+            text: 'Управление тарифным планом. Более высокий тариф снимает ограничения по количеству товаров, продаж и магазинов, а также открывает интеграции и расширенную аналитику.',
+        },
+        categories: {
+            icon: '🗂️', title: 'Категории',
+            text: 'Категории помогают организовать товары в каталоге и фильтровать продажи по группам. Товар без категории попадает в «Без категории».',
+        },
+        shops: {
+            icon: '🏬', title: 'Магазины',
+            text: 'Список торговых точек организации. Каждый магазин — отдельный склад. Сотрудника можно привязать к конкретному магазину или дать доступ ко всем.',
+        },
+    };
+
+    const PATH_MAP = [
+        [p => p === '/dashboard',                          'dashboard'],
+        [p => p.startsWith('/pos'),                        'pos'],
+        [p => p.startsWith('/sales') && p.split('/').length <= 2, 'sales'],
+        [p => p.startsWith('/products'),                   'products'],
+        [p => p.startsWith('/inventory'),                  'inventory'],
+        [p => p.startsWith('/reports'),                    'reports'],
+        [p => p.startsWith('/rankings'),                   'rankings'],
+        [p => p.startsWith('/plans'),                      'plans'],
+        [p => p.startsWith('/staff'),                      'staff'],
+        [p => p.startsWith('/salary'),                     'salary'],
+        [p => p.startsWith('/schedule'),                   'schedule'],
+        [p => p.startsWith('/contests'),                   'contests'],
+        [p => p.startsWith('/motivation'),                 'motivation'],
+        [p => p.startsWith('/notifications'),              'notifications'],
+        [p => p.startsWith('/settings'),                   'settings'],
+        [p => p.startsWith('/integration'),                'integration'],
+        [p => p.startsWith('/subscription'),               'subscription'],
+        [p => p.startsWith('/categories'),                 'categories'],
+        [p => p.startsWith('/shops'),                      'shops'],
+    ];
+
+    function _seen() {
+        try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch (_) { return []; }
+    }
+    function _markSeen(key) {
+        const s = _seen();
+        if (!s.includes(key)) { s.push(key); localStorage.setItem(LS, JSON.stringify(s)); }
+    }
+
+    window.dsDismissHint = function (key) {
+        _markSeen(key);
+        const el = document.getElementById('ds-hint-card');
+        if (el) {
+            el.style.transition = 'opacity .18s, transform .18s';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-6px)';
+            setTimeout(() => el && el.remove(), 200);
+        }
+    };
+
+    function _show(key, h) {
+        const isDark = document.documentElement.classList.contains('dark');
+        const card = document.createElement('div');
+        card.id = 'ds-hint-card';
+        card.style.cssText = 'opacity:0;transform:translateY(-6px);transition:opacity .25s,transform .25s';
+        card.className = 'mb-5';
+        card.innerHTML = `
+<div class="flex items-start gap-3 px-4 py-3.5 rounded-2xl border shadow-sm"
+     style="background:${isDark?'#1e3a5f':'#eff6ff'};border-color:${isDark?'#2563eb':'#bfdbfe'}">
+  <span style="font-size:1.5rem;line-height:1;flex-shrink:0;margin-top:2px">${h.icon}</span>
+  <div class="flex-1 min-w-0">
+    <p style="font-size:.82rem;font-weight:700;color:${isDark?'#93c5fd':'#1d4ed8'};margin-bottom:3px">${h.title}</p>
+    <p style="font-size:.78rem;color:${isDark?'#cbd5e1':'#334155'};line-height:1.5">${h.text}</p>
+    <button onclick="dsDismissHint('${key}')"
+            style="margin-top:8px;display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:700;
+                   color:${isDark?'#60a5fa':'#2563eb'};background:${isDark?'rgba(37,99,235,.18)':'rgba(37,99,235,.08)'};
+                   border:none;border-radius:8px;padding:4px 10px;cursor:pointer;line-height:1.4">
+      ✅ Понятно!
+    </button>
+  </div>
+  <button onclick="dsDismissHint('${key}')"
+          style="flex-shrink:0;font-size:1.1rem;line-height:1;color:${isDark?'#64748b':'#94a3b8'};
+                 background:none;border:none;cursor:pointer;padding:2px;margin-top:-2px">×</button>
+</div>`;
+        const main = document.querySelector('main');
+        if (main) main.insertBefore(card, main.firstChild);
+        requestAnimationFrame(() => {
+            card.style.opacity = '1';
+            card.style.transform = 'translateY(0)';
+        });
+        /* Auto-dismiss after 60 s */
+        setTimeout(() => { if (document.getElementById('ds-hint-card')) dsDismissHint(key); }, 60000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const path = window.location.pathname;
+        let key = null;
+        for (const [test, k] of PATH_MAP) { if (test(path)) { key = k; break; } }
+        if (!key || !HINTS[key]) return;
+        if (_seen().includes(key)) return;
+        /* Small delay so content is rendered first */
+        setTimeout(() => _show(key, HINTS[key]), 350);
+    });
+})();
 </script>
 
 {# ═══ BOTTOM NAV + MORE SHEET (mobile / tablet, hidden on lg+) ═══ #}
