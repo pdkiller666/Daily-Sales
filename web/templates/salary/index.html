@@ -155,7 +155,7 @@
         </div>
         <div class="flex-1 min-w-0">
             <p class="font-semibold text-slate-800">{{ detail_user.first_name }} {{ detail_user.last_name }}</p>
-            <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }} смен × {{ detail_user.daily_rate|int|fmt_currency }}</p>
+            <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} смен × {{ detail_user.daily_rate|int|fmt_currency }}</p>
         </div>
         {% if detail_user.user_id %}
         <a href="/staff/{{ detail_user.user_id }}"

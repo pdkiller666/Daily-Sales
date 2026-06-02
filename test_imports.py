@@ -57,6 +57,7 @@ MODULES = [
     'integration.providers.google_sheets',
     'referral_handlers',
     'addon_handlers',
+    'absence_handlers',
     'pdf_utils',
 ]
 

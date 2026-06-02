@@ -211,10 +211,11 @@ def salary_page(
                 "telegram_id": row[4],
                 "daily_rate": rate,
                 "worked_days": worked,
+                "paid_absence_days": paid_abs,
                 "base_salary": base,
                 "adj_sum": adj_sum,
                 "total": total,
-                "shop": "",  # optional: fill from users table
+                "shop": "",
             })
 
         # Sort: by total desc
