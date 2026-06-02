@@ -1623,7 +1623,7 @@ class Database:
         return shops
 
     def get_shops_with_stats(self, include_system: bool = False):
-        """Возвращает список (name, user_count, inventory_items) для всех магазинов."""
+        """Возвращает список (name, user_count, inventory_items, out_of_stock, low_stock) для всех магазинов."""
         conn = self.get_connection()
         cursor = conn.cursor()
         sys_filter = "" if include_system else " AND name NOT IN ('Системный', 'System')"
@@ -1658,7 +1658,24 @@ class Database:
                 inv_count = cursor.fetchone()[0]
             except Exception:
                 inv_count = 0
-            result.append((sn, user_count, inv_count))
+            try:
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT product_id) FROM inventory WHERE shop_name = ? AND quantity <= 0",
+                    (sn,)
+                )
+                out_of_stock = cursor.fetchone()[0]
+            except Exception:
+                out_of_stock = 0
+            try:
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT product_id) FROM inventory "
+                    "WHERE shop_name = ? AND quantity >= 1 AND quantity <= 5",
+                    (sn,)
+                )
+                low_stock = cursor.fetchone()[0]
+            except Exception:
+                low_stock = 0
+            result.append((sn, user_count, inv_count, out_of_stock, low_stock))
         conn.close()
         return result
 

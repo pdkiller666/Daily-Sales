@@ -249,6 +249,45 @@
     </div>
 </div>
 
+<!-- ══ ROW 4: ACTIVE PLANS ══ -->
+{% if plans_dash %}
+<div class="card p-5 mb-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-800">🎯 Активные планы продаж</h2>
+        <a href="/plans" class="text-xs text-blue-500 hover:underline shrink-0">Все →</a>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for p in plans_dash %}
+        {% set bar_color = 'bg-emerald-500' if p.pct >= 80 else ('bg-amber-400' if p.pct >= 40 else 'bg-red-400') %}
+        {% set text_color = 'text-emerald-600' if p.pct >= 80 else ('text-amber-600' if p.pct >= 40 else 'text-red-500') %}
+        <a href="/plans" class="group block bg-slate-50 hover:bg-white border border-slate-100 hover:border-slate-200 rounded-xl p-4 transition-all">
+            <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-slate-800 truncate">{{ p.label }}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        {{ '🏪' if p.plan_type == 'shop' else '👤' }}
+                        {{ 'Выручка' if p.metric == 'turnover' else 'Штуки' }}
+                    </p>
+                </div>
+                <span class="shrink-0 text-base font-bold {{ text_color }}">{{ p.pct }}%</span>
+            </div>
+            <!-- Progress bar -->
+            <div class="w-full bg-slate-200 rounded-full h-1.5 mb-2">
+                <div class="{{ bar_color }} h-1.5 rounded-full transition-all" style="width: {{ p.pct }}%"></div>
+            </div>
+            <p class="text-xs text-slate-400 text-right">
+                {% if p.metric == 'turnover' %}
+                {{ p.actual|int|fmt_currency }} / {{ p.target|int|fmt_currency }}
+                {% else %}
+                {{ p.actual|int }}&nbsp;шт. / {{ p.target|int }}&nbsp;шт.
+                {% endif %}
+            </p>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Chart.js -->
 <script>
 (function(){

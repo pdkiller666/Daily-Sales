@@ -37,6 +37,7 @@ def dashboard(request: Request):
         "chart_labels": [], "chart_data": [],
         "recent_sales": [], "shop_ranking": [],
         "seller_ranking": [], "low_stock": [],
+        "plans_dash": [],
         "today_label": date.today().strftime('%d.%m.%Y'),
         "error": None,
     }
@@ -99,9 +100,55 @@ def dashboard(request: Request):
                     conn2.close()
             except Exception:
                 pass
+            # Active plans progress for admins
+            try:
+                raw = db.get_plans_progress(local_today=today) or []
+                plans_dash = []
+                for plan, actual, pct in raw:
+                    metric = plan[2]
+                    target = float(plan[3] or 1)
+                    label = (plan[12] or "") + (" " + (plan[13] or "")[:1] + "." if plan[13] else "").strip() \
+                        if plan[1] == "seller" else (plan[6] or "Весь орг")
+                    plans_dash.append({
+                        "id": plan[0],
+                        "plan_type": plan[1],
+                        "metric": metric,
+                        "label": label,
+                        "actual": float(actual or 0),
+                        "target": target,
+                        "pct": min(100, int(pct or 0)),
+                        "shop_name": plan[6] or "",
+                    })
+                # Sort: least complete first (most urgent); cap at 6
+                plans_dash.sort(key=lambda x: x["pct"])
+                ctx["plans_dash"] = plans_dash[:6]
+            except Exception:
+                ctx["plans_dash"] = []
         else:
             uid = db.get_user_id(telegram_id)
             ctx["user_count"] = 0
+            # Personal plans for regular users
+            try:
+                raw = db.get_user_plans_progress(telegram_id, local_today=today) or []
+                plans_dash = []
+                for plan, actual, pct in raw:
+                    metric = plan[2]
+                    target = float(plan[3] or 1)
+                    label = plan[6] or "Личный план"
+                    plans_dash.append({
+                        "id": plan[0],
+                        "plan_type": plan[1],
+                        "metric": metric,
+                        "label": label,
+                        "actual": float(actual or 0),
+                        "target": target,
+                        "pct": min(100, int(pct or 0)),
+                        "shop_name": plan[6] or "",
+                    })
+                plans_dash.sort(key=lambda x: x["pct"])
+                ctx["plans_dash"] = plans_dash[:6]
+            except Exception:
+                ctx["plans_dash"] = []
 
     except Exception as exc:
         ctx["error"] = str(exc)
