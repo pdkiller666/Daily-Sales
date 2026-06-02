@@ -21,9 +21,21 @@
         ::-webkit-scrollbar-track{background:#f1f5f9}
         ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
         .sidebar-logo-bg{background:linear-gradient(135deg,#0f172a 0%,#1e1b2e 100%);border-bottom:1px solid rgba(37,99,235,.25)}
+        /* ── Bottom nav (mobile) ── */
+        .bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#94a3b8;cursor:pointer;border:none;background:none;text-decoration:none;-webkit-tap-highlight-color:transparent;padding:8px 4px;transition:color .15s;min-width:0}
+        .bnav-item:active{background:rgba(0,0,0,.04)}
+        .bnav-item.bn-active{color:#2563eb}
+        .bnav-icon{font-size:1.35rem;line-height:1;display:block}
+        .bnav-label{font-size:.6rem;font-weight:700;letter-spacing:.01em;line-height:1;white-space:nowrap}
+        /* ── Sheet items ── */
+        .sht-item{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:12px 4px;border-radius:12px;background:#f8fafc;border:1px solid #f1f5f9;text-decoration:none;color:#475569;transition:background .12s,color .12s;-webkit-tap-highlight-color:transparent}
+        .sht-item:active{background:#eff6ff;color:#2563eb}
+        .sht-item.sht-active{background:#eff6ff;border-color:#bfdbfe;color:#2563eb}
+        .sht-icon{font-size:1.4rem;line-height:1}
+        .sht-label{font-size:.65rem;font-weight:600;text-align:center;line-height:1.2}
     </style>
 </head>
-<body class="h-full bg-slate-100" x-data="{open:false}">
+<body class="h-full bg-slate-100" x-data="{open:false, moreOpen:false}">
 
 <!-- ── Toast notifications (reads ?success= / ?error= from URL) ── -->
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style="max-width:320px"
@@ -296,7 +308,7 @@ function toastMgr() {
     </header>
 
     <!-- Content -->
-    <main class="flex-1 px-4 sm:px-6 py-6">
+    <main class="flex-1 px-4 sm:px-6 py-6 pb-24 lg:pb-6">
         {% block content %}{% endblock %}
     </main>
 
@@ -307,5 +319,223 @@ function toastMgr() {
 </div>
 
 {% block extra_js %}{% endblock %}
+
+{# ═══ BOTTOM NAV + MORE SHEET (mobile / tablet, hidden on lg+) ═══ #}
+{% set _p = request.url.path %}
+{% set _bn_more = not (_p == '/dashboard' or _p.startswith('/pos') or (_p.startswith('/sales') and not _p.startswith('/sales/')) or _p.startswith('/products')) %}
+
+<!-- More-sheet backdrop -->
+<div x-show="moreOpen" x-cloak @click="moreOpen=false"
+     x-transition:enter="transition duration-200 ease-out"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="transition duration-150 ease-in"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
+
+<!-- More sheet -->
+<div x-show="moreOpen" x-cloak
+     x-transition:enter="transition duration-250 ease-out"
+     x-transition:enter-start="translate-y-full"
+     x-transition:enter-end="translate-y-0"
+     x-transition:leave="transition duration-200 ease-in"
+     x-transition:leave-end="translate-y-full"
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
+     style="max-height:80vh;padding-bottom:env(safe-area-inset-bottom,0)">
+
+    <!-- Drag handle -->
+    <div class="flex justify-center pt-3 pb-1 shrink-0">
+        <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+    </div>
+
+    <!-- Sheet header -->
+    <div class="flex items-center justify-between px-5 py-2.5 border-b border-slate-100">
+        <p class="font-semibold text-slate-800 text-sm">Все разделы</p>
+        <button @click="moreOpen=false"
+                class="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 text-lg leading-none hover:bg-slate-200 transition-colors">×</button>
+    </div>
+
+    <!-- Sheet content -->
+    <div class="px-4 py-4 space-y-5">
+
+        <!-- Операции -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Операции</p>
+            <div class="grid grid-cols-4 gap-2">
+                <a href="/inventory" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/inventory') %}sht-active{% endif %}">
+                    <span class="sht-icon">🏪</span>
+                    <span class="sht-label">Остатки</span>
+                </a>
+                {% if user and user.role in ('owner','admin','super_admin') %}
+                <a href="/shops" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/shops') %}sht-active{% endif %}">
+                    <span class="sht-icon">🏬</span>
+                    <span class="sht-label">Магазины</span>
+                </a>
+                <a href="/categories" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/categories') %}sht-active{% endif %}">
+                    <span class="sht-icon">🗂️</span>
+                    <span class="sht-label">Категории</span>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Аналитика -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Аналитика</p>
+            <div class="grid grid-cols-4 gap-2">
+                <a href="/reports" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/reports') %}sht-active{% endif %}">
+                    <span class="sht-icon">📈</span>
+                    <span class="sht-label">Отчёты</span>
+                </a>
+                <a href="/rankings" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/rankings') %}sht-active{% endif %}">
+                    <span class="sht-icon">🏆</span>
+                    <span class="sht-label">Рейтинги</span>
+                </a>
+                <a href="/plans" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/plans') %}sht-active{% endif %}">
+                    <span class="sht-icon">🎯</span>
+                    <span class="sht-label">Планы</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Команда -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Команда</p>
+            <div class="grid grid-cols-4 gap-2">
+                <a href="/staff" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/staff') %}sht-active{% endif %}">
+                    <span class="sht-icon">👥</span>
+                    <span class="sht-label">Сотрудники</span>
+                </a>
+                <a href="/salary" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/salary') %}sht-active{% endif %}">
+                    <span class="sht-icon">💸</span>
+                    <span class="sht-label">Зарплата</span>
+                </a>
+                <a href="/schedule" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/schedule') %}sht-active{% endif %}">
+                    <span class="sht-icon">📅</span>
+                    <span class="sht-label">График</span>
+                </a>
+                <a href="/contests" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/contests') %}sht-active{% endif %}">
+                    <span class="sht-icon">🎁</span>
+                    <span class="sht-label">Конкурсы</span>
+                </a>
+                {% if user and user.role in ('owner','admin','super_admin') %}
+                <a href="/notifications" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/notifications') %}sht-active{% endif %}">
+                    <span class="sht-icon">🔔</span>
+                    <span class="sht-label">Рассылки</span>
+                </a>
+                <a href="/motivation" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/motivation') %}sht-active{% endif %}">
+                    <span class="sht-icon">💎</span>
+                    <span class="sht-label">Мотивация</span>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Система -->
+        <div>
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Система</p>
+            <div class="grid grid-cols-4 gap-2">
+                <a href="/integration" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/integration') %}sht-active{% endif %}">
+                    <span class="sht-icon">🔗</span>
+                    <span class="sht-label">Интеграции</span>
+                </a>
+                {% if user and user.role == 'owner' %}
+                <a href="/subscription" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/subscription') %}sht-active{% endif %}">
+                    <span class="sht-icon">💳</span>
+                    <span class="sht-label">Подписка</span>
+                </a>
+                {% endif %}
+                {% if user and user.role == 'super_admin' %}
+                <a href="/payments" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/payments') %}sht-active{% endif %}">
+                    <span class="sht-icon">💳</span>
+                    <span class="sht-label">Платежи</span>
+                </a>
+                <a href="/promocodes" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/promocodes') %}sht-active{% endif %}">
+                    <span class="sht-icon">🎟️</span>
+                    <span class="sht-label">Промокоды</span>
+                </a>
+                {% endif %}
+                <a href="/settings" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/settings') %}sht-active{% endif %}">
+                    <span class="sht-icon">⚙️</span>
+                    <span class="sht-label">Настройки</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- User row -->
+        <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                {% if user and user.name %}{{ user.name[0]|upper }}{% else %}?{% endif %}
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-slate-800 truncate">{{ user.name if user else 'Пользователь' }}</p>
+                <p class="text-xs text-slate-400">
+                    {% if user %}{% if user.role=='super_admin' %}Суперадмин{% elif user.role=='owner' %}Владелец{% elif user.role=='admin' %}Администратор{% else %}Сотрудник{% endif %}{% endif %}
+                </p>
+            </div>
+            <a href="/logout"
+               class="shrink-0 flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50">
+                🚪 Выйти
+            </a>
+        </div>
+
+    </div>
+</div>
+
+<!-- ═══ BOTTOM NAV BAR ═══ -->
+<nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 lg:hidden"
+     style="box-shadow:0 -2px 16px rgba(0,0,0,.07);padding-bottom:env(safe-area-inset-bottom,0)">
+    <div class="flex items-stretch h-16">
+
+        <a href="/pos"
+           class="bnav-item {% if _p.startswith('/pos') %}bn-active{% endif %}">
+            <span class="bnav-icon">🖥️</span>
+            <span class="bnav-label">Касса</span>
+        </a>
+
+        <a href="/dashboard"
+           class="bnav-item {% if _p == '/dashboard' %}bn-active{% endif %}">
+            <span class="bnav-icon">📊</span>
+            <span class="bnav-label">Дашборд</span>
+        </a>
+
+        <a href="/sales"
+           class="bnav-item {% if _p.startswith('/sales') and not _p.startswith('/sales/') %}bn-active{% endif %}">
+            <span class="bnav-icon">💰</span>
+            <span class="bnav-label">Продажи</span>
+        </a>
+
+        <a href="/products"
+           class="bnav-item {% if _p.startswith('/products') %}bn-active{% endif %}">
+            <span class="bnav-icon">📦</span>
+            <span class="bnav-label">Товары</span>
+        </a>
+
+        <button @click="moreOpen=true"
+                class="bnav-item {% if _bn_more %}bn-active{% endif %}">
+            <span class="bnav-icon" style="font-size:1.1rem">☰</span>
+            <span class="bnav-label">Ещё</span>
+        </button>
+
+    </div>
+</nav>
+
 </body>
 </html>
