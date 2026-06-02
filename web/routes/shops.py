@@ -85,14 +85,149 @@ def shops_create(
                 url=f"/shops?error={quote('Магазин с таким названием уже существует.')}",
                 status_code=302,
             )
+        from urllib.parse import quote as _q
         return RedirectResponse(
-            url=f"/shops?success={quote('Магазин «' + name_clean + '» создан.')}",
+            url=f"/shops/{_q(name_clean)}/stock?new=1",
             status_code=303,
         )
     except Exception as exc:
         logging.error(f"shops_create error: {exc}")
         return RedirectResponse(
             url=f"/shops?error={quote(str(exc))}", status_code=302
+        )
+
+
+@router.get("/shops/{shop_name}/stock")
+def shop_stock_page(request: Request, shop_name: str, new: str = ""):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import unquote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not _admin_guard(user):
+        return RedirectResponse(url="/shops", status_code=302)
+
+    shop_name = unquote(shop_name)
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    ctx: dict = {
+        "request": request,
+        "user": user,
+        "is_admin": True,
+        "shop_name": shop_name,
+        "is_new": new == "1",
+        "products_by_category": {},
+        "current_stock": {},
+        "error": None,
+        "csrf_token": get_csrf_token(request),
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+
+        # Verify shop exists
+        all_shops = db.get_all_shops() or []
+        if shop_name not in all_shops:
+            from urllib.parse import quote
+            return RedirectResponse(
+                url=f"/shops?error={quote('Магазин не найден.')}",
+                status_code=302,
+            )
+
+        # Load all products grouped by category
+        products = db.get_all_products() or []
+        # products: id[0] name[1] category[2] price[3] ...
+        products_by_cat = {}
+        for p in products:
+            cat = p[2] or "Без категории"
+            products_by_cat.setdefault(cat, []).append(p)
+        ctx["products_by_category"] = dict(sorted(products_by_cat.items()))
+
+        # Load existing inventory for this shop
+        inv = db.get_all_inventory(shop_name=shop_name) or []
+        # inv: id[0] product_id[1] shop_name[2] quantity[3] ...
+        ctx["current_stock"] = {row[1]: int(row[3] or 0) for row in inv}
+
+    except Exception as exc:
+        ctx["error"] = str(exc)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "shops/stock.html", ctx
+    )
+
+
+@router.post("/shops/{shop_name}/stock")
+async def shop_stock_save(request: Request, shop_name: str):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import unquote, quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not _admin_guard(user):
+        return RedirectResponse(url="/shops", status_code=302)
+
+    shop_name = unquote(shop_name)
+
+    form = await request.form()
+
+    csrf_token = form.get("csrf_token", "")
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(
+            url=f"/shops/{quote(shop_name)}/stock?error=csrf",
+            status_code=302,
+        )
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+
+        # Load current inventory for this shop to compute deltas
+        inv = db.get_all_inventory(shop_name=shop_name) or []
+        current_stock = {row[1]: int(row[3] or 0) for row in inv}
+
+        updated = 0
+        for key in form.keys():
+            if not key.startswith("qty_"):
+                continue
+            try:
+                product_id = int(key[4:])
+                new_qty = int(form[key] or 0)
+            except (ValueError, TypeError):
+                continue
+            if new_qty < 0:
+                new_qty = 0
+            current = current_stock.get(product_id, 0)
+            delta = new_qty - current
+            if delta != 0:
+                db.update_inventory(
+                    shop_name=shop_name,
+                    product_id=product_id,
+                    delta=delta,
+                    user_id=telegram_id,
+                    change_type="initial_stock",
+                    change_reason="Начальные остатки (веб)",
+                )
+                updated += 1
+
+        msg = f"Остатки для «{shop_name}» сохранены."
+        if updated:
+            msg += f" Обновлено позиций: {updated}."
+        return RedirectResponse(
+            url=f"/shops?success={quote(msg)}",
+            status_code=303,
+        )
+    except Exception as exc:
+        logging.error(f"shop_stock_save error: {exc}")
+        return RedirectResponse(
+            url=f"/shops/{quote(shop_name)}/stock?error={quote(str(exc))}",
+            status_code=302,
         )
 
 

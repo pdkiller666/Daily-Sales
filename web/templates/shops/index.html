@@ -202,6 +202,10 @@
                     {% if is_admin %}
                     <td class="px-5 py-3 text-right">
                         <div class="flex items-center gap-2 justify-end">
+                            <a href="/shops/{{ shop[0]|urlencode }}/stock"
+                               class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-50 hover:border-emerald-200 transition-colors">
+                                📦 Остатки
+                            </a>
                             <button onclick="openRenameModal('{{ shop[0]|e }}')"
                                     class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-100 hover:border-slate-300 transition-colors">
                                 ✏️ Переименовать

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Начальные остатки — {{ shop_name }}{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/shops" class="text-slate-500 text-xs hover:text-slate-700 transition-colors">Магазины</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm truncate max-w-[140px]">{{ shop_name }}</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Остатки</span>
+{% endblock %}
+
+{% block content %}
+
+{% if is_new %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+    <span class="text-lg">🎉</span>
+    <div>
+        <p class="font-semibold">Магазин «{{ shop_name }}» создан!</p>
+        <p class="text-xs mt-0.5 text-blue-600">Установите начальные остатки для товаров. Можно пропустить — остатки будут нулевыми.</p>
+    </div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span>❌</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<div class="flex items-center justify-between mb-5">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">🏪 {{ shop_name }}</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Начальные остатки товаров</p>
+    </div>
+    <a href="/shops"
+       class="flex items-center gap-1.5 px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+        ← Назад
+    </a>
+</div>
+
+{% if not products_by_category %}
+<div class="card py-16 text-center text-slate-400">
+    <p class="text-5xl mb-3">📦</p>
+    <p class="text-sm font-medium">Нет товаров для установки остатков</p>
+    <p class="text-xs mt-1 mb-4">Сначала добавьте товары в каталог</p>
+    <div class="flex gap-2 justify-center">
+        <a href="/products"
+           class="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors">
+            Перейти к товарам
+        </a>
+        <a href="/shops"
+           class="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+            К магазинам
+        </a>
+    </div>
+</div>
+{% else %}
+
+<form method="post" action="/shops/{{ shop_name | urlencode }}/stock" id="stock-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="space-y-4">
+        {% for category, products in products_by_category.items() %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                <h2 class="font-semibold text-slate-700 text-sm">{{ category }}</h2>
+                <span class="text-xs text-slate-400">{{ products | length }} поз.</span>
+            </div>
+            <div class="divide-y divide-slate-50">
+                {% for product in products %}
+                {% set pid = product[0] %}
+                {% set cur_qty = current_stock.get(pid, 0) %}
+                <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-800 truncate">{{ product[1] }}</p>
+                        <p class="text-xs text-slate-400">
+                            {{ "%.0f"|format(product[3]) }} ₽
+                            {% if cur_qty > 0 %}
+                            · <span class="text-emerald-600 font-medium">сейчас: {{ cur_qty }} шт.</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button"
+                                onclick="adjustQty('qty_{{ pid }}', -1)"
+                                class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">−</button>
+                        <input type="number"
+                               name="qty_{{ pid }}"
+                               id="qty_{{ pid }}"
+                               value="{{ cur_qty }}"
+                               min="0"
+                               max="999999"
+                               class="w-16 text-center border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                               oninput="this.value=Math.max(0,parseInt(this.value||0))">
+                        <button type="button"
+                                onclick="adjustQty('qty_{{ pid }}', 1)"
+                                class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">+</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mt-5 flex items-center gap-3 flex-wrap">
+        <button type="submit"
+                class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+            💾 Сохранить остатки
+        </button>
+        <button type="button"
+                onclick="resetAll()"
+                class="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-500 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+            🔄 Сбросить в 0
+        </button>
+        <a href="/shops"
+           class="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+            {% if is_new %}Пропустить{% else %}Отмена{% endif %}
+        </a>
+    </div>
+</form>
+
+<script>
+function adjustQty(inputId, delta) {
+    const inp = document.getElementById(inputId);
+    if (!inp) return;
+    const current = parseInt(inp.value || 0);
+    inp.value = Math.max(0, current + delta);
+}
+
+function resetAll() {
+    document.querySelectorAll('#stock-form input[type=number]').forEach(inp => {
+        inp.value = 0;
+    });
+}
+</script>
+
+{% endif %}
+
+{% endblock %}
+
+{% block footer_info %}{{ shop_name }}{% endblock %}

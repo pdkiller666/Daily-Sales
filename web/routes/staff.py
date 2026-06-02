@@ -340,6 +340,58 @@ def staff_remove(
     return RedirectResponse(url="/staff", status_code=302)
 
 
+@router.post("/staff/{user_id}/set-shop")
+def staff_set_shop(
+    request: Request,
+    user_id: int,
+    new_shop: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    actor_role = user.get("role", "")
+    if actor_role not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            target_tg_id = row[0]
+            org_roles = _get_org_roles(db.db_file)
+            target_role = org_roles.get(target_tg_id, {}).get("role", "user")
+            # Enforce hierarchy: admin can only reassign user-level staff
+            if actor_role == "admin" and target_role in ("admin", "owner", "super_admin"):
+                return RedirectResponse(url=f"/staff/{user_id}?error=forbidden", status_code=302)
+            # Only super_admin can reassign owners
+            if target_role == "owner" and actor_role != "super_admin":
+                return RedirectResponse(url=f"/staff/{user_id}?error=forbidden", status_code=302)
+            shop_value = new_shop.strip()
+            if shop_value:
+                available_shops = db.get_all_shops() or []
+                if shop_value not in available_shops:
+                    return RedirectResponse(
+                        url=f"/staff/{user_id}?error=Магазин+не+найден", status_code=302
+                    )
+            db.update_user(target_tg_id, shop_name=shop_value)
+    except Exception as e:
+        logging.error(f"staff_set_shop error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=303)
+
+
 @router.get("/staff/{user_id}")
 def staff_detail(request: Request, user_id: int):
     from web.auth import get_session_user, get_csrf_token
@@ -374,6 +426,7 @@ def staff_detail(request: Request, user_id: int):
         "year": year, "month": month,
         "error": None,
         "csrf_token": get_csrf_token(request),
+        "shops": [],
     }
 
     try:
@@ -440,6 +493,9 @@ def staff_detail(request: Request, user_id: int):
             cal_grid.append(week)
         ctx["cal_grid"] = cal_grid
         ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
+
+        # Available shops for reassignment
+        ctx["shops"] = db.get_all_shops() or []
 
         # Active plans for this user
         try:
