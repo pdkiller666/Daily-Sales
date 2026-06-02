@@ -1,16 +1,27 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+import logging
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import RedirectResponse, Response
 from datetime import date
+from typing import List, Optional
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 CONTEST_TYPE_LABELS = {
-    "shop": "Магазины", "seller": "Продавцы",
+    "any": "Любые продажи",
+    "product": "По товару",
+    "category": "По категории",
+    "shop": "Магазины",
+    "seller": "Продавцы",
     "shop_product": "Товары по магазину",
 }
 METRIC_LABELS = {
     "turnover": "Выручка", "quantity": "Количество",
     "product_quantity": "Кол-во товара",
+}
+REWARD_TYPE_LABELS = {
+    "fixed": "Фиксированная сумма (₽)",
+    "percent": "Процент от оборота (%)",
 }
 REWARD_LABELS = {
     "cash": "Денежный приз", "gift": "Подарок",
@@ -56,6 +67,7 @@ def contests_page(
     org_db = user.get("org_db")
     today = date.today()
 
+    from web.auth import get_csrf_token
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -67,6 +79,7 @@ def contests_page(
         "selected_contest": None,
         "leaderboard": [], "today": today.isoformat(),
         "error": None,
+        "csrf_token": get_csrf_token(request),
     }
 
     try:
@@ -160,3 +173,248 @@ def contests_page(
     return request.app.state.templates.TemplateResponse(
         request, "contests/index.html", ctx
     )
+
+
+def _load_contest_form_data(db):
+    """Load shops, cities, categories, products for the contest form."""
+    shops, cities, categories, products = [], [], [], []
+    try:
+        shops = db.get_all_shops() or []
+    except Exception:
+        pass
+    try:
+        cities = db.get_all_cities() or []
+    except Exception:
+        pass
+    try:
+        categories = [c for c in (db.get_all_categories() or []) if c]
+    except Exception:
+        pass
+    try:
+        raw = db.get_all_products() or []
+        products = [
+            {"id": p[0], "name": p[1], "category": p[2] or ""}
+            for p in raw[:300]
+        ]
+        products.sort(key=lambda p: (p["category"], p["name"]))
+    except Exception:
+        pass
+    return shops, cities, categories, products
+
+
+@router.get("/contests/new")
+def contests_new(request: Request):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    shops, cities, categories, products = _load_contest_form_data(db)
+
+    today = date.today().isoformat()
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "shops": shops, "cities": cities,
+        "categories": categories, "products": products,
+        "contest_type_labels": CONTEST_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "reward_type_labels": REWARD_TYPE_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": None, "form_data": None,
+        "today": today,
+    }
+    return request.app.state.templates.TemplateResponse(request, "contests/form.html", ctx)
+
+
+@router.post("/contests/create")
+def contests_create(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    title: str = Form(...),
+    description: str = Form(default=""),
+    contest_type: str = Form(default="any"),
+    metric_type: str = Form(default="turnover"),
+    target_value: str = Form(default=""),
+    reward_type: str = Form(default="fixed"),
+    reward_value: str = Form(default=""),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+    shop_filter: str = Form(default=""),
+    city_filter: str = Form(default=""),
+    filter_categories: List[str] = Form(default=[]),
+    filter_products: List[str] = Form(default=[]),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    shops, cities, categories, products = _load_contest_form_data(db)
+    error = None
+
+    def _re_render(err):
+        ctx = {
+            "request": request, "user": user, "is_admin": True,
+            "shops": shops, "cities": cities,
+            "categories": categories, "products": products,
+            "contest_type_labels": CONTEST_TYPE_LABELS,
+            "metric_labels": METRIC_LABELS,
+            "reward_type_labels": REWARD_TYPE_LABELS,
+            "csrf_token": get_csrf_token(request),
+            "error": err,
+            "today": date.today().isoformat(),
+            "form_data": {
+                "title": title, "description": description,
+                "contest_type": contest_type, "metric_type": metric_type,
+                "target_value": target_value, "reward_type": reward_type,
+                "reward_value": reward_value, "start_date": start_date,
+                "end_date": end_date, "shop_filter": shop_filter,
+                "city_filter": city_filter,
+                "filter_categories": filter_categories,
+                "filter_products": [str(p) for p in filter_products],
+            },
+        }
+        return request.app.state.templates.TemplateResponse(request, "contests/form.html", ctx)
+
+    try:
+        title_clean = title.strip()
+        if not title_clean:
+            return _re_render("Введите название конкурса.")
+
+        if contest_type not in ("any", "product", "category"):
+            return _re_render("Выберите тип конкурса.")
+        if metric_type not in ("turnover", "quantity"):
+            return _re_render("Выберите метрику.")
+        if reward_type not in ("fixed", "percent"):
+            return _re_render("Выберите тип награды.")
+
+        if not start_date or not end_date:
+            return _re_render("Укажите даты начала и конца конкурса.")
+        from datetime import date as _date
+        sd = _date.fromisoformat(start_date)
+        ed = _date.fromisoformat(end_date)
+        if ed <= sd:
+            return _re_render("Дата окончания должна быть позже даты начала.")
+
+        tv = 0.0
+        if target_value.strip():
+            try:
+                tv = float(target_value.replace(",", ".").strip())
+            except ValueError:
+                return _re_render("Целевое значение должно быть числом.")
+
+        rv = reward_value.strip() or ""
+
+        category_filter = None
+        product_filter = None
+        if contest_type == "category":
+            if not filter_categories:
+                return _re_render("Выберите хотя бы одну категорию.")
+            category_filter = _json.dumps(filter_categories, ensure_ascii=False)
+        elif contest_type == "product":
+            if not filter_products:
+                return _re_render("Выберите хотя бы один товар.")
+            product_filter = _json.dumps([int(p) for p in filter_products])
+
+        new_id = db.create_contest(
+            title=title_clean,
+            description=description.strip() or None,
+            contest_type=contest_type,
+            metric_type=metric_type,
+            target_value=tv,
+            reward_type=reward_type,
+            reward_value=rv,
+            start_date=start_date,
+            end_date=end_date,
+            shop_filter=shop_filter.strip() or None,
+            city_filter=city_filter.strip() or None,
+            category_filter=category_filter,
+            product_filter=product_filter,
+            created_by=telegram_id,
+        )
+        if not new_id:
+            return _re_render("Не удалось создать конкурс. Попробуйте ещё раз.")
+
+        return RedirectResponse(url=f"/contests?contest_id={new_id}", status_code=303)
+
+    except Exception as exc:
+        logger.error(f"contests_create error: {exc}")
+        return _re_render(f"Ошибка при создании конкурса: {exc}")
+
+
+@router.post("/contests/{contest_id}/finish")
+def contests_finish(
+    request: Request,
+    contest_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_contest(contest_id)
+        if row and row[16] == "active":
+            db.update_contest_status(contest_id, "finished")
+    except Exception as exc:
+        logger.error(f"contests_finish error: {exc}")
+
+    return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=303)
+
+
+@router.post("/contests/{contest_id}/cancel")
+def contests_cancel(
+    request: Request,
+    contest_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_contest(contest_id)
+        if row and row[16] in ("active", "pending"):
+            db.update_contest_status(contest_id, "cancelled")
+    except Exception as exc:
+        logger.error(f"contests_cancel error: {exc}")
+
+    return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=303)

@@ -42,6 +42,9 @@ def create_web_app() -> FastAPI:
     import bot_holder
     templates.env.globals['bot_username'] = lambda: bot_holder.get_username() or ''
 
+    from web.routes.payments import get_pending_count
+    templates.env.globals['pending_payments_count'] = get_pending_count
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -62,6 +65,7 @@ def create_web_app() -> FastAPI:
     from web.routes.settings import router as settings_router
     from web.routes.schedule import router as schedule_router
     from web.routes.integration import router as integration_router
+    from web.routes.payments import router as payments_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -77,6 +81,7 @@ def create_web_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(schedule_router)
     app.include_router(integration_router)
+    app.include_router(payments_router)
 
     @app.get("/")
     async def root():

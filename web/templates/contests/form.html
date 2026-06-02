@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title %}Новый конкурс{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/contests" class="text-slate-500 hover:text-slate-700 text-sm transition-colors">Конкурсы</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Создать</span>
+{% endblock %}
+
+{% block content %}
+
+{# ─── Resolve current field values ─── #}
+{% if form_data %}
+  {% set cur_title        = form_data.title        or '' %}
+  {% set cur_desc         = form_data.description  or '' %}
+  {% set cur_type         = form_data.contest_type or 'any' %}
+  {% set cur_metric       = form_data.metric_type  or 'turnover' %}
+  {% set cur_target       = form_data.target_value or '' %}
+  {% set cur_reward_type  = form_data.reward_type  or 'fixed' %}
+  {% set cur_reward_val   = form_data.reward_value or '' %}
+  {% set cur_start        = form_data.start_date   or '' %}
+  {% set cur_end          = form_data.end_date     or '' %}
+  {% set cur_shop         = form_data.shop_filter  or '' %}
+  {% set cur_city         = form_data.city_filter  or '' %}
+  {% set cur_cats         = form_data.filter_categories or [] %}
+  {% set cur_prods        = form_data.filter_products   or [] %}
+{% else %}
+  {% set cur_title        = '' %}
+  {% set cur_desc         = '' %}
+  {% set cur_type         = 'any' %}
+  {% set cur_metric       = 'turnover' %}
+  {% set cur_target       = '' %}
+  {% set cur_reward_type  = 'fixed' %}
+  {% set cur_reward_val   = '' %}
+  {% set cur_start        = '' %}
+  {% set cur_end          = '' %}
+  {% set cur_shop         = '' %}
+  {% set cur_city         = '' %}
+  {% set cur_cats         = [] %}
+  {% set cur_prods        = [] %}
+{% endif %}
+
+<a href="/contests"
+   class="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-5 transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Все конкурсы
+</a>
+
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Новый конкурс</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Заполните параметры нового конкурса</p>
+</div>
+
+{% if error %}
+<div class="mb-5 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span class="shrink-0">❌</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<form method="POST" action="/contests/create" id="contestForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- ─── Basic info ─── -->
+    <div class="card p-6 mb-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Основная информация</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Название *</label>
+                <input type="text" name="title" value="{{ cur_title }}" required
+                       placeholder="например: Лучший продавец месяца"
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Описание</label>
+                <textarea name="description" rows="2" placeholder="Краткое описание условий конкурса"
+                          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none">{{ cur_desc }}</textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Contest type ─── -->
+    <div class="card p-6 mb-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Тип конкурса</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {% for val, lbl in [('any','🌐 Любые продажи'),('category','📂 По категории'),('product','📦 По товару')] %}
+            <label class="type-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+                          {% if cur_type == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
+                <input type="radio" name="contest_type" value="{{ val }}"
+                       {% if cur_type == val %}checked{% endif %}
+                       class="accent-indigo-600 type-radio" onchange="onTypeChange()">
+                <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
+            </label>
+            {% endfor %}
+        </div>
+
+        <!-- Category picker -->
+        <div id="categorySection" class="mt-4 {% if cur_type != 'category' %}hidden{% endif %}">
+            <label class="block text-xs font-medium text-slate-600 mb-2">Категории *</label>
+            {% if categories %}
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                {% for cat in categories %}
+                <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-slate-100">
+                    <input type="checkbox" name="filter_categories" value="{{ cat }}"
+                           {% if cat in cur_cats %}checked{% endif %}
+                           class="accent-indigo-600 shrink-0">
+                    <span class="text-xs text-slate-700 truncate">{{ cat }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-400">Нет доступных категорий.</p>
+            {% endif %}
+        </div>
+
+        <!-- Product picker -->
+        <div id="productSection" class="mt-4 {% if cur_type != 'product' %}hidden{% endif %}">
+            <label class="block text-xs font-medium text-slate-600 mb-2">Товары *</label>
+            {% if products %}
+            <p class="text-xs text-slate-400 mb-2">Показаны первые {{ products|length }} товаров</p>
+            <div class="space-y-0.5 max-h-64 overflow-y-auto pr-1">
+                {% set ns = namespace(last_cat='') %}
+                {% for prod in products %}
+                    {% if prod.category != ns.last_cat %}
+                        {% set ns.last_cat = prod.category %}
+                        <p class="text-xs font-semibold text-slate-500 mt-3 mb-1 first:mt-0">{{ prod.category or 'Без категории' }}</p>
+                    {% endif %}
+                    <label class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
+                        <input type="checkbox" name="filter_products" value="{{ prod.id }}"
+                               {% if prod.id|string in cur_prods %}checked{% endif %}
+                               class="accent-indigo-600 shrink-0">
+                        <span class="text-xs text-slate-700 truncate">{{ prod.name }}</span>
+                    </label>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-400">Нет доступных товаров.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ─── Metric + Target ─── -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold text-slate-700 mb-4">Метрика</h2>
+            <div class="space-y-2">
+                {% for val, lbl, sub in [('turnover','Выручка (₽)','Сумма продаж в рублях'),('quantity','Количество (шт.)','Число проданных единиц')] %}
+                <label class="metric-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+                              {% if cur_metric == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
+                    <input type="radio" name="metric_type" value="{{ val }}"
+                           {% if cur_metric == val %}checked{% endif %}
+                           class="accent-indigo-600 metric-radio"
+                           onchange="onMetricChange()">
+                    <div>
+                        <p class="text-sm font-medium text-slate-700">{{ lbl }}</p>
+                        <p class="text-xs text-slate-400">{{ sub }}</p>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold text-slate-700 mb-4">Целевое значение</h2>
+            <p class="text-xs text-slate-400 mb-3">Необязательно — оставьте пустым, если цель не нужна.</p>
+            <div class="flex items-center gap-3">
+                <input type="number" name="target_value" id="targetValue"
+                       value="{{ cur_target }}" min="0" step="any"
+                       placeholder="например: 100000"
+                       class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <span id="targetUnit" class="text-sm text-slate-500 shrink-0">
+                    {% if cur_metric == 'quantity' %}шт.{% else %}₽{% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Dates ─── -->
+    <div class="card p-6 mb-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Даты проведения *</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Начало</label>
+                <input type="date" name="start_date" value="{{ cur_start }}" required
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Конец (включительно)</label>
+                <input type="date" name="end_date" value="{{ cur_end }}" required
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Reward ─── -->
+    <div class="card p-6 mb-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Награда</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+            {% for val, lbl in reward_type_labels.items() %}
+            <label class="reward-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+                          {% if cur_reward_type == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
+                <input type="radio" name="reward_type" value="{{ val }}"
+                       {% if cur_reward_type == val %}checked{% endif %}
+                       class="accent-indigo-600 reward-radio" onchange="onRewardTypeChange()">
+                <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
+            </label>
+            {% endfor %}
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">
+                Размер награды <span id="rewardUnit" class="text-slate-400">
+                    {% if cur_reward_type == 'percent' %}(%){% else %}(₽){% endif %}
+                </span>
+            </label>
+            <input type="text" name="reward_value" value="{{ cur_reward_val }}"
+                   id="rewardValue" placeholder="например: 5000"
+                   class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            <p class="text-xs text-slate-400 mt-1">Оставьте пустым, если размер не определён.</p>
+        </div>
+    </div>
+
+    <!-- ─── Filters ─── -->
+    <div class="card p-6 mb-6">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Фильтры участников</h2>
+        <p class="text-xs text-slate-400 mb-4">Опционально. Ограничьте конкурс конкретным магазином или городом.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Магазин</label>
+                <select name="shop_filter"
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                    <option value="">— Все магазины —</option>
+                    {% for sh in shops %}
+                    <option value="{{ sh }}" {% if cur_shop == sh %}selected{% endif %}>{{ sh }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Город</label>
+                <select name="city_filter"
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                    <option value="">— Все города —</option>
+                    {% for city in cities %}
+                    <option value="{{ city }}" {% if cur_city == city %}selected{% endif %}>{{ city }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Submit ─── -->
+    <div class="flex items-center gap-3">
+        <button type="submit"
+                class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
+            Создать конкурс
+        </button>
+        <a href="/contests"
+           class="px-4 py-2.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
+            Отмена
+        </a>
+    </div>
+</form>
+
+<script>
+function onTypeChange() {
+    const val = document.querySelector('input[name="contest_type"]:checked')?.value || 'any';
+    document.getElementById('categorySection').classList.toggle('hidden', val !== 'category');
+    document.getElementById('productSection').classList.toggle('hidden', val !== 'product');
+    document.querySelectorAll('.type-radio-label').forEach(lbl => {
+        const active = lbl.querySelector('input[type="radio"]')?.checked || false;
+        lbl.classList.toggle('border-indigo-400', active);
+        lbl.classList.toggle('bg-indigo-50', active);
+        lbl.classList.toggle('border-slate-200', !active);
+    });
+}
+
+function onMetricChange() {
+    const val = document.querySelector('input[name="metric_type"]:checked')?.value || 'turnover';
+    const unit = document.getElementById('targetUnit');
+    if (unit) unit.textContent = val === 'quantity' ? 'шт.' : '₽';
+    document.querySelectorAll('.metric-radio-label').forEach(lbl => {
+        const active = lbl.querySelector('input[type="radio"]')?.checked || false;
+        lbl.classList.toggle('border-indigo-400', active);
+        lbl.classList.toggle('bg-indigo-50', active);
+        lbl.classList.toggle('border-slate-200', !active);
+    });
+}
+
+function onRewardTypeChange() {
+    const val = document.querySelector('input[name="reward_type"]:checked')?.value || 'fixed';
+    const unit = document.getElementById('rewardUnit');
+    if (unit) unit.textContent = val === 'percent' ? '(%)' : '(₽)';
+    const input = document.getElementById('rewardValue');
+    if (input) input.placeholder = val === 'percent' ? 'например: 5' : 'например: 5000';
+    document.querySelectorAll('.reward-radio-label').forEach(lbl => {
+        const active = lbl.querySelector('input[type="radio"]')?.checked || false;
+        lbl.classList.toggle('border-indigo-400', active);
+        lbl.classList.toggle('bg-indigo-50', active);
+        lbl.classList.toggle('border-slate-200', !active);
+    });
+}
+</script>
+{% endblock %}
+
+{% block footer_info %}Новый конкурс{% endblock %}

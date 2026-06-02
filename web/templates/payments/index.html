@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}Платежи{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400">Система</span>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700">Платежи</span>
+{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">💳 Управление платежами</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Подтверждение заявок на подписку</p>
+    </div>
+    {% if pending|length > 0 %}
+    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold bg-red-100 text-red-700">
+        <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+        {{ pending|length }} ожидает
+    </span>
+    {% endif %}
+</div>
+
+<!-- Flash banner -->
+{% if msg %}
+<div class="mb-5 px-4 py-3 rounded-lg text-sm font-medium
+    {% if msg.startswith('confirmed_') %}bg-emerald-50 text-emerald-800 border border-emerald-200
+    {% elif msg.startswith('rejected_') %}bg-slate-50 text-slate-700 border border-slate-200
+    {% elif msg == 'csrf_error' %}bg-red-50 text-red-700 border border-red-200
+    {% else %}bg-red-50 text-red-700 border border-red-200{% endif %}">
+    {% if msg.startswith('confirmed_') %}
+        ✅ Заявка #{{ msg.split('_')[1] }} подтверждена — подписка активирована.
+    {% elif msg.startswith('rejected_') %}
+        ❌ Заявка #{{ msg.split('_')[1] }} отклонена.
+    {% elif msg == 'csrf_error' %}
+        ⚠️ Ошибка безопасности (CSRF). Повторите действие.
+    {% elif msg.startswith('error_') %}
+        ⚠️ Не удалось обработать заявку #{{ msg.split('_')[1] }}. Возможно она уже была обработана.
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Tabs -->
+<div class="flex gap-1 mb-5 border-b border-slate-200">
+    <a href="/payments?tab=pending"
+       class="px-4 py-2 text-sm font-medium border-b-2 transition-colors
+              {% if tab == 'pending' %}border-blue-600 text-blue-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}">
+        Ожидают
+        {% if pending|length > 0 %}
+        <span class="ml-1 px-1.5 py-0.5 text-xs rounded-full
+            {% if tab == 'pending' %}bg-blue-100 text-blue-700{% else %}bg-red-100 text-red-600{% endif %}">
+            {{ pending|length }}
+        </span>
+        {% endif %}
+    </a>
+    <a href="/payments?tab=history"
+       class="px-4 py-2 text-sm font-medium border-b-2 transition-colors
+              {% if tab == 'history' %}border-blue-600 text-blue-700{% else %}border-transparent text-slate-500 hover:text-slate-700{% endif %}">
+        История
+        {% if history|length > 0 %}
+        <span class="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">
+            {{ history|length }}
+        </span>
+        {% endif %}
+    </a>
+</div>
+
+<!-- ══ PENDING TAB ══ -->
+{% if tab == 'pending' %}
+{% if pending %}
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 border-b border-slate-100 text-left">
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">#</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Пользователь</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Магазин</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Тариф</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Сумма</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Дата заявки</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Действия</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+            {% for p in pending %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-4 py-3 text-slate-400 tabular-nums">{{ p.id }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">{{ p.user_name }}</td>
+                <td class="px-4 py-3 text-slate-600">{{ p.shop_name }}</td>
+                <td class="px-4 py-3">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                        {{ p.plan_label }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 font-semibold text-slate-800 tabular-nums">{{ p.amount | fmt_currency }}</td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ p.created_at }}</td>
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                        <!-- Confirm -->
+                        <form method="post" action="/payments/{{ p.id }}/confirm"
+                              onsubmit="return confirm('Подтвердить заявку #{{ p.id }}?\nПодписка будет активирована для пользователя.')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                                ✅ Подтвердить
+                            </button>
+                        </form>
+                        <!-- Reject -->
+                        <form method="post" action="/payments/{{ p.id }}/reject"
+                              onsubmit="return confirm('Отклонить заявку #{{ p.id }}?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors">
+                                ❌ Отклонить
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card p-12 text-center">
+    <div class="text-5xl mb-4">✅</div>
+    <p class="text-lg font-semibold text-slate-700">Нет ожидающих заявок</p>
+    <p class="text-sm text-slate-400 mt-1">Все заявки обработаны</p>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- ══ HISTORY TAB ══ -->
+{% if tab == 'history' %}
+{% if history %}
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 border-b border-slate-100 text-left">
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">#</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Пользователь</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Тариф</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Сумма</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Статус</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Дата заявки</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Обработано</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Кем</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+            {% for h in history %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-4 py-3 text-slate-400 tabular-nums">{{ h.id }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800">{{ h.user_name }}</td>
+                <td class="px-4 py-3">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                        {{ h.plan_label }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 font-semibold text-slate-700 tabular-nums">{{ h.amount | fmt_currency }}</td>
+                <td class="px-4 py-3">
+                    {% if h.status == 'approved' %}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                        ✅ Подтверждена
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">
+                        ❌ Отклонена
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.created_at }}</td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.processed_at }}</td>
+                <td class="px-4 py-3 text-slate-500">{{ h.admin_name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card p-12 text-center">
+    <div class="text-5xl mb-4">📋</div>
+    <p class="text-lg font-semibold text-slate-700">История пуста</p>
+    <p class="text-sm text-slate-400 mt-1">Обработанные заявки появятся здесь</p>
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,220 @@
+import sqlite3
+from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
+
+router = APIRouter()
+
+PLAN_LABELS = {
+    "Бесплатный": "Бесплатный",
+    "Базовый": "Базовый",
+    "Стандарт": "Стандарт",
+    "Премиум": "Премиум",
+    "addon_shops_1": "+1 магазин",
+    "addon_shops_3": "+3 магазина",
+    "addon_shops_5": "+5 магазинов",
+    "addon_products_1": "+100 товаров",
+    "addon_products_3": "+300 товаров",
+    "addon_products_5": "+500 товаров",
+}
+
+SHOP_BOT_DB = "data/shop_bot.db"
+
+
+def _get_admin_db_id(telegram_id: int) -> int | None:
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _get_pending(limit: int = 200) -> list[dict]:
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.created_at,
+                   u.first_name, u.last_name, u.shop_name
+            FROM payment_requests pr
+            JOIN users u ON pr.user_id = u.id
+            WHERE pr.status = 'pending'
+            ORDER BY pr.created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return [
+            {
+                "id": r[0],
+                "user_id": r[1],
+                "plan_type": r[2] or "",
+                "plan_label": PLAN_LABELS.get(r[2] or "", r[2] or "—"),
+                "amount": r[3] or 0,
+                "created_at": (r[4] or "")[:16].replace("T", " "),
+                "user_name": f"{r[5] or ''} {r[6] or ''}".strip() or "—",
+                "shop_name": r[7] or "—",
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def _get_history(limit: int = 50) -> list[dict]:
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT pr.id, pr.plan_type, pr.amount, pr.status,
+                   pr.created_at, pr.processed_at,
+                   u.first_name, u.last_name, u.shop_name,
+                   a.first_name, a.last_name
+            FROM payment_requests pr
+            JOIN users u ON pr.user_id = u.id
+            LEFT JOIN users a ON pr.processed_by = a.id
+            WHERE pr.status IN ('approved', 'rejected')
+            ORDER BY pr.processed_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return [
+            {
+                "id": r[0],
+                "plan_type": r[1] or "",
+                "plan_label": PLAN_LABELS.get(r[1] or "", r[1] or "—"),
+                "amount": r[2] or 0,
+                "status": r[3] or "",
+                "created_at": (r[4] or "")[:16].replace("T", " "),
+                "processed_at": (r[5] or "")[:16].replace("T", " "),
+                "user_name": f"{r[6] or ''} {r[7] or ''}".strip() or "—",
+                "shop_name": r[8] or "—",
+                "admin_name": f"{r[9] or ''} {r[10] or ''}".strip() or "—",
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def get_pending_count() -> int:
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'")
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+
+
+@router.get("/payments")
+def payments_page(request: Request, msg: str = "", tab: str = "pending"):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "super_admin":
+        return request.app.state.templates.TemplateResponse(
+            request, "errors/403.html", {"user": user}, status_code=403
+        )
+
+    pending = _get_pending()
+    history = _get_history()
+
+    from web.auth import get_csrf_token
+
+    ctx = {
+        "request": request,
+        "user": user,
+        "pending": pending,
+        "history": history,
+        "tab": tab if tab in ("pending", "history") else "pending",
+        "msg": msg,
+        "csrf_token": get_csrf_token(request),
+    }
+    return request.app.state.templates.TemplateResponse(
+        request, "payments/index.html", ctx
+    )
+
+
+@router.post("/payments/{payment_id}/confirm")
+async def confirm_payment(request: Request, payment_id: int):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "super_admin":
+        return RedirectResponse(url="/payments", status_code=302)
+
+    from web.auth import verify_csrf_token
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return RedirectResponse(
+            url="/payments?msg=csrf_error&tab=pending", status_code=302
+        )
+
+    telegram_id = int(user["sub"])
+    admin_db_id = _get_admin_db_id(telegram_id)
+
+    from database import Database
+
+    db = Database(SHOP_BOT_DB)
+    ok = db.confirm_payment_request(payment_id, admin_db_id)
+
+    if ok:
+        return RedirectResponse(
+            url=f"/payments?msg=confirmed_{payment_id}&tab=pending", status_code=303
+        )
+    return RedirectResponse(
+        url=f"/payments?msg=error_{payment_id}&tab=pending", status_code=303
+    )
+
+
+@router.post("/payments/{payment_id}/reject")
+async def reject_payment(request: Request, payment_id: int):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "super_admin":
+        return RedirectResponse(url="/payments", status_code=302)
+
+    from web.auth import verify_csrf_token
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return RedirectResponse(
+            url="/payments?msg=csrf_error&tab=pending", status_code=302
+        )
+
+    telegram_id = int(user["sub"])
+    admin_db_id = _get_admin_db_id(telegram_id)
+
+    from database import Database
+
+    db = Database(SHOP_BOT_DB)
+    ok = db.reject_payment_request(payment_id, admin_db_id)
+
+    if ok:
+        return RedirectResponse(
+            url=f"/payments?msg=rejected_{payment_id}&tab=pending", status_code=303
+        )
+    return RedirectResponse(
+        url=f"/payments?msg=error_{payment_id}&tab=pending", status_code=303
+    )
