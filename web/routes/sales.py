@@ -606,16 +606,18 @@ def api_recent_products(request: Request, shop: str = ""):
             return JSONResponse({"products": []})
         recent_rows = db.get_user_recent_products(uid, limit=10) or []
         # get current stock for each
+        # Build inventory index once (not N times)
+        inv = db.get_all_inventory(shop_name=shop if shop else None) or []
+        stock_map: dict = {}
+        for r in inv:
+            pid_r, qty_r = r[1], int(r[3] or 0)
+            if qty_r > 0:
+                stock_map[pid_r] = stock_map.get(pid_r, 0) + qty_r
+
         result = []
         for row in recent_rows:
             pid, name, price, cat = row[0], row[1], float(row[2] or 0), (row[3] or "")
-            # find stock in requested shop
-            inv = db.get_all_inventory(shop_name=shop if shop else None) or []
-            stock = 0
-            for r in inv:
-                if r[1] == pid:
-                    stock = int(r[3] or 0)
-                    break
+            stock = stock_map.get(pid, 0)
             if stock > 0:
                 result.append({"id": pid, "name": name, "price": price, "category": cat, "stock": stock})
         return JSONResponse({"products": result})
