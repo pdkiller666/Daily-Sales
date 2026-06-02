@@ -23,13 +23,15 @@ def sales_feed(request: Request, since: str = ""):
         if since:
             rows = conn.execute(
                 """
-                SELECT s.id, p.name, s.total_price, s.created_at,
+                SELECT s.id, p.name,
+                       CAST(s.quantity_sold AS REAL) * COALESCE(s.sale_price, 0),
+                       s.sale_date,
                        u.first_name, u.shop_name
                 FROM sales s
                 JOIN products p ON p.id = s.product_id
                 JOIN users u ON u.id = s.user_id
-                WHERE s.created_at > ? AND u.telegram_id != ?
-                ORDER BY s.created_at DESC
+                WHERE s.sale_date > ? AND u.telegram_id != ?
+                ORDER BY s.sale_date DESC
                 LIMIT 10
                 """,
                 (since, telegram_id),
@@ -53,6 +55,89 @@ def sales_feed(request: Request, since: str = ""):
         return {"ok": True, "count": len(items), "items": items}
     except Exception:
         return {"ok": False, "count": 0, "items": []}
+
+
+@router.get("/my-notifications")
+def my_notifications(request: Request, limit: int = 20):
+    """Return current user's notification history with unread count."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return {"ok": False, "unread": 0, "items": []}
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+
+        row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"ok": True, "unread": 0, "items": []}
+        user_db_id = row[0]
+
+        rows = conn.execute(
+            """
+            SELECT id, notification_type, message, is_read, created_at
+            FROM notification_history
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_db_id, min(limit, 50)),
+        ).fetchall()
+
+        unread = sum(1 for r in rows if not r[3])
+        conn.close()
+
+        items = [
+            {
+                "id": r[0],
+                "type": r[1] or "admin",
+                "message": r[2] or "",
+                "is_read": bool(r[3]),
+                "created_at": str(r[4] or "")[:16],
+            }
+            for r in rows
+        ]
+        return {"ok": True, "unread": unread, "items": items}
+    except Exception:
+        return {"ok": False, "unread": 0, "items": []}
+
+
+@router.post("/my-notifications/read-all")
+def my_notifications_read_all(request: Request):
+    """Mark all notification_history entries as read for the current user."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return {"ok": False}
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE notification_history SET is_read = 1 WHERE user_id = ? AND is_read = 0",
+                (row[0],),
+            )
+            conn.commit()
+        conn.close()
+        return {"ok": True}
+    except Exception:
+        return {"ok": False}
 
 
 @router.get("/nav-config")

@@ -130,6 +130,22 @@
         /* Dark toggle switch state */
         html.dark .ds-dark-toggle{background-color:#2563eb!important}
         html.dark .ds-dark-knob{transform:translateX(20px)}
+        /* Notification sheet & dropdown */
+        html.dark .bg-white.rounded-t-2xl .border-slate-100{border-color:#334155!important}
+        html.dark [x-show="notifOpen"] .bg-white,
+        html.dark [x-show="notifDdOpen"] .bg-white{background:#1e293b!important}
+        html.dark [x-show="notifDdOpen"]{background:#1e293b!important;border-color:#334155!important}
+        html.dark [x-show="notifOpen"]{background:#1e293b!important}
+        html.dark [x-show="notifOpen"] .bg-blue-50,
+        html.dark [x-show="notifDdOpen"] .bg-blue-50{background:rgba(59,130,246,.12)!important}
+        html.dark [x-show="notifOpen"] .border-blue-100,
+        html.dark [x-show="notifDdOpen"] .border-blue-100{border-color:rgba(59,130,246,.3)!important}
+        html.dark [x-show="notifOpen"] .text-slate-700,
+        html.dark [x-show="notifDdOpen"] .text-slate-700{color:#cbd5e1!important}
+        html.dark [x-show="notifOpen"] .text-slate-400,
+        html.dark [x-show="notifDdOpen"] .text-slate-400{color:#475569!important}
+        html.dark [x-show="notifOpen"] .border-slate-100,
+        html.dark [x-show="notifDdOpen"] .border-slate-100{border-color:#334155!important}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="mainApp()">
@@ -403,6 +419,41 @@ function toastMgr() {
                 <span>🤖</span> Открыть бот
             </a>
             {% endif %}
+            <!-- Notification bell -->
+            <div class="relative">
+                <button @click="openNotif()" title="Уведомления"
+                        class="relative p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+                    <span class="text-base leading-none">🔔</span>
+                    <span x-show="notifCount > 0" x-cloak
+                          x-text="notifCount > 9 ? '9+' : notifCount"
+                          class="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center text-[9px] font-bold bg-red-500 text-white rounded-full px-0.5 leading-none pointer-events-none"></span>
+                </button>
+                <!-- Desktop dropdown -->
+                <div x-show="notifDdOpen" x-cloak @click.outside="notifDdOpen=false"
+                     class="hidden lg:block absolute right-0 mt-1 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50"
+                     style="max-height:420px;overflow-y:auto">
+                    <div class="flex items-center justify-between px-3 py-2.5 border-b border-slate-100 sticky top-0 bg-white">
+                        <p class="text-xs font-semibold text-slate-700">🔔 Уведомления</p>
+                        <button @click="notifDdOpen=false" class="text-slate-400 hover:text-slate-600 text-xs leading-none">✕</button>
+                    </div>
+                    <div class="p-2 space-y-1">
+                        <template x-if="notifItems.length === 0">
+                            <p class="text-center text-xs text-slate-400 py-8">Уведомлений нет</p>
+                        </template>
+                        <template x-for="n in notifItems" :key="n.id">
+                            <div class="flex gap-2.5 p-2.5 rounded-lg border"
+                                 :class="n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'">
+                                <span class="text-base shrink-0 mt-0.5"
+                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-xs text-slate-700 leading-snug" x-text="n.message"></p>
+                                    <p class="text-[10px] text-slate-400 mt-0.5" x-text="n.created_at"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
             <!-- Dark mode toggle -->
             <button onclick="dsToggleDark()" title="Тёмная тема (Alt+D)"
                     class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
@@ -663,6 +714,8 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
                 const data = Alpine.$data ? Alpine.$data(body) : null;
                 if (data) {
                     if (data.editNavOpen) data.editNavOpen = false;
+                    else if (data.notifOpen) data.notifOpen = false;
+                    else if (data.notifDdOpen) data.notifDdOpen = false;
                     else if (data.moreOpen) data.moreOpen = false;
                 }
             } catch (_) {}
@@ -720,6 +773,10 @@ function mainApp() {
         open: false,
         moreOpen: false,
         editNavOpen: false,
+        notifOpen: false,
+        notifDdOpen: false,
+        notifCount: 0,
+        notifItems: [],
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
         selectedSlot: null,
@@ -745,6 +802,10 @@ function mainApp() {
                     }
                 })
                 .catch(() => {});
+
+            /* 3. Notification badge — initial poll + interval */
+            this._pollNotif();
+            setInterval(() => this._pollNotif(), 60000);
         },
 
         get availableItems() {
@@ -815,6 +876,40 @@ function mainApp() {
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: 'nav_json=' + encodeURIComponent(JSON.stringify(cfg)),
             }).catch(() => {});
+        },
+
+        /* ── Notification helpers ── */
+        _pollNotif() {
+            fetch('/api/my-notifications?limit=20')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        this.notifCount = data.unread;
+                        /* Update items silently so badge stays fresh */
+                        if (!this.notifOpen && !this.notifDdOpen) {
+                            this.notifItems = data.items;
+                        }
+                    }
+                })
+                .catch(() => {});
+        },
+
+        openNotif() {
+            /* Load fresh items and mark as read */
+            fetch('/api/my-notifications?limit=20')
+                .then(r => r.json())
+                .then(data => { if (data.ok) { this.notifItems = data.items; this.notifCount = 0; } })
+                .catch(() => {});
+            fetch('/api/my-notifications/read-all', { method: 'POST' }).catch(() => {});
+            this.notifCount = 0;
+            this.moreOpen = false;
+            if (window.innerWidth < 1024) {
+                this.notifOpen = true;
+                this.notifDdOpen = false;
+            } else {
+                this.notifDdOpen = !this.notifDdOpen;
+                this.notifOpen = false;
+            }
         },
     };
 }
@@ -1203,6 +1298,51 @@ function mainApp() {
             <button onclick="document.getElementById('ds-notif-prompt').remove()" class="shrink-0 text-blue-300 hover:text-blue-500 text-base leading-none px-1">×</button>
         </div>
 
+    </div>
+</div>
+
+<!-- ═══ NOTIFICATION SHEET (mobile) ═══ -->
+<div x-show="notifOpen" x-cloak @click="notifOpen=false"
+     x-transition:enter="transition duration-200 ease-out"
+     x-transition:enter-start="opacity-0"
+     x-transition:enter-end="opacity-100"
+     x-transition:leave="transition duration-150 ease-in"
+     x-transition:leave-end="opacity-0"
+     class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm lg:hidden"></div>
+
+<div x-show="notifOpen" x-cloak
+     x-transition:enter="transition duration-300 ease-out"
+     x-transition:enter-start="sheet-from"
+     x-transition:enter-end="sheet-to"
+     x-transition:leave="transition duration-200 ease-in"
+     x-transition:leave-start="sheet-to"
+     x-transition:leave-end="sheet-from"
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
+     style="max-height:70vh">
+    <div class="flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-slate-100 sticky top-0 bg-white">
+        <h2 class="text-sm font-bold text-slate-800">🔔 Уведомления</h2>
+        <button @click="notifOpen=false"
+                class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+    </div>
+    <div class="p-4 space-y-2">
+        <template x-if="notifItems.length === 0">
+            <p class="text-center text-sm text-slate-400 py-10">Уведомлений нет</p>
+        </template>
+        <template x-for="n in notifItems" :key="n.id">
+            <div class="flex gap-3 p-3 rounded-xl border"
+                 :class="n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'">
+                <span class="text-xl shrink-0 mt-0.5"
+                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-slate-700 leading-snug" x-text="n.message"></p>
+                    <p class="text-xs text-slate-400 mt-1" x-text="n.created_at"></p>
+                </div>
+            </div>
+        </template>
     </div>
 </div>
 
