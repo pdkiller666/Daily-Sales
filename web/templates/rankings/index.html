@@ -13,7 +13,7 @@
         <h1 class="text-2xl font-bold text-slate-800">Рейтинги</h1>
         <p class="text-sm text-slate-500 mt-0.5">Топ продавцов, магазинов и городов</p>
     </div>
-    <a href="/rankings/export.xlsx?tab={{ tab }}&period={{ period }}"
+    <a href="/rankings/export.xlsx?tab={{ tab }}&period={{ period }}{% if period == 'custom' %}&date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
        class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
         📥 Excel
     </a>
@@ -26,14 +26,43 @@
 {% endif %}
 
 <!-- Period selector -->
-<div class="flex flex-wrap gap-2 mb-4">
-    {% for p, lbl in [('week','7 дней'),('month','Месяц'),('prev_month','Прошлый месяц'),('all','Всё время')] %}
-    <a href="/rankings?tab={{ tab }}&period={{ p }}"
-       class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
-              {{ 'bg-blue-600 text-white border-blue-600' if period == p else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
-        {{ lbl }}
-    </a>
-    {% endfor %}
+<div x-data="{ customOpen: {{ 'true' if period == 'custom' else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }" class="mb-4">
+    <div class="flex flex-wrap gap-2">
+        {% for p, lbl in [('week','7 дней'),('month','Месяц'),('prev_month','Прошлый месяц'),('all','Всё время')] %}
+        <a href="/rankings?tab={{ tab }}&period={{ p }}"
+           class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+                  {{ 'bg-blue-600 text-white border-blue-600' if period == p else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
+            {{ lbl }}
+        </a>
+        {% endfor %}
+        <button type="button" @click="customOpen = !customOpen"
+                class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+                       {{ 'bg-blue-600 text-white border-blue-600' if period == 'custom' else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
+            📅 Произвольный
+        </button>
+    </div>
+    <div x-show="customOpen" x-cloak x-transition class="mt-3 flex flex-wrap items-end gap-3">
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">От</label>
+            <input type="date" x-model="df"
+                   class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+            <label class="block text-xs text-slate-500 mb-1">До</label>
+            <input type="date" x-model="dt"
+                   class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <button type="button"
+                @click="if(df && dt) window.location='/rankings?tab={{ tab }}&date_from='+df+'&date_to='+dt"
+                :disabled="!df || !dt"
+                class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            Применить
+        </button>
+        {% if period == 'custom' %}
+        <a href="/rankings?tab={{ tab }}&period=month"
+           class="text-xs text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
+        {% endif %}
+    </div>
 </div>
 
 <!-- Tab selector -->

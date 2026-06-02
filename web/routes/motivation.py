@@ -139,6 +139,53 @@ def motivation_set(
     return RedirectResponse(url="/motivation?saved=1", status_code=303)
 
 
+@router.post("/motivation/set_category")
+def motivation_set_category(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    category_name: str = Form(...),
+    motivation_type: str = Form(default="percentage"),
+    motivation_value: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/motivation?error=CSRF", status_code=303)
+
+    try:
+        val = float(motivation_value.replace(",", ".").strip())
+        if val <= 0:
+            raise ValueError("Ставка должна быть больше 0")
+        if motivation_type == "percentage" and val > 100:
+            raise ValueError("Процент не может превышать 100")
+    except (ValueError, AttributeError) as exc:
+        return RedirectResponse(url=f"/motivation?error={exc}&category={category_name}", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        products = db.get_products_by_category(category_name) or []
+        count = 0
+        for product in products:
+            db.set_product_motivation(product[0], motivation_type, val, telegram_id)
+            count += 1
+        logger.info(f"Category motivation set: category={category_name} type={motivation_type} val={val} products={count} by={telegram_id}")
+    except Exception as exc:
+        logger.error(f"motivation_set_category error: {exc}")
+        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+
+    from urllib.parse import quote
+    return RedirectResponse(url=f"/motivation?saved_category={count}&category={quote(category_name)}", status_code=303)
+
+
 @router.post("/motivation/remove/{product_id}")
 def motivation_remove(
     request: Request,

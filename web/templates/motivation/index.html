@@ -234,6 +234,68 @@
                 </div>
             </form>
         </div>
+
+        <!-- Bulk set by category -->
+        {% if categories %}
+        <div class="card p-5 mt-4" x-data="{ bulkOpen: false }">
+            <div class="flex items-center justify-between cursor-pointer" @click="bulkOpen = !bulkOpen">
+                <div>
+                    <h2 class="font-semibold text-slate-800">🗂️ Установить по категории</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Одна ставка для всех товаров категории</p>
+                </div>
+                <svg class="w-4 h-4 text-slate-400 transition-transform" :class="bulkOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+            <div x-show="bulkOpen" x-cloak x-transition class="mt-4">
+                {% if saved_category %}
+                <div class="mb-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+                    ✅ Мотивация по категории сохранена
+                </div>
+                {% endif %}
+                <form method="post" action="/motivation/set_category" class="space-y-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">Категория</label>
+                        <select name="category" required
+                                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <option value="">— выберите категорию —</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div x-data="{ mt: 'percentage' }">
+                        <label class="block text-sm font-medium text-slate-700 mb-1.5">Тип ставки</label>
+                        <div class="grid grid-cols-2 gap-2 mb-3">
+                            <button type="button" @click="mt = 'percentage'"
+                                    :class="mt === 'percentage' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                                    class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left">
+                                <p class="font-semibold">% от суммы</p>
+                                <p class="text-xs opacity-70 mt-0.5">Процент с продажи</p>
+                            </button>
+                            <button type="button" @click="mt = 'fixed'"
+                                    :class="mt === 'fixed' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                                    class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left">
+                                <p class="font-semibold">₽ за штуку</p>
+                                <p class="text-xs opacity-70 mt-0.5">Фиксированная сумма</p>
+                            </button>
+                        </div>
+                        <input type="hidden" name="motivation_type" :value="mt">
+                        <div class="relative">
+                            <input type="number" name="motivation_value" min="0" step="0.01" required
+                                   placeholder="Значение ставки"
+                                   class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10">
+                            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium"
+                                  x-text="mt === 'percentage' ? '%' : '₽'"></span>
+                        </div>
+                    </div>
+                    <button type="submit"
+                            class="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-blue-700 transition-colors">
+                        ✅ Применить ко всем товарам категории
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 

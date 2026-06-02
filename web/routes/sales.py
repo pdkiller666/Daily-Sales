@@ -70,7 +70,9 @@ def api_products_for_shop(request: Request, shop: str = ""):
         db = get_web_db(telegram_id, org_db)
         allowed_shops = _get_user_allowed_shops(telegram_id, db)
         if shop and shop not in allowed_shops:
-            return JSONResponse({"error": "Forbidden", "products": []}, status_code=403)
+            # Admins can query any org shop (cross-shop)
+            if user.get("role") not in ("owner", "admin", "super_admin"):
+                return JSONResponse({"error": "Forbidden", "products": []}, status_code=403)
         raw = db.get_all_inventory(shop_name=shop if shop else None) or []
         # id[0] product_id[1] shop_name[2] quantity[3] name[6] category[7] price[8]
         products = sorted(
@@ -133,6 +135,10 @@ def sales_page(
         ctx["date_to"] = date_to
 
         ctx["shops"] = _get_user_allowed_shops(telegram_id, db)
+        try:
+            ctx["all_shops"] = db.get_all_shops() or []
+        except Exception:
+            ctx["all_shops"] = ctx["shops"]
 
         # Build sellers list for dropdown
         try:
@@ -301,6 +307,7 @@ def sales_create(
     quantity: Annotated[int, Form()],
     sale_price: Annotated[float, Form()],
     csrf_token: str = Form(default=""),
+    cross_shop: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -317,7 +324,13 @@ def sales_create(
         db = get_web_db(telegram_id, org_db)
         allowed_shops = _get_user_allowed_shops(telegram_id, db)
         if shop_name not in allowed_shops:
-            return RedirectResponse(url="/sales?error=Магазин+недоступен", status_code=302)
+            # Cross-shop: admins can sell from any org shop
+            if cross_shop == "1" and user.get("role") in ("owner", "admin", "super_admin"):
+                all_org_shops = db.get_all_shops() or []
+                if shop_name not in all_org_shops:
+                    return RedirectResponse(url="/sales?error=Магазин+не+найден", status_code=302)
+            else:
+                return RedirectResponse(url="/sales?error=Магазин+недоступен", status_code=302)
         internal_uid = _get_internal_uid(db, telegram_id)
         if not internal_uid:
             return RedirectResponse(url="/sales?error=Пользователь+не+найден", status_code=302)
@@ -497,3 +510,70 @@ def sales_delete(
         logging.error(f"sales_delete error: {e}")
 
     return RedirectResponse(url="/sales", status_code=302)
+
+
+@router.get("/api/recent-products")
+def api_recent_products(request: Request, shop: str = ""):
+    """Return recent products for the current user (used in sale modal)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized", "products": []}, status_code=401)
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        uid = _get_internal_uid(db, telegram_id)
+        if not uid:
+            return JSONResponse({"products": []})
+        recent_rows = db.get_user_recent_products(uid, limit=10) or []
+        # get current stock for each
+        result = []
+        for row in recent_rows:
+            pid, name, price, cat = row[0], row[1], float(row[2] or 0), (row[3] or "")
+            # find stock in requested shop
+            inv = db.get_all_inventory(shop_name=shop if shop else None) or []
+            stock = 0
+            for r in inv:
+                if r[1] == pid:
+                    stock = int(r[3] or 0)
+                    break
+            if stock > 0:
+                result.append({"id": pid, "name": name, "price": price, "category": cat, "stock": stock})
+        return JSONResponse({"products": result})
+    except Exception as e:
+        return JSONResponse({"error": str(e), "products": []})
+
+
+@router.get("/api/favorite-products")
+def api_favorite_products(request: Request, shop: str = ""):
+    """Return favourite products for the current user (used in sale modal)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized", "products": []}, status_code=401)
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        uid = _get_internal_uid(db, telegram_id)
+        if not uid:
+            return JSONResponse({"products": []})
+        fav_ids = set(db.get_favorite_products(uid) or [])
+        if not fav_ids:
+            return JSONResponse({"products": []})
+        inv = db.get_all_inventory(shop_name=shop if shop else None) or []
+        products = []
+        seen = set()
+        for r in inv:
+            pid = r[1]
+            if pid in fav_ids and int(r[3] or 0) > 0 and pid not in seen:
+                seen.add(pid)
+                products.append({"id": pid, "name": r[6] or "", "price": float(r[8] or 0),
+                                 "category": r[7] or "", "stock": int(r[3] or 0)})
+        products.sort(key=lambda p: p["name"].lower())
+        return JSONResponse({"products": products})
+    except Exception as e:
+        return JSONResponse({"error": str(e), "products": []})

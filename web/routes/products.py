@@ -248,6 +248,64 @@ async def products_import_upload(
     )
 
 
+@router.post("/products/import/text")
+async def products_import_text(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    text_lines: str = Form(default=""),
+):
+    """Parse pasted product list and create products. Format: Name[, Category][, Price]"""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/products/import?error=csrf", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        items = []
+        for raw_line in text_lines.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            name = parts[0] if parts else ""
+            if len(name) < 2:
+                continue
+            category = ""
+            price = 0.0
+            if len(parts) == 2:
+                try:
+                    price = float(parts[1].replace(" ", "").replace("₽", ""))
+                except ValueError:
+                    category = parts[1]
+            elif len(parts) >= 3:
+                category = parts[1]
+                try:
+                    price = float(parts[2].replace(" ", "").replace("₽", ""))
+                except ValueError:
+                    pass
+            items.append({"name": name, "category": category, "price": price, "quantity": 0})
+
+        if not items:
+            return RedirectResponse(url="/products/import?error=Список+пустой+или+нет+корректных+строк", status_code=302)
+
+        added, _ = db.add_products_bulk(items)
+        return RedirectResponse(url=f"/products?imported={added}", status_code=302)
+    except Exception as e:
+        logging.error(f"products_import_text: {e}")
+        return RedirectResponse(url=f"/products/import?error={quote(str(e))}", status_code=302)
+
+
 @router.post("/products/import/confirm")
 def products_import_confirm(
     request: Request,

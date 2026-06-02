@@ -39,6 +39,8 @@ def rankings_page(
     request: Request,
     tab: str = "sellers",
     period: str = "month",
+    date_from: str = "",
+    date_to: str = "",
 ):
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -50,12 +52,15 @@ def rankings_page(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    if date_from and date_to:
+        period = "custom"
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "tab": tab, "period": period,
         "ranking": [], "medals": MEDALS, "error": None,
-        "date_from": "", "date_to": "",
+        "date_from": date_from, "date_to": date_to,
         "own_rank": None,
     }
 
@@ -66,7 +71,10 @@ def rankings_page(
         tz = db.get_user_timezone(telegram_id)
         today = get_current_user_time(tz).date()
 
-        df, dt = _period_dates(period, today)
+        if date_from and date_to:
+            df, dt = date_from, date_to
+        else:
+            df, dt = _period_dates(period, today)
         ctx["date_from"] = df or ""
         ctx["date_to"] = dt or ""
 
@@ -147,7 +155,7 @@ def rankings_page(
 
 
 @router.get("/rankings/export.xlsx")
-def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "month"):
+def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "month", date_from: str = "", date_to: str = ""):
     """Export current ranking tab to Excel."""
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -168,7 +176,10 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
 
         tz = db.get_user_timezone(telegram_id)
         today = get_current_user_time(tz).date()
-        df, dt = _period_dates(period, today)
+        if date_from and date_to:
+            df, dt = date_from, date_to
+        else:
+            df, dt = _period_dates(period, today)
         kwargs: dict = {}
         if df:
             kwargs["start_date"] = df

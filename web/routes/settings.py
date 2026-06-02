@@ -34,7 +34,7 @@ def _get_org_id_for_user(telegram_id: int) -> int | None:
 
 
 @router.get("/settings")
-def settings_page(request: Request, saved: str = ""):
+def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -56,6 +56,7 @@ def settings_page(request: Request, saved: str = ""):
         "notif_settings": None,
         "user_db_id": None,
         "saved": saved == "1",
+        "profile_saved": profile_saved == "1",
         "error": None,
         "scheduled_notifications": [],
         "notification_history": [],
@@ -69,6 +70,8 @@ def settings_page(request: Request, saved: str = ""):
         # timezone
         "tz_choices": tz_choices,
         "current_tz": "Europe/Moscow",
+        # profile
+        "profile": {},
     }
 
     try:
@@ -81,6 +84,22 @@ def settings_page(request: Request, saved: str = ""):
             tz = db.get_user_timezone(telegram_id)
             if tz:
                 ctx["current_tz"] = tz
+        except Exception:
+            pass
+
+        # Profile data
+        try:
+            user_row = db.get_user(telegram_id)
+            if user_row:
+                ctx["profile"] = {
+                    "first_name": user_row[2] or "",
+                    "last_name": user_row[3] or "",
+                    "middle_name": user_row[4] or "",
+                    "phone": user_row[5] or "",
+                    "email": user_row[6] or "",
+                    "trade_network": user_row[7] or "",
+                    "city": user_row[9] or "",
+                }
         except Exception:
             pass
 
@@ -179,6 +198,32 @@ def settings_page(request: Request, saved: str = ""):
             ctx["org_name"] = "—"
             ctx["org_plan"] = "—"
             ctx["org_plan_end"] = ""
+
+        # Referral stats (from shop_bot.db)
+        try:
+            import sqlite3 as _sqlite3
+            _sdb = "data/shop_bot.db"
+            _conn = _sqlite3.connect(_sdb)
+            _cur = _conn.cursor()
+            _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ?", (telegram_id,))
+            total_ref = (_cur.fetchone() or [0])[0]
+            _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND bonus_granted = 1", (telegram_id,))
+            paid_ref = (_cur.fetchone() or [0])[0]
+            _conn.close()
+            ctx["referral"] = {
+                "total_referred": total_ref,
+                "bonus_granted": paid_ref,
+                "bonus_days": paid_ref * 30,
+            }
+        except Exception:
+            ctx["referral"] = {"total_referred": 0, "bonus_granted": 0, "bonus_days": 0}
+
+        # Bot username for referral deep link
+        try:
+            _bu = request.app.state.templates.env.globals.get("bot_username", "")
+            ctx["bot_username"] = _bu() if callable(_bu) else str(_bu)
+        except Exception:
+            ctx["bot_username"] = ""
 
     except Exception as exc:
         ctx["error"] = str(exc)
@@ -284,6 +329,47 @@ async def rotate_invite(request: Request, csrf_token: str = Form(default="")):
     return RedirectResponse(url="/settings#invite", status_code=303)
 
 
+@router.post("/settings/profile")
+async def settings_profile(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    first_name: str = Form(default=""),
+    last_name: str = Form(default=""),
+    middle_name: str = Form(default=""),
+    phone: str = Form(default=""),
+    email: str = Form(default=""),
+    trade_network: str = Form(default=""),
+    city: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings#profile", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.update_user(
+            telegram_id,
+            first_name=first_name.strip() or None,
+            last_name=last_name.strip() or None,
+            middle_name=middle_name.strip() or None,
+            phone=phone.strip() or None,
+            email=email.strip() or None,
+            trade_network=trade_network.strip() or None,
+            city=city.strip() or None,
+        )
+    except Exception:
+        pass
+
+    return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+
+
 @router.post("/settings/save_invite_preset")
 async def save_invite_preset(
     request: Request,
@@ -310,3 +396,22 @@ async def save_invite_preset(
         tenant_manager.set_invite_preset(org_id, role_val, shop_val)
 
     return RedirectResponse(url="/settings#invite", status_code=303)
+
+
+@router.get("/settings/backup")
+def settings_backup(request: Request):
+    """Download current org database file."""
+    from web.auth import get_session_user
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/settings", status_code=302)
+
+    import os
+    from fastapi.responses import FileResponse
+    org_db = user.get("org_db") or ""
+    if not org_db or not os.path.isfile(org_db):
+        return RedirectResponse(url="/settings?error=backup_not_found", status_code=302)
+    fname = os.path.basename(org_db)
+    return FileResponse(org_db, media_type="application/octet-stream", filename=fname)

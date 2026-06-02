@@ -19,7 +19,7 @@
             ⚡ Пакет
         </button>
         <button onclick="document.getElementById('createModal').classList.remove('hidden')"
-                class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+                class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
@@ -170,18 +170,18 @@
                 <div class="col-span-2">
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Код промокода</label>
                     <input type="text" name="code" required maxlength="30"
-                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-red-400"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-blue-400"
                            placeholder="SUMMER2025" oninput="this.value=this.value.toUpperCase()">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Размер скидки</label>
                     <input type="number" name="discount_value" value="10" min="1" max="10000" required
-                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Тип скидки</label>
                     <select name="discount_type"
-                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                         <option value="percent">% от суммы</option>
                         <option value="fixed">Фиксированная ₽</option>
                     </select>
@@ -189,12 +189,12 @@
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Макс. использований</label>
                     <input type="number" name="max_usage" value="1" min="1" max="100000" required
-                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Истекает (необяз.)</label>
                     <input type="date" name="expires_at"
-                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                 </div>
             </div>
             <div class="mb-5">
@@ -202,7 +202,7 @@
                     Ограничение по тарифам (необяз.)
                 </label>
                 <select name="allowed_plans" multiple
-                        class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 h-20">
+                        class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 h-20">
                     <option value="Базовый">Базовый</option>
                     <option value="Стандарт">Стандарт</option>
                     <option value="Премиум">Премиум</option>
@@ -215,7 +215,7 @@
                     Отмена
                 </button>
                 <button type="submit"
-                        class="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+                        class="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
                     Создать
                 </button>
             </div>

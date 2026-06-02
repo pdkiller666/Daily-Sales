@@ -16,7 +16,7 @@
         <p class="text-sm text-slate-500 mt-0.5">{{ categories|length }} категор{{ 'ия' if categories|length == 1 else ('ии' if categories|length in (2,3,4) else 'ий') }}</p>
     </div>
     <button onclick="document.getElementById('createModal').classList.remove('hidden')"
-            class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+            class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
         </svg>
@@ -52,6 +52,7 @@
 
 {% if categories %}
 <div class="card overflow-hidden" x-data="catManager()">
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
         <thead>
             <tr class="bg-slate-50 border-b border-slate-100">
@@ -66,7 +67,7 @@
             <tr class="hover:bg-slate-50/60 transition-colors">
                 <td class="px-5 py-3">
                     <a href="/products?category={{ cat.name|urlencode }}"
-                       class="font-medium text-slate-800 hover:text-red-600 transition-colors">
+                       class="font-medium text-slate-800 hover:text-blue-600 transition-colors">
                         {{ cat.name }}
                     </a>
                 </td>
@@ -92,6 +93,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 
     <!-- Rename modal -->
     <div x-show="renameOpen" x-cloak
@@ -145,7 +147,7 @@
                         Переместить товары в категорию
                     </label>
                     <select name="move_to"
-                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                         <option value="">— Без категории —</option>
                         {% for cat in categories %}
                         <option value="{{ cat.name }}" x-bind:disabled="cat.name === deleteCat">{{ cat.name }}</option>
@@ -172,7 +174,7 @@
     <p class="text-4xl mb-4">🗂️</p>
     <p class="text-sm font-medium text-slate-500 mb-1">Категорий ещё нет</p>
     <p class="text-xs text-slate-400">Они появятся, когда вы добавите первый товар с указанием категории.</p>
-    <a href="/products/new" class="inline-block mt-4 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-xl hover:bg-red-700 transition-colors">
+    <a href="/products/new" class="inline-block mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors">
         + Добавить товар
     </a>
 </div>
@@ -191,7 +193,7 @@
             <div class="mb-5">
                 <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Название категории</label>
                 <input type="text" name="name"
-                       class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                       class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                        placeholder="Например: Электроника" maxlength="80" required>
             </div>
             <div class="flex gap-3">
@@ -200,7 +202,7 @@
                     Отмена
                 </button>
                 <button type="submit"
-                        class="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+                        class="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
                     Создать
                 </button>
             </div>
