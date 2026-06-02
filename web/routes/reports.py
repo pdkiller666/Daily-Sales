@@ -91,6 +91,7 @@ def reports_page(
         "date_from": date_from, "date_to": date_to,
         "shops": [], "summary": (0, 0, 0, 0),
         "groups": [], "all_sales": [], "error": None,
+        "chart_labels": [], "chart_data": [],
     }
 
     try:
@@ -120,6 +121,37 @@ def reports_page(
             start_date=df, end_date=dt, shop_name=shop if shop else None
         ) or (0, 0, 0, 0)
         ctx["groups"] = _aggregate(all_sales, group_by)
+
+        # Daily chart: aggregate all_sales by date
+        try:
+            from collections import defaultdict
+            daily_rev: dict = defaultdict(float)
+            for s in all_sales:
+                d = (s[6] or "")[:10]
+                if d:
+                    daily_rev[d] += float((s[3] or 0) * (s[4] or 0))
+            sorted_days = sorted(daily_rev.keys())
+            # Fill date gaps for contiguous range
+            if sorted_days:
+                from datetime import timedelta
+                import datetime as _dt
+                start_d = _dt.date.fromisoformat(sorted_days[0])
+                end_d   = _dt.date.fromisoformat(sorted_days[-1])
+                all_days = []
+                cur_d = start_d
+                while cur_d <= end_d:
+                    all_days.append(cur_d.isoformat())
+                    cur_d += timedelta(days=1)
+            else:
+                all_days = []
+            # Limit to max 60 data points to keep chart readable
+            if len(all_days) > 60:
+                all_days = all_days[-60:]
+            ctx["chart_labels"] = [d[5:] for d in all_days]   # MM-DD
+            ctx["chart_data"]   = [int(daily_rev.get(d, 0)) for d in all_days]
+        except Exception:
+            ctx["chart_labels"] = []
+            ctx["chart_data"]   = []
 
     except Exception as exc:
         ctx["error"] = str(exc)
