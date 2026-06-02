@@ -29,7 +29,7 @@ def _fmt_currency(amount) -> str:
 
 def create_web_app() -> FastAPI:
     app = FastAPI(
-        title="ShopBot Web",
+        title="DailySales Web",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
