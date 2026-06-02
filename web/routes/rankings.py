@@ -7,6 +7,19 @@ router = APIRouter()
 MEDALS = ["🥇", "🥈", "🥉"]
 
 
+def _get_own_db_uid(db, telegram_id: int):
+    """Return internal users.id for this telegram_id, or None."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def _period_dates(period: str, today):
     from datetime import timedelta
     if period == "week":
@@ -43,6 +56,7 @@ def rankings_page(
         "tab": tab, "period": period,
         "ranking": [], "medals": MEDALS, "error": None,
         "date_from": "", "date_to": "",
+        "own_rank": None,
     }
 
     try:
@@ -102,12 +116,14 @@ def rankings_page(
             # total_sales[5] total_earnings[6] user_db_id[7] username[8]
             max_rev = float(raw[0][4]) if raw else 1.0
             ranking = []
+            own_uid = _get_own_db_uid(db, telegram_id)
             for i, r in enumerate(raw):
                 fname = (r[0] or "").strip()
                 lname = (r[1] or "").strip()
                 name = f"{fname} {lname}".strip() or (f"@{r[8]}" if r[8] else "—")
                 rev = float(r[4] or 0)
-                ranking.append({
+                is_me = (own_uid is not None and r[7] == own_uid)
+                entry = {
                     "pos": i + 1, "medal": MEDALS[i] if i < 3 else "",
                     "label": name, "sub": r[2] or "—",
                     "username": r[8] or "",
@@ -115,7 +131,11 @@ def rankings_page(
                     "qty": int(r[3] or 0), "revenue": rev,
                     "count": int(r[5] or 0), "earnings": float(r[6] or 0),
                     "pct": round(rev / max_rev * 100) if max_rev else 0,
-                })
+                    "is_me": is_me,
+                }
+                ranking.append(entry)
+                if is_me:
+                    ctx["own_rank"] = entry
             ctx["ranking"] = ranking
 
     except Exception as exc:
