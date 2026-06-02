@@ -146,6 +146,7 @@ def create_web_app() -> FastAPI:
     from web.routes.motivation import router as motivation_router
     from web.routes.subscription import router as subscription_router
     from web.routes.categories import router as categories_router
+    from web.routes.promocodes import router as promocodes_router
     from web.routes.shops import router as shops_router
 
     app.include_router(auth_router)
@@ -167,6 +168,7 @@ def create_web_app() -> FastAPI:
     app.include_router(motivation_router)
     app.include_router(subscription_router)
     app.include_router(categories_router)
+    app.include_router(promocodes_router)
     app.include_router(shops_router)
 
     @app.get("/")

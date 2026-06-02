@@ -186,6 +186,10 @@ function toastMgr() {
             <span class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-red-500 text-white">{{ _pcount }}</span>
             {% endif %}
         </a>
+        <a href="/promocodes"
+           class="nav-link {% if request.url.path.startswith('/promocodes') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🎟️</span>Промокоды
+        </a>
         {% endif %}
         <a href="/settings"
            class="nav-link {% if request.url.path.startswith('/settings') %}nav-active{% endif %}">

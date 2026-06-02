@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}Промокоды{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Промокоды</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">🎟️ Промокоды</h1>
+        <p class="text-sm text-slate-500 mt-0.5">{{ promocodes|length }} промокод{{ 'ов' if promocodes|length != 1 else '' }}</p>
+    </div>
+    <div class="flex items-center gap-2">
+        <button onclick="document.getElementById('batchModal').classList.remove('hidden')"
+                class="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-xl text-sm font-semibold hover:bg-slate-800 transition-colors">
+            ⚡ Пакет
+        </button>
+        <button onclick="document.getElementById('createModal').classList.remove('hidden')"
+                class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Создать
+        </button>
+    </div>
+</div>
+
+{% if msg %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm border
+    {% if msg in ('created','deleted','toggled','batch_' + msg.split('_')|last if msg.startswith('batch_') else 'x') or msg.startswith('batch_') %}bg-emerald-50 border-emerald-200 text-emerald-700
+    {% elif msg == 'duplicate' %}bg-amber-50 border-amber-200 text-amber-700
+    {% elif msg == 'csrf_error' %}bg-red-50 border-red-200 text-red-700
+    {% else %}bg-red-50 border-red-200 text-red-700{% endif %}">
+    {% if msg == 'created' %}✅ Промокод создан.
+    {% elif msg == 'deleted' %}✅ Промокод удалён.
+    {% elif msg == 'toggled' %}✅ Статус изменён.
+    {% elif msg.startswith('batch_') %}✅ Создано {{ msg.split('_')[1] }} промокодов.
+    {% elif msg == 'duplicate' %}⚠️ Такой промокод уже существует.
+    {% elif msg == 'invalid_code' %}⚠️ Недопустимый код (1–30 символов).
+    {% elif msg == 'invalid_discount' %}⚠️ Недопустимый размер скидки.
+    {% elif msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите.
+    {% elif msg == 'invalid_count' %}⚠️ Количество должно быть от 1 до 200.
+    {% else %}⚠️ Произошла ошибка.
+    {% endif %}
+</div>
+{% endif %}
+
+{% if error %}
+<div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">⚠️ {{ error }}</div>
+{% endif %}
+
+{% if promocodes %}
+<!-- Stats strip -->
+{% set active_count = promocodes | selectattr('is_active') | list | length %}
+{% set inactive_count = promocodes | length - active_count %}
+<div class="grid grid-cols-3 gap-4 mb-5">
+    <div class="card p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">Всего</p>
+        <p class="text-xl font-bold text-slate-800">{{ promocodes|length }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">Активных</p>
+        <p class="text-xl font-bold text-emerald-600">{{ active_count }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">Деактивировано</p>
+        <p class="text-xl font-bold text-slate-500">{{ inactive_count }}</p>
+    </div>
+</div>
+
+<div class="card overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Код</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Скидка</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Использований</th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase hidden lg:table-cell">Истекает</th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase hidden lg:table-cell">Тарифы</th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Статус</th>
+                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Действия</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for p in promocodes %}
+                <tr class="hover:bg-slate-50/60 transition-colors {% if not p.is_active %}opacity-60{% endif %}">
+                    <td class="px-5 py-3">
+                        <div class="flex items-center gap-2">
+                            <code class="font-mono font-bold text-slate-800 tracking-wider text-xs bg-slate-100 px-2 py-0.5 rounded">{{ p.code }}</code>
+                            <button onclick="navigator.clipboard.writeText('{{ p.code }}')" title="Скопировать"
+                                    class="text-slate-400 hover:text-blue-500 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">создан {{ p.created_at }}</p>
+                    </td>
+                    <td class="px-4 py-3 text-right hidden sm:table-cell">
+                        <span class="font-semibold {% if p.discount_type == 'percent' %}text-blue-600{% else %}text-indigo-600{% endif %}">
+                            {{ p.discount_label }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-right hidden md:table-cell">
+                        <div class="flex flex-col items-end gap-1">
+                            <span class="text-slate-700 font-medium">{{ p.usage }} / {{ p.max_usage }}</span>
+                            <div class="w-20 bg-slate-100 rounded-full h-1.5">
+                                <div class="bg-blue-500 h-1.5 rounded-full" style="width: {{ [p.used_pct, 100]|min }}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-center hidden lg:table-cell">
+                        <span class="text-slate-500 text-xs">{{ p.expires_at or '∞' }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center hidden lg:table-cell">
+                        <span class="text-xs text-slate-500">{{ p.allowed_label }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% if p.is_active %}
+                        <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 font-semibold">Активен</span>
+                        {% else %}
+                        <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-500 font-semibold">Неактивен</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-5 py-3 text-right">
+                        <div class="flex items-center justify-end gap-2">
+                            <form method="POST" action="/promocodes/{{ p.id }}/toggle">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" title="{{ 'Деактивировать' if p.is_active else 'Активировать' }}"
+                                        class="text-xs px-2 py-1 rounded-lg {% if p.is_active %}bg-amber-50 text-amber-600 hover:bg-amber-100{% else %}bg-emerald-50 text-emerald-600 hover:bg-emerald-100{% endif %} transition-colors font-medium">
+                                    {{ '⏸' if p.is_active else '▶' }}
+                                </button>
+                            </form>
+                            <form method="POST" action="/promocodes/{{ p.id }}/delete"
+                                  onsubmit="return confirm('Удалить промокод {{ p.code }}? Это действие нельзя отменить.')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit"
+                                        class="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-medium">
+                                    🗑
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card p-12 text-center text-slate-400">
+    <p class="text-4xl mb-4">🎟️</p>
+    <p class="text-sm font-medium text-slate-500 mb-1">Промокодов ещё нет</p>
+    <p class="text-xs text-slate-400">Создайте первый промокод со скидкой для пользователей</p>
+</div>
+{% endif %}
+
+<!-- Create modal -->
+<div id="createModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">🎟️ Создать промокод</h3>
+        <form method="POST" action="/promocodes/create">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Код промокода</label>
+                    <input type="text" name="code" required maxlength="30"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-red-400"
+                           placeholder="SUMMER2025" oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Размер скидки</label>
+                    <input type="number" name="discount_value" value="10" min="1" max="10000" required
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Тип скидки</label>
+                    <select name="discount_type"
+                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                        <option value="percent">% от суммы</option>
+                        <option value="fixed">Фиксированная ₽</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Макс. использований</label>
+                    <input type="number" name="max_usage" value="1" min="1" max="100000" required
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Истекает (необяз.)</label>
+                    <input type="date" name="expires_at"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                </div>
+            </div>
+            <div class="mb-5">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">
+                    Ограничение по тарифам (необяз.)
+                </label>
+                <select name="allowed_plans" multiple
+                        class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 h-20">
+                    <option value="Базовый">Базовый</option>
+                    <option value="Стандарт">Стандарт</option>
+                    <option value="Премиум">Премиум</option>
+                </select>
+                <p class="text-xs text-slate-400 mt-1">Не выбрано = все тарифы</p>
+            </div>
+            <div class="flex gap-3">
+                <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')"
+                        class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                    Отмена
+                </button>
+                <button type="submit"
+                        class="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+                    Создать
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Batch modal -->
+<div id="batchModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+        <h3 class="text-lg font-bold text-slate-800 mb-1">⚡ Создать пакет промокодов</h3>
+        <p class="text-sm text-slate-500 mb-4">Одноразовые коды с общим префиксом и случайным суффиксом.</p>
+        <form method="POST" action="/promocodes/batch">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Префикс (необяз.)</label>
+                    <input type="text" name="prefix" maxlength="20"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-slate-400"
+                           placeholder="SUMMER" oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Количество</label>
+                    <input type="number" name="count" value="10" min="1" max="200" required
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Скидка</label>
+                    <input type="number" name="discount_value" value="10" min="1" max="10000" required
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Тип</label>
+                    <select name="discount_type"
+                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                        <option value="percent">% от суммы</option>
+                        <option value="fixed">Фиксированная ₽</option>
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Истекает (необяз.)</label>
+                    <input type="date" name="expires_at"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button type="button" onclick="document.getElementById('batchModal').classList.add('hidden')"
+                        class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                    Отмена
+                </button>
+                <button type="submit"
+                        class="flex-1 py-2 rounded-xl bg-slate-700 text-white text-sm font-semibold hover:bg-slate-800 transition-colors">
+                    Создать пакет
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+{% block footer_info %}Промокоды: {{ promocodes|length }}{% endblock %}
