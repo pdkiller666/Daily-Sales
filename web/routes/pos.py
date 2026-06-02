@@ -86,8 +86,23 @@ def pos_page(request: Request):
         db = get_web_db(telegram_id, org_db)
         ctx["shops"] = _get_user_allowed_shops(telegram_id, db)
         ctx["all_shops"] = db.get_all_shops() or []
+
+        # Auto-select the shop this user is assigned to
+        default_shop = ctx["shops"][0] if ctx["shops"] else ""
+        try:
+            conn = db.get_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+            conn.close()
+            if row and row[0] and row[0] in ctx["shops"]:
+                default_shop = row[0]
+        except Exception:
+            pass
+        ctx["default_shop"] = default_shop
     except Exception as e:
         ctx["error"] = str(e)
+        ctx["default_shop"] = ""
 
     return request.app.state.templates.TemplateResponse(request, "pos/index.html", ctx)
 
