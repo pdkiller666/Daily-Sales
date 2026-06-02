@@ -20,6 +20,7 @@
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>tailwind.config = { darkMode: 'class' }</script>
+    {% block extra_css %}{% endblock %}
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -146,6 +147,66 @@
         html.dark [x-show="notifDdOpen"] .text-slate-400{color:#475569!important}
         html.dark [x-show="notifOpen"] .border-slate-100,
         html.dark [x-show="notifDdOpen"] .border-slate-100{border-color:#334155!important}
+
+        /* ══════════════════════════════
+           DS APP ANIMATIONS & POLISH
+        ══════════════════════════════ */
+        @keyframes ds-fade-up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes ds-fade-in{from{opacity:0}to{opacity:1}}
+        @keyframes ds-logo-glow{0%,100%{box-shadow:0 4px 14px rgba(59,130,246,.4),0 0 0 0 rgba(59,130,246,0)}50%{box-shadow:0 4px 20px rgba(59,130,246,.6),0 0 0 5px rgba(59,130,246,.12)}}
+
+        /* Page content entrance */
+        main.ds-main{animation:ds-fade-up .32s cubic-bezier(.22,1,.36,1) both}
+
+        /* Logo mark */
+        .ds-logo-mark{
+            background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%);
+            box-shadow:0 4px 14px rgba(59,130,246,.45),0 1px 3px rgba(0,0,0,.2);
+            transition:transform .2s ease,box-shadow .2s ease;
+        }
+        .sidebar-logo-bg:hover .ds-logo-mark,
+        .ds-logo-mark:hover{
+            transform:scale(1.1);
+            box-shadow:0 6px 20px rgba(59,130,246,.6),0 0 0 4px rgba(59,130,246,.18);
+        }
+
+        /* Sidebar nav active — left border glow */
+        .nav-active{
+            background:linear-gradient(90deg,rgba(37,99,235,.28) 0%,rgba(37,99,235,.08) 100%)!important;
+            color:#93c5fd!important;
+            position:relative;
+        }
+        .nav-active::before{
+            content:'';position:absolute;left:0;top:4px;bottom:4px;
+            width:3px;background:#3b82f6;border-radius:0 2px 2px 0;
+            box-shadow:0 0 8px rgba(59,130,246,.7);
+        }
+
+        /* Topbar glassmorphism */
+        .ds-topbar{
+            background:rgba(255,255,255,.88)!important;
+            backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+            border-bottom-color:rgba(226,232,240,.7)!important;
+        }
+        html.dark .ds-topbar{background:rgba(30,41,59,.88)!important;border-bottom-color:rgba(51,65,85,.7)!important}
+
+        /* Bottom nav active dot */
+        .bnav-item.bn-active{color:#2563eb;position:relative}
+        .bnav-item.bn-active::before{
+            content:'';position:absolute;top:0;left:20%;right:20%;
+            height:2.5px;background:linear-gradient(90deg,#3b82f6,#6366f1);
+            border-radius:0 0 3px 3px;
+        }
+        html.dark .bnav-item.bn-active{color:#60a5fa}
+        html.dark .bnav-item.bn-active::before{background:linear-gradient(90deg,#60a5fa,#818cf8)}
+
+        /* Card hover lift */
+        .card{transition:box-shadow .18s ease,transform .18s ease}
+        .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.09);transform:translateY(-1px)}
+        html.dark .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.35)}
+
+        /* Sidebar section labels */
+        aside nav p.text-slate-600{letter-spacing:.1em}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="mainApp()">
@@ -202,15 +263,13 @@ function toastMgr() {
        class="fixed inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 transform transition-transform duration-200 -translate-x-full lg:translate-x-0 lg:static lg:inset-0">
 
     <!-- Logo -->
-    <div class="flex items-center h-16 shrink-0 px-4 sidebar-logo-bg">
-        <div class="w-9 h-9 rounded-xl overflow-hidden shrink-0 border border-blue-900/40 shadow-lg">
-            <img src="/static/logo.jpg" alt="DailySales" class="w-full h-full object-cover">
-        </div>
+    <a href="/dashboard" class="flex items-center h-16 shrink-0 px-4 sidebar-logo-bg group" style="text-decoration:none">
+        <div class="ds-logo-mark w-9 h-9 rounded-xl flex items-center justify-center text-white font-extrabold text-sm shrink-0 select-none">DS</div>
         <div class="ml-2.5 min-w-0">
             <p class="text-[15px] font-extrabold text-white tracking-tight leading-none">DailySales</p>
             <p class="text-[9px] font-semibold text-blue-400/80 tracking-[0.12em] uppercase mt-0.5">CRM for Sellers</p>
         </div>
-    </div>
+    </a>
 
     <!-- Nav -->
     <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
@@ -370,7 +429,7 @@ function toastMgr() {
 <div class="flex flex-col min-h-screen lg:ml-64">
 
     <!-- Topbar -->
-    <header class="sticky top-0 z-10 flex items-center justify-between h-14 px-4 sm:px-6 bg-white border-b border-slate-200 shadow-sm">
+    <header class="ds-topbar sticky top-0 z-10 flex items-center justify-between h-14 px-4 sm:px-6 border-b border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
             <div class="flex items-center gap-1.5 text-sm text-slate-500">
                 {% block breadcrumb %}{% endblock %}
@@ -472,7 +531,7 @@ function toastMgr() {
     </header>
 
     <!-- Content -->
-    <main class="flex-1 px-4 sm:px-6 py-6 pb-24 lg:pb-6">
+    <main class="ds-main flex-1 px-4 sm:px-6 py-6 pb-24 lg:pb-6">
         {% block content %}{% endblock %}
     </main>
 
