@@ -84,13 +84,20 @@
                                 <div class="flex items-center justify-end gap-2">
                                     <button
                                         type="button"
-                                        onclick="openEdit({{ m.product_id }}, '{{ m.product_name }}', '{{ m.type }}', {{ m.value }})"
+                                        data-pid="{{ m.product_id }}"
+                                        data-name="{{ m.product_name|e }}"
+                                        data-type="{{ m.type }}"
+                                        data-val="{{ m.value }}"
+                                        onclick="openEditBtn(this)"
                                         class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700 transition-colors font-medium">
                                         ✏️ Изменить
                                     </button>
                                     <button
                                         type="button"
-                                        onclick="removeMotiv({{ m.product_id }}, '{{ m.product_name }}', '{{ csrf_token }}')"
+                                        data-pid="{{ m.product_id }}"
+                                        data-name="{{ m.product_name|e }}"
+                                        data-csrf="{{ csrf_token }}"
+                                        onclick="removeMotivBtn(this)"
                                         class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-red-100 hover:text-red-600 transition-colors font-medium">
                                         🗑️
                                     </button>
@@ -392,6 +399,13 @@ function motivForm() {
         filterCategory: '{{ selected_category }}',
         monthOffset: 0,
     };
+}
+
+function openEditBtn(el) {
+    openEdit(parseInt(el.dataset.pid), el.dataset.name, el.dataset.type, parseFloat(el.dataset.val));
+}
+function removeMotivBtn(el) {
+    removeMotiv(parseInt(el.dataset.pid), el.dataset.name, el.dataset.csrf);
 }
 
 function openEdit(productId, productName, mtype, mval) {

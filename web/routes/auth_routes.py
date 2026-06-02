@@ -76,7 +76,7 @@ async def telegram_callback(request: Request):
         COOKIE_NAME, token,
         httponly=True,
         samesite='lax',
-        secure=False,
+        secure=True,
         max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
     )
     return response
@@ -124,7 +124,7 @@ async def switch_org(
         COOKIE_NAME, token,
         httponly=True,
         samesite='lax',
-        secure=False,
+        secure=True,
         max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
     )
     return response
@@ -175,7 +175,7 @@ async def code_auto_login(request: Request, c: str = ""):
         COOKIE_NAME, token,
         httponly=True,
         samesite='lax',
-        secure=False,
+        secure=True,
         max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
     )
     return response
@@ -247,7 +247,7 @@ async def code_login_submit(
         COOKIE_NAME, token,
         httponly=True,
         samesite='lax',
-        secure=False,
+        secure=True,
         max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
     )
     return response
