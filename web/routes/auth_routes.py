@@ -207,6 +207,15 @@ async def code_login_submit(
     from env_manager import env_manager
     from web_login_codes import validate_code
 
+    _ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(_ip):
+        templates = request.app.state.templates
+        return templates.TemplateResponse(request, "auth/login.html", {
+            "bot_username": "", "auth_url": "",
+            "error": "Слишком много попыток. Подождите минуту и попробуйте снова.",
+            "show_code_form": True, "code_value": "",
+        })
+
     telegram_id = validate_code(code.strip())
     if not telegram_id:
         templates = request.app.state.templates
