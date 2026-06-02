@@ -13,18 +13,29 @@
         <h1 class="text-2xl font-bold text-slate-800">Планы продаж</h1>
         <p class="text-sm text-slate-500 mt-0.5">Прогресс выполнения планов</p>
     </div>
-    <!-- Toggle active/all -->
-    <div class="flex gap-1 bg-slate-100 p-1 rounded-lg">
-        <a href="/plans?active_only=1"
-           class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
-                  {{ 'bg-white text-slate-800 shadow-sm' if active_only == '1' else 'text-slate-500 hover:text-slate-700' }}">
-            Активные
+    <div class="flex items-center gap-3">
+        {% if is_admin %}
+        <a href="/plans/new"
+           class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Создать план
         </a>
-        <a href="/plans?active_only=0"
-           class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
-                  {{ 'bg-white text-slate-800 shadow-sm' if active_only == '0' else 'text-slate-500 hover:text-slate-700' }}">
-            Все
-        </a>
+        {% endif %}
+        <!-- Toggle active/all -->
+        <div class="flex gap-1 bg-slate-100 p-1 rounded-lg">
+            <a href="/plans?active_only=1"
+               class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+                      {{ 'bg-white text-slate-800 shadow-sm' if active_only == '1' else 'text-slate-500 hover:text-slate-700' }}">
+                Активные
+            </a>
+            <a href="/plans?active_only=0"
+               class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors
+                      {{ 'bg-white text-slate-800 shadow-sm' if active_only == '0' else 'text-slate-500 hover:text-slate-700' }}">
+                Все
+            </a>
+        </div>
     </div>
 </div>
 

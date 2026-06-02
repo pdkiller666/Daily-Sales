@@ -56,3 +56,15 @@ def get_session_user(request) -> Optional[dict]:
     if not token:
         return None
     return decode_session_token(token)
+
+
+def get_csrf_token(request) -> str:
+    """Derive a CSRF token from the session JWT (deterministic per session)."""
+    jwt_val = request.cookies.get(COOKIE_NAME, '')
+    return hmac.new(_SECRET.encode(), jwt_val.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def verify_csrf_token(request, form_token: str) -> bool:
+    """Return True if the form's CSRF token matches the session-derived token."""
+    expected = get_csrf_token(request)
+    return bool(form_token) and hmac.compare_digest(expected, form_token)

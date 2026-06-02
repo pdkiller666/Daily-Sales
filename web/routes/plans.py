@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+import json
+import logging
+from typing import List, Optional
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import RedirectResponse, Response
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 def _build_plan_dict(plan_row, actual, pct):
     """Convert plan_row tuple → display dict (shared by list and detail views)."""
-    import json
     target = float(plan_row[3] or 0)
     is_revenue = plan_row[2] == "turnover"
     if plan_row[4] == "seller":
@@ -35,16 +38,205 @@ def _build_plan_dict(plan_row, actual, pct):
     return {
         "id": plan_row[0], "plan_type": plan_row[1], "metric_type": plan_row[2],
         "target_value": target, "target_type": plan_row[4], "user_id": plan_row[5],
-        "shop_name": plan_row[6], "filter_desc": fd, "is_active": bool(plan_row[9]),
+        "shop_name": plan_row[6], "filter_type": plan_row[7], "filter_value": plan_row[8],
+        "filter_desc": fd, "is_active": bool(plan_row[9]),
         "created_at": (plan_row[11] or "")[:10],
         "target_who": who, "actual": float(actual), "pct": min(pct, 100),
         "pct_raw": pct, "is_metric_revenue": is_revenue,
         "bar_cls": bar_cls, "pct_cls": pct_cls,
     }
 
+
 PLAN_TYPE_LABELS = {"weekly": "Недельный", "monthly": "Месячный"}
 METRIC_LABELS = {"turnover": "Выручка", "quantity": "Количество"}
 TARGET_LABELS = {"seller": "Продавец", "shop": "Магазин"}
+
+
+def _get_user_db_id(db, telegram_id: int):
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _load_form_data(db):
+    """Load sellers, shops, categories, products for the plan form."""
+    try:
+        all_users = db.get_all_users() or []
+        sellers = []
+        for u in all_users:
+            uid = u[0]
+            name = f"{(u[1] or '').strip()} {(u[2] or '').strip()}".strip() or f"user#{uid}"
+            shop = u[3] or ""
+            sellers.append({"id": uid, "name": name, "shop": shop})
+        sellers.sort(key=lambda s: s["name"])
+    except Exception:
+        sellers = []
+
+    try:
+        shops = sorted(db.get_inventory_shops() or [])
+    except Exception:
+        shops = []
+
+    try:
+        all_products = db.get_all_products() or []
+        categories = sorted({p[2] for p in all_products if p[2]})
+        products = [
+            {"id": p[0], "name": p[1], "category": p[2] or ""}
+            for p in all_products[:200]
+        ]
+        products.sort(key=lambda p: (p["category"], p["name"]))
+    except Exception:
+        categories = []
+        products = []
+
+    return sellers, shops, categories, products
+
+
+@router.get("/plans/new")
+def plans_new(request: Request):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/plans", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    sellers, shops, categories, products = _load_form_data(db)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "is_edit": False, "plan": None,
+        "sellers": sellers, "shops": shops,
+        "categories": categories, "products": products,
+        "plan_type_labels": PLAN_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "target_labels": TARGET_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": None, "form_data": None,
+    }
+    return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
+
+
+@router.post("/plans/create")
+def plans_create(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    target_type: str = Form(...),
+    seller_id: Optional[str] = Form(default=None),
+    shop_name_val: Optional[str] = Form(default=None),
+    plan_type: str = Form(...),
+    metric_type: str = Form(...),
+    filter_type: str = Form(default="all"),
+    filter_categories: List[str] = Form(default=[]),
+    filter_products: List[str] = Form(default=[]),
+    target_value: str = Form(...),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/plans", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    sellers, shops, categories, products = _load_form_data(db)
+    error = None
+
+    try:
+        tv = float(target_value.replace(",", ".").strip()) if target_value else 0
+        if tv <= 0:
+            error = "Целевое значение должно быть больше нуля."
+        if target_type not in ("seller", "shop"):
+            error = "Выберите тип цели."
+        if plan_type not in ("weekly", "monthly"):
+            error = "Выберите период."
+        if metric_type not in ("turnover", "quantity"):
+            error = "Выберите метрику."
+        if filter_type not in ("all", "category", "product"):
+            filter_type = "all"
+
+        uid = None
+        shop = None
+        if target_type == "seller":
+            if not seller_id:
+                error = "Выберите продавца."
+            else:
+                uid = int(seller_id)
+        else:
+            if not shop_name_val:
+                error = "Выберите магазин."
+            else:
+                shop = shop_name_val
+
+        fv = None
+        if filter_type == "category":
+            if not filter_categories:
+                error = "Выберите хотя бы одну категорию."
+            else:
+                fv = json.dumps(filter_categories, ensure_ascii=False)
+        elif filter_type == "product":
+            if not filter_products:
+                error = "Выберите хотя бы один товар."
+            else:
+                fv = json.dumps([int(p) for p in filter_products])
+
+        if error:
+            raise ValueError(error)
+
+        created_by = _get_user_db_id(db, telegram_id)
+        db.add_sales_plan(
+            plan_type=plan_type, metric_type=metric_type,
+            target_value=tv, target_type=target_type,
+            user_id=uid, shop_name=shop,
+            filter_type=filter_type, filter_value=fv,
+            created_by=created_by,
+        )
+        return RedirectResponse(url="/plans", status_code=303)
+
+    except ValueError as e:
+        error = str(e)
+    except Exception as e:
+        logger.error(f"plans_create error: {e}")
+        error = f"Ошибка при создании плана: {e}"
+
+    ctx = {
+        "request": request, "user": user,
+        "is_admin": True, "is_edit": False, "plan": None,
+        "sellers": sellers, "shops": shops,
+        "categories": categories, "products": products,
+        "plan_type_labels": PLAN_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "target_labels": TARGET_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": error,
+        "form_data": {
+            "target_type": target_type, "seller_id": seller_id,
+            "shop_name_val": shop_name_val, "plan_type": plan_type,
+            "metric_type": metric_type, "filter_type": filter_type,
+            "filter_categories": filter_categories,
+            "filter_products": [str(p) for p in filter_products],
+            "target_value": target_value,
+        },
+    }
+    return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
 
 
 @router.get("/plans")
@@ -77,8 +269,6 @@ def plans_page(request: Request, active_only: str = "1"):
         today = get_current_user_time(tz).date()
 
         only_active = active_only != "0"
-        # get_plans_progress already calls get_sales_plans(active_only=True) internally
-        # For inactive plans, we fetch separately
         if only_active:
             progress_rows = db.get_plans_progress(local_today=today)
         else:
@@ -90,17 +280,11 @@ def plans_page(request: Request, active_only: str = "1"):
                 pct = round((actual / target * 100) if target > 0 else 0.0, 1)
                 progress_rows.append((plan, actual, pct))
 
-        # progress_rows: list of (plan_row, actual, percent)
-        # plan_row: id[0] plan_type[1] metric_type[2] target_value[3] target_type[4]
-        #           user_id[5] shop_name[6] filter_type[7] filter_value[8] is_active[9]
-        #           created_by[10] created_at[11] first_name[12] last_name[13]
-
         plans_data = []
         for plan_row, actual, pct in progress_rows:
             target = float(plan_row[3] or 0)
             is_metric_revenue = plan_row[2] == "turnover"
 
-            # Who this plan targets
             if plan_row[4] == "seller":
                 fname = (plan_row[12] or "").strip()
                 lname = (plan_row[13] or "").strip()
@@ -108,11 +292,9 @@ def plans_page(request: Request, active_only: str = "1"):
             else:
                 target_who = plan_row[6] or "все магазины"
 
-            # Filter description
             filter_desc = ""
             if plan_row[7] == "category" and plan_row[8]:
                 try:
-                    import json
                     cats = json.loads(plan_row[8])
                     filter_desc = ", ".join(cats) if isinstance(cats, list) else plan_row[8]
                 except Exception:
@@ -121,53 +303,300 @@ def plans_page(request: Request, active_only: str = "1"):
             elif plan_row[7] == "product" and plan_row[8]:
                 filter_desc = "По выбранным товарам"
 
-            # Color by pct
             if pct >= 100:
-                bar_cls = "bg-emerald-500"
-                pct_cls = "text-emerald-600"
+                bar_cls, pct_cls = "bg-emerald-500", "text-emerald-600"
             elif pct >= 70:
-                bar_cls = "bg-blue-500"
-                pct_cls = "text-blue-600"
+                bar_cls, pct_cls = "bg-blue-500", "text-blue-600"
             elif pct >= 40:
-                bar_cls = "bg-amber-400"
-                pct_cls = "text-amber-600"
+                bar_cls, pct_cls = "bg-amber-400", "text-amber-600"
             else:
-                bar_cls = "bg-red-400"
-                pct_cls = "text-red-600"
+                bar_cls, pct_cls = "bg-red-400", "text-red-600"
 
             plans_data.append({
-                "id": plan_row[0],
-                "plan_type": plan_row[1],
-                "metric_type": plan_row[2],
-                "target_value": target,
-                "target_type": plan_row[4],
-                "target_who": target_who,
-                "filter_desc": filter_desc,
-                "is_active": bool(plan_row[9]),
+                "id": plan_row[0], "plan_type": plan_row[1],
+                "metric_type": plan_row[2], "target_value": target,
+                "target_type": plan_row[4], "target_who": target_who,
+                "filter_desc": filter_desc, "is_active": bool(plan_row[9]),
                 "created_at": (plan_row[11] or "")[:10],
-                "actual": float(actual),
-                "pct": min(pct, 100),
-                "pct_raw": pct,
-                "is_metric_revenue": is_metric_revenue,
-                "bar_cls": bar_cls,
-                "pct_cls": pct_cls,
+                "actual": float(actual), "pct": min(pct, 100),
+                "pct_raw": pct, "is_metric_revenue": is_metric_revenue,
+                "bar_cls": bar_cls, "pct_cls": pct_cls,
             })
 
-        # Sort: active first, then by pct desc
         plans_data.sort(key=lambda p: (0 if p["is_active"] else 1, -p["pct_raw"]))
         ctx["plans_data"] = plans_data
 
     except Exception as exc:
+        logger.error(f"plans_page error: {exc}")
         ctx["error"] = str(exc)
 
-    return request.app.state.templates.TemplateResponse(
-        request, "plans/index.html", ctx
-    )
+    return request.app.state.templates.TemplateResponse(request, "plans/index.html", ctx)
+
+
+@router.get("/plans/{plan_id}/edit")
+def plans_edit(request: Request, plan_id: int):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/plans/{plan_id}", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    all_plans = db.get_sales_plans(active_only=False) or []
+    plan_row = next((p for p in all_plans if p[0] == plan_id), None)
+    if not plan_row:
+        return RedirectResponse(url="/plans", status_code=302)
+
+    from timezone_utils import get_current_user_time
+    tz = db.get_user_timezone(telegram_id)
+    today = get_current_user_time(tz).date()
+    actual = db.calculate_plan_actual(plan_row, local_today=today)
+    target = float(plan_row[3] or 0)
+    pct = round((actual / target * 100) if target > 0 else 0.0, 1)
+    plan_dict = _build_plan_dict(plan_row, actual, pct)
+
+    sel_cats, sel_prods = [], []
+    if plan_row[7] == "category" and plan_row[8]:
+        try:
+            sel_cats = json.loads(plan_row[8])
+        except Exception:
+            sel_cats = [plan_row[8]]
+    elif plan_row[7] == "product" and plan_row[8]:
+        try:
+            sel_prods = [str(i) for i in json.loads(plan_row[8])]
+        except Exception:
+            sel_prods = []
+
+    plan_dict["sel_cats"] = sel_cats
+    plan_dict["sel_prods"] = sel_prods
+    plan_dict["seller_id"] = str(plan_row[5]) if plan_row[5] else ""
+    plan_dict["shop_name_val"] = plan_row[6] or ""
+
+    sellers, shops, categories, products = _load_form_data(db)
+
+    ctx = {
+        "request": request, "user": user,
+        "is_admin": True, "is_edit": True,
+        "plan": plan_dict,
+        "sellers": sellers, "shops": shops,
+        "categories": categories, "products": products,
+        "plan_type_labels": PLAN_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "target_labels": TARGET_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": None, "form_data": None,
+    }
+    return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
+
+
+@router.post("/plans/{plan_id}/update")
+def plans_update(
+    request: Request,
+    plan_id: int,
+    csrf_token: str = Form(default=""),
+    target_type: str = Form(...),
+    seller_id: Optional[str] = Form(default=None),
+    shop_name_val: Optional[str] = Form(default=None),
+    plan_type: str = Form(...),
+    metric_type: str = Form(...),
+    filter_type: str = Form(default="all"),
+    filter_categories: List[str] = Form(default=[]),
+    filter_products: List[str] = Form(default=[]),
+    target_value: str = Form(...),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/plans/{plan_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    error = None
+
+    try:
+        tv = float(target_value.replace(",", ".").strip()) if target_value else 0
+        if tv <= 0:
+            error = "Целевое значение должно быть больше нуля."
+        if target_type not in ("seller", "shop"):
+            error = "Выберите тип цели."
+        if plan_type not in ("weekly", "monthly"):
+            error = "Выберите период."
+        if metric_type not in ("turnover", "quantity"):
+            error = "Выберите метрику."
+        if filter_type not in ("all", "category", "product"):
+            filter_type = "all"
+
+        uid = None
+        shop = None
+        if target_type == "seller":
+            if not seller_id:
+                error = "Выберите продавца."
+            else:
+                uid = int(seller_id)
+        else:
+            if not shop_name_val:
+                error = "Выберите магазин."
+            else:
+                shop = shop_name_val
+
+        fv = None
+        if filter_type == "category":
+            if not filter_categories:
+                error = "Выберите хотя бы одну категорию."
+            else:
+                fv = json.dumps(filter_categories, ensure_ascii=False)
+        elif filter_type == "product":
+            if not filter_products:
+                error = "Выберите хотя бы один товар."
+            else:
+                fv = json.dumps([int(p) for p in filter_products])
+
+        if error:
+            raise ValueError(error)
+
+        db.update_sales_plan(
+            plan_id,
+            plan_type=plan_type, metric_type=metric_type,
+            target_value=tv, target_type=target_type,
+            user_id=uid, shop_name=shop,
+            filter_type=filter_type, filter_value=fv,
+        )
+        return RedirectResponse(url=f"/plans/{plan_id}", status_code=303)
+
+    except ValueError as e:
+        error = str(e)
+    except Exception as e:
+        logger.error(f"plans_update {plan_id} error: {e}")
+        error = f"Ошибка при обновлении плана: {e}"
+
+    all_plans = db.get_sales_plans(active_only=False) or []
+    plan_row = next((p for p in all_plans if p[0] == plan_id), None)
+    plan_dict = None
+    if plan_row:
+        from timezone_utils import get_current_user_time
+        tz = db.get_user_timezone(telegram_id)
+        today = get_current_user_time(tz).date()
+        actual = db.calculate_plan_actual(plan_row, local_today=today)
+        target_f = float(plan_row[3] or 0)
+        pct = round((actual / target_f * 100) if target_f > 0 else 0.0, 1)
+        plan_dict = _build_plan_dict(plan_row, actual, pct)
+        plan_dict["sel_cats"] = filter_categories
+        plan_dict["sel_prods"] = [str(p) for p in filter_products]
+        plan_dict["seller_id"] = seller_id or ""
+        plan_dict["shop_name_val"] = shop_name_val or ""
+
+    sellers, shops, categories, products = _load_form_data(db)
+
+    ctx = {
+        "request": request, "user": user,
+        "is_admin": True, "is_edit": True,
+        "plan": plan_dict,
+        "sellers": sellers, "shops": shops,
+        "categories": categories, "products": products,
+        "plan_type_labels": PLAN_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "target_labels": TARGET_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": error,
+        "form_data": {
+            "target_type": target_type, "seller_id": seller_id,
+            "shop_name_val": shop_name_val, "plan_type": plan_type,
+            "metric_type": metric_type, "filter_type": filter_type,
+            "filter_categories": filter_categories,
+            "filter_products": [str(p) for p in filter_products],
+            "target_value": target_value,
+        },
+    }
+    return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
+
+
+@router.post("/plans/{plan_id}/delete")
+def plans_delete(
+    request: Request,
+    plan_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/plans/{plan_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    try:
+        ok = db.delete_sales_plan(plan_id)
+        if not ok:
+            logger.warning(f"plans_delete: plan {plan_id} not found or already deleted")
+    except Exception as e:
+        logger.error(f"plans_delete {plan_id} error: {e}")
+        return RedirectResponse(url=f"/plans/{plan_id}?error=delete", status_code=303)
+
+    return RedirectResponse(url="/plans", status_code=303)
+
+
+@router.post("/plans/{plan_id}/toggle")
+def plans_toggle(
+    request: Request,
+    plan_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/plans/{plan_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    try:
+        all_plans = db.get_sales_plans(active_only=False) or []
+        plan_row = next((p for p in all_plans if p[0] == plan_id), None)
+        if plan_row:
+            new_active = 0 if plan_row[9] else 1
+            db.update_sales_plan(plan_id, is_active=new_active)
+        else:
+            logger.warning(f"plans_toggle: plan {plan_id} not found")
+    except Exception as e:
+        logger.error(f"plans_toggle {plan_id} error: {e}")
+        return RedirectResponse(url=f"/plans/{plan_id}?error=toggle", status_code=303)
+
+    return RedirectResponse(url=f"/plans/{plan_id}", status_code=303)
 
 
 @router.get("/plans/{plan_id}")
-def plan_detail(request: Request, plan_id: int):
-    from web.auth import get_session_user
+def plan_detail(request: Request, plan_id: int, error: str = ""):
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -177,23 +606,30 @@ def plan_detail(request: Request, plan_id: int):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    error_msg = ""
+    if error == "delete":
+        error_msg = "Не удалось удалить план. Попробуйте ещё раз."
+    elif error == "toggle":
+        error_msg = "Не удалось изменить статус плана. Попробуйте ещё раз."
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "plan": None, "sellers": [], "error": None,
+        "plan": None, "sellers": [], "error": error_msg or None,
         "plan_type_labels": PLAN_TYPE_LABELS,
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
+        "csrf_token": "",
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
+        ctx["csrf_token"] = get_csrf_token(request)
 
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
         today = get_current_user_time(tz).date()
 
-        # Find this plan in all plans
         all_plans = db.get_sales_plans(active_only=False) or []
         plan_row = next((p for p in all_plans if p[0] == plan_id), None)
         if not plan_row:
@@ -204,25 +640,19 @@ def plan_detail(request: Request, plan_id: int):
         pct = round((actual / target * 100) if target > 0 else 0.0, 1)
         ctx["plan"] = _build_plan_dict(plan_row, actual, pct)
 
-        # If shop plan → show all sellers in that shop with their individual contributions
         if plan_row[4] == "shop" and plan_row[6]:
             shop_users = db.get_all_users(shop_name=plan_row[6]) or []
             sellers = []
             for u_row in shop_users:
-                # users: id[0] first_name[1] last_name[2] shop_name[3] …
                 uid = u_row[0]
-                fname = (u_row[1] or "").strip()
-                lname = (u_row[2] or "").strip()
-                name = f"{fname} {lname}".strip() or f"user#{uid}"
-                # Build a fake seller-scoped plan to calc their contribution
+                name = f"{(u_row[1] or '').strip()} {(u_row[2] or '').strip()}".strip() or f"user#{uid}"
                 fake_plan = list(plan_row)
                 fake_plan[4] = "seller"
                 fake_plan[5] = uid
                 fake_plan[6] = None
                 seller_actual = db.calculate_plan_actual(fake_plan, local_today=today)
                 sellers.append({
-                    "user_db_id": uid,
-                    "name": name,
+                    "user_db_id": uid, "name": name,
                     "actual": float(seller_actual),
                     "is_revenue": plan_row[2] == "turnover",
                     "pct": round(seller_actual / target * 100, 1) if target else 0.0,
@@ -231,8 +661,8 @@ def plan_detail(request: Request, plan_id: int):
             ctx["sellers"] = sellers
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        logger.error(f"plan_detail {plan_id} error: {exc}")
+        if not ctx.get("error"):
+            ctx["error"] = str(exc)
 
-    return request.app.state.templates.TemplateResponse(
-        request, "plans/detail.html", ctx
-    )
+    return request.app.state.templates.TemplateResponse(request, "plans/detail.html", ctx)
