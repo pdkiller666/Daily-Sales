@@ -41,9 +41,10 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ### Web Interface (`web/`)
 - `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals (`bot_username`, `pending_payments_count`)
 - `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`
-- `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)`
-- `web/routes/` — 15 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`
-- `web/templates/base.html` — sidebar nav (payments badge for super_admin), Tailwind + HTMX + Alpine.js CDN
+- `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
+- `web/routes/` — 16 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`
+- `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; returns sales by other users)
+- `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling
 - `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors)
 - `web/templates/products/form.html` — product add/edit form (admin only)
 - `web/templates/*/` — per-module Jinja2 templates
@@ -63,6 +64,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Multi-scope**: `scope_value` stores JSON array; `get_user_org_scope()` → `(scope_type, list[str])`
 - **Custom role titles**: `custom_title` in `user_org_mapping`; `get_role_display_label(..., custom_title)` uses it over computed label
 - **Shift templates**: `shift_templates` table UNIQUE(user_id, weekday 0=Пн..6=Вс); `work_schedule` has `start_time`/`end_time`; slr_tog auto-applies template
+- **PWA**: `web/static/manifest.json` + SW at `/sw.js` (served via FastAPI route with `Service-Worker-Allowed: /`); SW caches `/static/` assets cache-first, authenticated routes network-only
+- **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
+- **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
 
 ## Product
 

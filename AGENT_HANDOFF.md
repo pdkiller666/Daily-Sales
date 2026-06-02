@@ -30,6 +30,23 @@ Workflow: "Start application" → python main.py
 
 **Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
 
+**Сессия 329 (2026-06-02) — Веб: PWA, свайп-жесты, WAL, браузерные уведомления:**
+- **PWA**: `web/static/manifest.json` (shortcuts: /pos, /dashboard, /sales), `web/static/icon.svg`, `web/static/icon-maskable.svg`, `web/static/sw.js` (Cache-first для `/static/`, network-only для auth-роутов, push-handler для будущего VAPID). Мета-теги в `base.html`: `<link rel="manifest">`, `theme-color`, `apple-mobile-web-app-*`.
+- **Service Worker маршрут**: `GET /sw.js` в `web/app.py` → `FileResponse(web/static/sw.js)` с заголовком `Service-Worker-Allowed: /` + `Cache-Control: no-cache` — SW регистрируется на `/sw.js` со scope `/` из `base.html`.
+- **Гамбургер убран на мобильном**: кнопка `lg:hidden` из топбара полностью удалена — нижний нав дублирует навигацию.
+- **Свайп-жесты** (IIFE в `base.html`): MIN_DIST=70px, MAX_VERT=45px; пропускает горизонтально-скроллируемые элементы и input; (1) ищет `a[href*="period="]` с классом `bg-blue-600`/`border-blue-600` → клик по пред/след; (2) то же для `a[href*="tab="]`; (3) свайп вправо от левого края (startX<40px) → `history.back()`.
+- **SQLite WAL**: `_enable_wal(db)` в `web/deps.py` — `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` на каждый `get_web_db()` возврат; снижает блокировки при параллельных запросах бота и веба.
+- **Браузерные уведомления**: промпт `#ds-notif-prompt` в шторке «Ещё» (показывается через 800 мс, если `Notification.permission==='default'`); `dsRequestNotif()` → `requestPermission()` → `dsStartNotifPolling()`; polling каждые 60 сек через `/api/sales-feed?since=ISO`; уведомление создаётся только когда `document.hidden`; чекпоинт хранится в `localStorage.ds_notif_since`.
+- **API эндпоинт**: `web/routes/api.py` → `GET /api/sales-feed?since=ISO` — возвращает продажи других сотрудников (`u.telegram_id != current`) с момента `since`, max 10; поля: id, product, total, created_at, seller, shop. Требует авторизации (проверка `get_session_user`).
+- **Аудит**: `get_connection()` существует в `database.py:112` ✅; `logo.jpg` в `web/static/` ✅; все изменения синтаксически чисты; приложение запустилось без ошибок.
+
+**Что осталось из плана (приоритет убывает):**
+- 🌙 Тёмная тема (CSS variables + Alpine toggle + localStorage)
+- ⌨️ Горячие клавиши (Ctrl+S = продажа, / = поиск, ? = список)
+- 📊 Excel-экспорт в вебе (рейтинги, зарплата)
+- 📄 Серверная пагинация для больших таблиц
+- 🏆 Графики в рейтингах (Chart.js уже подключён)
+
 **Сессия 294 (2026-06-02) — Веб: Рассылки, Мотивация, Ставки зарплаты, Личный заработок, Excel из отчётов:**
 - **P1 /notifications** (`web/routes/notifications.py`, `web/templates/notifications/index.html`): полная страница рассылок для admin/owner/super_admin — форма создания рассылки (текст + получатели: всем/по магазину/по роли + «сейчас»/«запланировать»), список запланированных с кнопкой отмены (DELETE JSON CSRF), история отправленных. Запись в `scheduled_notifications` → APScheduler отправляет. Пункт «🔔 Рассылки» добавлен в сайдбар (admin+ only).
 - **P1 /motivation** (`web/routes/motivation.py`, `web/templates/motivation/index.html`): матрица мотивации для admin+ — таблица всех товаров с комиссиями (% или фикс.), фильтр по категории, `POST /motivation/set` (set_product_motivation с пересчётом месяца), `POST /motivation/remove/{id}` (remove_product_motivation, JSON CSRF). Форма с превью расчёта. Пункт «🎯 Мотивация» в сайдбар.
