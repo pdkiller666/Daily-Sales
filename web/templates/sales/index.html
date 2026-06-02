@@ -70,12 +70,16 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Магазин</label>
+                {% if is_admin %}
                 <select x-model="editShop"
                         class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     {% for s in shops %}
                     <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
                 </select>
+                {% else %}
+                <p class="text-sm text-slate-700 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg" x-text="editShop || '—'"></p>
+                {% endif %}
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
@@ -308,7 +312,7 @@
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Сумма</th>
                     <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Продавец</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Дата</th>
-                    {% if is_admin %}<th class="px-3 py-3"></th>{% endif %}
+                    {% if is_admin or current_user_id %}<th class="px-3 py-3"></th>{% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
@@ -346,7 +350,7 @@
                     <td class="px-5 py-3 text-right text-xs text-slate-400 whitespace-nowrap">
                         {{ s[6][:10]|fmt_date if s[6] else '—' }}
                     </td>
-                    {% if is_admin %}
+                    {% if is_admin or s[5] == current_user_id %}
                     <td class="px-3 py-3 text-right">
                         <div class="flex items-center justify-end gap-1">
                             <button type="button"
@@ -362,6 +366,8 @@
                             </form>
                         </div>
                     </td>
+                    {% else %}
+                    {% if is_admin or current_user_id %}<td></td>{% endif %}
                     {% endif %}
                 </tr>
                 {% endfor %}

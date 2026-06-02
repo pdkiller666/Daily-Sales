@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block title %}Касса POS{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-300">/</span>
+<span class="font-medium text-slate-700">Касса POS</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="posApp()" x-init="init()" class="flex flex-col h-full">
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if not shops %}
+<div class="flex flex-col items-center justify-center py-24 text-center">
+    <div class="text-5xl mb-4">🏪</div>
+    <p class="text-lg font-semibold text-slate-700 mb-1">Нет доступных магазинов</p>
+    <p class="text-sm text-slate-400">Вас не привязали к магазину или склад пуст.</p>
+    <a href="/sales" class="mt-5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">← Обычные продажи</a>
+</div>
+{% else %}
+
+<!-- ── Топ-бар: выбор магазина ── -->
+<div class="flex items-center gap-3 mb-4 flex-wrap">
+    <div class="flex items-center gap-2 flex-1 min-w-0">
+        <span class="text-sm font-semibold text-slate-600 shrink-0">🏪 Магазин:</span>
+        <select x-model="shop" @change="loadProducts()"
+                class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 max-w-xs">
+            {% if is_admin %}
+            {% for s in all_shops %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+            {% else %}
+            {% for s in shops %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+            {% endif %}
+        </select>
+    </div>
+    <div class="flex items-center gap-2 text-sm text-slate-500 shrink-0">
+        <span x-show="cartCount > 0" class="font-semibold text-emerald-700"
+              x-text="cartCount + '\u00a0поз. в корзине'"></span>
+        <a href="/sales" class="text-xs text-slate-400 hover:text-blue-600 transition-colors">← Журнал</a>
+    </div>
+</div>
+
+<!-- ── Основной POS-лэйаут ── -->
+<div class="flex gap-4 items-start" style="min-height: calc(100vh - 220px)">
+
+    <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории ── -->
+    <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0">
+        <button @click="activeCat = ''"
+                :class="activeCat === '' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
+                class="text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors truncate">
+            Все товары
+            <span class="ml-1 text-xs opacity-60" x-text="'(' + allProducts.length + ')'"></span>
+        </button>
+        <template x-for="cat in categoryList" :key="cat">
+            <button @click="activeCat = cat"
+                    :class="activeCat === cat ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
+                    class="text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors truncate"
+                    :title="cat">
+                <span x-text="cat" class="truncate block"></span>
+                <span class="text-xs opacity-60"
+                      x-text="'(' + (categories[cat] ? categories[cat].length : 0) + ')'"></span>
+            </button>
+        </template>
+    </div>
+
+    <!-- ── ЦЕНТРАЛЬНАЯ ПАНЕЛЬ: товары ── -->
+    <div class="flex-1 min-w-0 flex flex-col gap-3">
+
+        <!-- Поиск + мобильные категории -->
+        <div class="flex gap-2 items-center">
+            <div class="relative flex-1">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                </svg>
+                <input type="text" x-model="search" placeholder="Поиск товара…"
+                       class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button x-show="search" @click="search=''"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+            </div>
+            <!-- Мобильный dropdown категорий -->
+            <div class="lg:hidden" x-data="{catOpen: false}">
+                <button @click="catOpen = !catOpen" @click.outside="catOpen = false"
+                        class="flex items-center gap-1 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50">
+                    <span>🗂️</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="catOpen" x-cloak class="absolute mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48">
+                    <button @click="activeCat = ''; catOpen = false"
+                            :class="activeCat === '' ? 'text-blue-600 font-semibold' : 'text-slate-700'"
+                            class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50">Все товары</button>
+                    <template x-for="cat in categoryList" :key="cat">
+                        <button @click="activeCat = cat; catOpen = false"
+                                :class="activeCat === cat ? 'text-blue-600 font-semibold' : 'text-slate-700'"
+                                class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 truncate"
+                                x-text="cat"></button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Загрузка -->
+        <div x-show="loading" class="flex items-center justify-center py-16">
+            <div class="flex flex-col items-center gap-3 text-slate-400">
+                <svg class="animate-spin w-8 h-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z"/>
+                </svg>
+                <span class="text-sm">Загружаю товары…</span>
+            </div>
+        </div>
+
+        <!-- Пусто -->
+        <div x-show="!loading && filteredProducts.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
+            <div class="text-4xl mb-3">📦</div>
+            <p class="text-slate-500 text-sm" x-text="search ? 'Ничего не найдено по «' + search + '»' : 'В этом магазине нет товаров в наличии'"></p>
+        </div>
+
+        <!-- Сетка товаров -->
+        <div x-show="!loading && filteredProducts.length > 0"
+             class="grid gap-3"
+             style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr))">
+            <template x-for="p in filteredProducts" :key="p.id">
+                <button @click="addToCart(p)"
+                        class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 text-left hover:border-blue-400 hover:shadow-md transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        :class="isInCart(p.id) ? 'border-blue-400 bg-blue-50/40 shadow-sm' : ''">
+                    <!-- Бейдж количества в корзине -->
+                    <div x-show="isInCart(p.id)"
+                         class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shadow"
+                         x-text="cartQty(p.id)"></div>
+                    <!-- Остаток -->
+                    <div class="absolute top-2.5 right-2.5 text-[10px] text-slate-400 font-medium"
+                         x-text="p.stock + ' шт.'"></div>
+                    <!-- Категория -->
+                    <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 pr-6 truncate" x-text="p.category"></p>
+                    <!-- Название -->
+                    <p class="text-sm font-semibold text-slate-800 leading-tight mb-2 line-clamp-2 group-hover:text-blue-700 transition-colors"
+                       x-text="p.name" :title="p.name"></p>
+                    <!-- Цена -->
+                    <p class="text-base font-bold text-emerald-600" x-text="fmtPrice(p.price)"></p>
+                </button>
+            </template>
+        </div>
+    </div>
+
+    <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина ── -->
+    <div class="w-72 shrink-0 flex flex-col gap-3 sticky top-20">
+
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <!-- Заголовок -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                <h2 class="text-sm font-bold text-slate-800">🛒 Корзина</h2>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400" x-show="cart.length > 0"
+                          x-text="cart.length + ' поз.'"></span>
+                    <button x-show="cart.length > 0" @click="clearCart()"
+                            class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-0.5 rounded transition-colors">
+                        Очистить
+                    </button>
+                </div>
+            </div>
+
+            <!-- Пустая корзина -->
+            <div x-show="cart.length === 0" class="px-4 py-8 text-center text-slate-400">
+                <div class="text-3xl mb-2">🛒</div>
+                <p class="text-xs">Нажмите на товар, чтобы добавить</p>
+            </div>
+
+            <!-- Список позиций -->
+            <div x-show="cart.length > 0" class="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+                <template x-for="(item, idx) in cart" :key="item.id">
+                    <div class="px-4 py-3 flex flex-col gap-1.5">
+                        <div class="flex items-start justify-between gap-2">
+                            <p class="text-sm font-medium text-slate-800 leading-tight flex-1 min-w-0 truncate"
+                               x-text="item.name" :title="item.name"></p>
+                            <button @click="removeFromCart(idx)"
+                                    class="shrink-0 text-slate-300 hover:text-red-500 transition-colors text-base leading-none mt-0.5">×</button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <!-- Qty stepper -->
+                            <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+                                <button @click="changeQty(idx, -1)"
+                                        class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">−</button>
+                                <input type="number" x-model.number="item.qty" min="1" :max="item.stock"
+                                       @change="item.qty = Math.max(1, Math.min(item.stock, parseInt(item.qty) || 1))"
+                                       class="w-10 h-7 text-center text-sm font-semibold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
+                                <button @click="changeQty(idx, 1)"
+                                        class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">+</button>
+                            </div>
+                            <!-- Цена -->
+                            <span class="text-xs text-slate-400">×</span>
+                            <input type="number" x-model.number="item.price" min="0" step="0.01"
+                                   class="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-sm text-right font-medium focus:outline-none focus:ring-1 focus:ring-blue-400">
+                            <span class="text-xs text-slate-400 shrink-0">₽</span>
+                        </div>
+                        <!-- Сумма позиции -->
+                        <p class="text-xs text-right font-semibold text-emerald-600"
+                           x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Итог -->
+            <div x-show="cart.length > 0" class="px-4 py-3 border-t border-slate-100 bg-slate-50">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm text-slate-500">Итого:</span>
+                    <span class="text-lg font-bold text-slate-900" x-text="fmtPrice(cartTotal)"></span>
+                </div>
+                <div class="flex items-center justify-between mb-3 text-xs text-slate-400">
+                    <span x-text="cartCount + ' ед. товара'"></span>
+                    <span x-text="cart.length + ' наим.'"></span>
+                </div>
+
+                <!-- Ошибка -->
+                <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
+
+                <!-- Кнопка оплаты -->
+                <button @click="checkout()"
+                        :disabled="checkoutLoading || cart.length === 0"
+                        class="w-full py-3 rounded-xl text-sm font-bold transition-all
+                               bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm
+                               disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span x-show="!checkoutLoading" class="flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"/>
+                        </svg>
+                        Провести продажу
+                    </span>
+                    <span x-show="checkoutLoading" class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z"/>
+                        </svg>
+                        Проводим…
+                    </span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Подсказка -->
+        <p class="text-xs text-slate-400 text-center px-2">
+            Нажмите на товар чтобы добавить в корзину. Повторный клик увеличивает количество.
+        </p>
+    </div>
+
+</div><!-- /flex -->
+
+<!-- ── Модал успеха ── -->
+<div x-show="successData" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="successData = null"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm z-10 p-6 text-center" @click.stop>
+        <div class="text-5xl mb-3">✅</div>
+        <h3 class="text-lg font-bold text-slate-800 mb-1">Продажа проведена!</h3>
+        <p class="text-sm text-slate-500 mb-2" x-text="successData && successData.message"></p>
+        <template x-if="successData && successData.errors && successData.errors.length > 0">
+            <div class="mb-3 text-left p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p class="text-xs font-semibold text-amber-700 mb-1">С предупреждениями:</p>
+                <template x-for="err in successData.errors" :key="err">
+                    <p class="text-xs text-amber-600" x-text="'• ' + err"></p>
+                </template>
+            </div>
+        </template>
+        <div class="flex gap-3 mt-4">
+            <button @click="successData = null; loadProducts()"
+                    class="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+                Новая продажа
+            </button>
+            <a href="/sales"
+               class="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors text-center">
+                В журнал
+            </a>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+</div><!-- /x-data -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function posApp() {
+    return {
+        shop: '{{ shops[0] if shops else "" }}',
+        loading: false,
+        allProducts: [],
+        categories: {},
+        activeCat: '',
+        search: '',
+        cart: [],
+        checkoutLoading: false,
+        checkoutError: '',
+        successData: null,
+        csrfToken: '{{ csrf_token }}',
+
+        init() {
+            if (this.shop) this.loadProducts();
+        },
+
+        get categoryList() {
+            return Object.keys(this.categories).sort((a, b) => a.localeCompare(b, 'ru'));
+        },
+
+        get filteredProducts() {
+            let list = this.activeCat
+                ? (this.categories[this.activeCat] || [])
+                : this.allProducts;
+            if (this.search.trim()) {
+                const q = this.search.toLowerCase().trim();
+                list = list.filter(p => p.name.toLowerCase().includes(q));
+            }
+            return list;
+        },
+
+        get cartCount() {
+            return this.cart.reduce((s, i) => s + i.qty, 0);
+        },
+
+        get cartTotal() {
+            return this.cart.reduce((s, i) => s + i.qty * i.price, 0);
+        },
+
+        loadProducts() {
+            if (!this.shop) { this.allProducts = []; this.categories = {}; return; }
+            this.loading = true;
+            this.allProducts = [];
+            this.categories = {};
+            fetch('/api/pos/products?shop=' + encodeURIComponent(this.shop))
+                .then(r => r.json())
+                .then(data => {
+                    this.allProducts = data.products || [];
+                    this.categories = data.categories || {};
+                    this.loading = false;
+                })
+                .catch(() => { this.loading = false; });
+        },
+
+        fmtPrice(n) {
+            return Math.round(n).toLocaleString('ru-RU') + '\u00a0₽';
+        },
+
+        isInCart(productId) {
+            return this.cart.some(i => i.id === productId);
+        },
+
+        cartQty(productId) {
+            const item = this.cart.find(i => i.id === productId);
+            return item ? item.qty : 0;
+        },
+
+        addToCart(product) {
+            const existing = this.cart.find(i => i.id === product.id);
+            if (existing) {
+                if (existing.qty < product.stock) {
+                    existing.qty++;
+                }
+            } else {
+                this.cart.push({
+                    id: product.id,
+                    name: product.name,
+                    price: product.price,
+                    qty: 1,
+                    stock: product.stock,
+                });
+            }
+        },
+
+        removeFromCart(idx) {
+            this.cart.splice(idx, 1);
+        },
+
+        clearCart() {
+            if (this.cart.length === 0) return;
+            if (!confirm('Очистить корзину?')) return;
+            this.cart = [];
+        },
+
+        changeQty(idx, delta) {
+            const item = this.cart[idx];
+            const newQty = item.qty + delta;
+            if (newQty < 1) { this.cart.splice(idx, 1); return; }
+            if (newQty > item.stock) return;
+            item.qty = newQty;
+        },
+
+        async checkout() {
+            if (this.cart.length === 0 || this.checkoutLoading) return;
+            this.checkoutError = '';
+            this.checkoutLoading = true;
+
+            const items = this.cart.map(i => ({
+                id: i.id,
+                name: i.name,
+                qty: i.qty,
+                price: i.price,
+            }));
+
+            const body = new URLSearchParams({
+                csrf_token: this.csrfToken,
+                shop_name: this.shop,
+                items_json: JSON.stringify(items),
+            });
+
+            try {
+                const r = await fetch('/pos/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString(),
+                });
+                const data = await r.json();
+                this.checkoutLoading = false;
+
+                if (data.ok) {
+                    this.cart = [];
+                    this.successData = data;
+                    this.loadProducts();
+                } else {
+                    this.checkoutError = data.error || 'Ошибка проведения';
+                }
+            } catch (e) {
+                this.checkoutLoading = false;
+                this.checkoutError = 'Ошибка соединения';
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

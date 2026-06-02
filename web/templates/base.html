@@ -98,8 +98,12 @@ function toastMgr() {
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Операции</p>
 
         <a href="/sales"
-           class="nav-link {% if request.url.path.startswith('/sales') %}nav-active{% endif %}">
+           class="nav-link {% if request.url.path.startswith('/sales') and not request.url.path.startswith('/sales/') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💰</span>Продажи
+        </a>
+        <a href="/pos"
+           class="nav-link {% if request.url.path.startswith('/pos') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🖥️</span>Касса POS
         </a>
         <a href="/products"
            class="nav-link {% if request.url.path.startswith('/products') %}nav-active{% endif %}">

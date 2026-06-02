@@ -26,9 +26,23 @@ def _get_internal_uid(db, telegram_id: int):
         return None
 
 
+def _get_user_shop_from_db(db, telegram_id: int):
+    """Fallback: read user's shop_name directly from the org DB users table."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else None
+    except Exception:
+        return None
+
+
 def _get_user_allowed_shops(telegram_id: int, db) -> list:
     """Return list of shop names the user is allowed to access.
-    Applies scope restrictions; owners/unrestricted users get all shops."""
+    Applies scope restrictions; owners/unrestricted users get all shops.
+    Falls back to the user's shop_name from the org DB users table on any failure."""
     from db_utils import get_user_org_scope
     all_shops = db.get_all_shops() or []
     try:
@@ -36,8 +50,10 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
         if not scope_type or scope_type == "all":
             return all_shops
         if scope_type == "shop":
-            return [s for s in all_shops if s in scope_values]
-        if scope_type in ("city", "network"):
+            filtered = [s for s in all_shops if s in scope_values]
+            if filtered:
+                return filtered
+        elif scope_type in ("city", "network", "trade_network"):
             col = "city" if scope_type == "city" else "trade_network"
             placeholders = ",".join("?" * len(scope_values))
             conn = db.get_connection()
@@ -48,9 +64,15 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
             )
             allowed = {row[0] for row in cur.fetchall()}
             conn.close()
-            return [s for s in all_shops if s in allowed]
+            filtered = [s for s in all_shops if s in allowed]
+            if filtered:
+                return filtered
     except Exception:
         pass
+    # Fallback: read user's shop directly from org DB
+    user_shop = _get_user_shop_from_db(db, telegram_id)
+    if user_shop and user_shop in all_shops:
+        return [user_shop]
     return all_shops
 
 
@@ -145,6 +167,7 @@ def sales_page(
         "csrf_token": get_csrf_token(request),
         "flash_ok": request.query_params.get("ok") == "1",
         "flash_err": request.query_params.get("error", ""),
+        "current_user_id": None,
     }
 
     try:
@@ -163,6 +186,7 @@ def sales_page(
         ctx["date_to"] = date_to
 
         ctx["shops"] = _get_user_allowed_shops(telegram_id, db)
+        ctx["current_user_id"] = _get_internal_uid(db, telegram_id)
         try:
             ctx["all_shops"] = db.get_all_shops() or []
         except Exception:
@@ -390,9 +414,8 @@ def api_get_sale(request: Request, sale_id: int):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
 
+    is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
     try:
@@ -400,10 +423,17 @@ def api_get_sale(request: Request, sale_id: int):
         sale = db.get_sale_by_id(sale_id)
         if not sale:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        # Scope check: the sale's shop must be within the user's allowed shops
-        allowed_shops = _get_user_allowed_shops(telegram_id, db)
-        if sale[2] not in allowed_shops:
-            return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if is_admin_role:
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            if sale[2] not in allowed_shops:
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+        else:
+            # Regular user: can only view/edit their own sales
+            if not internal_uid or sale[5] != internal_uid:
+                return JSONResponse({"error": "Нет доступа к этой продаже"}, status_code=403)
+
         return JSONResponse({
             "id": sale[0],
             "product_id": sale[1],
@@ -448,32 +478,39 @@ def sales_edit(
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
     if not verify_csrf_token(request, csrf_token):
         return JSONResponse({"ok": False, "error": "CSRF error"}, status_code=403)
 
+    is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
-        allowed_shops = _get_user_allowed_shops(telegram_id, db)
 
-        # Validate target shop is in scope
-        if shop_name not in allowed_shops:
-            return JSONResponse({"ok": False, "error": "Магазин недоступен"}, status_code=403)
         if quantity < 1:
             return JSONResponse({"ok": False, "error": "Неверное количество"}, status_code=400)
 
-        # Load existing sale and validate it is within scope
+        # Load existing sale first
         sale = db.get_sale_by_id(sale_id)
         if not sale:
             return JSONResponse({"ok": False, "error": "Продажа не найдена"}, status_code=404)
+
         old_shop = sale[2]
         old_qty = sale[3]
         product_id = sale[1]
-        if old_shop not in allowed_shops:
-            return JSONResponse({"ok": False, "error": "Нет доступа к этой продаже"}, status_code=403)
+        internal_uid = _get_internal_uid(db, telegram_id)
+
+        if is_admin_role:
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            if shop_name not in allowed_shops:
+                return JSONResponse({"ok": False, "error": "Магазин недоступен"}, status_code=403)
+            if old_shop not in allowed_shops:
+                return JSONResponse({"ok": False, "error": "Нет доступа к этой продаже"}, status_code=403)
+        else:
+            # Regular user: can only edit their own sales, shop stays fixed
+            if not internal_uid or sale[5] != internal_uid:
+                return JSONResponse({"ok": False, "error": "Нет доступа к этой продаже"}, status_code=403)
+            shop_name = old_shop  # users cannot change shop
 
         # Stock sufficiency check
         shop_changed = (shop_name != old_shop)
@@ -524,15 +561,27 @@ def sales_delete(
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return RedirectResponse(url="/sales", status_code=302)
     if not verify_csrf_token(request, csrf_token):
         return RedirectResponse(url="/sales?error=CSRF+error", status_code=302)
 
+    is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
+        sale = db.get_sale_by_id(sale_id)
+        if not sale:
+            return RedirectResponse(url="/sales?error=Продажа+не+найдена", status_code=302)
+
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if is_admin_role:
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            if sale[2] not in allowed_shops:
+                return RedirectResponse(url="/sales?error=Нет+доступа", status_code=302)
+        else:
+            if not internal_uid or sale[5] != internal_uid:
+                return RedirectResponse(url="/sales?error=Нет+доступа", status_code=302)
+
         db.delete_sale(sale_id)
     except Exception as e:
         logging.error(f"sales_delete error: {e}")
