@@ -14,6 +14,7 @@ from states import PaymentSystemStates
 from env_manager import env_manager
 from db_utils import clear_state_keep_org
 from utils import he
+from message_utils import fsm_edit
 
 # Создаем роутер
 payment_system_router = Router()
@@ -275,6 +276,7 @@ async def set_card_number_start(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_card_number)
 
 @payment_system_router.message(PaymentSystemStates.waiting_card_number)
@@ -282,26 +284,20 @@ async def process_card_number(message: Message, state: FSMContext):
     """Обработка номера карты"""
     db = _get_db()
     card_number = message.text.strip().replace(" ", "")
-    
-    # Валидация номера карты
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]])
+
     if not card_number.isdigit() or len(card_number) != 16:
-        await message.answer("❌ Неверный формат номера карты. Введите 16 цифр.")
+        await fsm_edit(state, message, "❌ Неверный формат номера карты. Введите 16 цифр:", reply_markup=_back_kb)
         return
-    
-    # Форматируем номер карты
+
     formatted_number = f"{card_number[:4]} {card_number[4:8]} {card_number[8:12]} {card_number[12:]}"
-    
+
     try:
         db.update_payment_setting('card_number', formatted_number)
-        await message.answer(
-            f"✅ Номер карты обновлен: {formatted_number}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]
-            ])
-        )
+        await fsm_edit(state, message, f"✅ Номер карты обновлён: {formatted_number}", reply_markup=_back_kb)
     except Exception as e:
         logging.error(f"process_card_number: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении номера карты. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении номера карты. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "set_recipient_name")
@@ -322,6 +318,7 @@ async def set_recipient_name_start(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_recipient_name)
 
 @payment_system_router.message(PaymentSystemStates.waiting_recipient_name)
@@ -329,22 +326,18 @@ async def process_recipient_name(message: Message, state: FSMContext):
     """Обработка имени получателя"""
     db = _get_db()
     recipient_name = message.text.strip()
-    
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]])
+
     if len(recipient_name) < 5:
-        await message.answer("❌ Имя получателя слишком короткое")
+        await fsm_edit(state, message, "❌ Имя получателя слишком короткое. Введите заново:", reply_markup=_back_kb)
         return
-    
+
     try:
         db.update_payment_setting('recipient_name', recipient_name)
-        await message.answer(
-            f"✅ Имя получателя обновлено: {recipient_name}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]
-            ])
-        )
+        await fsm_edit(state, message, f"✅ Имя получателя обновлено: {he(recipient_name)}", reply_markup=_back_kb)
     except Exception as e:
         logging.error(f"process_recipient_name: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении имени получателя. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении имени получателя. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "set_bank_name")
@@ -365,6 +358,7 @@ async def set_bank_name_start(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_bank_name)
 
 @payment_system_router.message(PaymentSystemStates.waiting_bank_name)
@@ -372,22 +366,18 @@ async def process_bank_name(message: Message, state: FSMContext):
     """Обработка названия банка"""
     db = _get_db()
     bank_name = message.text.strip()
-    
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]])
+
     if len(bank_name) < 3:
-        await message.answer("❌ Название банка слишком короткое")
+        await fsm_edit(state, message, "❌ Название банка слишком короткое. Введите заново:", reply_markup=_back_kb)
         return
-    
+
     try:
         db.update_payment_setting('bank_name', bank_name)
-        await message.answer(
-            f"✅ Название банка обновлено: {bank_name}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]
-            ])
-        )
+        await fsm_edit(state, message, f"✅ Название банка обновлено: {he(bank_name)}", reply_markup=_back_kb)
     except Exception as e:
         logging.error(f"process_bank_name: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении названия банка. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении названия банка. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "set_web_interface_url")
@@ -419,6 +409,7 @@ async def set_web_interface_url_start(callback: CallbackQuery, state: FSMContext
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [back_button("system_admin_panel")],
         ])
+        await state.update_data(anchor_msg_id=callback.message.message_id)
         await state.set_state(PaymentSystemStates.waiting_web_interface_url)
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -441,6 +432,7 @@ async def edit_web_interface_url_start(callback: CallbackQuery, state: FSMContex
         [back_button("system_admin_panel")],
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_web_interface_url)
 
 
@@ -449,29 +441,24 @@ async def process_web_interface_url(message: Message, state: FSMContext):
     """Сохранить новый URL веб-интерфейса"""
     db = _get_db()
     url = message.text.strip() if message.text else ""
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")]])
 
     if not url.startswith("https://") and not url.startswith("http://"):
-        await message.answer(
-            "❌ Неверный формат. URL должен начинаться с <code>https://</code>\n\n"
-            "Попробуйте ещё раз:",
-            parse_mode="HTML",
-        )
+        await fsm_edit(state, message,
+            "❌ Неверный формат. URL должен начинаться с <code>https://</code>\n\nПопробуйте ещё раз:",
+            reply_markup=_back_kb)
         return
 
     try:
         db.set_web_interface_url(url)
         invalidate_web_url_cache()
-        await message.answer(
+        await fsm_edit(state, message,
             f"✅ URL веб-интерфейса обновлён:\n<code>{he(url)}</code>\n\n"
             "Кнопка «🌐 Веб-интерфейс» появится в главном меню всех пользователей.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")],
-            ]),
-        )
+            reply_markup=_back_kb)
     except Exception as e:
         logging.error(f"process_web_interface_url: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении URL. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении URL. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 
@@ -519,204 +506,148 @@ async def add_plan_start(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_plan_name)
 
 @payment_system_router.message(PaymentSystemStates.waiting_plan_name)
 async def process_plan_name(message: Message, state: FSMContext):
     """Обработка названия плана"""
-    db = _get_db()
     plan_name = message.text.strip()
-    
     if len(plan_name) < 3:
-        await message.answer("❌ Название тарифа слишком короткое", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Название тарифа слишком короткое", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(plan_name=plan_name)
-    
-    text = f"💎 <b>Новый тариф: {plan_name}</b>\n\n"
-    text += "Введите цену тарифа в рублях:\n"
-    text += "Пример: 990, 2700, 4900"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"💎 <b>Новый тариф: {plan_name}</b>\n\nВведите цену тарифа в рублях:\nПример: 990, 2700, 4900"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_plan_price)
 
 @payment_system_router.message(PaymentSystemStates.waiting_plan_price)
 async def process_plan_price(message: Message, state: FSMContext):
     """Обработка цены плана"""
-    db = _get_db()
     try:
         price = float(message.text.strip())
         if price <= 0:
             raise ValueError("Цена должна быть положительной")
     except ValueError:
-        await message.answer("❌ Неверный формат цены. Введите число больше 0", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Неверный формат цены. Введите число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(plan_price=price)
-    
-    text = f"💎 <b>Цена: {price:,.0f} ₽</b>\n\n"
-    text += "Введите длительность тарифа в днях:\n"
-    text += "Пример: 30 (месяц), 90 (3 месяца), 365 (год)"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"💎 <b>Цена: {price:,.0f} ₽</b>\n\nВведите длительность тарифа в днях:\nПример: 30 (месяц), 90 (3 месяца), 365 (год)"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_plan_duration)
 
 @payment_system_router.message(PaymentSystemStates.waiting_plan_duration)
 async def process_plan_duration(message: Message, state: FSMContext):
     """Обработка длительности плана"""
-    db = _get_db()
     try:
         duration = int(message.text.strip())
         if duration <= 0:
             raise ValueError("Длительность должна быть положительной")
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите количество дней (число больше 0)", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите количество дней (число больше 0)", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(plan_duration=duration)
-    
-    text = f"💎 <b>Длительность: {duration} дней</b>\n\n"
-    text += "Введите описание тарифа:\n"
-    text += "Пример: Безлимитные продажи и отчеты"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"💎 <b>Длительность: {duration} дней</b>\n\nВведите описание тарифа:\nПример: Безлимитные продажи и отчеты"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_plan_description)
 
 @payment_system_router.message(PaymentSystemStates.waiting_plan_description)
 async def process_plan_description(message: Message, state: FSMContext):
     """Обработка описания плана"""
-    db = _get_db()
     description = message.text.strip()
-    
     if len(description) < 10:
-        await message.answer("❌ Описание слишком короткое (минимум 10 символов)", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Описание слишком короткое (минимум 10 символов)", reply_markup=_CANCEL_PLAN_KB)
         return
-    
-    # Получаем все данные
     data = await state.get_data()
     plan_name = data['plan_name']
     plan_price = data['plan_price']
     plan_duration = data['plan_duration']
-    
-    # Показываем настройки лимитов
-    text = f"💎 <b>Настройка лимитов для плана: {plan_name}</b>\n\n"
-    text += f"💰 Цена: {plan_price:,.0f} ₽\n"
-    text += f"⏱ Длительность: {plan_duration} дней\n"
-    text += f"📝 Описание: {description}\n\n"
-    text += "Теперь настройте лимиты для этого плана:\n\n"
-    text += "📦 Введите максимальное количество товаров:\n"
-    text += "(-1 для безлимита)"
-    
+    text = (
+        f"💎 <b>Настройка лимитов для плана: {plan_name}</b>\n\n"
+        f"💰 Цена: {plan_price:,.0f} ₽\n"
+        f"⏱ Длительность: {plan_duration} дней\n"
+        f"📝 Описание: {description}\n\n"
+        "📦 Введите максимальное количество товаров:\n(-1 для безлимита)"
+    )
     await state.update_data(plan_description=description)
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_max_products)
 
-# Обработчики настройки лимитов планов
 @payment_system_router.message(PaymentSystemStates.waiting_max_products)
 async def process_max_products(message: Message, state: FSMContext):
     """Обработка максимального количества товаров"""
-    db = _get_db()
     try:
         max_products = int(message.text.strip())
         if max_products < -1 or max_products == 0:
-            raise ValueError("Значение должно быть -1 (безлимит) или больше 0")
+            raise ValueError()
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(max_products=max_products)
-    
-    text = f"📦 Товары: {'Безлимит' if max_products == -1 else max_products}\n\n"
-    text += "🏪 Введите максимальное количество магазинов:\n"
-    text += "(-1 для безлимита)"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"📦 Товары: {'Безлимит' if max_products == -1 else max_products}\n\n🏪 Введите максимальное количество магазинов:\n(-1 для безлимита)"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_max_shops)
 
 @payment_system_router.message(PaymentSystemStates.waiting_max_shops)
 async def process_max_shops(message: Message, state: FSMContext):
     """Обработка максимального количества магазинов"""
-    db = _get_db()
     try:
         max_shops = int(message.text.strip())
         if max_shops < -1 or max_shops == 0:
-            raise ValueError("Значение должно быть -1 (безлимит) или больше 0")
+            raise ValueError()
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(max_shops=max_shops)
-    
-    text = f"🏪 Магазины: {'Безлимит' if max_shops == -1 else max_shops}\n\n"
-    text += "💰 Введите максимальное количество продаж в месяц:\n"
-    text += "(-1 для безлимита)"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"🏪 Магазины: {'Безлимит' if max_shops == -1 else max_shops}\n\n💰 Введите максимальное количество продаж в месяц:\n(-1 для безлимита)"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_max_sales)
 
 @payment_system_router.message(PaymentSystemStates.waiting_max_sales)
 async def process_max_sales(message: Message, state: FSMContext):
     """Обработка максимального количества продаж"""
-    db = _get_db()
     try:
         max_sales = int(message.text.strip())
         if max_sales < -1 or max_sales == 0:
-            raise ValueError("Значение должно быть -1 (безлимит) или больше 0")
+            raise ValueError()
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(max_sales=max_sales)
-    
-    text = f"💰 Продажи/месяц: {'Безлимит' if max_sales == -1 else max_sales}\n\n"
-    text += "📋 Разрешить экспорт отчетов?\n"
-    text += "Введите: да/нет"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"💰 Продажи/месяц: {'Безлимит' if max_sales == -1 else max_sales}\n\n📋 Разрешить экспорт отчетов?\nВведите: да/нет"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_export_reports)
 
 @payment_system_router.message(PaymentSystemStates.waiting_export_reports)
 async def process_export_reports(message: Message, state: FSMContext):
     """Обработка настройки экспорта отчетов"""
-    db = _get_db()
     answer = message.text.strip().lower()
     if answer in ['да', 'yes', '1', 'true']:
         can_export = True
     elif answer in ['нет', 'no', '0', 'false']:
         can_export = False
     else:
-        await message.answer("❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(can_export_reports=can_export)
-    
-    text = f"📋 Экспорт отчетов: {'Да' if can_export else 'Нет'}\n\n"
-    text += "📈 Разрешить расширенную аналитику?\n"
-    text += "Введите: да/нет"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"📋 Экспорт отчетов: {'Да' if can_export else 'Нет'}\n\n📈 Разрешить расширенную аналитику?\nВведите: да/нет"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_analytics)
 
 @payment_system_router.message(PaymentSystemStates.waiting_analytics)
 async def process_analytics(message: Message, state: FSMContext):
     """Обработка настройки аналитики"""
-    db = _get_db()
     answer = message.text.strip().lower()
     if answer in ['да', 'yes', '1', 'true']:
         can_analytics = True
     elif answer in ['нет', 'no', '0', 'false']:
         can_analytics = False
     else:
-        await message.answer("❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
         return
-    
     await state.update_data(can_view_analytics=can_analytics)
-    
-    text = f"📈 Аналитика: {'Да' if can_analytics else 'Нет'}\n\n"
-    text += "🔔 Разрешить уведомления?\n"
-    text += "Введите: да/нет"
-    
-    await message.answer(text, reply_markup=_CANCEL_PLAN_KB, parse_mode="HTML")
+    text = f"📈 Аналитика: {'Да' if can_analytics else 'Нет'}\n\n🔔 Разрешить уведомления?\nВведите: да/нет"
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
     await state.set_state(PaymentSystemStates.waiting_notifications)
 
 @payment_system_router.message(PaymentSystemStates.waiting_notifications)
@@ -729,15 +660,12 @@ async def process_notifications(message: Message, state: FSMContext):
     elif answer in ['нет', 'no', '0', 'false']:
         can_notifications = False
     else:
-        await message.answer("❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
+        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
         return
-    
-    # Получаем все данные
     data = await state.get_data()
-    
-    # Создаем план с лимитами
+    _plans_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Управление тарифами", callback_data="manage_plans")]])
     try:
-        plan_id = db.create_subscription_plan_with_limits(
+        db.create_subscription_plan_with_limits(
             name=data['plan_name'],
             duration_days=data['plan_duration'],
             price=data['plan_price'],
@@ -751,28 +679,25 @@ async def process_notifications(message: Message, state: FSMContext):
         )
     except Exception as e:
         logging.error(f"process_notifications: create_subscription_plan_with_limits error: {e}")
-        await message.answer("❌ Ошибка при создании тарифного плана. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при создании тарифного плана. Попробуйте позже.", reply_markup=_plans_kb)
         await clear_state_keep_org(state)
         return
 
-    text = f"✅ <b>Тарифный план создан!</b>\n\n"
-    text += f"📋 Название: {data['plan_name']}\n"
-    text += f"💰 Цена: {data['plan_price']:,.0f} ₽\n"
-    text += f"⏱ Длительность: {data['plan_duration']} дней\n"
-    text += f"📝 Описание: {data['plan_description']}\n\n"
-    text += f"<b>🎯 Лимиты и возможности:</b>\n"
-    text += f"📦 Товары: {'∞ Безлимит' if data['max_products'] == -1 else data['max_products']}\n"
-    text += f"🏪 Магазины: {'∞ Безлимит' if data['max_shops'] == -1 else data['max_shops']}\n"
-    text += f"💰 Продажи/месяц: {'∞ Безлимит' if data['max_sales'] == -1 else data['max_sales']}\n"
-    text += f"📋 Экспорт отчетов: {'✅ Да' if data['can_export_reports'] else '❌ Нет'}\n"
-    text += f"📈 Аналитика: {'✅ Да' if data['can_view_analytics'] else '❌ Нет'}\n"
-    text += f"🔔 Уведомления: {'✅ Да' if can_notifications else '❌ Нет'}\n"
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Управление тарифами", callback_data="manage_plans")]
-    ])
-
-    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    text = (
+        f"✅ <b>Тарифный план создан!</b>\n\n"
+        f"📋 Название: {data['plan_name']}\n"
+        f"💰 Цена: {data['plan_price']:,.0f} ₽\n"
+        f"⏱ Длительность: {data['plan_duration']} дней\n"
+        f"📝 Описание: {data['plan_description']}\n\n"
+        f"<b>🎯 Лимиты и возможности:</b>\n"
+        f"📦 Товары: {'∞ Безлимит' if data['max_products'] == -1 else data['max_products']}\n"
+        f"🏪 Магазины: {'∞ Безлимит' if data['max_shops'] == -1 else data['max_shops']}\n"
+        f"💰 Продажи/месяц: {'∞ Безлимит' if data['max_sales'] == -1 else data['max_sales']}\n"
+        f"📋 Экспорт отчетов: {'✅ Да' if data['can_export_reports'] else '❌ Нет'}\n"
+        f"📈 Аналитика: {'✅ Да' if data['can_view_analytics'] else '❌ Нет'}\n"
+        f"🔔 Уведомления: {'✅ Да' if can_notifications else '❌ Нет'}"
+    )
+    await fsm_edit(state, message, text, reply_markup=_plans_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "cancel_add_plan")
@@ -928,6 +853,7 @@ async def edit_plan_field_start(callback: CallbackQuery, state: FSMContext):
         ])
         
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        await state.update_data(anchor_msg_id=callback.message.message_id)
         await state.set_state(PaymentSystemStates.editing_plan_field)
 
 @payment_system_router.message(PaymentSystemStates.editing_plan_field)
@@ -937,9 +863,9 @@ async def process_plan_field_edit(message: Message, state: FSMContext):
     data = await state.get_data()
     plan_id = data.get('editing_plan_id')
     field = data.get('editing_field')
-    
+
     if not plan_id or not field:
-        await message.answer("❌ Ошибка: данные не найдены")
+        await fsm_edit(state, message, "❌ Ошибка: данные не найдены")
         return
     
     new_value = message.text.strip()
@@ -984,21 +910,20 @@ async def process_plan_field_edit(message: Message, state: FSMContext):
             elif field in ['max_products', 'max_shops', 'max_sales']:
                 limit_text = "Безлимит" if new_value == -1 else str(new_value)
                 text += f"🎯 Новый лимит: {limit_text}"
-            
+
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✏️ Продолжить редактирование", callback_data=f"edit_plan_{plan_id}")],
                 [InlineKeyboardButton(text="💎 К управлению тарифами", callback_data="manage_plans")]
             ])
-            
-            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            await fsm_edit(state, message, text, reply_markup=keyboard)
         else:
-            await message.answer("❌ Ошибка при обновлении плана")
-            
+            await fsm_edit(state, message, "❌ Ошибка при обновлении плана")
+
     except ValueError as e:
-        await message.answer(f"❌ Ошибка валидации: {e}")
+        await fsm_edit(state, message, f"❌ Ошибка валидации: {e}")
     except Exception as e:
-        await message.answer(f"❌ Произошла ошибка: {e}")
-    
+        await fsm_edit(state, message, f"❌ Произошла ошибка: {e}")
+
     await clear_state_keep_org(state)
 
 # ─────────────────── CREATION WIZARD ───────────────────
@@ -1031,6 +956,7 @@ async def create_promocode_start(callback: CallbackQuery, state: FSMContext):
         [back_button("manage_promocodes")],
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_promocode)
 
 
@@ -1053,17 +979,16 @@ async def process_promocode_code(message: Message, state: FSMContext):
     """Принять введённый код и перейти к шагу 2."""
     code = message.text.strip().upper()
     if not code.replace('_', '').isalnum() or len(code) < 3:
-        await message.answer(
+        await fsm_edit(state, message,
             "❌ Код должен содержать только латинские буквы, цифры и подчёркивания (минимум 3 символа)",
-            reply_markup=_CANCEL_PROMO_KB
-        )
+            reply_markup=_CANCEL_PROMO_KB)
         return
     await state.update_data(promocode=code)
-    await _ask_discount_type(message, code)
+    await _ask_discount_type(message, code, state=state)
     await state.set_state(PaymentSystemStates.waiting_discount_type)
 
 
-async def _ask_discount_type(target, code: str):
+async def _ask_discount_type(target, code: str, state=None):
     """Шаг 2: выбор типа скидки."""
     text = (
         f"🎁 <b>Создание промокода — шаг 2/5</b>\n\n"
@@ -1077,6 +1002,8 @@ async def _ask_discount_type(target, code: str):
     ])
     if hasattr(target, 'edit_text'):
         await target.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    elif state is not None:
+        await fsm_edit(state, target, text, reply_markup=keyboard)
     else:
         await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -1119,7 +1046,7 @@ async def process_discount(message: Message, state: FSMContext):
             raise ValueError()
     except ValueError:
         hint = "от 1 до 90" if disc_type == 'percent' else "больше 0"
-        await message.answer(f"❌ Неверный формат. Введите число {hint}", reply_markup=_CANCEL_PROMO_KB)
+        await fsm_edit(state, message, f"❌ Неверный формат. Введите число {hint}", reply_markup=_CANCEL_PROMO_KB)
         return
     await state.update_data(discount=discount)
 
@@ -1136,7 +1063,7 @@ async def process_discount(message: Message, state: FSMContext):
         f"Введите максимальное количество использований:\n"
         f"<i>Пример: 10, 50, 100</i>"
     )
-    await message.answer(text, reply_markup=_CANCEL_PROMO_KB, parse_mode="HTML")
+    await fsm_edit(state, message, text, reply_markup=_CANCEL_PROMO_KB)
     await state.set_state(PaymentSystemStates.waiting_max_usage)
 
 
@@ -1148,7 +1075,7 @@ async def process_max_usage(message: Message, state: FSMContext):
         if max_usage <= 0:
             raise ValueError()
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите число больше 0", reply_markup=_CANCEL_PROMO_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите число больше 0", reply_markup=_CANCEL_PROMO_KB)
         return
     await state.update_data(max_usage=max_usage)
     data = await state.get_data()
@@ -1163,7 +1090,7 @@ async def process_max_usage(message: Message, state: FSMContext):
         f"<i>Пример: 2025-12-31</i>\n\n"
         f"Или нажмите «Пропустить» — промокод будет бессрочным."
     )
-    await message.answer(text, reply_markup=_SKIP_EXPIRES_KB, parse_mode="HTML")
+    await fsm_edit(state, message, text, reply_markup=_SKIP_EXPIRES_KB)
     await state.set_state(PaymentSystemStates.waiting_expires_at)
 
 
@@ -1183,11 +1110,11 @@ async def process_expires_at(message: Message, state: FSMContext):
     try:
         dt = datetime.strptime(raw, '%Y-%m-%d')
         if dt.date() <= datetime.utcnow().date():
-            await message.answer("❌ Дата должна быть в будущем. Введите в формате ГГГГ-ММ-ДД.", reply_markup=_SKIP_EXPIRES_KB)
+            await fsm_edit(state, message, "❌ Дата должна быть в будущем. Введите в формате ГГГГ-ММ-ДД.", reply_markup=_SKIP_EXPIRES_KB)
             return
         expires_at = raw
     except ValueError:
-        await message.answer("❌ Неверный формат. Введите дату как ГГГГ-ММ-ДД (например, 2025-12-31).", reply_markup=_SKIP_EXPIRES_KB)
+        await fsm_edit(state, message, "❌ Неверный формат. Введите дату как ГГГГ-ММ-ДД (например, 2025-12-31).", reply_markup=_SKIP_EXPIRES_KB)
         return
     await state.update_data(expires_at=expires_at)
     await _ask_allowed_plans(message, state)
@@ -1209,7 +1136,7 @@ async def _ask_allowed_plans(target, state: FSMContext):
     if hasattr(target, 'edit_text'):
         await target.edit_text(text, reply_markup=_SKIP_PLANS_KB, parse_mode="HTML")
     else:
-        await target.answer(text, reply_markup=_SKIP_PLANS_KB, parse_mode="HTML")
+        await fsm_edit(state, target, text, reply_markup=_SKIP_PLANS_KB)
     await state.set_state(PaymentSystemStates.waiting_allowed_plans)
 
 
@@ -1274,7 +1201,7 @@ async def _save_new_promocode(target, state: FSMContext):
     if hasattr(target, 'edit_text'):
         await target.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        await fsm_edit(state, target, text, reply_markup=keyboard)
     await clear_state_keep_org(state)
 
 
@@ -1305,34 +1232,32 @@ async def batch_promocode_start(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
     ])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_batch_count)
 
 
 @payment_system_router.message(PaymentSystemStates.waiting_batch_count)
 async def process_batch_count(message: Message, state: FSMContext):
     """Принять количество → спросить префикс."""
+    _cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]])
     try:
         count = int(message.text.strip())
         if not (1 <= count <= 100):
             raise ValueError()
     except ValueError:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
-        ])
-        await message.answer("❌ Введите число от 1 до 100.", reply_markup=kb)
+        await fsm_edit(state, message, "❌ Введите число от 1 до 100.", reply_markup=_cancel_kb)
         return
     await state.update_data(batch_count=count)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏩ Без префикса", callback_data="batch_promo_no_prefix")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")],
     ])
-    await message.answer(
+    await fsm_edit(state, message,
         f"📦 <b>Количество:</b> {count}\n\n"
         "Введите префикс для кодов (лат. буквы/цифры, мин. 2):\n"
         "<i>Пример: PARTNER → PARTNER_A3K9X2</i>\n\n"
         "Или нажмите «Без префикса».",
-        reply_markup=kb, parse_mode="HTML"
-    )
+        reply_markup=kb)
     await state.set_state(PaymentSystemStates.waiting_batch_prefix)
 
 
@@ -1346,11 +1271,9 @@ async def batch_promo_no_prefix(callback: CallbackQuery, state: FSMContext):
 @payment_system_router.message(PaymentSystemStates.waiting_batch_prefix)
 async def process_batch_prefix(message: Message, state: FSMContext):
     prefix = message.text.strip().upper()
+    _cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]])
     if not prefix.replace('_', '').isalnum() or len(prefix) < 2:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_promocodes")]
-        ])
-        await message.answer("❌ Префикс: только лат. буквы/цифры, минимум 2 символа.", reply_markup=kb)
+        await fsm_edit(state, message, "❌ Префикс: только лат. буквы/цифры, минимум 2 символа.", reply_markup=_cancel_kb)
         return
     await state.update_data(batch_prefix=prefix + '_')
     await _ask_batch_discount(message, state)
@@ -1373,7 +1296,7 @@ async def _ask_batch_discount(target, state: FSMContext):
     if hasattr(target, 'edit_text'):
         await target.edit_text(text, reply_markup=kb, parse_mode="HTML")
     else:
-        await target.answer(text, reply_markup=kb, parse_mode="HTML")
+        await fsm_edit(state, target, text, reply_markup=kb)
 
 
 async def _save_batch_promocodes(message: Message, state: FSMContext):
@@ -1385,7 +1308,6 @@ async def _save_batch_promocodes(message: Message, state: FSMContext):
     discount = data.get('discount', 10)
     disc_type = data.get('discount_type', 'percent')
 
-    # Метод DB сам генерирует коды вида {prefix}{6 символов}
     created = db.create_promocodes_batch(
         prefix=prefix,
         discount_percent=discount,
@@ -1406,7 +1328,7 @@ async def _save_batch_promocodes(message: Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Управление промокодами", callback_data="manage_promocodes")]
     ])
-    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    await fsm_edit(state, message, text, reply_markup=keyboard)
     await clear_state_keep_org(state)
 
 
@@ -1432,7 +1354,6 @@ async def edit_promo_expires_start(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")],
     ])
     await state.set_data({'promo_id': promo_id})
-    await state.set_state(PaymentSystemStates.editing_promocode_expires)
     await callback.message.edit_text(
         f"⏳ <b>Срок действия промокода {code}</b>\n\n"
         f"Текущий срок: {current_exp}\n\n"
@@ -1440,6 +1361,8 @@ async def edit_promo_expires_start(callback: CallbackQuery, state: FSMContext):
         "<i>Пример: 2025-12-31</i>",
         reply_markup=kb, parse_mode="HTML"
     )
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(PaymentSystemStates.editing_promocode_expires)
 
 
 @payment_system_router.callback_query(F.data.startswith("promo_clear_exp_"))
@@ -1461,22 +1384,19 @@ async def process_promo_expires_edit(message: Message, state: FSMContext):
     data = await state.get_data()
     promo_id = data.get('promo_id')
     raw = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")]])
     try:
         dt = datetime.strptime(raw, '%Y-%m-%d')
         if dt.date() <= datetime.utcnow().date():
             raise ValueError("past")
     except ValueError:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")]
-        ])
-        await message.answer("❌ Дата должна быть будущей, формат ГГГГ-ММ-ДД.", reply_markup=kb)
+        await fsm_edit(state, message, "❌ Дата должна быть будущей, формат ГГГГ-ММ-ДД.", reply_markup=_back_kb)
         return
     db = _get_db()
     db.update_promocode(promo_id, expires_at=raw)
+    _done_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"edit_promo_{promo_id}")]])
+    await fsm_edit(state, message, f"✅ Срок действия обновлён: {raw}", reply_markup=_done_kb)
     await clear_state_keep_org(state)
-    await message.answer(f"✅ Срок действия обновлён: {raw}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"edit_promo_{promo_id}")]
-    ]))
 
 
 # Тестовый платеж
@@ -1608,6 +1528,7 @@ async def set_payment_instruction(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_payment_instruction)
 
 @payment_system_router.message(PaymentSystemStates.waiting_payment_instruction)
@@ -1615,20 +1536,16 @@ async def process_payment_instruction(message: Message, state: FSMContext):
     """Сохранение инструкции для пользователей"""
     db = _get_db()
     instruction = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]])
     if len(instruction) < 5:
-        await message.answer("❌ Инструкция слишком короткая. Введите более подробный текст.")
+        await fsm_edit(state, message, "❌ Инструкция слишком короткая. Введите более подробный текст:", reply_markup=_back_kb)
         return
     try:
         db.update_payment_setting('payment_instruction', instruction)
-        await message.answer(
-            "✅ Инструкция для пользователей обновлена.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")]
-            ])
-        )
+        await fsm_edit(state, message, "✅ Инструкция для пользователей обновлена.", reply_markup=_back_kb)
     except Exception as e:
         logging.error(f"process_payment_instruction: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении инструкции. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении инструкции. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "set_discounts")
@@ -1713,6 +1630,7 @@ async def find_user_subscription(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_user_telegram_id)
 
 @payment_system_router.message(PaymentSystemStates.waiting_user_telegram_id)
@@ -1720,30 +1638,22 @@ async def process_find_user_subscription(message: Message, state: FSMContext):
     """Поиск подписки пользователя по Telegram ID"""
     db = _get_db()
     raw = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]])
     if not raw.isdigit():
-        await message.answer("❌ Введите числовой Telegram ID.")
+        await fsm_edit(state, message, "❌ Введите числовой Telegram ID:", reply_markup=_back_kb)
         return
     user_id = int(raw)
     sub = db.get_user_subscription(user_id)
     if not sub:
-        await message.answer(
-            f"📭 У пользователя {user_id} нет активной подписки.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+        await fsm_edit(state, message, f"📭 У пользователя {user_id} нет активной подписки.", reply_markup=_back_kb)
     else:
         plan_type = sub[2] if len(sub) > 2 else "—"
         end_date = sub[4] if len(sub) > 4 else "—"
-        await message.answer(
+        await fsm_edit(state, message,
             f"📋 <b>Подписка пользователя {user_id}</b>\n\n"
             f"💎 Тариф: {plan_type}\n"
             f"📅 До: {end_date[:10] if end_date and len(end_date) >= 10 else end_date}",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+            reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "grant_subscription")
@@ -1763,6 +1673,7 @@ async def grant_subscription(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_grant_user_id)
 
 @payment_system_router.message(PaymentSystemStates.waiting_grant_user_id)
@@ -1770,33 +1681,27 @@ async def process_grant_subscription(message: Message, state: FSMContext):
     """Выдача подписки пользователю — принимаем ID и план через пробел"""
     db = _get_db()
     parts = message.text.strip().split()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]])
     if len(parts) < 2:
-        await message.answer(
+        await fsm_edit(state, message,
             "❌ Введите данные в формате: <code>TELEGRAM_ID НАЗВАНИЕ_ТАРИФА</code>\n"
             "Пример: <code>123456789 Базовый</code>",
-            parse_mode="HTML"
-        )
+            reply_markup=_back_kb)
         return
     raw_id, plan_name = parts[0], " ".join(parts[1:])
     if not raw_id.isdigit():
-        await message.answer("❌ Telegram ID должен быть числом.")
+        await fsm_edit(state, message, "❌ Telegram ID должен быть числом:", reply_markup=_back_kb)
         return
     user_id = int(raw_id)
     success = db.create_subscription(user_id, plan_name)
     if success:
-        await message.answer(
+        await fsm_edit(state, message,
             f"✅ Подписка <b>{he(plan_name)}</b> выдана пользователю {user_id}.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+            reply_markup=_back_kb)
     else:
-        await message.answer(
-            f"❌ Не удалось выдать подписку. Проверьте ID и название тарифа.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
+        await fsm_edit(state, message,
+            "❌ Не удалось выдать подписку. Проверьте ID и название тарифа.",
+            reply_markup=_back_kb
         )
     await clear_state_keep_org(state)
 
@@ -2443,6 +2348,7 @@ async def edit_promocode_discount_start(callback: CallbackQuery, state: FSMConte
     ])
     
     await state.set_data({"promo_id": promo_id})
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.editing_promocode_discount)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -2452,26 +2358,26 @@ async def process_promocode_discount_edit(message: Message, state: FSMContext):
     db = _get_db()
     data = await state.get_data()
     promo_id = data.get("promo_id")
-    
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")]])
+
     try:
         new_discount = int(message.text.strip())
         if not (1 <= new_discount <= 99):
             raise ValueError("Скидка должна быть от 1 до 99 процентов")
     except ValueError:
-        await message.answer("❌ Некорректное значение! Введите число от 1 до 99:")
+        await fsm_edit(state, message, "❌ Некорректное значение! Введите число от 1 до 99:", reply_markup=_back_kb)
         return
-    
+
     success = db.update_promocode(promo_id, discount_percent=new_discount)
-    
     if success:
         promo = db.get_promocode_by_id(promo_id)
         code = promo[1]
-        text = f"✅ <b>Скидка обновлена</b>\n\n" \
-               f"Скидка промокода <b>{code}</b> изменена на {new_discount}%"
-        await message.answer(text, parse_mode="HTML")
+        await fsm_edit(state, message,
+            f"✅ <b>Скидка обновлена</b>\n\nСкидка промокода <b>{code}</b> изменена на {new_discount}%",
+            reply_markup=_back_kb)
     else:
-        await message.answer("❌ Ошибка обновления скидки")
-    
+        await fsm_edit(state, message, "❌ Ошибка обновления скидки", reply_markup=_back_kb)
+
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data.startswith("edit_promo_max_usage_"))
@@ -2504,6 +2410,7 @@ async def edit_promocode_max_usage_start(callback: CallbackQuery, state: FSMCont
     ])
     
     await state.set_data({"promo_id": promo_id, "current_usage": current_usage})
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.editing_promocode_max_usage)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -2514,7 +2421,8 @@ async def process_promocode_max_usage_edit(message: Message, state: FSMContext):
     data = await state.get_data()
     promo_id = data.get("promo_id")
     current_usage = data.get("current_usage")
-    
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data=f"edit_promo_{promo_id}")]])
+
     try:
         new_max_usage = int(message.text.strip())
         if new_max_usage < current_usage:
@@ -2522,20 +2430,19 @@ async def process_promocode_max_usage_edit(message: Message, state: FSMContext):
         if new_max_usage <= 0:
             raise ValueError("Лимит должен быть больше 0")
     except ValueError as e:
-        await message.answer(f"❌ {str(e)}\nВведите корректное число:")
+        await fsm_edit(state, message, f"❌ {str(e)}\nВведите корректное число:", reply_markup=_back_kb)
         return
-    
+
     success = db.update_promocode(promo_id, max_usage=new_max_usage)
-    
     if success:
         promo = db.get_promocode_by_id(promo_id)
         code = promo[1]
-        text = f"✅ <b>Лимит обновлен</b>\n\n" \
-               f"Лимит использований промокода <b>{code}</b> изменен на {new_max_usage}"
-        await message.answer(text, parse_mode="HTML")
+        await fsm_edit(state, message,
+            f"✅ <b>Лимит обновлён</b>\n\nЛимит использований промокода <b>{code}</b> изменён на {new_max_usage}",
+            reply_markup=_back_kb)
     else:
-        await message.answer("❌ Ошибка обновления лимита")
-    
+        await fsm_edit(state, message, "❌ Ошибка обновления лимита", reply_markup=_back_kb)
+
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "promocode_stats")
@@ -2601,6 +2508,7 @@ async def extend_subscription(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_extend_user_id)
 
 @payment_system_router.message(PaymentSystemStates.waiting_extend_user_id)
@@ -2608,45 +2516,30 @@ async def process_extend_subscription(message: Message, state: FSMContext):
     """Продление подписки — принимаем ID и количество дней через пробел"""
     db = _get_db()
     parts = message.text.strip().split()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]])
     if len(parts) < 2:
-        await message.answer(
+        await fsm_edit(state, message,
             "❌ Введите данные в формате: <code>TELEGRAM_ID КОЛИЧЕСТВО_ДНЕЙ</code>\n"
             "Пример: <code>123456789 30</code>",
-            parse_mode="HTML"
-        )
+            reply_markup=_back_kb)
         return
     raw_id, raw_days = parts[0], parts[1]
     if not raw_id.isdigit() or not raw_days.isdigit():
-        await message.answer("❌ Telegram ID и количество дней должны быть числами.")
+        await fsm_edit(state, message, "❌ Telegram ID и количество дней должны быть числами:", reply_markup=_back_kb)
         return
     user_id = int(raw_id)
     days = int(raw_days)
     sub = db.get_user_subscription(user_id)
     if not sub:
-        await message.answer(
-            f"❌ У пользователя {user_id} нет подписки для продления.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+        await fsm_edit(state, message, f"❌ У пользователя {user_id} нет подписки для продления.", reply_markup=_back_kb)
         await clear_state_keep_org(state)
         return
     plan_type = sub[2] if len(sub) > 2 else "Базовый"
     success = db.create_subscription(user_id, plan_type)
     if success:
-        await message.answer(
-            f"✅ Подписка пользователя {user_id} продлена на {days} дн.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+        await fsm_edit(state, message, f"✅ Подписка пользователя {user_id} продлена на {days} дн.", reply_markup=_back_kb)
     else:
-        await message.answer(
-            "❌ Не удалось продлить подписку.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+        await fsm_edit(state, message, "❌ Не удалось продлить подписку.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "cancel_subscription")
@@ -2666,6 +2559,7 @@ async def cancel_subscription(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_cancel_user_id)
 
 @payment_system_router.message(PaymentSystemStates.waiting_cancel_user_id)
@@ -2673,8 +2567,9 @@ async def process_cancel_subscription(message: Message, state: FSMContext):
     """Отмена подписки пользователя"""
     db = _get_db()
     raw = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]])
     if not raw.isdigit():
-        await message.answer("❌ Введите числовой Telegram ID.")
+        await fsm_edit(state, message, "❌ Введите числовой Telegram ID:", reply_markup=_back_kb)
         return
     user_id = int(raw)
     try:
@@ -2688,27 +2583,12 @@ async def process_cancel_subscription(message: Message, state: FSMContext):
         conn.commit()
         conn.close()
         if affected > 0:
-            await message.answer(
-                f"✅ Подписка пользователя {user_id} отменена.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-                ])
-            )
+            await fsm_edit(state, message, f"✅ Подписка пользователя {user_id} отменена.", reply_markup=_back_kb)
         else:
-            await message.answer(
-                f"❌ Подписка пользователя {user_id} не найдена.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-                ])
-            )
+            await fsm_edit(state, message, f"❌ Подписка пользователя {user_id} не найдена.", reply_markup=_back_kb)
     except Exception as e:
         logger.error(f"process_cancel_subscription error: {e}")
-        await message.answer(
-            "❌ Ошибка при отмене подписки.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_subscriptions")]
-            ])
-        )
+        await fsm_edit(state, message, "❌ Ошибка при отмене подписки.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 @payment_system_router.callback_query(F.data == "stats_by_period")
@@ -2792,6 +2672,7 @@ async def trial_edit_days_start(callback: CallbackQuery, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(PaymentSystemStates.waiting_trial_days)
 
 
@@ -2800,23 +2681,17 @@ async def process_trial_days(message: Message, state: FSMContext):
     """Сохранение нового значения длительности пробного периода"""
     db = _get_db()
     raw = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 К настройкам пробного периода", callback_data="trial_settings")]])
     if not raw.isdigit():
-        await message.answer("❌ Введите целое число (количество дней).")
+        await fsm_edit(state, message, "❌ Введите целое число (количество дней):", reply_markup=_back_kb)
         return
     days = int(raw)
     if days > 365:
-        await message.answer("❌ Максимум 365 дней.")
+        await fsm_edit(state, message, "❌ Максимум 365 дней:", reply_markup=_back_kb)
         return
-
     db.update_payment_setting('trial_days', str(days))
     status = f"отключён (0 дней)" if days == 0 else f"<b>{days} дней</b>"
-    await message.answer(
-        f"✅ Длительность пробного периода обновлена: {status}",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 К настройкам пробного периода", callback_data="trial_settings")]
-        ])
-    )
+    await fsm_edit(state, message, f"✅ Длительность пробного периода обновлена: {status}", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 
@@ -3106,7 +2981,6 @@ async def yk_set_return_url_start(callback: CallbackQuery, state: FSMContext):
 @payment_system_router.message(PaymentSystemStates.waiting_yookassa_return_url)
 async def yk_set_return_url_save(message: Message, state: FSMContext):
     """Сохранить Return URL"""
-    from message_utils import fsm_edit
     db = _get_db()
     return_url = message.text.strip() if message.text else ""
     if not return_url:

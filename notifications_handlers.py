@@ -690,6 +690,7 @@ async def admin_schedule_notification_start(callback: CallbackQuery, state: FSMC
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]),
         parse_mode="HTML"
     )
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(NotificationStates.waiting_for_schedule_time)
 
 @notifications_router.message(NotificationStates.waiting_for_schedule_time)
@@ -705,14 +706,16 @@ async def process_schedule_time(message: Message, state: FSMContext):
         data = await state.get_data()
         text = data.get('admin_notification_text')
         if not text:
-            await message.answer("❌ Текст уведомления не найден. Начните заново.")
+            await fsm_edit(state, message, "❌ Текст уведомления не найден. Начните заново.",
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
             await clear_state_keep_org(state)
             return
 
         current_db = await get_db(message.from_user.id, state)
         admin_user = await current_db.get_user(message.from_user.id)
         if not admin_user:
-            await message.answer("❌ Профиль администратора не найден.")
+            await fsm_edit(state, message, "❌ Профиль администратора не найден.",
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
             await clear_state_keep_org(state)
             return
 
@@ -721,18 +724,17 @@ async def process_schedule_time(message: Message, state: FSMContext):
         schedule_time_utc = get_utc_time(schedule_time_naive, admin_tz)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         if schedule_time_utc <= now_utc:
-            await message.answer("❌ Время должно быть в будущем!")
+            await fsm_edit(state, message, "❌ Время должно быть в будущем! Введите заново:")
             return
 
         _MAX_SCHEDULED = 20
         _all_pending = await current_db.get_scheduled_notifications(status='pending')
         _my_pending = [n for n in _all_pending if n[2] == admin_user[0]]
         if len(_my_pending) >= _MAX_SCHEDULED:
-            await message.answer(
+            await fsm_edit(state, message,
                 f"❌ Достигнут лимит запланированных уведомлений ({_MAX_SCHEDULED}). "
                 f"Удалите некоторые из существующих перед созданием нового.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]])
-            )
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
             await clear_state_keep_org(state)
             return
 
@@ -756,17 +758,15 @@ async def process_schedule_time(message: Message, state: FSMContext):
             recipients_list=recipients_list_json,
             scheduled_datetime=schedule_time_utc.strftime('%Y-%m-%dT%H:%M:%S')
         )
-        await message.answer(
+        await fsm_edit(state, message,
             f"✅ <b>Уведомление запланировано!</b>\n\n"
             f"📅 Время: {time_text} ({admin_tz})\n"
             f"👥 Получатели: {_rcpt_label}\n"
             f"💬 Текст: {he(text)}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]),
-            parse_mode="HTML"
-        )
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
         await clear_state_keep_org(state)
     except ValueError:
-        await message.answer("❌ Неверный формат. Используйте ДД.ММ.ГГГГ ЧЧ:ММ (напр. 02.02.2026 09:00)")
+        await fsm_edit(state, message, "❌ Неверный формат. Используйте ДД.ММ.ГГГГ ЧЧ:ММ (напр. 02.02.2026 09:00)")
 
 @notifications_router.callback_query(F.data == "view_scheduled_notifications")
 async def view_scheduled_notifications(callback: CallbackQuery, state: FSMContext):
@@ -887,6 +887,7 @@ async def set_notification_time_start(callback: CallbackQuery, state: FSMContext
     await state.update_data(user_id=user[0])
     text = "⏰ <b>Установка времени уведомлений</b>\n\nВведите время в формате ЧЧ:ММ (напр. 09:00):"
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notification_settings")]]), parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(NotificationStates.waiting_for_time)
 
 @notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale"]))
@@ -937,6 +938,7 @@ async def set_stock_threshold_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(user_id=user[0])
     text = "📏 <b>Установка порога остатков</b>\n\nВведите число (напр. 5):"
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notification_settings")]]), parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(NotificationStates.waiting_for_threshold)
 
 @notifications_router.message(NotificationStates.waiting_for_threshold)
@@ -945,31 +947,34 @@ async def process_stock_threshold(message: Message, state: FSMContext):
     try:
         threshold = int(message.text.strip())
         if threshold < 1:
-            await message.answer("❌ Должно быть больше 0", reply_markup=_back_kb)
+            await fsm_edit(state, message, "❌ Должно быть больше 0", reply_markup=_back_kb)
             return
         data = await state.get_data()
         current_db = await get_db(message.from_user.id, state)
         await current_db.update_notification_settings(data['user_id'], stock_threshold=threshold)
-        await message.answer(f"✅ Порог установлен: {threshold} шт.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
+        await fsm_edit(state, message, f"✅ Порог установлен: {threshold} шт.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
         await clear_state_keep_org(state)
     except ValueError:
-        await message.answer("❌ Введите корректное число", reply_markup=_back_kb)
+        await fsm_edit(state, message, "❌ Введите корректное число", reply_markup=_back_kb)
 
 @notifications_router.message(NotificationStates.waiting_for_time)
 async def process_notification_time(message: Message, state: FSMContext):
     import re
     time_text = message.text.strip()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("notification_settings")]])
     if not re.match(r'^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$', time_text):
-        await message.answer("❌ Неверный формат. Используйте ЧЧ:ММ (напр. 09:00)", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("notification_settings")]]))
+        await fsm_edit(state, message, "❌ Неверный формат. Используйте ЧЧ:ММ (напр. 09:00)", reply_markup=_back_kb)
         return
     data = await state.get_data()
     try:
         current_db = await get_db(message.from_user.id, state)
         await current_db.update_notification_settings(data['user_id'], notification_time=time_text)
-        await message.answer(f"✅ Время установлено: {time_text}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
+        await fsm_edit(state, message, f"✅ Время установлено: {time_text}",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
     except Exception as e:
         logging.error(f"process_notification_time: DB error: {e}")
-        await message.answer("❌ Ошибка при сохранении времени. Попробуйте позже.")
+        await fsm_edit(state, message, "❌ Ошибка при сохранении времени. Попробуйте позже.", reply_markup=_back_kb)
     await clear_state_keep_org(state)
 
 NOTIF_HIST_PAGE_SIZE = 10
