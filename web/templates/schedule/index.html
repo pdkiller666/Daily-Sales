@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block title %}График работы{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">График работы</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">График работы</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Управление сменами сотрудников</p>
+    </div>
+    {% if selected_user %}
+    <a href="/staff/{{ selected_user.id }}"
+       class="inline-flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700 hover:underline">
+        ← Профиль
+    </a>
+    {% endif %}
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if msg %}
+{% set msg_parts = msg.split(':') %}
+{% if msg_parts[0] == 'added' %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+    <span>✅</span>
+    <span>Добавлено смен по шаблону: <strong>{{ msg_parts[1] }}</strong></span>
+</div>
+{% endif %}
+{% endif %}
+
+<div class="flex flex-col lg:flex-row gap-6">
+
+    <!-- LEFT: Staff picker -->
+    <div class="lg:w-56 shrink-0">
+        <div class="card p-4">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Сотрудник</p>
+            {% if staff_list %}
+            <div class="space-y-1 max-h-96 overflow-y-auto">
+                {% for s in staff_list %}
+                <a href="/schedule?user_id={{ s.id }}&year={{ year }}&month={{ month }}"
+                   class="flex flex-col px-3 py-2 rounded-lg text-sm transition-colors
+                          {% if s.id == selected_user_id %}bg-blue-50 text-blue-700 font-medium border border-blue-200
+                          {% else %}text-slate-600 hover:bg-slate-50{% endif %}">
+                    <span>{{ s.first_name }} {{ s.last_name }}</span>
+                    {% if s.shop_name %}
+                    <span class="text-xs {% if s.id == selected_user_id %}text-blue-400{% else %}text-slate-400{% endif %}">
+                        {{ s.shop_name }}
+                    </span>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-xs text-slate-400">Сотрудники не найдены</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- RIGHT: Calendar + Templates -->
+    <div class="flex-1 min-w-0">
+
+        {% if not selected_user_id %}
+        <div class="card py-20 text-center text-slate-400">
+            <p class="text-5xl mb-4">📅</p>
+            <p class="text-base font-medium text-slate-600">Выберите сотрудника</p>
+            <p class="text-sm mt-1">Нажмите на имя слева, чтобы открыть его график</p>
+        </div>
+        {% else %}
+
+        <!-- Month nav -->
+        <div class="flex items-center justify-between mb-4">
+            <a href="/schedule?user_id={{ selected_user_id }}&year={{ prev_y }}&month={{ prev_m }}"
+               class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+                ← {{ prev_m }}/{{ prev_y }}
+            </a>
+            <div class="text-center">
+                <h2 class="text-lg font-bold text-slate-800">{{ month_name }} {{ year }}</h2>
+                {% if selected_user %}
+                <p class="text-xs text-slate-400">{{ selected_user.first_name }} {{ selected_user.last_name }}</p>
+                {% endif %}
+            </div>
+            <a href="/schedule?user_id={{ selected_user_id }}&year={{ next_y }}&month={{ next_m }}"
+               class="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition-colors">
+                {{ next_m }}/{{ next_y }} →
+            </a>
+        </div>
+
+        <!-- Stats bar -->
+        <div class="grid grid-cols-3 gap-3 mb-4">
+            <div class="card p-3 text-center">
+                <p class="text-xs text-slate-400 mb-1">Рабочих дней</p>
+                <p class="text-xl font-bold text-emerald-600">{{ work_days|length }}</p>
+            </div>
+            <div class="card p-3 text-center">
+                <p class="text-xs text-slate-400 mb-1">Со временем</p>
+                <p class="text-xl font-bold text-blue-600">{{ work_day_times|length }}</p>
+            </div>
+            <div class="card p-3 flex items-center justify-center">
+                <form method="post" action="/schedule/fill_month">
+                    <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                    <input type="hidden" name="year" value="{{ year }}">
+                    <input type="hidden" name="month" value="{{ month }}">
+                    <button type="submit"
+                            class="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors leading-tight text-center">
+                        📋 Заполнить<br>по шаблону
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Calendar -->
+        <div class="card p-4 mb-4" x-data="{ editing: null }">
+            <!-- Day headers -->
+            <div class="grid grid-cols-7 gap-1 mb-2">
+                {% for dn in weekday_names %}
+                <div class="text-center text-[11px] font-semibold
+                            {% if loop.index >= 6 %}text-red-400{% else %}text-slate-400{% endif %}">
+                    {{ dn }}
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Day cells -->
+            <div class="grid grid-cols-7 gap-1">
+                {% for week in cal_grid %}
+                {% for day in week %}
+                {% if day == 0 %}
+                <div></div>
+                {% else %}
+                {% set is_working = day in work_days %}
+                {% set times = work_day_times.get(day) %}
+                {% set is_today = day == today_day %}
+                {% set date_str = "%04d-%02d-%02d"|format(year, month, day) %}
+                {% set cell_id = "day_" ~ day %}
+
+                <div class="relative"
+                     @click.away="editing === {{ day }} && (editing = null)">
+
+                    <!-- Day cell -->
+                    <button type="button"
+                            @click="editing = (editing === {{ day }}) ? null : {{ day }}"
+                            class="w-full aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold transition-all
+                                   {% if is_working %}
+                                       bg-emerald-500 text-white shadow-sm hover:bg-emerald-600
+                                   {% elif is_today %}
+                                       bg-blue-100 text-blue-700 border-2 border-blue-400 hover:bg-blue-200
+                                   {% else %}
+                                       bg-slate-50 text-slate-400 hover:bg-slate-100
+                                   {% endif %}">
+                        <span>{{ day }}</span>
+                        {% if times %}
+                        <span class="text-[9px] font-normal leading-none mt-0.5 opacity-90">
+                            {{ times[0][:5] if times[0] else '' }}
+                        </span>
+                        {% endif %}
+                    </button>
+
+                    <!-- Popup panel -->
+                    <div x-show="editing === {{ day }}" x-cloak
+                         class="absolute z-20 top-full left-1/2 -translate-x-1/2 mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 p-3">
+                        <p class="text-xs font-semibold text-slate-600 mb-2">{{ day }} {{ month_name }}</p>
+
+                        {% if is_working %}
+                        <!-- Set time -->
+                        <form method="post" action="/schedule/set_time" class="mb-2">
+                            <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                            <input type="hidden" name="work_date" value="{{ date_str }}">
+                            <input type="hidden" name="year" value="{{ year }}">
+                            <input type="hidden" name="month" value="{{ month }}">
+                            <div class="flex items-center gap-1 mb-2">
+                                <input type="time" name="start_time"
+                                       value="{{ times[0][:5] if times and times[0] else '09:00' }}"
+                                       class="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400">
+                                <span class="text-slate-300 text-xs">—</span>
+                                <input type="time" name="end_time"
+                                       value="{{ times[1][:5] if times and times[1] else '18:00' }}"
+                                       class="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400">
+                            </div>
+                            <button type="submit"
+                                    class="w-full text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg py-1.5 font-medium transition-colors">
+                                Сохранить время
+                            </button>
+                        </form>
+                        <!-- Remove shift -->
+                        <form method="post" action="/schedule/remove_day">
+                            <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                            <input type="hidden" name="work_date" value="{{ date_str }}">
+                            <input type="hidden" name="year" value="{{ year }}">
+                            <input type="hidden" name="month" value="{{ month }}">
+                            <button type="submit"
+                                    class="w-full text-xs text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg py-1.5 font-medium transition-colors border border-red-100">
+                                Убрать смену
+                            </button>
+                        </form>
+
+                        {% else %}
+                        <!-- Add shift -->
+                        <form method="post" action="/schedule/set_time">
+                            <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                            <input type="hidden" name="work_date" value="{{ date_str }}">
+                            <input type="hidden" name="year" value="{{ year }}">
+                            <input type="hidden" name="month" value="{{ month }}">
+                            <p class="text-xs text-slate-400 mb-2">Добавить смену</p>
+                            <div class="flex items-center gap-1 mb-2">
+                                <input type="time" name="start_time" value="09:00"
+                                       class="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400">
+                                <span class="text-slate-300 text-xs">—</span>
+                                <input type="time" name="end_time" value="18:00"
+                                       class="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400">
+                            </div>
+                            <button type="submit"
+                                    class="w-full text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-1.5 font-medium transition-colors">
+                                Добавить смену
+                            </button>
+                        </form>
+                        <!-- Simple toggle (no time) -->
+                        <form method="post" action="/schedule/toggle_day" class="mt-1">
+                            <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                            <input type="hidden" name="work_date" value="{{ date_str }}">
+                            <input type="hidden" name="year" value="{{ year }}">
+                            <input type="hidden" name="month" value="{{ month }}">
+                            <button type="submit"
+                                    class="w-full text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-lg py-1.5 font-medium transition-colors border border-slate-100 mt-1">
+                                Отметить без времени
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+                {% endfor %}
+            </div>
+
+            <div class="flex items-center gap-4 mt-3 text-[11px] text-slate-400">
+                <span class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> Рабочий день
+                </span>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded bg-slate-100 border border-slate-200 inline-block"></span> Выходной
+                </span>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded bg-blue-100 border-2 border-blue-400 inline-block"></span> Сегодня
+                </span>
+            </div>
+        </div>
+
+        <!-- Shift Templates -->
+        <div class="card p-4" id="templates">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="font-semibold text-slate-800">Шаблоны смен</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Расписание по умолчанию для каждого дня недели</p>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                {% for wd in range(7) %}
+                {% set tmpl = templates.get(wd, {}) %}
+                {% set is_weekend = wd >= 5 %}
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100/70 transition-colors"
+                     x-data="{ off: {{ 'true' if tmpl.is_off else 'false' }} }">
+                    <div class="w-8 text-center">
+                        <span class="text-xs font-semibold {% if is_weekend %}text-red-400{% else %}text-slate-500{% endif %}">
+                            {{ weekday_names[wd] }}
+                        </span>
+                    </div>
+
+                    <form method="post" action="/schedule/set_template" class="flex flex-1 items-center gap-2">
+                        <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                        <input type="hidden" name="weekday" value="{{ wd }}">
+                        <input type="hidden" name="year" value="{{ year }}">
+                        <input type="hidden" name="month" value="{{ month }}">
+                        <input type="hidden" name="is_off" :value="off ? '1' : '0'">
+
+                        <div class="flex items-center gap-1.5" :class="off ? 'opacity-30 pointer-events-none' : ''">
+                            <input type="time" name="start_time"
+                                   value="{{ tmpl.start if tmpl.start else '09:00' }}"
+                                   class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-24">
+                            <span class="text-slate-300 text-xs">—</span>
+                            <input type="time" name="end_time"
+                                   value="{{ tmpl.end if tmpl.end else '18:00' }}"
+                                   class="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-blue-400 w-24">
+                        </div>
+
+                        <label class="flex items-center gap-1.5 cursor-pointer ml-auto shrink-0">
+                            <input type="checkbox" @change="off = $event.target.checked"
+                                   :checked="off"
+                                   class="rounded text-slate-400 border-slate-300 focus:ring-0">
+                            <span class="text-xs text-slate-500">Выходной</span>
+                        </label>
+
+                        <button type="submit"
+                                class="shrink-0 text-xs bg-white border border-slate-200 hover:border-blue-300 hover:text-blue-600 text-slate-500 rounded-lg px-3 py-1.5 font-medium transition-colors">
+                            Сохранить
+                        </button>
+                    </form>
+
+                    <!-- Current template status badge -->
+                    {% if tmpl.is_off %}
+                    <span class="shrink-0 text-[10px] text-slate-400 bg-slate-200 rounded-full px-2 py-0.5">выходной</span>
+                    {% elif tmpl.start %}
+                    <span class="shrink-0 text-[10px] text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
+                        {{ tmpl.start[:5] }}–{{ tmpl.end[:5] if tmpl.end else '' }}
+                    </span>
+                    {% else %}
+                    <span class="shrink-0 text-[10px] text-slate-300 bg-slate-50 rounded-full px-2 py-0.5">не задан</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-slate-100">
+                <form method="post" action="/schedule/fill_month">
+                    <input type="hidden" name="user_id" value="{{ selected_user_id }}">
+                    <input type="hidden" name="year" value="{{ year }}">
+                    <input type="hidden" name="month" value="{{ month }}">
+                    <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium px-4 py-2.5 rounded-xl transition-colors border border-indigo-100">
+                        <span>📋</span>
+                        Заполнить {{ month_name }} по этому шаблону
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {% endif %}
+    </div><!-- /right -->
+</div>
+{% endblock %}
+
+{% block footer_info %}{{ month_name }} {{ year }}{% endblock %}

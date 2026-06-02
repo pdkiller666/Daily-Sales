@@ -81,6 +81,10 @@
            class="nav-link {% if request.url.path.startswith('/salary') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💸</span>Зарплата
         </a>
+        <a href="/schedule"
+           class="nav-link {% if request.url.path.startswith('/schedule') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">📅</span>График
+        </a>
         <a href="/plans"
            class="nav-link {% if request.url.path.startswith('/plans') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎯</span>Планы
