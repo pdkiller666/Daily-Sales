@@ -1,5 +1,6 @@
 """Lightweight JSON API endpoints (polling, feeds)."""
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api")
 
@@ -9,6 +10,11 @@ def sales_feed(request: Request, since: str = ""):
     """Return new sales since ISO timestamp `since`. Used by browser notification polling."""
     from web.auth import get_session_user
     from web.deps import get_web_db
+    from web.app import _api_rate_ok
+
+    ip = request.client.host if request.client else "unknown"
+    if not _api_rate_ok(ip):
+        return JSONResponse({"ok": False, "count": 0, "items": []}, status_code=429)
 
     user = get_session_user(request)
     if not user:

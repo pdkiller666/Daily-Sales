@@ -1,11 +1,13 @@
 import asyncio
 import os
 import sqlite3
+import time as _time
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, PlainTextResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 BASE_DIR = Path(__file__).parent
 _SHOP_BOT_DB = "data/shop_bot.db"
@@ -74,6 +76,86 @@ def _fmt_currency(amount) -> str:
         return "0\u00a0₽"
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach security headers to every response."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), payment=(self)"
+        )
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # HSTS — only on HTTPS (Amvera/production serves via HTTPS)
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
+# In-memory rate limit for /api/* endpoints: 60 req/min per IP
+_api_rate_log: dict = {}
+_API_RATE_WINDOW = 60
+_API_RATE_MAX = 60
+
+
+def _api_rate_ok(ip: str) -> bool:
+    now = _time.time()
+    hits = [t for t in _api_rate_log.get(ip, []) if now - t < _API_RATE_WINDOW]
+    if len(hits) >= _API_RATE_MAX:
+        return False
+    hits.append(now)
+    _api_rate_log[ip] = hits
+    return True
+
+
+_ROBOTS_TXT = """\
+User-agent: *
+Allow: /$
+Allow: /static/
+Disallow: /dashboard
+Disallow: /sales
+Disallow: /products
+Disallow: /inventory
+Disallow: /reports
+Disallow: /rankings
+Disallow: /staff
+Disallow: /plans
+Disallow: /salary
+Disallow: /schedule
+Disallow: /contests
+Disallow: /settings
+Disallow: /integration
+Disallow: /payments
+Disallow: /notifications
+Disallow: /motivation
+Disallow: /subscription
+Disallow: /categories
+Disallow: /promocodes
+Disallow: /shops
+Disallow: /pos
+Disallow: /api/
+Disallow: /login
+Disallow: /auth/
+
+Sitemap: https://dailysales.app/sitemap.xml
+"""
+
+_SITEMAP_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://dailysales.app/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+
+
 def create_web_app() -> FastAPI:
     global _main_loop
     try:
@@ -87,6 +169,8 @@ def create_web_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     templates.env.filters['fmt_date'] = _fmt_date
@@ -207,6 +291,15 @@ def create_web_app() -> FastAPI:
     app.include_router(pos_router)
     app.include_router(api_router)
     app.include_router(absences_router)
+
+    @app.get("/robots.txt", include_in_schema=False)
+    async def robots_txt():
+        return PlainTextResponse(_ROBOTS_TXT, media_type="text/plain")
+
+    @app.get("/sitemap.xml", include_in_schema=False)
+    async def sitemap_xml():
+        from fastapi.responses import Response
+        return Response(_SITEMAP_XML, media_type="application/xml")
 
     @app.get("/sw.js")
     async def service_worker(request: Request):
