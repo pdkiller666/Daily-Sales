@@ -260,7 +260,7 @@
         {% for p in plans_dash %}
         {% set bar_color = 'bg-emerald-500' if p.pct >= 80 else ('bg-amber-400' if p.pct >= 40 else 'bg-red-400') %}
         {% set text_color = 'text-emerald-600' if p.pct >= 80 else ('text-amber-600' if p.pct >= 40 else 'text-red-500') %}
-        <a href="/plans" class="group block bg-slate-50 hover:bg-white border border-slate-100 hover:border-slate-200 rounded-xl p-4 transition-all">
+        <a href="/plans/{{ p.id }}" class="group block bg-slate-50 hover:bg-white border border-slate-100 hover:border-slate-200 rounded-xl p-4 transition-all">
             <div class="flex items-start justify-between gap-2 mb-2">
                 <div class="min-w-0">
                     <p class="text-sm font-medium text-slate-800 truncate">{{ p.label }}</p>
