@@ -12,7 +12,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="DailySales">
     <link rel="apple-touch-icon" href="/static/icon.svg">
+    <!-- Dark mode: apply class before paint to avoid flash -->
+    <script>
+        if (localStorage.getItem('ds_dark') === '1') {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config = { darkMode: 'class' }</script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -43,6 +50,86 @@
         /* ── Sheet slide-up transition helpers (CDN Tailwind doesn't scan x-transition attrs) ── */
         .sheet-from{transform:translateY(100%)}
         .sheet-to{transform:translateY(0)}
+
+        /* ══════════════════════════════
+           DARK MODE OVERRIDES
+        ══════════════════════════════ */
+        html.dark body{background-color:#0f172a;color:#e2e8f0}
+        html.dark .bg-white{background-color:#1e293b!important}
+        html.dark .bg-slate-50{background-color:#0f172a!important}
+        html.dark .bg-slate-100{background-color:#1e293b!important}
+        html.dark .bg-slate-200{background-color:#334155!important}
+        html.dark .text-slate-800{color:#e2e8f0!important}
+        html.dark .text-slate-700{color:#cbd5e1!important}
+        html.dark .text-slate-600{color:#94a3b8!important}
+        html.dark .text-slate-500{color:#64748b!important}
+        html.dark .text-slate-400{color:#475569!important}
+        html.dark .border-slate-200{border-color:#334155!important}
+        html.dark .border-slate-100{border-color:#253350!important}
+        html.dark .border-slate-300{border-color:#475569!important}
+        html.dark .divide-slate-200>*+*{border-color:#334155!important}
+        /* Cards & panels */
+        html.dark .card{background:#1e293b!important;border-color:#334155!important}
+        html.dark .shadow-sm{box-shadow:0 1px 2px rgba(0,0,0,.4)!important}
+        html.dark .shadow{box-shadow:0 1px 3px rgba(0,0,0,.5)!important}
+        html.dark .shadow-lg{box-shadow:0 4px 12px rgba(0,0,0,.6)!important}
+        html.dark .shadow-2xl{box-shadow:0 16px 48px rgba(0,0,0,.7)!important}
+        /* Sidebar */
+        html.dark aside.fixed{background:#0f172a!important;border-color:#334155!important}
+        html.dark .sidebar-logo-bg{background:linear-gradient(135deg,#020617 0%,#0f172a 100%)!important}
+        /* Topbar */
+        html.dark header.sticky{background:#1e293b!important;border-color:#334155!important}
+        /* Bottom nav */
+        html.dark nav.fixed.bottom-0{background:#1e293b!important;border-color:#334155!important}
+        html.dark .bnav-item{color:#64748b}
+        html.dark .bnav-item.bn-active{color:#60a5fa}
+        /* More sheet */
+        html.dark .bg-white.rounded-t-2xl{background:#1e293b!important}
+        html.dark .sht-item{background:#0f172a!important;border-color:#334155!important;color:#94a3b8}
+        html.dark .sht-item:active,.html.dark .sht-item.sht-active{background:#1e3a5f!important;color:#60a5fa}
+        html.dark .sht-item.sht-active{border-color:#3b82f6!important;color:#60a5fa!important}
+        /* Tables */
+        html.dark thead th{background-color:#1e293b!important;color:#94a3b8!important;border-color:#334155!important}
+        html.dark tbody tr{border-color:#334155!important}
+        html.dark tbody tr:nth-child(odd){background-color:#1e293b!important}
+        html.dark tbody tr:nth-child(even){background-color:#0f172a!important}
+        html.dark tbody td{border-color:#334155!important;color:#cbd5e1!important}
+        html.dark .hover\:bg-slate-50:hover{background-color:#253350!important}
+        html.dark .hover\:bg-slate-100:hover{background-color:#334155!important}
+        html.dark .odd\:bg-white:nth-child(odd){background-color:#1e293b!important}
+        html.dark .even\:bg-slate-50:nth-child(even){background-color:#0f172a!important}
+        /* Inputs & forms */
+        html.dark input:not([type=checkbox]):not([type=radio]):not([type=range]),
+        html.dark select,html.dark textarea{background-color:#0f172a!important;color:#e2e8f0!important;border-color:#475569!important}
+        html.dark input::placeholder,html.dark textarea::placeholder{color:#475569!important}
+        html.dark label{color:#94a3b8!important}
+        /* Badges & pills */
+        html.dark .bg-emerald-50{background-color:rgba(16,185,129,.12)!important}
+        html.dark .bg-blue-50{background-color:rgba(59,130,246,.12)!important}
+        html.dark .bg-amber-50{background-color:rgba(245,158,11,.12)!important}
+        html.dark .bg-red-50{background-color:rgba(239,68,68,.12)!important}
+        html.dark .bg-purple-50{background-color:rgba(139,92,246,.12)!important}
+        html.dark .bg-indigo-50{background-color:rgba(99,102,241,.12)!important}
+        html.dark .text-emerald-700{color:#34d399!important}
+        html.dark .text-emerald-800{color:#6ee7b7!important}
+        html.dark .text-blue-700{color:#60a5fa!important}
+        html.dark .text-amber-700{color:#fbbf24!important}
+        html.dark .text-red-700{color:#f87171!important}
+        html.dark .text-purple-700{color:#a78bfa!important}
+        /* Dropdowns & popovers */
+        html.dark .bg-white.border.rounded-xl,
+        html.dark .bg-white.border.rounded-lg,
+        html.dark .bg-white.rounded-xl.shadow-lg{background:#1e293b!important;border-color:#334155!important}
+        /* Scrollbar */
+        html.dark ::-webkit-scrollbar-track{background:#0f172a}
+        html.dark ::-webkit-scrollbar-thumb{background:#334155}
+        /* Footer */
+        html.dark footer{border-color:#334155!important;color:#475569!important}
+        /* Nav active state (sidebar) unchanged — blue stays blue */
+        html.dark .nav-link:hover:not(.disabled){background:#1e3a5f;color:#e2e8f0}
+        /* Dark toggle switch state */
+        html.dark .ds-dark-toggle{background-color:#2563eb!important}
+        html.dark .ds-dark-knob{transform:translateX(20px)}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="{open:false, moreOpen:false}">
@@ -307,6 +394,12 @@ function toastMgr() {
                 <span>🤖</span> Открыть бот
             </a>
             {% endif %}
+            <!-- Dark mode toggle -->
+            <button onclick="dsToggleDark()" title="Тёмная тема (Alt+D)"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    id="ds-dark-btn">
+                <span id="ds-dark-icon" class="text-base leading-none">🌙</span>
+            </button>
         </div>
     </header>
 
@@ -465,6 +558,120 @@ if ('serviceWorker' in navigator) {
     /* Auto-start if already granted */
     if (Notification.permission === 'granted') {
         window.dsStartNotifPolling();
+    }
+})();
+
+/* ══════════════════════════════════════════════════
+   4. Dark mode toggle
+══════════════════════════════════════════════════ */
+function _dsApplyDark(isDark) {
+    const html = document.documentElement;
+    if (isDark) {
+        html.classList.add('dark');
+    } else {
+        html.classList.remove('dark');
+    }
+    /* Sync icon in topbar */
+    const icon = document.getElementById('ds-dark-icon');
+    if (icon) icon.textContent = isDark ? '☀️' : '🌙';
+    /* Update theme-color meta */
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = isDark ? '#1e293b' : '#2563eb';
+}
+
+window.dsToggleDark = function () {
+    const isDark = !document.documentElement.classList.contains('dark');
+    localStorage.setItem('ds_dark', isDark ? '1' : '0');
+    _dsApplyDark(isDark);
+};
+
+/* Sync icon and toggle on load */
+_dsApplyDark(document.documentElement.classList.contains('dark'));
+
+/* ══════════════════════════════════════════════════
+   5. Keyboard shortcuts
+   /       — focus first text search input on page
+   Escape  — close More sheet / modals
+   Alt+D   — toggle dark mode
+   Alt+N   — click the primary action button (record sale etc.)
+   ?       — show shortcuts hint (once, briefly)
+══════════════════════════════════════════════════ */
+(function () {
+    document.addEventListener('keydown', function (e) {
+        const tag = (document.activeElement || {}).tagName || '';
+        const inInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) ||
+                        (document.activeElement || {}).isContentEditable;
+
+        /* Alt+D — dark mode */
+        if (e.altKey && e.key === 'd') {
+            e.preventDefault();
+            window.dsToggleDark();
+            return;
+        }
+
+        /* Alt+N — primary action button */
+        if (e.altKey && e.key === 'n') {
+            e.preventDefault();
+            const btn = document.querySelector('[data-shortcut="new"], .ds-primary-btn');
+            if (btn) btn.click();
+            return;
+        }
+
+        if (inInput) return;
+
+        /* Escape — close sheet / modal */
+        if (e.key === 'Escape') {
+            /* Close Alpine more-sheet via custom event */
+            document.dispatchEvent(new CustomEvent('ds-escape'));
+            /* Also close any visible overlay with a close button */
+            const closeBtn = document.querySelector('[data-close-btn], [aria-label="Закрыть"]');
+            if (closeBtn) closeBtn.click();
+            return;
+        }
+
+        /* / — focus search input */
+        if (e.key === '/') {
+            e.preventDefault();
+            const search = document.querySelector(
+                'input[type="search"], input[placeholder*="оиск"], input[placeholder*="овар"]'
+            );
+            if (search) { search.focus(); search.select(); }
+            return;
+        }
+
+        /* ? — shortcuts hint */
+        if (e.key === '?') {
+            _dsShowShortcutsHint();
+            return;
+        }
+    });
+
+    /* Escape event → close Alpine sheet */
+    document.addEventListener('ds-escape', function () {
+        /* Try to find Alpine component with moreOpen and close it */
+        const body = document.querySelector('[x-data]');
+        if (body && body._x_dataStack) {
+            try {
+                const data = Alpine.$data ? Alpine.$data(body) : null;
+                if (data && data.moreOpen) data.moreOpen = false;
+            } catch (_) {}
+        }
+    });
+
+    /* Shortcuts hint */
+    function _dsShowShortcutsHint() {
+        if (document.getElementById('ds-shortcuts-hint')) return;
+        const d = document.createElement('div');
+        d.id = 'ds-shortcuts-hint';
+        d.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:9999;background:#1e293b;color:#e2e8f0;border-radius:12px;padding:16px 20px;font-size:13px;line-height:1.8;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:220px;pointer-events:none';
+        d.innerHTML = '<div style="font-weight:700;margin-bottom:8px;color:#60a5fa">⌨️ Горячие клавиши</div>' +
+            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">/</kbd> &nbsp;Поиск</div>' +
+            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Esc</kbd> &nbsp;Закрыть</div>' +
+            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Alt+D</kbd> &nbsp;Тёмная тема</div>' +
+            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">Alt+N</kbd> &nbsp;Новая запись</div>' +
+            '<div><kbd style="background:#334155;padding:1px 6px;border-radius:4px">?</kbd> &nbsp;Эта подсказка</div>';
+        document.body.appendChild(d);
+        setTimeout(() => d.remove(), 3500);
     }
 })();
 </script>
@@ -644,6 +851,20 @@ if ('serviceWorker' in navigator) {
                 🚪 Выйти
             </a>
         </div>
+
+        <!-- Dark mode toggle row -->
+        <div class="flex items-center justify-between py-2">
+            <div class="flex items-center gap-2.5 text-sm font-medium text-slate-700">
+                <span class="text-base">🌙</span>
+                <span>Тёмная тема</span>
+            </div>
+            <button onclick="dsToggleDark()"
+                    class="ds-dark-toggle relative w-11 h-6 bg-slate-200 rounded-full transition-colors duration-200 focus:outline-none"
+                    id="ds-dark-toggle">
+                <span class="ds-dark-knob absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"></span>
+            </button>
+        </div>
+        <div class="border-t border-slate-100"></div>
 
         <!-- Notification permission prompt (shown if not yet granted) -->
         <div id="ds-notif-prompt"
