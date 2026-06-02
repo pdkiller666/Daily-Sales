@@ -19,7 +19,7 @@
 </div>
 {% endif %}
 
-<div x-data="saleModal()" @keydown.escape.window="open = false">
+<div x-data="saleModal()" @keydown.escape.window="open = false; editOpen = false">
 
 <!-- Header -->
 <div class="flex items-center justify-between mb-6">
@@ -49,6 +49,65 @@
     <span>⚠️</span><span>{{ error }}</span>
 </div>
 {% endif %}
+
+<!-- Edit sale modal -->
+<div x-show="editOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="editOpen = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100">
+            <h3 class="text-base font-semibold text-slate-800">Редактировать продажу</h3>
+            <button @click="editOpen = false" class="text-slate-400 hover:text-slate-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div x-show="editError" class="mx-5 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="editError"></div>
+        <div class="p-5 space-y-4">
+            <div>
+                <p class="text-xs text-slate-400 mb-1">Товар</p>
+                <p class="text-sm font-medium text-slate-800 truncate" x-text="editProductName"></p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Магазин</label>
+                <select x-model="editShop"
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    {% for s in shops %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Кол-во</label>
+                    <input type="number" x-model="editQty" min="1" step="1"
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Цена (₽)</label>
+                    <input type="number" x-model="editPrice" min="0" step="0.01"
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div x-show="editPrice > 0 && editQty > 0"
+                 class="bg-blue-50 rounded-lg px-3 py-2 text-sm text-blue-700 font-medium text-center">
+                Итого: <span x-text="(parseFloat(editPrice) * parseInt(editQty)).toLocaleString('ru-RU') + ' ₽'"></span>
+            </div>
+            <div class="flex gap-3 pt-1">
+                <button type="button" @click="editOpen = false"
+                        class="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+                <button type="button" @click="submitEdit()"
+                        :disabled="editSaving || editQty < 1"
+                        class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    <span x-show="!editSaving">Сохранить</span>
+                    <span x-show="editSaving">Сохраняю…</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Sale creation modal -->
 <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -224,7 +283,7 @@
                          user_id[5] sale_date[6]
                   then  product_name[7] category[8] first_name[9] last_name[10]
                 #}
-                <tr class="hover:bg-slate-50/70 transition-colors">
+                <tr class="hover:bg-slate-50/70 transition-colors" data-sale-id="{{ s[0] }}">
                     <td class="px-5 py-3 text-xs text-slate-400">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-3">
                         {% if s[1] %}
@@ -237,12 +296,12 @@
                         <p class="text-xs text-slate-400">{{ s[8] or '—' }}</p>
                         {% endif %}
                     </td>
-                    <td class="px-3 py-3 hidden sm:table-cell">
+                    <td class="px-3 py-3 hidden sm:table-cell" data-field="shop">
                         <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{{ s[2] }}</span>
                     </td>
-                    <td class="px-3 py-3 text-right font-medium text-slate-700">{{ s[3] }}&thinsp;шт.</td>
-                    <td class="px-3 py-3 text-right text-slate-500">{{ s[4]|int|fmt_currency }}</td>
-                    <td class="px-3 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap">
+                    <td class="px-3 py-3 text-right font-medium text-slate-700" data-field="qty">{{ s[3] }}&thinsp;шт.</td>
+                    <td class="px-3 py-3 text-right text-slate-500" data-field="price">{{ s[4]|int|fmt_currency }}</td>
+                    <td class="px-3 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap" data-field="total">
                         {{ (s[3] * s[4])|int|fmt_currency }}
                     </td>
                     <td class="px-3 py-3 hidden md:table-cell text-slate-600 text-xs">
@@ -253,13 +312,19 @@
                     </td>
                     {% if is_admin %}
                     <td class="px-3 py-3 text-right">
-                        <form method="post" action="/sales/{{ s[0] }}/delete"
-                              onsubmit="return confirm('Удалить продажу? Остатки будут восстановлены.')">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit"
-                                    class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors"
-                                    title="Удалить">✕</button>
-                        </form>
+                        <div class="flex items-center justify-end gap-1">
+                            <button type="button"
+                                    @click="openEdit({{ s[0] }})"
+                                    class="text-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
+                                    title="Редактировать">✏️</button>
+                            <form method="post" action="/sales/{{ s[0] }}/delete"
+                                  onsubmit="return confirm('Удалить продажу? Остатки будут восстановлены.')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit"
+                                        class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                                        title="Удалить">✕</button>
+                            </form>
+                        </div>
                     </td>
                     {% endif %}
                 </tr>
@@ -316,7 +381,18 @@ function saleModal() {
         selectedProductId: '',
         price: '',
         qty: 1,
+        // edit modal state
+        editOpen: false,
+        editSaleId: null,
+        editProductName: '',
+        editShop: '',
+        editQty: 1,
+        editPrice: 0,
+        editSaving: false,
+        editError: '',
+
         init() { if (this.selectedShop) this.loadProducts(); },
+
         loadProducts() {
             if (!this.selectedShop) { this.products = []; return; }
             this.loading = true;
@@ -335,9 +411,80 @@ function saleModal() {
                 })
                 .catch(() => { this.loading = false; });
         },
+
         setPrice() {
             const p = this.products.find(x => String(x.id) === String(this.selectedProductId));
             if (p) this.price = p.price;
+        },
+
+        openEdit(saleId) {
+            this.editSaleId = saleId;
+            this.editError = '';
+            this.editSaving = false;
+            this.editProductName = '…';
+            fetch('/api/sales/' + saleId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) { this.editError = data.error; return; }
+                    this.editProductName = data.product_name || '';
+                    this.editShop = data.shop_name || '';
+                    this.editQty = data.quantity_sold || 1;
+                    this.editPrice = data.sale_price || 0;
+                    this.editOpen = true;
+                })
+                .catch(() => { this.editError = 'Ошибка загрузки данных'; });
+        },
+
+        fmtCurrency(n) {
+            return Math.round(n).toLocaleString('ru-RU') + '\u00a0₽';
+        },
+
+        updateRow(saleId, shop, qty, price) {
+            const row = document.querySelector('tr[data-sale-id="' + saleId + '"]');
+            if (!row) return;
+            const shopCell = row.querySelector('[data-field="shop"]');
+            const qtyCell  = row.querySelector('[data-field="qty"]');
+            const priceCell = row.querySelector('[data-field="price"]');
+            const totalCell = row.querySelector('[data-field="total"]');
+            if (shopCell) shopCell.innerHTML = '<span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">' + shop + '</span>';
+            if (qtyCell)  qtyCell.textContent = qty + '\u2009шт.';
+            if (priceCell) priceCell.textContent = this.fmtCurrency(price);
+            if (totalCell) totalCell.textContent = this.fmtCurrency(qty * price);
+            row.classList.add('bg-blue-50');
+            setTimeout(() => row.classList.remove('bg-blue-50'), 1200);
+        },
+
+        submitEdit() {
+            if (this.editSaving) return;
+            this.editError = '';
+            this.editSaving = true;
+
+            const body = new URLSearchParams({
+                csrf_token: '{{ csrf_token }}',
+                shop_name: this.editShop,
+                quantity: this.editQty,
+                sale_price: this.editPrice,
+            });
+
+            fetch('/sales/' + this.editSaleId + '/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.editSaving = false;
+                if (data.ok) {
+                    this.updateRow(this.editSaleId, this.editShop, parseInt(this.editQty), parseFloat(this.editPrice));
+                    this.editOpen = false;
+                } else {
+                    this.editError = data.error || 'Ошибка сохранения';
+                }
+            })
+            .catch(() => {
+                this.editSaving = false;
+                this.editError = 'Ошибка соединения';
+            });
         },
     };
 }

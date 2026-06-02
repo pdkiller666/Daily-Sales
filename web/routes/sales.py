@@ -340,6 +340,137 @@ def sales_create(
     return RedirectResponse(url="/sales?ok=1", status_code=302)
 
 
+@router.get("/api/sales/{sale_id}")
+def api_get_sale(request: Request, sale_id: int):
+    """Return JSON with sale data for pre-filling the edit modal."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        sale = db.get_sale_by_id(sale_id)
+        if not sale:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        # Scope check: the sale's shop must be within the user's allowed shops
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        if sale[2] not in allowed_shops:
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
+        return JSONResponse({
+            "id": sale[0],
+            "product_id": sale[1],
+            "shop_name": sale[2],
+            "quantity_sold": sale[3],
+            "sale_price": float(sale[4] or 0),
+            "sale_date": (sale[6] or "")[:10],
+            "product_name": sale[7] or "",
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _get_inventory_qty(db, shop_name: str, product_id: int) -> int:
+    """Return current inventory qty for a product in a shop, or 0 on error."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT quantity FROM inventory WHERE shop_name = ? AND product_id = ?",
+            (shop_name, product_id),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+@router.post("/sales/{sale_id}/edit")
+def sales_edit(
+    request: Request,
+    sale_id: int,
+    shop_name: Annotated[str, Form()],
+    quantity: Annotated[int, Form()],
+    sale_price: Annotated[float, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF error"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+
+        # Validate target shop is in scope
+        if shop_name not in allowed_shops:
+            return JSONResponse({"ok": False, "error": "Магазин недоступен"}, status_code=403)
+        if quantity < 1:
+            return JSONResponse({"ok": False, "error": "Неверное количество"}, status_code=400)
+
+        # Load existing sale and validate it is within scope
+        sale = db.get_sale_by_id(sale_id)
+        if not sale:
+            return JSONResponse({"ok": False, "error": "Продажа не найдена"}, status_code=404)
+        old_shop = sale[2]
+        old_qty = sale[3]
+        product_id = sale[1]
+        if old_shop not in allowed_shops:
+            return JSONResponse({"ok": False, "error": "Нет доступа к этой продаже"}, status_code=403)
+
+        # Stock sufficiency check
+        shop_changed = (shop_name != old_shop)
+        if shop_changed:
+            # Moving to new shop — need quantity units available there
+            available = _get_inventory_qty(db, shop_name, product_id)
+            if available < quantity:
+                return JSONResponse(
+                    {"ok": False, "error": f"Недостаточно товара в {shop_name}: {available} шт."},
+                    status_code=400,
+                )
+        else:
+            # Same shop: only a net increase requires a stock check
+            extra = quantity - old_qty
+            if extra > 0:
+                available = _get_inventory_qty(db, shop_name, product_id)
+                if available < extra:
+                    return JSONResponse(
+                        {"ok": False, "error": f"Недостаточно товара: {available} шт. в наличии"},
+                        status_code=400,
+                    )
+
+        internal_uid = _get_internal_uid(db, telegram_id)
+        ok = db.update_sale_full(
+            sale_id=sale_id,
+            quantity_sold=quantity,
+            sale_price=sale_price,
+            shop_name=shop_name,
+            changed_by=internal_uid,
+        )
+        if not ok:
+            return JSONResponse({"ok": False, "error": "Ошибка обновления"}, status_code=500)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        logging.error(f"sales_edit error: {e}")
+        return JSONResponse({"ok": False, "error": "Ошибка сохранения"}, status_code=500)
+
+
 @router.post("/sales/{sale_id}/delete")
 def sales_delete(
     request: Request,

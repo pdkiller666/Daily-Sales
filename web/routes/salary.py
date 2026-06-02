@@ -20,6 +20,122 @@ def _adjacent_month(year: int, month: int, delta: int):
     return (total // 12 + 1, total % 12 + 1)
 
 
+def _salary_user_earnings(request, user, year: int, month: int):
+    """Personal earnings view for user role."""
+    from web.auth import get_csrf_token
+    from web.deps import get_web_db
+    from datetime import date
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    today = date.today()
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+
+    prev_y, prev_m = _adjacent_month(year, month, -1)
+    next_y, next_m = _adjacent_month(year, month, 1)
+
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": False,
+        "year": year, "month": month,
+        "month_name": MONTH_NAMES.get(month, str(month)),
+        "prev_y": prev_y, "prev_m": prev_m,
+        "next_y": next_y, "next_m": next_m,
+        "is_future": (year, month) > (today.year, today.month),
+        "csrf_token": get_csrf_token(request),
+        "earnings": [],
+        "total_commission": 0.0,
+        "total_base": 0.0,
+        "total_adj": 0.0,
+        "grand_total": 0.0,
+        "worked_days": 0,
+        "daily_rate": 0.0,
+        "error": None,
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        import sqlite3 as _sq
+        conn_m = _sq.connect("data/main.db")
+        uid_row = conn_m.execute(
+            "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+            (telegram_id,)
+        ).fetchone()
+        conn_m.close()
+
+        conn_u = db.get_connection()
+        user_row = conn_u.execute(
+            "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+        ).fetchone()
+        conn_u.close()
+
+        if not user_row:
+            ctx["error"] = "Пользователь не найден в базе"
+            return request.app.state.templates.TemplateResponse(
+                request, "salary/earnings.html", ctx
+            )
+
+        user_db_id = user_row[0]
+        start_date = f"{year}-{month:02d}-01"
+        if month == 12:
+            end_date = f"{year}-12-31"
+        else:
+            import calendar as _cal
+            last_day = _cal.monthrange(year, month)[1]
+            end_date = f"{year}-{month:02d}-{last_day}"
+
+        # Earnings from commissions
+        raw_earnings = db.get_seller_earnings(user_db_id, start_date, end_date) or []
+        # cols: commission_amount[0] motivation_type[1] motivation_value[2]
+        #       product_name[3] quantity_sold[4] sale_price[5] sale_date[6] shop_name[7]
+        earnings = []
+        total_commission = 0.0
+        for row in raw_earnings:
+            comm = float(row[0] or 0)
+            total_commission += comm
+            mtype = row[1] or "percentage"
+            mval = float(row[2] or 0)
+            earnings.append({
+                "date": str(row[6] or "")[:10],
+                "product": row[3] or "—",
+                "qty": int(row[4] or 0),
+                "price": float(row[5] or 0),
+                "mtype": mtype,
+                "mval": mval,
+                "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
+                "commission": comm,
+                "shop": row[7] or "—",
+            })
+
+        # Base salary from schedule × rate
+        worked = db.get_worked_days_count(user_db_id, year, month)
+        rate = db.get_salary_rate(user_db_id)
+        base_salary = worked * rate
+        adj_sum = db.get_salary_adjustments_sum(user_db_id, year, month)
+
+        ctx.update({
+            "earnings": earnings,
+            "total_commission": round(total_commission, 2),
+            "total_base": round(base_salary, 2),
+            "total_adj": round(adj_sum, 2),
+            "grand_total": round(base_salary + total_commission + adj_sum, 2),
+            "worked_days": worked,
+            "daily_rate": rate,
+        })
+
+    except Exception as exc:
+        import logging
+        logging.error(f"_salary_user_earnings error: {exc}")
+        ctx["error"] = str(exc)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "salary/earnings.html", ctx
+    )
+
+
 @router.get("/salary")
 def salary_page(
     request: Request,
@@ -33,6 +149,10 @@ def salary_page(
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+
+    # Non-admin users see their personal earnings view
+    if user.get("role") == "user":
+        return _salary_user_earnings(request, user, year, month)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -334,3 +454,41 @@ def salary_adj_delete(
         url=f"/salary?year={year}&month={month}&user_id={target_user_id}",
         status_code=302,
     )
+
+
+@router.post("/salary/rate/set")
+def salary_rate_set(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    target_user_id: int = Form(...),
+    daily_rate: str = Form(default="0"),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/salary", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/salary?error=CSRF", status_code=302)
+
+    try:
+        rate = float(daily_rate.replace(",", ".").strip())
+        if rate < 0:
+            raise ValueError("Ставка не может быть отрицательной")
+    except (ValueError, AttributeError) as exc:
+        return RedirectResponse(url=f"/salary?error={exc}", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.set_salary_rate(target_user_id, rate, updated_by=target_user_id)
+        logging.info(f"Salary rate set: user={target_user_id} rate={rate} by={telegram_id}")
+    except Exception as exc:
+        logging.error(f"salary_rate_set error: {exc}")
+        return RedirectResponse(url=f"/salary?error={exc}", status_code=303)
+
+    return RedirectResponse(url=f"/salary?rate_saved=1&user_id={target_user_id}", status_code=303)

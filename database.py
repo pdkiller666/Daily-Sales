@@ -3420,6 +3420,117 @@ class Database:
 
         return False
 
+    def update_sale_full(self, sale_id, quantity_sold, sale_price, shop_name, changed_by=None):
+        """Обновить продажу: кол-во, цена и магазин. Пересчитывает остатки при смене магазина или кол-ва."""
+        import time
+        max_retries = 3
+        retry_delay = 0.1
+        conn = None
+
+        for attempt in range(max_retries):
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+
+                cursor.execute('SELECT * FROM sales WHERE id = ?', (sale_id,))
+                current_sale = cursor.fetchone()
+                if not current_sale:
+                    conn.close()
+                    return False
+
+                old_quantity = current_sale[3]
+                old_price = current_sale[4]
+                old_shop = current_sale[2]
+                product_id = current_sale[1]
+                sale_user_id = current_sale[5]
+                _sale_date_str = current_sale[6] if len(current_sale) > 6 else None
+
+                shop_changed = (shop_name != old_shop)
+                qty_changed = (quantity_sold != old_quantity)
+
+                if shop_changed:
+                    cursor.execute('''
+                        UPDATE inventory SET quantity = quantity + ?
+                        WHERE shop_name = ? AND product_id = ?
+                    ''', (old_quantity, old_shop, product_id))
+                    cursor.execute('''
+                        UPDATE inventory SET quantity = quantity - ?
+                        WHERE shop_name = ? AND product_id = ?
+                    ''', (quantity_sold, shop_name, product_id))
+                elif qty_changed:
+                    quantity_diff = old_quantity - quantity_sold
+                    cursor.execute('''
+                        UPDATE inventory SET quantity = quantity + ?
+                        WHERE shop_name = ? AND product_id = ?
+                    ''', (quantity_diff, old_shop, product_id))
+
+                cursor.execute('''
+                    UPDATE sales SET quantity_sold = ?, sale_price = ?, shop_name = ?
+                    WHERE id = ?
+                ''', (quantity_sold, sale_price, shop_name, sale_id))
+
+                try:
+                    cursor.execute('''
+                        INSERT INTO sales_audit_log
+                        (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (sale_id, changed_by, old_quantity, quantity_sold, old_price, sale_price))
+                except Exception:
+                    pass
+
+                conn.commit()
+
+                try:
+                    from datetime import datetime as _dt2
+                    _sdt = _dt2.fromisoformat(_sale_date_str) if _sale_date_str else _dt2.now()
+                except Exception:
+                    from datetime import datetime as _dt2
+                    _sdt = _dt2.now()
+                _upd_year, _upd_month = _sdt.year, _sdt.month
+                try:
+                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month)
+                    if commission_info:
+                        new_commission = self.calculate_seller_commission(
+                            sale_id, product_id, sale_price, quantity_sold,
+                            user_id=sale_user_id, shop_name=shop_name,
+                            sale_year=_upd_year, sale_month=_upd_month
+                        )
+                        conn2 = self.get_connection()
+                        conn2.execute('''
+                            INSERT INTO seller_earnings
+                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
+                            VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?)
+                            ON CONFLICT(sale_id) DO UPDATE SET
+                                commission_amount = excluded.commission_amount,
+                                motivation_type   = excluded.motivation_type,
+                                motivation_value  = excluded.motivation_value
+                        ''', (sale_id, sale_id, product_id, new_commission,
+                              commission_info['motivation_type'], commission_info['motivation_value']))
+                        conn2.commit()
+                        conn2.close()
+                except Exception:
+                    pass
+
+                return True
+
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    logger.error(f"Database error in update_sale_full: {e}")
+                    if conn:
+                        conn.close()
+                    return False
+            except Exception as e:
+                logger.error(f"Unexpected error in update_sale_full: {e}")
+                if conn:
+                    conn.close()
+                return False
+
+        return False
+
     def delete_sale(self, sale_id):
         """Удалить продажу и восстановить остатки"""
         try:

@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Уведомления{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">🔔 Рассылки и уведомления</h1>
+    <p class="text-slate-500 text-sm mt-1">Отправляйте сообщения сотрудникам из веб-интерфейса</p>
+</div>
+
+{% if success %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium flex items-center gap-2">
+    ✅ Уведомление поставлено в очередь и будет отправлено в течение минуты
+</div>
+{% endif %}
+{% if scheduled_success %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium flex items-center gap-2">
+    📅 Уведомление запланировано и отправится в указанное время
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
+    ⚠️ Ошибка: {{ error }}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+    <!-- LEFT: create form -->
+    <div class="lg:col-span-3 space-y-5">
+
+        <!-- Create broadcast card -->
+        <div class="card p-5" x-data="notifForm()" x-cloak>
+            <h2 class="font-semibold text-slate-800 mb-4">✉️ Новая рассылка</h2>
+
+            <form method="post" action="/notifications/send" @submit="loading = true">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <!-- Message text -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Текст уведомления</label>
+                    <textarea
+                        name="notification_text"
+                        x-model="text"
+                        rows="4"
+                        maxlength="1000"
+                        placeholder="Введите сообщение для сотрудников…"
+                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                        required
+                    ></textarea>
+                    <p class="text-xs text-slate-400 mt-1 text-right">
+                        <span x-text="text.length"></span>/1000
+                    </p>
+                </div>
+
+                <!-- Recipients -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Получатели</label>
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <button type="button"
+                            @click="rcpt = 'all'"
+                            :class="rcpt === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                            class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+                            👥 Всем
+                        </button>
+                        <button type="button"
+                            @click="rcpt = 'shop'"
+                            :class="rcpt === 'shop' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                            class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+                            🏪 Магазин
+                        </button>
+                        <button type="button"
+                            @click="rcpt = 'role'"
+                            :class="rcpt === 'role' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                            class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+                            🎭 Роль
+                        </button>
+                    </div>
+                    <input type="hidden" name="recipients_type" :value="rcpt">
+
+                    <!-- Shop selector -->
+                    <div x-show="rcpt === 'shop'" x-transition>
+                        <select name="shop_filter"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            :required="rcpt === 'shop'">
+                            <option value="">— выберите магазин —</option>
+                            {% for shop in shops %}
+                            <option value="{{ shop[1] }}">{{ shop[1] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Role selector -->
+                    <div x-show="rcpt === 'role'" x-transition>
+                        <select name="role_filter"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            :required="rcpt === 'role'">
+                            <option value="">— выберите роль —</option>
+                            <option value="user">Сотрудник</option>
+                            <option value="admin">Администратор</option>
+                            <option value="owner">Директор</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- When to send -->
+                <div class="mb-5">
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Когда отправить</label>
+                    <div class="grid grid-cols-2 gap-2 mb-3">
+                        <button type="button"
+                            @click="when = 'now'"
+                            :class="when === 'now' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                            class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+                            ⚡ Прямо сейчас
+                        </button>
+                        <button type="button"
+                            @click="when = 'schedule'"
+                            :class="when === 'schedule' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'"
+                            class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+                            📅 Запланировать
+                        </button>
+                    </div>
+                    <input type="hidden" name="send_when" :value="when">
+
+                    <div x-show="when === 'schedule'" x-transition>
+                        <input type="datetime-local"
+                            name="scheduled_at"
+                            :min="'{{ now_local }}'"
+                            :required="when === 'schedule'"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        <p class="text-xs text-slate-400 mt-1">Время в вашем часовом поясе</p>
+                    </div>
+                </div>
+
+                <!-- Submit -->
+                <button type="submit"
+                    :disabled="loading || !text.trim()"
+                    :class="loading || !text.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'"
+                    class="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
+                    <span x-show="!loading">
+                        <span x-text="when === 'now' ? '📤 Отправить сейчас' : '📅 Запланировать'"></span>
+                    </span>
+                    <span x-show="loading" class="flex items-center gap-2">
+                        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                        </svg>
+                        Отправка…
+                    </span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Hint card -->
+        <div class="rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-700">
+            <p class="font-medium mb-1">ℹ️ Как работает отправка</p>
+            <ul class="space-y-0.5 text-xs text-blue-600 list-disc list-inside">
+                <li>«Прямо сейчас» — уведомление уйдёт в течение минуты через Telegram-бота</li>
+                <li>«Запланировать» — отправится автоматически в указанное время</li>
+                <li>Получатели — сотрудники, у которых включены уведомления от администратора</li>
+            </ul>
+        </div>
+
+    </div>
+
+    <!-- RIGHT: scheduled + history -->
+    <div class="lg:col-span-2 space-y-5">
+
+        <!-- Scheduled notifications -->
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <h2 class="font-semibold text-slate-800">📅 Запланированные</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Ожидают отправки</p>
+                </div>
+                {% set pending_count = scheduled | selectattr('is_pending') | list | length %}
+                {% if pending_count > 0 %}
+                <span class="text-xs font-medium bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">{{ pending_count }}</span>
+                {% endif %}
+            </div>
+
+            {% set pending_list = scheduled | selectattr('is_pending') | list %}
+            {% if pending_list %}
+            <div class="divide-y divide-slate-50 max-h-80 overflow-y-auto" id="pending-list">
+                {% for sn in pending_list %}
+                <div class="px-4 py-3 flex items-start gap-2.5" id="sn-{{ sn.id }}">
+                    <div class="mt-1 w-2 h-2 rounded-full bg-blue-400 shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-slate-700 leading-snug line-clamp-2">{{ sn.text }}</p>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap">
+                            <span class="text-xs text-slate-400">{{ sn.recipients_label }}</span>
+                            <span class="text-xs text-slate-400">🕐 {{ sn.scheduled_at }}</span>
+                        </div>
+                        {% if sn.creator %}
+                        <p class="text-xs text-slate-400 mt-0.5">от {{ sn.creator }}</p>
+                        {% endif %}
+                    </div>
+                    <button
+                        type="button"
+                        onclick="deleteScheduled({{ sn.id }}, '{{ csrf_token }}')"
+                        title="Отменить"
+                        class="text-slate-300 hover:text-red-500 transition-colors shrink-0 p-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="px-5 py-8 text-center text-slate-400">
+                <p class="text-sm">Нет запланированных рассылок</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Sent recently -->
+        {% set sent_list = scheduled | rejectattr('is_pending') | list %}
+        {% if sent_list %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h2 class="font-semibold text-slate-800">✅ Отправленные</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Последние рассылки</p>
+            </div>
+            <div class="divide-y divide-slate-50 max-h-60 overflow-y-auto">
+                {% for sn in sent_list[:10] %}
+                <div class="px-4 py-3 flex items-start gap-2.5">
+                    <div class="mt-1 w-2 h-2 rounded-full bg-emerald-400 shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-slate-700 leading-snug line-clamp-2">{{ sn.text }}</p>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap">
+                            <span class="text-xs text-slate-400">{{ sn.recipients_label }}</span>
+                            <span class="text-xs text-slate-400">{{ sn.scheduled_at }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- My notification history -->
+        {% if history %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                    <h2 class="font-semibold text-slate-800">🔔 Моя история</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Полученные уведомления</p>
+                </div>
+                <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{{ history|length }}</span>
+            </div>
+            <div class="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+                {% for h in history %}
+                <div class="px-4 py-3 flex items-start gap-2.5 {{ 'opacity-60' if h.is_read else '' }}">
+                    <div class="mt-1.5 w-2 h-2 rounded-full shrink-0
+                                {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-slate-700 leading-snug">{{ h.message }}</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ h.created_at }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+
+<script>
+function notifForm() {
+    return {
+        text: '',
+        rcpt: 'all',
+        when: 'now',
+        loading: false,
+    };
+}
+
+async function deleteScheduled(notifId, csrfToken) {
+    if (!confirm('Отменить это запланированное уведомление?')) return;
+    try {
+        const fd = new FormData();
+        fd.append('csrf_token', csrfToken);
+        const res = await fetch(`/notifications/scheduled/${notifId}/delete`, {
+            method: 'POST',
+            body: fd,
+        });
+        const data = await res.json();
+        if (data.ok) {
+            const el = document.getElementById(`sn-${notifId}`);
+            if (el) el.remove();
+        } else {
+            alert('Ошибка: ' + (data.error || 'неизвестная ошибка'));
+        }
+    } catch (e) {
+        alert('Ошибка при отмене уведомления');
+    }
+}
+</script>
+{% endblock %}

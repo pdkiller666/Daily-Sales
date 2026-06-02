@@ -143,6 +143,16 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/contests') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
         </a>
+        {% if user and user.role in ('owner', 'admin', 'super_admin') %}
+        <a href="/notifications"
+           class="nav-link {% if request.url.path.startswith('/notifications') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🔔</span>Рассылки
+        </a>
+        <a href="/motivation"
+           class="nav-link {% if request.url.path.startswith('/motivation') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🎯</span>Мотивация
+        </a>
+        {% endif %}
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Система</p>
 
@@ -272,5 +282,6 @@ function toastMgr() {
     </footer>
 </div>
 
+{% block extra_js %}{% endblock %}
 </body>
 </html>

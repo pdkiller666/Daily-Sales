@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-06-02 (сессия 293)
+> Последнее обновление: 2026-06-02 (сессия 294)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,9 +26,22 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `dd7f14f` · Amvera `fe8ef80` (2026-06-02, сессия 293). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `dd7f14f` · Amvera `fe8ef80` (2026-06-02, сессия 293). Оба хэша верифицированы через `git ls-remote`. Следующий деплой — сессия 294 (см. ниже).
 
 **Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
+
+**Сессия 294 (2026-06-02) — Веб: Рассылки, Мотивация, Ставки зарплаты, Личный заработок, Excel из отчётов:**
+- **P1 /notifications** (`web/routes/notifications.py`, `web/templates/notifications/index.html`): полная страница рассылок для admin/owner/super_admin — форма создания рассылки (текст + получатели: всем/по магазину/по роли + «сейчас»/«запланировать»), список запланированных с кнопкой отмены (DELETE JSON CSRF), история отправленных. Запись в `scheduled_notifications` → APScheduler отправляет. Пункт «🔔 Рассылки» добавлен в сайдбар (admin+ only).
+- **P1 /motivation** (`web/routes/motivation.py`, `web/templates/motivation/index.html`): матрица мотивации для admin+ — таблица всех товаров с комиссиями (% или фикс.), фильтр по категории, `POST /motivation/set` (set_product_motivation с пересчётом месяца), `POST /motivation/remove/{id}` (remove_product_motivation, JSON CSRF). Форма с превью расчёта. Пункт «🎯 Мотивация» в сайдбар.
+- **P2 Ставки зарплаты**: `POST /salary/rate/set` в `web/routes/salary.py`; inline-редактирование ставки прямо в таблице salary page — клик на ставку → input → ✓/✕; Alpine.js `rateEdit()` компонент в `web/templates/salary/index.html`. Убрана заметка «настраивается через бота».
+- **P2 Личный заработок**: `_salary_user_earnings()` helper в `salary.py` — при role==user редиректит на `web/templates/salary/earnings.html`; показывает оклад (смены × ставка) + детализацию комиссий по продажам + корректировки + итог к выплате. Использует `get_seller_earnings()` + `get_worked_days_count()` + `get_salary_rate()`.
+- **P2 Excel из /reports**: `GET /reports/export.xlsx` в `web/routes/reports.py` — 3 листа (Сводка, По группам, Детализация); кнопка Excel в шапке `/reports`. Параметры period/date_from/date_to/shop/group_by передаются в URL.
+- **base.html**: добавлен `{% block extra_js %}{% endblock %}` перед `</body>` для страничных скриптов.
+- **settings/index.html**: ссылка «Создайте рассылку в разделе Рассылки» вместо «Создаются в боте».
+
+**Статус пробелов веб vs бот:**
+- ✅ ЗАКРЫТЫ (сессия 294): Рассылки, Мотивация/комиссии, Ставки зарплаты, Личный заработок user, Excel из /reports
+- ❌ ОСТАЛИСЬ P3: Управление категориями, Фото товара в веб-форме, Страница подписки для owner
 
 **Сессия 292 (2026-06-02) — Веб: полные write-actions + аудит + обновление лендинга:**
 - **Веб write-actions (Task #26)**: `POST /sales/create`, `POST /sales/{id}/delete`, `GET /api/products-for-shop` (scope-aware) — сотрудник записывает/удаляет продажи из браузера
