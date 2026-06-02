@@ -1,8 +1,38 @@
 import io
 import logging
+import os
 import uuid as _uuid
+from pathlib import Path
 from fastapi import APIRouter, Request, File, UploadFile, Form
 from fastapi.responses import RedirectResponse
+
+_PHOTO_DIR = Path("web/static/product_photos")
+_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _save_product_photo(upload: UploadFile, raw: bytes) -> str:
+    """Save uploaded photo bytes to static dir, return web path like /static/product_photos/xxx.jpg."""
+    ext = Path(upload.filename or "photo.jpg").suffix.lower()
+    if ext not in _PHOTO_EXTS:
+        ext = ".jpg"
+    _PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    fname = f"{_uuid.uuid4().hex}{ext}"
+    fpath = _PHOTO_DIR / fname
+    fpath.write_bytes(raw)
+    return f"/static/product_photos/{fname}"
+
+
+def _delete_product_photo(photo_url: str):
+    """Remove a web-uploaded photo file if it lives in our static dir."""
+    if not photo_url or not photo_url.startswith("/static/product_photos/"):
+        return
+    try:
+        fpath = Path("web") / photo_url.lstrip("/")
+        if fpath.exists():
+            fpath.unlink()
+    except Exception:
+        pass
 
 router = APIRouter()
 
@@ -285,13 +315,14 @@ def products_new_form(request: Request):
 
 
 @router.post("/products/create")
-def products_create(
+async def products_create(
     request: Request,
     csrf_token: str = Form(default=""),
     name: str = Form(...),
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
+    photo: UploadFile = File(default=None),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
@@ -315,7 +346,7 @@ def products_create(
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
-            "form_data": fd or {"name": name, "category": category, "price": price, "description": description},
+            "form_data": fd or {"name": name, "category": category, "price": price, "description": description, "photo_url": ""},
             "error": err, "is_edit": False,
         })
 
@@ -329,17 +360,37 @@ def products_create(
     except ValueError:
         return _re_render("Цена должна быть числом ≥ 0.")
 
+    # Handle photo upload
+    photo_url = None
+    if photo and photo.filename:
+        ext = Path(photo.filename).suffix.lower()
+        if ext not in _PHOTO_EXTS:
+            return _re_render("Допустимые форматы фото: JPG, PNG, WebP.")
+        try:
+            raw = await photo.read(_PHOTO_MAX_BYTES + 1)
+            if len(raw) > _PHOTO_MAX_BYTES:
+                return _re_render("Фото слишком большое (максимум 5 МБ).")
+            photo_url = _save_product_photo(photo, raw)
+        except Exception as exc:
+            logging.error(f"products_create photo save: {exc}")
+            return _re_render(f"Ошибка сохранения фото: {exc}")
+
     try:
         new_id = db.add_product(
             name=name_clean,
             category=category.strip() or None,
             price=price_val,
             description=description.strip() or None,
+            photo_file_id=photo_url,
         )
         if not new_id:
+            if photo_url:
+                _delete_product_photo(photo_url)
             return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
         return RedirectResponse(url=f"/products/{new_id}?success=Товар+добавлен", status_code=303)
     except Exception as exc:
+        if photo_url:
+            _delete_product_photo(photo_url)
         return _re_render(f"Ошибка: {exc}")
 
 
@@ -362,6 +413,10 @@ def products_edit_form(request: Request, product_id: int):
     if not product:
         return RedirectResponse(url="/products", status_code=302)
 
+    # photo_file_id[5] — only show as photo if it's a web-uploaded local path
+    photo_file_id = product[5] if len(product) > 5 else ""
+    photo_url = photo_file_id if (photo_file_id and str(photo_file_id).startswith("/static/")) else ""
+
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
     return request.app.state.templates.TemplateResponse(request, "products/form.html", {
         "request": request, "user": user, "is_admin": True,
@@ -372,6 +427,7 @@ def products_edit_form(request: Request, product_id: int):
             "category": product[2] or "",
             "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
             "description": product[6] if len(product) > 6 else "",
+            "photo_url": photo_url,
         },
         "error": None, "is_edit": True,
         "edit_id": product_id,
@@ -380,7 +436,7 @@ def products_edit_form(request: Request, product_id: int):
 
 
 @router.post("/products/{product_id}/update")
-def products_update(
+async def products_update(
     request: Request,
     product_id: int,
     csrf_token: str = Form(default=""),
@@ -388,6 +444,8 @@ def products_update(
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
+    photo: UploadFile = File(default=None),
+    remove_photo: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
@@ -406,12 +464,17 @@ def products_update(
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
 
+    # Fetch current photo to allow deletion / replacement
+    existing = db.get_product(product_id)
+    cur_photo = (existing[5] if existing and len(existing) > 5 else "") or ""
+    cur_photo_url = cur_photo if cur_photo.startswith("/static/") else ""
+
     def _re_render(err):
         return request.app.state.templates.TemplateResponse(request, "products/form.html", {
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
-            "form_data": {"name": name, "category": category, "price": price, "description": description},
+            "form_data": {"name": name, "category": category, "price": price, "description": description, "photo_url": cur_photo_url},
             "error": err, "is_edit": True,
             "edit_id": product_id, "product_name": name,
         })
@@ -426,16 +489,39 @@ def products_update(
     except ValueError:
         return _re_render("Цена должна быть числом ≥ 0.")
 
+    # Resolve new photo_file_id value
+    new_photo_url: str | None = None  # None = don't change; "" = remove; "/static/..." = new file
+    if photo and photo.filename:
+        ext = Path(photo.filename).suffix.lower()
+        if ext not in _PHOTO_EXTS:
+            return _re_render("Допустимые форматы фото: JPG, PNG, WebP.")
+        try:
+            raw = await photo.read(_PHOTO_MAX_BYTES + 1)
+            if len(raw) > _PHOTO_MAX_BYTES:
+                return _re_render("Фото слишком большое (максимум 5 МБ).")
+            new_photo_url = _save_product_photo(photo, raw)
+            _delete_product_photo(cur_photo_url)  # remove old if it was web-uploaded
+        except Exception as exc:
+            logging.error(f"products_update photo save: {exc}")
+            return _re_render(f"Ошибка сохранения фото: {exc}")
+    elif remove_photo == "1" and cur_photo_url:
+        _delete_product_photo(cur_photo_url)
+        new_photo_url = ""
+
     try:
-        db.update_product(
-            product_id,
+        kwargs: dict = dict(
             name=name_clean,
             category=category.strip() or "",
             price=price_val,
             description=description.strip() or "",
         )
+        if new_photo_url is not None:
+            kwargs["photo_file_id"] = new_photo_url
+        db.update_product(product_id, **kwargs)
         return RedirectResponse(url=f"/products/{product_id}?success=Сохранено", status_code=303)
     except Exception as exc:
+        if new_photo_url and new_photo_url.startswith("/static/"):
+            _delete_product_photo(new_photo_url)
         return _re_render(f"Ошибка: {exc}")
 
 

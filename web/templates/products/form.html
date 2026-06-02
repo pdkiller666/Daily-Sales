@@ -36,7 +36,7 @@
 {% endif %}
 
 <div class="card p-6 max-w-xl">
-    <form method="post"
+    <form method="post" enctype="multipart/form-data"
           action="{% if is_edit %}/products/{{ edit_id }}/update{% else %}/products/create{% endif %}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -89,7 +89,7 @@
         </div>
 
         <!-- Description -->
-        <div class="mb-6">
+        <div class="mb-5">
             <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-desc">
                 Описание
             </label>
@@ -97,6 +97,33 @@
                       placeholder="Дополнительная информация о товаре (необязательно)"
                       class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none">{{ form_data.description if form_data else '' }}</textarea>
+        </div>
+
+        <!-- Photo -->
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                Фото товара
+            </label>
+            {% set cur_photo = form_data.photo_url if form_data else '' %}
+            {% if cur_photo and cur_photo.startswith('/static/') %}
+            <div class="mb-2 flex items-center gap-3">
+                <img src="{{ cur_photo }}" alt="Фото товара"
+                     class="w-16 h-16 rounded-xl object-cover border border-slate-200">
+                <div>
+                    <p class="text-xs text-slate-500">Текущее фото</p>
+                    <label class="flex items-center gap-1.5 mt-1 cursor-pointer">
+                        <input type="checkbox" name="remove_photo" value="1" class="rounded">
+                        <span class="text-xs text-red-600">Удалить фото</span>
+                    </label>
+                </div>
+            </div>
+            {% endif %}
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp"
+                   class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700
+                          file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0
+                          file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-600
+                          hover:file:bg-blue-100 focus:outline-none">
+            <p class="mt-1 text-xs text-slate-400">JPG, PNG или WebP, до 5 МБ (необязательно)</p>
         </div>
 
         <!-- Submit -->

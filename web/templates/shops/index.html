@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Магазины{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Магазины</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Create modal -->
+{% if is_admin %}
+<div id="create-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)closeModal('create-modal')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h3 class="font-semibold text-slate-800">🏪 Новый магазин</h3>
+            <button onclick="closeModal('create-modal')"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors text-lg">✕</button>
+        </div>
+        <form method="post" action="/shops/create" class="p-5 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Название магазина</label>
+                <input type="text" name="name" id="create-name" required maxlength="60"
+                       placeholder="Например: Центральный"
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-slate-400 mt-1">От 2 до 60 символов</p>
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button type="submit"
+                        class="flex-1 bg-blue-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                    Создать
+                </button>
+                <button type="button" onclick="closeModal('create-modal')"
+                        class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Rename modal -->
+<div id="rename-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)closeModal('rename-modal')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h3 class="font-semibold text-slate-800">✏️ Переименовать магазин</h3>
+            <button onclick="closeModal('rename-modal')"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors text-lg">✕</button>
+        </div>
+        <form method="post" action="/shops/rename" class="p-5 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="old_name" id="rename-old">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Текущее название</label>
+                <p id="rename-old-display" class="text-sm text-slate-500 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 truncate"></p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">Новое название</label>
+                <input type="text" name="new_name" id="rename-new" required maxlength="60"
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button type="submit"
+                        class="flex-1 bg-blue-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                    Сохранить
+                </button>
+                <button type="button" onclick="closeModal('rename-modal')"
+                        class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete modal -->
+<div id="delete-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)closeModal('delete-modal')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h3 class="font-semibold text-red-700">🗑️ Удалить магазин</h3>
+            <button onclick="closeModal('delete-modal')"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors text-lg">✕</button>
+        </div>
+        <form method="post" action="/shops/delete" class="p-5 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="name" id="delete-name">
+            <input type="hidden" name="confirm" value="yes">
+            <div class="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
+                <p class="font-semibold mb-1">⚠️ Это действие нельзя отменить</p>
+                <p>Будут удалены все складские остатки магазина
+                   <strong id="delete-name-display"></strong>.
+                   У сотрудников этого магазина будет сброшен магазин.</p>
+            </div>
+            <div class="flex gap-2 pt-1">
+                <button type="submit"
+                        class="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+                    Удалить
+                </button>
+                <button type="button" onclick="closeModal('delete-modal')"
+                        class="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Header -->
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Магазины</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Управление магазинами организации</p>
+    </div>
+    {% if is_admin %}
+    <button onclick="openModal('create-modal', null, null, null, null)"
+            class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+        + Новый магазин
+    </button>
+    {% endif %}
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span>❌</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Stats -->
+{% if shops %}
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Всего магазинов</p>
+        <p class="text-2xl font-bold text-slate-800">{{ shops|length }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Всего сотрудников</p>
+        <p class="text-2xl font-bold text-slate-800">{{ shops|sum(attribute=1) }}</p>
+    </div>
+    <div class="card p-4 col-span-2 sm:col-span-1">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Позиций в остатках</p>
+        <p class="text-2xl font-bold text-slate-800">{{ shops|sum(attribute=2) }}</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Shops table -->
+<div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-800">Список магазинов</h2>
+    </div>
+
+    {% if shops %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Магазин</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Сотрудников</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Позиций</th>
+                    {% if is_admin %}
+                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Действия</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for shop in shops %}
+                {# shop: (name[0], user_count[1], inventory_items[2]) #}
+                <tr class="hover:bg-slate-50/70 transition-colors">
+                    <td class="px-5 py-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">🏪</span>
+                            <span class="font-medium text-slate-800">{{ shop[0] }}</span>
+                        </div>
+                    </td>
+                    <td class="px-3 py-3 text-right hidden sm:table-cell">
+                        {% if shop[1] %}
+                        <span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-600 border border-blue-100 px-2.5 py-1 rounded-full font-medium">
+                            👥 {{ shop[1] }}
+                        </span>
+                        {% else %}
+                        <span class="text-slate-300 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-3 text-right hidden sm:table-cell">
+                        {% if shop[2] %}
+                        <span class="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-full font-medium">
+                            📦 {{ shop[2] }}
+                        </span>
+                        {% else %}
+                        <span class="text-slate-300 text-xs">—</span>
+                        {% endif %}
+                    </td>
+                    {% if is_admin %}
+                    <td class="px-5 py-3 text-right">
+                        <div class="flex items-center gap-2 justify-end">
+                            <button onclick="openRenameModal('{{ shop[0]|e }}')"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-100 hover:border-slate-300 transition-colors">
+                                ✏️ Переименовать
+                            </button>
+                            <button onclick="openDeleteModal('{{ shop[0]|e }}')"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-red-100 text-red-600 rounded-lg hover:bg-red-50 hover:border-red-200 transition-colors">
+                                🗑️
+                            </button>
+                        </div>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+    <div class="py-16 text-center text-slate-400">
+        <p class="text-5xl mb-3">🏪</p>
+        <p class="text-sm font-medium">Магазины ещё не созданы</p>
+        {% if is_admin %}
+        <p class="text-xs mt-1 mb-4">Создайте первый магазин с помощью кнопки выше</p>
+        <button onclick="openModal('create-modal', null, null, null, null)"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors">
+            + Новый магазин
+        </button>
+        {% else %}
+        <p class="text-xs mt-1">Обратитесь к администратору для создания магазина</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% if is_admin %}
+<script>
+function openModal(modalId) {
+    const m = document.getElementById(modalId);
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    const inp = m.querySelector('input[type=text]');
+    if (inp) setTimeout(() => inp.focus(), 50);
+}
+
+function closeModal(modalId) {
+    const m = document.getElementById(modalId);
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+    document.body.style.overflow = '';
+}
+
+function openRenameModal(name) {
+    document.getElementById('rename-old').value = name;
+    document.getElementById('rename-old-display').textContent = name;
+    document.getElementById('rename-new').value = name;
+    openModal('rename-modal');
+    setTimeout(() => {
+        const inp = document.getElementById('rename-new');
+        inp.focus();
+        inp.select();
+    }, 50);
+}
+
+function openDeleteModal(name) {
+    document.getElementById('delete-name').value = name;
+    document.getElementById('delete-name-display').textContent = '«' + name + '»';
+    openModal('delete-modal');
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        ['create-modal', 'rename-modal', 'delete-modal'].forEach(closeModal);
+    }
+});
+</script>
+{% endif %}
+
+{% endblock %}
+
+{% block footer_info %}{{ shops|length }} маг.{% endblock %}

@@ -20,9 +20,15 @@
 {# products: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6] #}
 <div class="flex items-start justify-between gap-4 mb-6">
     <div class="flex items-start gap-4">
-        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-2xl shadow-sm">
+        {% set _photo = product[5] if product|length > 5 else '' %}
+        {% if _photo and _photo.startswith('/static/') %}
+        <img src="{{ _photo }}" alt="{{ product[1] }}"
+             class="w-14 h-14 rounded-2xl object-cover border border-slate-200 shadow-sm shrink-0">
+        {% else %}
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-2xl shadow-sm shrink-0">
             📦
         </div>
+        {% endif %}
         <div>
             <h1 class="text-2xl font-bold text-slate-800">{{ product[1] }}</h1>
             <div class="flex items-center gap-2 mt-1">

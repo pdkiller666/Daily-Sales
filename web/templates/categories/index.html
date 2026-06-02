@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Категории{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/products" class="text-slate-400 text-xs hover:text-slate-600">Товары</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Категории</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">🗂️ Категории</h1>
+        <p class="text-sm text-slate-500 mt-0.5">{{ categories|length }} категор{{ 'ия' if categories|length == 1 else ('ии' if categories|length in (2,3,4) else 'ий') }}</p>
+    </div>
+    <button onclick="document.getElementById('createModal').classList.remove('hidden')"
+            class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Новая категория
+    </button>
+</div>
+
+{% if msg %}
+<div class="mb-4 flex items-start gap-2 p-4 rounded-xl text-sm border
+    {% if msg in ('renamed','deleted','created') %}bg-emerald-50 border-emerald-200 text-emerald-700
+    {% elif msg == 'duplicate' %}bg-amber-50 border-amber-200 text-amber-700
+    {% elif msg == 'csrf_error' %}bg-red-50 border-red-200 text-red-700
+    {% else %}bg-red-50 border-red-200 text-red-700{% endif %}">
+    <span>
+    {% if msg == 'renamed' %}✅ Категория переименована.
+    {% elif msg == 'deleted' %}✅ Категория удалена, товары перемещены.
+    {% elif msg == 'created' %}✅ Категория создана.
+    {% elif msg == 'duplicate' %}⚠️ Категория с таким названием уже существует.
+    {% elif msg == 'same_name' %}ℹ️ Название не изменилось.
+    {% elif msg == 'invalid_name' %}⚠️ Недопустимое название (1–80 символов).
+    {% elif msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите.
+    {% else %}⚠️ Произошла ошибка. Попробуйте снова.
+    {% endif %}
+    </span>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if categories %}
+<div class="card overflow-hidden" x-data="catManager()">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 border-b border-slate-100">
+                <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Категория</th>
+                <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Товаров</th>
+                <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">В наличии</th>
+                <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Действия</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+            {% for cat in categories %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="px-5 py-3">
+                    <a href="/products?category={{ cat.name|urlencode }}"
+                       class="font-medium text-slate-800 hover:text-red-600 transition-colors">
+                        {{ cat.name }}
+                    </a>
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600">{{ cat.count }}</td>
+                <td class="px-4 py-3 text-right hidden sm:table-cell">
+                    <span class="{% if cat.in_stock > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
+                        {{ cat.in_stock }}
+                    </span>
+                </td>
+                <td class="px-5 py-3 text-right">
+                    <div class="flex items-center justify-end gap-2">
+                        <button @click="openRename('{{ cat.name|replace("'", "\\'") }}')"
+                                class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-colors font-medium">
+                            ✏️ Переим.
+                        </button>
+                        <button @click="openDelete('{{ cat.name|replace("'", "\\'") }}', {{ cat.count }})"
+                                class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors font-medium">
+                            🗑 Удалить
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Rename modal -->
+    <div x-show="renameOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+         @click.self="renameOpen=false" @keydown.escape.window="renameOpen=false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-1">✏️ Переименовать категорию</h3>
+            <p class="text-sm text-slate-500 mb-4">Все товары будут перемещены в новую категорию.</p>
+            <form method="POST" action="/categories/rename">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="old_name" :value="renameCat">
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Текущее название</label>
+                    <p class="px-3 py-2 bg-slate-50 rounded-lg text-slate-700 font-medium text-sm" x-text="renameCat"></p>
+                </div>
+                <div class="mb-5">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Новое название</label>
+                    <input type="text" name="new_name" x-ref="renameInput"
+                           class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                           placeholder="Введите новое название..." maxlength="80" required>
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" @click="renameOpen=false"
+                            class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                        Отмена
+                    </button>
+                    <button type="submit"
+                            class="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
+                        Переименовать
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete modal -->
+    <div x-show="deleteOpen" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+         @click.self="deleteOpen=false" @keydown.escape.window="deleteOpen=false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-1">🗑 Удалить категорию</h3>
+            <p class="text-sm text-slate-500 mb-4">
+                Товары из категории <strong x-text="deleteCat"></strong>
+                (<span x-text="deleteCnt"></span> шт.) будут перемещены.
+            </p>
+            <form method="POST" action="/categories/delete">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="name" :value="deleteCat">
+                <div class="mb-5">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">
+                        Переместить товары в категорию
+                    </label>
+                    <select name="move_to"
+                            class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400">
+                        <option value="">— Без категории —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.name }}" x-bind:disabled="cat.name === deleteCat">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" @click="deleteOpen=false"
+                            class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                        Отмена
+                    </button>
+                    <button type="submit"
+                            class="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+                        Удалить категорию
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="card p-12 text-center text-slate-400">
+    <p class="text-4xl mb-4">🗂️</p>
+    <p class="text-sm font-medium text-slate-500 mb-1">Категорий ещё нет</p>
+    <p class="text-xs text-slate-400">Они появятся, когда вы добавите первый товар с указанием категории.</p>
+    <a href="/products/new" class="inline-block mt-4 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-xl hover:bg-red-700 transition-colors">
+        + Добавить товар
+    </a>
+</div>
+{% endif %}
+
+<!-- Create modal (top-level, outside Alpine tree) -->
+<div id="createModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+     onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+        <h3 class="text-lg font-bold text-slate-800 mb-1">🗂️ Новая категория</h3>
+        <p class="text-sm text-slate-500 mb-4">
+            Вы будете перенаправлены на форму создания товара с предзаполненной категорией.
+        </p>
+        <form method="POST" action="/categories/create">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="mb-5">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Название категории</label>
+                <input type="text" name="name"
+                       class="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                       placeholder="Например: Электроника" maxlength="80" required>
+            </div>
+            <div class="flex gap-3">
+                <button type="button" onclick="document.getElementById('createModal').classList.add('hidden')"
+                        class="flex-1 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                    Отмена
+                </button>
+                <button type="submit"
+                        class="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+                    Создать
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function catManager() {
+    return {
+        renameOpen: false,
+        deleteOpen: false,
+        renameCat: '',
+        deleteCat: '',
+        deleteCnt: 0,
+        openRename(name) {
+            this.renameCat = name;
+            this.renameOpen = true;
+            this.$nextTick(() => { if (this.$refs.renameInput) this.$refs.renameInput.focus(); });
+        },
+        openDelete(name, cnt) {
+            this.deleteCat = name;
+            this.deleteCnt = cnt;
+            this.deleteOpen = true;
+        },
+    };
+}
+</script>
+{% endblock %}
+
+{% block footer_info %}{{ categories|length }} категорий{% endblock %}
