@@ -6,11 +6,13 @@ from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
-BULK_IMPORT_MAX = 100  # max products per upload (mirrors bot)
+BULK_IMPORT_MAX = 100   # max products per upload (mirrors bot)
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+PREVIEW_PAGE_SIZE = 20  # rows per preview page
 
-# In-memory import session store: {session_id: [{'name':..,'category':..,'price':..}]}
-_import_sessions: dict[str, list] = {}
+# In-memory import session store — bound to user:
+# {session_id: {"telegram_id": int, "items": [...], "skipped": int}}
+_import_sessions: dict[str, dict] = {}
 
 
 @router.get("/products")
@@ -73,8 +75,14 @@ def products_page(request: Request, q: str = "", category: str = ""):
 
 
 @router.get("/products/import")
-def products_import_page(request: Request):
+def products_import_page(
+    request: Request,
+    session_id: str = "",
+    page: int = 1,
+    error: str = "",
+):
     from web.auth import get_session_user
+    from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
@@ -82,17 +90,48 @@ def products_import_page(request: Request):
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
 
+    telegram_id = int(user["sub"])
+
+    # Base context for upload form
+    ctx: dict = {
+        "request": request, "user": user, "is_admin": True,
+        "max_items": BULK_IMPORT_MAX,
+        "preview": None, "error": error or None,
+        "session_id": "", "total": 0, "skipped": 0,
+        "page": 1, "page_count": 1, "has_prev": False, "has_next": False,
+    }
+
+    if session_id:
+        sess = _import_sessions.get(session_id)
+        # Security: bind session to authenticated user
+        if not sess or sess.get("telegram_id") != telegram_id:
+            ctx["error"] = "Сессия не найдена или устарела. Загрузите файл снова."
+        else:
+            items = sess["items"]
+            total = len(items)
+            page_count = max(1, (total + PREVIEW_PAGE_SIZE - 1) // PREVIEW_PAGE_SIZE)
+            page = max(1, min(page, page_count))
+            offset = (page - 1) * PREVIEW_PAGE_SIZE
+            ctx.update({
+                "preview": items[offset: offset + PREVIEW_PAGE_SIZE],
+                "total": total,
+                "skipped": sess.get("skipped", 0),
+                "session_id": session_id,
+                "page": page,
+                "page_count": page_count,
+                "has_prev": page > 1,
+                "has_next": page < page_count,
+            })
+
     return request.app.state.templates.TemplateResponse(
-        request, "products/import.html",
-        {"request": request, "user": user, "is_admin": True,
-         "max_items": BULK_IMPORT_MAX, "preview": None, "error": None,
-         "session_id": "", "total": 0, "skipped": 0},
+        request, "products/import.html", ctx,
     )
 
 
 @router.post("/products/import")
 async def products_import_upload(request: Request, file: UploadFile = File(...)):
     from web.auth import get_session_user
+    from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
@@ -100,12 +139,12 @@ async def products_import_upload(request: Request, file: UploadFile = File(...))
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
 
+    telegram_id = int(user["sub"])
+
     def _err(msg: str):
-        return request.app.state.templates.TemplateResponse(
-            request, "products/import.html",
-            {"request": request, "user": user, "is_admin": True,
-             "max_items": BULK_IMPORT_MAX, "preview": None, "error": msg,
-             "session_id": "", "total": 0, "skipped": 0},
+        return RedirectResponse(
+            url=f"/products/import?error={quote(msg)}",
+            status_code=302,
         )
 
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
@@ -158,17 +197,16 @@ async def products_import_upload(request: Request, file: UploadFile = File(...))
         )
 
     session_id = str(_uuid.uuid4())
-    _import_sessions[session_id] = valid
+    # Bind session to the authenticated user's telegram_id
+    _import_sessions[session_id] = {
+        "telegram_id": telegram_id,
+        "items": valid,
+        "skipped": skipped,
+    }
 
-    return request.app.state.templates.TemplateResponse(
-        request, "products/import.html",
-        {"request": request, "user": user, "is_admin": True,
-         "max_items": BULK_IMPORT_MAX,
-         "preview": valid[:20],
-         "total": len(valid),
-         "skipped": skipped,
-         "session_id": session_id,
-         "error": None},
+    return RedirectResponse(
+        url=f"/products/import?session_id={session_id}&page=1",
+        status_code=302,
     )
 
 
@@ -176,6 +214,7 @@ async def products_import_upload(request: Request, file: UploadFile = File(...))
 def products_import_confirm(request: Request, session_id: str = Form(default="")):
     from web.auth import get_session_user
     from web.deps import get_web_db
+    from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
@@ -183,23 +222,23 @@ def products_import_confirm(request: Request, session_id: str = Form(default="")
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
 
-    data = _import_sessions.pop(session_id, None)
-    if not data:
-        return RedirectResponse(
-            url="/products/import?error=Сессия+не+найдена.+Загрузите+файл+снова.",
-            status_code=302,
-        )
-
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    sess = _import_sessions.pop(session_id, None)
+    if not sess or sess.get("telegram_id") != telegram_id:
+        return RedirectResponse(
+            url="/products/import?error=Сессия+не+найдена+или+устарела.+Загрузите+файл+снова.",
+            status_code=302,
+        )
+
     try:
         db = get_web_db(telegram_id, org_db)
-        added, skipped_names = db.add_products_bulk(data)
+        added, _skipped_names = db.add_products_bulk(sess["items"])
     except Exception as e:
         logging.error(f"products_import_confirm bulk insert: {e}")
         return RedirectResponse(
-            url=f"/products/import?error={e}",
+            url=f"/products/import?error={quote(str(e))}",
             status_code=302,
         )
 
