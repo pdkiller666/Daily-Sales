@@ -38,6 +38,7 @@ def dashboard(request: Request):
         "recent_sales": [], "shop_ranking": [],
         "seller_ranking": [], "low_stock": [],
         "plans_dash": [],
+        "on_shift_today": [],
         "today_label": date.today().strftime('%d.%m.%Y'),
         "error": None,
     }
@@ -103,6 +104,23 @@ def dashboard(request: Request):
                 conn2.close()
             except Exception:
                 pass
+            # Who's on shift today
+            try:
+                conn3 = db.get_connection()
+                cur3 = conn3.cursor()
+                cur3.execute("""
+                    SELECT u.id, u.first_name, u.last_name, u.shop_name,
+                           ws.start_time, ws.end_time
+                    FROM work_schedule ws
+                    JOIN users u ON ws.user_id = u.id
+                    WHERE ws.work_date = ?
+                    ORDER BY u.shop_name, u.first_name
+                """, (today_str,))
+                ctx["on_shift_today"] = cur3.fetchall()
+                conn3.close()
+            except Exception:
+                ctx["on_shift_today"] = []
+
             # Active plans progress for admins
             try:
                 raw = db.get_plans_progress(local_today=today) or []

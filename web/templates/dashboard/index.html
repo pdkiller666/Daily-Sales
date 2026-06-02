@@ -210,6 +210,40 @@
         </div>
         {% endif %}
 
+        <!-- On shift today -->
+        {% if on_shift_today is defined and is_admin %}
+        <div class="card overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 class="font-semibold text-slate-800">⏰ На смене сегодня</h2>
+                <span class="text-xs text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-full">{{ on_shift_today|length }}</span>
+            </div>
+            {% if on_shift_today %}
+            <div class="divide-y divide-slate-50">
+                {% for s in on_shift_today %}
+                {# s: id[0] first_name[1] last_name[2] shop_name[3] start_time[4] end_time[5] #}
+                <a href="/staff/{{ s[0] }}" class="px-5 py-2.5 flex items-center gap-3 min-w-0 hover:bg-slate-50/80 transition-colors">
+                    <div class="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                        <span class="text-xs font-bold text-emerald-700">{{ (s[1] or '?')[0] }}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-800 truncate">{{ s[1] or '' }} {{ (s[2] or '')[:1] }}{% if s[2] %}.{% endif %}</p>
+                        <p class="text-xs text-slate-400 truncate">{{ s[3] or '—' }}</p>
+                    </div>
+                    {% if s[4] or s[5] %}
+                    <span class="text-xs text-slate-400 shrink-0">{{ s[4] or '' }}{% if s[4] and s[5] %}–{{ s[5] }}{% endif %}</span>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="py-6 text-center text-slate-400">
+                <p class="text-2xl mb-1">📅</p>
+                <p class="text-sm">Нет смен сегодня</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <!-- Low stock -->
         <div class="card overflow-hidden flex-1">
             <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
