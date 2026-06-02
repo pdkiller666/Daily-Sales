@@ -94,16 +94,12 @@ async def payment_settings_menu(callback: CallbackQuery):
     text += f"🔀 <b>Активный провайдер:</b> {provider_display}\n\n"
     text += "Настройте реквизиты для получения платежей:\n\n"
     
-    web_url = db.get_web_interface_url()
-    web_url_label = web_url if web_url else "не задан"
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🔀 Провайдер оплаты: {provider_display}", callback_data="payment_provider_select")],
         [InlineKeyboardButton(text=f"💳 Номер карты: {payment_settings.get('card_number', 'Не установлен')}", callback_data="set_card_number")],
         [InlineKeyboardButton(text=f"👤 Получатель: {payment_settings.get('recipient_name', 'Не установлен')}", callback_data="set_recipient_name")],
         [InlineKeyboardButton(text=f"🏦 Банк: {payment_settings.get('bank_name', 'Не установлен')}", callback_data="set_bank_name")],
         [InlineKeyboardButton(text="💬 Инструкция для пользователей", callback_data="set_payment_instruction")],
-        [InlineKeyboardButton(text=f"🌐 Веб-интерфейс URL: {web_url_label}", callback_data="set_web_interface_url")],
         [InlineKeyboardButton(text="🧪 Тестовый платеж", callback_data="test_payment")],
         [back_button("payment_system_admin")]
     ])
@@ -415,13 +411,13 @@ async def set_web_interface_url_start(callback: CallbackQuery, state: FSMContext
                 InlineKeyboardButton(text="✏️ Изменить", callback_data="edit_web_interface_url"),
                 InlineKeyboardButton(text="🗑 Удалить", callback_data="clear_web_interface_url"),
             ],
-            [back_button("payment_settings")],
+            [back_button("system_admin_panel")],
         ])
     else:
         text += "URL не настроен. Кнопка «Веб-интерфейс» скрыта для всех пользователей.\n\n"
         text += "Введите URL вашего веб-интерфейса (должен начинаться с <code>https://</code>):"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [back_button("payment_settings")],
+            [back_button("system_admin_panel")],
         ])
         await state.set_state(PaymentSystemStates.waiting_web_interface_url)
 
@@ -442,7 +438,7 @@ async def edit_web_interface_url_start(callback: CallbackQuery, state: FSMContex
         "Например: <code>https://yourapp.replit.app</code>"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [back_button("payment_settings")],
+        [back_button("system_admin_panel")],
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(PaymentSystemStates.waiting_web_interface_url)
@@ -470,7 +466,7 @@ async def process_web_interface_url(message: Message, state: FSMContext):
             "Кнопка «🌐 Веб-интерфейс» появится в главном меню всех пользователей.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")],
+                [InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")],
             ]),
         )
     except Exception as e:
@@ -496,7 +492,7 @@ async def clear_web_interface_url_handler(callback: CallbackQuery):
             "Кнопка «Веб-интерфейс» скрыта для всех пользователей."
         )
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")],
+            [InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")],
         ])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     except Exception as e:
