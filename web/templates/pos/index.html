@@ -41,17 +41,18 @@
             {% endif %}
         </select>
     </div>
-    <div class="flex items-center gap-2 text-sm text-slate-500 shrink-0">
+    <div class="hidden lg:flex items-center gap-2 text-sm text-slate-500 shrink-0">
         <span x-show="cartCount > 0" class="font-semibold text-emerald-700"
               x-text="cartCount + '\u00a0поз. в корзине'"></span>
         <a href="/sales" class="text-xs text-slate-400 hover:text-blue-600 transition-colors">← Журнал</a>
     </div>
+    <a href="/sales" class="lg:hidden text-xs text-slate-400 hover:text-blue-600 transition-colors shrink-0">← Журнал</a>
 </div>
 
 <!-- ── Основной POS-лэйаут ── -->
 <div class="flex gap-4 items-start" style="min-height: calc(100vh - 220px)">
 
-    <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории ── -->
+    <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории (только десктоп) ── -->
     <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0">
         <button @click="activeCat = ''"
                 :class="activeCat === '' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
@@ -128,7 +129,7 @@
         <!-- Сетка товаров -->
         <div x-show="!loading && filteredProducts.length > 0"
              class="grid gap-3"
-             style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr))">
+             style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
             <template x-for="p in filteredProducts" :key="p.id">
                 <button @click="addToCart(p)"
                         class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 text-left hover:border-blue-400 hover:shadow-md transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -150,11 +151,13 @@
                 </button>
             </template>
         </div>
+
+        <!-- Отступ снизу для мобильного бара корзины -->
+        <div class="h-20 lg:hidden"></div>
     </div>
 
-    <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина ── -->
-    <div class="w-72 shrink-0 flex flex-col gap-3 sticky top-20">
-
+    <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина (только десктоп) ── -->
+    <div class="hidden lg:flex w-72 shrink-0 flex-col gap-3 sticky top-20">
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <!-- Заголовок -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -168,13 +171,11 @@
                     </button>
                 </div>
             </div>
-
             <!-- Пустая корзина -->
             <div x-show="cart.length === 0" class="px-4 py-8 text-center text-slate-400">
                 <div class="text-3xl mb-2">🛒</div>
                 <p class="text-xs">Нажмите на товар, чтобы добавить</p>
             </div>
-
             <!-- Список позиций -->
             <div x-show="cart.length > 0" class="divide-y divide-slate-50 max-h-96 overflow-y-auto">
                 <template x-for="(item, idx) in cart" :key="item.id">
@@ -186,7 +187,6 @@
                                     class="shrink-0 text-slate-300 hover:text-red-500 transition-colors text-base leading-none mt-0.5">×</button>
                         </div>
                         <div class="flex items-center gap-2">
-                            <!-- Qty stepper -->
                             <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
                                 <button @click="changeQty(idx, -1)"
                                         class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">−</button>
@@ -196,19 +196,16 @@
                                 <button @click="changeQty(idx, 1)"
                                         class="w-7 h-7 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors text-base font-bold">+</button>
                             </div>
-                            <!-- Цена -->
                             <span class="text-xs text-slate-400">×</span>
                             <input type="number" x-model.number="item.price" min="0" step="0.01"
                                    class="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-sm text-right font-medium focus:outline-none focus:ring-1 focus:ring-blue-400">
                             <span class="text-xs text-slate-400 shrink-0">₽</span>
                         </div>
-                        <!-- Сумма позиции -->
                         <p class="text-xs text-right font-semibold text-emerald-600"
                            x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
                     </div>
                 </template>
             </div>
-
             <!-- Итог -->
             <div x-show="cart.length > 0" class="px-4 py-3 border-t border-slate-100 bg-slate-50">
                 <div class="flex items-center justify-between mb-3">
@@ -219,20 +216,13 @@
                     <span x-text="cartCount + ' ед. товара'"></span>
                     <span x-text="cart.length + ' наим.'"></span>
                 </div>
-
-                <!-- Ошибка -->
                 <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
-
-                <!-- Кнопка оплаты -->
                 <button @click="checkout()"
                         :disabled="checkoutLoading || cart.length === 0"
-                        class="w-full py-3 rounded-xl text-sm font-bold transition-all
-                               bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm
-                               disabled:opacity-50 disabled:cursor-not-allowed">
+                        class="w-full py-3 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                     <span x-show="!checkoutLoading" class="flex items-center justify-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"/>
                         </svg>
                         Провести продажу
                     </span>
@@ -246,14 +236,130 @@
                 </button>
             </div>
         </div>
-
-        <!-- Подсказка -->
         <p class="text-xs text-slate-400 text-center px-2">
             Нажмите на товар чтобы добавить в корзину. Повторный клик увеличивает количество.
         </p>
     </div>
 
 </div><!-- /flex -->
+
+<!-- ══════════════════════════════════════
+     МОБИЛЬНАЯ КОРЗИНА (только мобайл)
+     фиксированный бар + шторка снизу
+══════════════════════════════════════ -->
+
+<!-- Оверлей шторки -->
+<div x-show="mobileCartOpen" x-cloak
+     class="fixed inset-0 z-40 bg-black/40 lg:hidden"
+     @click="mobileCartOpen = false"></div>
+
+<!-- Шторка корзины -->
+<div x-show="mobileCartOpen" x-cloak
+     x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="translate-y-full"
+     x-transition:enter-end="translate-y-0"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="translate-y-0"
+     x-transition:leave-end="translate-y-full"
+     class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden"
+     style="max-height: 80vh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px)">
+
+    <!-- Ручка + заголовок -->
+    <div class="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-100">
+        <div class="w-10 h-1 rounded-full bg-slate-200 absolute left-1/2 -translate-x-1/2 top-2"></div>
+        <h2 class="text-sm font-bold text-slate-800 pt-2">🛒 Корзина</h2>
+        <div class="flex items-center gap-3 pt-2">
+            <button x-show="cart.length > 0" @click="clearCart()"
+                    class="text-xs text-red-400 hover:text-red-600">Очистить</button>
+            <button @click="mobileCartOpen = false"
+                    class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+        </div>
+    </div>
+
+    <!-- Пустая корзина -->
+    <div x-show="cart.length === 0" class="px-5 py-10 text-center text-slate-400">
+        <div class="text-4xl mb-2">🛒</div>
+        <p class="text-sm">Нажмите на товар, чтобы добавить</p>
+    </div>
+
+    <!-- Список позиций -->
+    <div x-show="cart.length > 0" class="overflow-y-auto divide-y divide-slate-50"
+         style="max-height: calc(80vh - 210px)">
+        <template x-for="(item, idx) in cart" :key="item.id">
+            <div class="px-5 py-3 flex flex-col gap-1.5">
+                <div class="flex items-start justify-between gap-2">
+                    <p class="text-sm font-medium text-slate-800 leading-tight flex-1 truncate"
+                       x-text="item.name" :title="item.name"></p>
+                    <button @click="removeFromCart(idx)"
+                            class="shrink-0 text-slate-300 hover:text-red-500 transition-colors text-xl leading-none">×</button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+                        <button @click="changeQty(idx, -1)"
+                                class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 text-lg font-bold">−</button>
+                        <input type="number" x-model.number="item.qty" min="1" :max="item.stock"
+                               @change="item.qty = Math.max(1, Math.min(item.stock, parseInt(item.qty) || 1))"
+                               class="w-12 h-8 text-center text-sm font-semibold text-slate-800 border-x border-slate-200 focus:outline-none focus:bg-blue-50">
+                        <button @click="changeQty(idx, 1)"
+                                class="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 text-lg font-bold">+</button>
+                    </div>
+                    <span class="text-xs text-slate-400">×</span>
+                    <input type="number" x-model.number="item.price" min="0" step="0.01"
+                           class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-right font-medium focus:outline-none focus:ring-1 focus:ring-blue-400">
+                    <span class="text-xs text-slate-400">₽</span>
+                </div>
+                <p class="text-xs text-right font-semibold text-emerald-600"
+                   x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+            </div>
+        </template>
+    </div>
+
+    <!-- Итог + кнопка оплаты -->
+    <div x-show="cart.length > 0" class="px-5 py-4 border-t border-slate-100 bg-slate-50/80">
+        <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-slate-500" x-text="cartCount + ' ед. · ' + cart.length + ' наим.'"></span>
+            <span class="text-lg font-bold text-slate-900" x-text="fmtPrice(cartTotal)"></span>
+        </div>
+        <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
+        <button @click="checkout()"
+                :disabled="checkoutLoading || cart.length === 0"
+                class="w-full py-3.5 rounded-xl text-sm font-bold transition-all bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow disabled:opacity-50 disabled:cursor-not-allowed">
+            <span x-show="!checkoutLoading" class="flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0"/>
+                </svg>
+                Провести продажу
+            </span>
+            <span x-show="checkoutLoading" class="flex items-center justify-center gap-2">
+                <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.37 0 0 5.37 0 12h4z"/>
+                </svg>
+                Проводим…
+            </span>
+        </button>
+    </div>
+</div>
+
+<!-- Фиксированный бар корзины (мобайл) -->
+<div class="fixed bottom-16 inset-x-0 z-30 px-4 lg:hidden"
+     style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+    <!-- Пустая корзина — подсказка -->
+    <div x-show="cart.length === 0 && !loading && allProducts.length > 0"
+         class="bg-white/90 backdrop-blur border border-slate-200 rounded-2xl px-4 py-2.5 text-center text-xs text-slate-400 shadow-sm">
+        Нажмите на товар, чтобы добавить в корзину
+    </div>
+    <!-- Корзина с товарами — кнопка открытия -->
+    <button x-show="cart.length > 0"
+            @click="mobileCartOpen = true"
+            class="w-full flex items-center justify-between bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl px-5 py-3.5 shadow-lg transition-colors">
+        <div class="flex items-center gap-2">
+            <span class="text-xl">🛒</span>
+            <span class="font-bold text-sm" x-text="cartCount + '\u00a0ед. · ' + cart.length + '\u00a0поз.'"></span>
+        </div>
+        <span class="font-bold text-base" x-text="fmtPrice(cartTotal)"></span>
+    </button>
+</div>
 
 <!-- ── Модал успеха ── -->
 <div x-show="successData" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -298,6 +404,7 @@ function posApp() {
         activeCat: '',
         search: '',
         cart: [],
+        mobileCartOpen: false,
         checkoutLoading: false,
         checkoutError: '',
         successData: null,
@@ -377,12 +484,14 @@ function posApp() {
 
         removeFromCart(idx) {
             this.cart.splice(idx, 1);
+            if (this.cart.length === 0) this.mobileCartOpen = false;
         },
 
         clearCart() {
             if (this.cart.length === 0) return;
             if (!confirm('Очистить корзину?')) return;
             this.cart = [];
+            this.mobileCartOpen = false;
         },
 
         changeQty(idx, delta) {
@@ -422,6 +531,7 @@ function posApp() {
 
                 if (data.ok) {
                     this.cart = [];
+                    this.mobileCartOpen = false;
                     this.successData = data;
                     this.loadProducts();
                 } else {
