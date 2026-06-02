@@ -92,6 +92,107 @@ def pos_page(request: Request):
     return request.app.state.templates.TemplateResponse(request, "pos/index.html", ctx)
 
 
+@router.get("/api/pos/meta")
+def api_pos_meta(request: Request, shop: str = ""):
+    """Return favorites (product IDs), recent products with current stock, motivations dict."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        internal_uid = _get_internal_uid(db, telegram_id)
+
+        # Favorites — list of product IDs
+        favorites: list[int] = []
+        if internal_uid:
+            try:
+                favorites = db.get_favorite_products(internal_uid) or []
+            except Exception:
+                pass
+
+        # Recent — last 8 unique products with current stock in selected shop
+        recent: list[dict] = []
+        if internal_uid and shop:
+            try:
+                raw_recent = db.get_user_recent_products(internal_uid, limit=8) or []
+                # id[0] name[1] price[2] category[3]
+                # Resolve current stock from inventory
+                raw_inv = db.get_all_inventory(shop_name=shop) or []
+                stock_map: dict[int, int] = {}
+                for r in raw_inv:
+                    stock_map[int(r[1])] = int(r[3] or 0)
+                for row in raw_recent:
+                    pid = row[0]
+                    qty = stock_map.get(pid, 0)
+                    if qty > 0:
+                        recent.append({
+                            "id": pid,
+                            "name": row[1] or "",
+                            "price": float(row[2] or 0),
+                            "category": row[3] or "Без категории",
+                            "stock": qty,
+                        })
+            except Exception:
+                pass
+
+        # Motivations — {product_id: {type, value, commission_per_unit}}
+        motivations: dict = {}
+        try:
+            all_mot = db.get_all_product_motivations() or []
+            # id[0] name[1] mot_type[2] mot_value[3] ...
+            for row in all_mot:
+                if row[2] and row[3] is not None:
+                    motivations[str(row[0])] = {
+                        "type": row[2],
+                        "value": float(row[3]),
+                    }
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "favorites": favorites,
+            "recent": recent,
+            "motivations": motivations,
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e), "favorites": [], "recent": [], "motivations": {}})
+
+
+@router.post("/api/pos/favorite")
+def api_pos_toggle_favorite(
+    request: Request,
+    product_id: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
+):
+    """Toggle product in user favorites. Returns {ok, is_favorite}."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF error"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if not internal_uid:
+            return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
+        is_fav = db.toggle_favorite_product(internal_uid, product_id)
+        return JSONResponse({"ok": True, "is_favorite": is_fav})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @router.get("/api/pos/products")
 def api_pos_products(request: Request, shop: str = ""):
     """Return all products with stock grouped by category for POS."""

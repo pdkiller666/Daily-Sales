@@ -28,7 +28,7 @@
 <div class="flex items-center gap-3 mb-4 flex-wrap">
     <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-sm font-semibold text-slate-600 shrink-0">🏪 Магазин:</span>
-        <select x-model="shop" @change="loadProducts()"
+        <select x-model="shop" @change="onShopChange()"
                 class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 max-w-xs">
             {% if is_admin %}
             {% for s in all_shops %}
@@ -54,6 +54,25 @@
 
     <!-- ── ЛЕВАЯ ПАНЕЛЬ: категории (только десктоп) ── -->
     <div class="hidden lg:flex flex-col gap-1 w-44 shrink-0">
+        <!-- Спецкатегории -->
+        <template x-if="recent.length > 0">
+            <button @click="activeCat = '__recent__'"
+                    :class="activeCat === '__recent__' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
+                    class="text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors truncate">
+                🔄 Недавние
+                <span class="ml-1 text-xs opacity-70" x-text="'(' + recent.length + ')'"></span>
+            </button>
+        </template>
+        <template x-if="favProducts.length > 0">
+            <button @click="activeCat = '__favorites__'"
+                    :class="activeCat === '__favorites__' ? 'bg-yellow-400 text-slate-900 shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
+                    class="text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors truncate">
+                ⭐ Избранное
+                <span class="ml-1 text-xs opacity-70" x-text="'(' + favProducts.length + ')'"></span>
+            </button>
+        </template>
+        <div class="h-px bg-slate-100 my-1" x-show="recent.length > 0 || favProducts.length > 0"></div>
+        <!-- Все категории -->
         <button @click="activeCat = ''"
                 :class="activeCat === '' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'"
                 class="text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-colors truncate">
@@ -89,13 +108,30 @@
             <!-- Мобильный dropdown категорий -->
             <div class="lg:hidden" x-data="{catOpen: false}">
                 <button @click="catOpen = !catOpen" @click.outside="catOpen = false"
-                        class="flex items-center gap-1 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50">
-                    <span>🗂️</span>
+                        class="flex items-center gap-1 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm transition-colors"
+                        :class="['__recent__','__favorites__'].includes(activeCat) ? 'border-amber-300 text-amber-600' : 'text-slate-600 hover:bg-slate-50'">
+                    <span x-text="activeCat === '__recent__' ? '🔄' : activeCat === '__favorites__' ? '⭐' : '🗂️'"></span>
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                     </svg>
                 </button>
-                <div x-show="catOpen" x-cloak class="absolute mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-48">
+                <div x-show="catOpen" x-cloak class="absolute mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-52">
+                    <!-- Спецкатегории -->
+                    <template x-if="recent.length > 0">
+                        <button @click="activeCat = '__recent__'; catOpen = false"
+                                :class="activeCat === '__recent__' ? 'text-amber-600 font-semibold bg-amber-50' : 'text-slate-700'"
+                                class="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-2">
+                            🔄 Недавние <span class="text-xs text-slate-400" x-text="'(' + recent.length + ')'"></span>
+                        </button>
+                    </template>
+                    <template x-if="favProducts.length > 0">
+                        <button @click="activeCat = '__favorites__'; catOpen = false"
+                                :class="activeCat === '__favorites__' ? 'text-yellow-600 font-semibold bg-yellow-50' : 'text-slate-700'"
+                                class="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-2">
+                            ⭐ Избранное <span class="text-xs text-slate-400" x-text="'(' + favProducts.length + ')'"></span>
+                        </button>
+                    </template>
+                    <div class="h-px bg-slate-100 mx-3 my-1" x-show="recent.length > 0 || favProducts.length > 0"></div>
                     <button @click="activeCat = ''; catOpen = false"
                             :class="activeCat === '' ? 'text-blue-600 font-semibold' : 'text-slate-700'"
                             class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50">Все товары</button>
@@ -120,10 +156,26 @@
             </div>
         </div>
 
+        <!-- Заголовок спецкатегорий -->
+        <div x-show="!loading && activeCat === '__recent__'" class="flex items-center gap-2">
+            <span class="text-base font-semibold text-slate-700">🔄 Недавние продажи</span>
+            <span class="text-xs text-slate-400" x-text="recent.length + ' товаров'"></span>
+        </div>
+        <div x-show="!loading && activeCat === '__favorites__'" class="flex items-center gap-2">
+            <span class="text-base font-semibold text-slate-700">⭐ Избранное</span>
+            <span class="text-xs text-slate-400" x-text="favProducts.length + ' товаров'"></span>
+        </div>
+
         <!-- Пусто -->
         <div x-show="!loading && filteredProducts.length === 0" class="flex flex-col items-center justify-center py-20 text-center">
-            <div class="text-4xl mb-3">📦</div>
-            <p class="text-slate-500 text-sm" x-text="search ? 'Ничего не найдено по «' + search + '»' : 'В этом магазине нет товаров в наличии'"></p>
+            <div class="text-4xl mb-3">
+                <span x-text="activeCat === '__favorites__' ? '⭐' : '📦'"></span>
+            </div>
+            <p class="text-slate-500 text-sm"
+               x-text="activeCat === '__favorites__' ? 'Нет избранных товаров — нажмите ⭐ на карточке товара'
+                      : activeCat === '__recent__' ? 'Ещё нет недавних продаж'
+                      : search ? 'Ничего не найдено по «' + search + '»'
+                      : 'В этом магазине нет товаров в наличии'"></p>
         </div>
 
         <!-- Сетка товаров -->
@@ -131,24 +183,38 @@
              class="grid gap-3"
              style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
             <template x-for="p in filteredProducts" :key="p.id">
-                <button @click="addToCart(p)"
-                        class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 text-left hover:border-blue-400 hover:shadow-md transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        :class="isInCart(p.id) ? 'border-blue-400 bg-blue-50/40 shadow-sm' : ''">
+                <div class="group relative bg-white border border-slate-200 rounded-2xl p-3.5 transition-all duration-150 hover:border-blue-400 hover:shadow-md"
+                     :class="isInCart(p.id) ? 'border-blue-400 bg-blue-50/40 shadow-sm' : ''">
+
+                    <!-- ⭐ Кнопка избранного -->
+                    <button @click.stop="toggleFavorite(p.id)"
+                            class="absolute top-2 left-2 text-base leading-none transition-colors z-10"
+                            :class="isFavorite(p.id) ? 'text-yellow-400' : 'text-slate-200 hover:text-yellow-300'"
+                            title="Избранное">★</button>
+
                     <!-- Бейдж количества в корзине -->
                     <div x-show="isInCart(p.id)"
                          class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shadow"
                          x-text="cartQty(p.id)"></div>
+
                     <!-- Остаток -->
                     <div class="absolute top-2.5 right-2.5 text-[10px] text-slate-400 font-medium"
                          x-text="p.stock + ' шт.'"></div>
-                    <!-- Категория -->
-                    <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 pr-6 truncate" x-text="p.category"></p>
-                    <!-- Название -->
-                    <p class="text-sm font-semibold text-slate-800 leading-tight mb-2 line-clamp-2 group-hover:text-blue-700 transition-colors"
-                       x-text="p.name" :title="p.name"></p>
-                    <!-- Цена -->
-                    <p class="text-base font-bold text-emerald-600" x-text="fmtPrice(p.price)"></p>
-                </button>
+
+                    <!-- Кликабельная область -->
+                    <button @click="addToCart(p)"
+                            class="w-full text-left mt-3 focus:outline-none">
+                        <!-- Категория -->
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wide mb-1 pr-1 truncate" x-text="p.category"></p>
+                        <!-- Название -->
+                        <p class="text-sm font-semibold text-slate-800 leading-tight mb-2 line-clamp-2 group-hover:text-blue-700 transition-colors"
+                           x-text="p.name" :title="p.name"></p>
+                        <!-- Цена + мотивация -->
+                        <p class="text-base font-bold text-emerald-600" x-text="fmtPrice(p.price)"></p>
+                        <p x-show="getMotivation(p.id)" class="text-[10px] text-indigo-500 font-medium mt-0.5"
+                           x-text="motivLabel(p.id, p.price)"></p>
+                    </button>
+                </div>
             </template>
         </div>
 
@@ -157,7 +223,7 @@
     </div>
 
     <!-- ── ПРАВАЯ ПАНЕЛЬ: корзина (только десктоп) ── -->
-    <div class="hidden lg:flex w-72 shrink-0 flex-col gap-3 sticky top-20">
+    <div class="hidden lg:flex w-80 shrink-0 flex-col gap-3 sticky top-20">
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <!-- Заголовок -->
             <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
@@ -177,15 +243,26 @@
                 <p class="text-xs">Нажмите на товар, чтобы добавить</p>
             </div>
             <!-- Список позиций -->
-            <div x-show="cart.length > 0" class="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+            <div x-show="cart.length > 0" class="divide-y divide-slate-50 max-h-[52vh] overflow-y-auto">
                 <template x-for="(item, idx) in cart" :key="item.id">
-                    <div class="px-4 py-3 flex flex-col gap-1.5">
+                    <div class="px-4 py-3 flex flex-col gap-2">
                         <div class="flex items-start justify-between gap-2">
                             <p class="text-sm font-medium text-slate-800 leading-tight flex-1 min-w-0 truncate"
                                x-text="item.name" :title="item.name"></p>
                             <button @click="removeFromCart(idx)"
                                     class="shrink-0 text-slate-300 hover:text-red-500 transition-colors text-base leading-none mt-0.5">×</button>
                         </div>
+                        <!-- Быстрые кнопки количества -->
+                        <div class="flex flex-wrap gap-1">
+                            <template x-for="q in quickQtys" :key="q">
+                                <button @click="setQty(idx, q)"
+                                        :disabled="q > item.stock"
+                                        :class="item.qty === q ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-600'"
+                                        class="w-8 h-7 rounded-lg border text-xs font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                        x-text="q"></button>
+                            </template>
+                        </div>
+                        <!-- Ручной ввод кол-ва + цена -->
                         <div class="flex items-center gap-2">
                             <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
                                 <button @click="changeQty(idx, -1)"
@@ -201,20 +278,28 @@
                                    class="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-sm text-right font-medium focus:outline-none focus:ring-1 focus:ring-blue-400">
                             <span class="text-xs text-slate-400 shrink-0">₽</span>
                         </div>
-                        <p class="text-xs text-right font-semibold text-emerald-600"
-                           x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+                        <!-- Сумма + мотивация -->
+                        <div class="flex items-center justify-between">
+                            <p class="text-xs font-semibold text-emerald-600"
+                               x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+                            <p x-show="calcMotivation(item) > 0"
+                               class="text-xs text-indigo-500 font-medium"
+                               x-text="'🎯 +' + fmtPrice(calcMotivation(item))"></p>
+                        </div>
                     </div>
                 </template>
             </div>
             <!-- Итог -->
             <div x-show="cart.length > 0" class="px-4 py-3 border-t border-slate-100 bg-slate-50">
-                <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center justify-between mb-1">
                     <span class="text-sm text-slate-500">Итого:</span>
                     <span class="text-lg font-bold text-slate-900" x-text="fmtPrice(cartTotal)"></span>
                 </div>
-                <div class="flex items-center justify-between mb-3 text-xs text-slate-400">
-                    <span x-text="cartCount + ' ед. товара'"></span>
-                    <span x-text="cart.length + ' наим.'"></span>
+                <div class="flex items-center justify-between mb-2 text-xs text-slate-400">
+                    <span x-text="cartCount + ' ед. · ' + cart.length + ' наим.'"></span>
+                    <span x-show="totalMotivation > 0"
+                          class="text-indigo-500 font-semibold"
+                          x-text="'🎯 ' + fmtPrice(totalMotivation)"></span>
                 </div>
                 <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
                 <button @click="checkout()"
@@ -237,23 +322,19 @@
             </div>
         </div>
         <p class="text-xs text-slate-400 text-center px-2">
-            Нажмите на товар чтобы добавить в корзину. Повторный клик увеличивает количество.
+            Нажмите на товар чтобы добавить в корзину · ★ для избранного
         </p>
     </div>
 
 </div><!-- /flex -->
 
 <!-- ══════════════════════════════════════
-     МОБИЛЬНАЯ КОРЗИНА (только мобайл)
-     фиксированный бар + шторка снизу
+     МОБИЛЬНАЯ КОРЗИНА
 ══════════════════════════════════════ -->
-
-<!-- Оверлей шторки -->
 <div x-show="mobileCartOpen" x-cloak
      class="fixed inset-0 z-40 bg-black/40 lg:hidden"
      @click="mobileCartOpen = false"></div>
 
-<!-- Шторка корзины -->
 <div x-show="mobileCartOpen" x-cloak
      x-transition:enter="transition ease-out duration-200"
      x-transition:enter-start="translate-y-full"
@@ -262,9 +343,8 @@
      x-transition:leave-start="translate-y-0"
      x-transition:leave-end="translate-y-full"
      class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden"
-     style="max-height: 80vh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px)">
+     style="max-height: 82vh; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px)">
 
-    <!-- Ручка + заголовок -->
     <div class="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-100">
         <div class="w-10 h-1 rounded-full bg-slate-200 absolute left-1/2 -translate-x-1/2 top-2"></div>
         <h2 class="text-sm font-bold text-slate-800 pt-2">🛒 Корзина</h2>
@@ -276,22 +356,30 @@
         </div>
     </div>
 
-    <!-- Пустая корзина -->
     <div x-show="cart.length === 0" class="px-5 py-10 text-center text-slate-400">
         <div class="text-4xl mb-2">🛒</div>
         <p class="text-sm">Нажмите на товар, чтобы добавить</p>
     </div>
 
-    <!-- Список позиций -->
     <div x-show="cart.length > 0" class="overflow-y-auto divide-y divide-slate-50"
-         style="max-height: calc(80vh - 210px)">
+         style="max-height: calc(82vh - 220px)">
         <template x-for="(item, idx) in cart" :key="item.id">
-            <div class="px-5 py-3 flex flex-col gap-1.5">
+            <div class="px-5 py-3 flex flex-col gap-2">
                 <div class="flex items-start justify-between gap-2">
                     <p class="text-sm font-medium text-slate-800 leading-tight flex-1 truncate"
                        x-text="item.name" :title="item.name"></p>
                     <button @click="removeFromCart(idx)"
                             class="shrink-0 text-slate-300 hover:text-red-500 transition-colors text-xl leading-none">×</button>
+                </div>
+                <!-- Быстрые кнопки количества -->
+                <div class="flex flex-wrap gap-1.5">
+                    <template x-for="q in quickQtys" :key="q">
+                        <button @click="setQty(idx, q)"
+                                :disabled="q > item.stock"
+                                :class="item.qty === q ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'"
+                                class="w-9 h-8 rounded-lg border text-sm font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                x-text="q"></button>
+                    </template>
                 </div>
                 <div class="flex items-center gap-2">
                     <div class="flex items-center border border-slate-200 rounded-lg overflow-hidden">
@@ -308,17 +396,24 @@
                            class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-right font-medium focus:outline-none focus:ring-1 focus:ring-blue-400">
                     <span class="text-xs text-slate-400">₽</span>
                 </div>
-                <p class="text-xs text-right font-semibold text-emerald-600"
-                   x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+                <div class="flex items-center justify-between">
+                    <p class="text-xs font-semibold text-emerald-600"
+                       x-text="'= ' + fmtPrice(item.qty * item.price)"></p>
+                    <p x-show="calcMotivation(item) > 0"
+                       class="text-xs text-indigo-500 font-medium"
+                       x-text="'🎯 +' + fmtPrice(calcMotivation(item))"></p>
+                </div>
             </div>
         </template>
     </div>
 
-    <!-- Итог + кнопка оплаты -->
     <div x-show="cart.length > 0" class="px-5 py-4 border-t border-slate-100 bg-slate-50/80">
         <div class="flex items-center justify-between mb-1">
             <span class="text-sm text-slate-500" x-text="cartCount + ' ед. · ' + cart.length + ' наим.'"></span>
             <span class="text-lg font-bold text-slate-900" x-text="fmtPrice(cartTotal)"></span>
+        </div>
+        <div class="flex justify-end mb-2" x-show="totalMotivation > 0">
+            <span class="text-xs text-indigo-500 font-semibold" x-text="'🎯 Ваша комиссия: ' + fmtPrice(totalMotivation)"></span>
         </div>
         <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
         <button @click="checkout()"
@@ -344,18 +439,21 @@
 <!-- Фиксированный бар корзины (мобайл) -->
 <div class="fixed bottom-16 inset-x-0 z-30 px-4 lg:hidden"
      style="padding-bottom: env(safe-area-inset-bottom, 0px)">
-    <!-- Пустая корзина — подсказка -->
     <div x-show="cart.length === 0 && !loading && allProducts.length > 0"
          class="bg-white/90 backdrop-blur border border-slate-200 rounded-2xl px-4 py-2.5 text-center text-xs text-slate-400 shadow-sm">
         Нажмите на товар, чтобы добавить в корзину
     </div>
-    <!-- Корзина с товарами — кнопка открытия -->
     <button x-show="cart.length > 0"
             @click="mobileCartOpen = true"
             class="w-full flex items-center justify-between bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl px-5 py-3.5 shadow-lg transition-colors">
         <div class="flex items-center gap-2">
             <span class="text-xl">🛒</span>
-            <span class="font-bold text-sm" x-text="cartCount + '\u00a0ед. · ' + cart.length + '\u00a0поз.'"></span>
+            <div>
+                <span class="font-bold text-sm" x-text="cartCount + '\u00a0ед. · ' + cart.length + '\u00a0поз.'"></span>
+                <span x-show="totalMotivation > 0"
+                      class="text-emerald-200 text-xs ml-2"
+                      x-text="'🎯 +' + fmtPrice(totalMotivation)"></span>
+            </div>
         </div>
         <span class="font-bold text-base" x-text="fmtPrice(cartTotal)"></span>
     </button>
@@ -367,7 +465,10 @@
     <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm z-10 p-6 text-center" @click.stop>
         <div class="text-5xl mb-3">✅</div>
         <h3 class="text-lg font-bold text-slate-800 mb-1">Продажа проведена!</h3>
-        <p class="text-sm text-slate-500 mb-2" x-text="successData && successData.message"></p>
+        <p class="text-sm text-slate-500 mb-1" x-text="successData && successData.message"></p>
+        <p x-show="successData && successData.motivation > 0"
+           class="text-sm text-indigo-600 font-semibold mb-2"
+           x-text="successData ? '🎯 Ваша комиссия: ' + fmtPrice(successData.motivation) : ''"></p>
         <template x-if="successData && successData.errors && successData.errors.length > 0">
             <div class="mb-3 text-left p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p class="text-xs font-semibold text-amber-700 mb-1">С предупреждениями:</p>
@@ -410,18 +511,45 @@ function posApp() {
         successData: null,
         csrfToken: '{{ csrf_token }}',
 
+        /* Избранное / Недавние / Мотивация */
+        favorites: [],      /* Set of product IDs (stored as Set after init) */
+        recent: [],         /* [{id,name,price,category,stock}] */
+        motivations: {},    /* {product_id_str: {type,value}} */
+        quickQtys: [1, 2, 3, 5, 10, 20, 50],
+
         init() {
-            if (this.shop) this.loadProducts();
+            this.favorites = new Set();
+            if (this.shop) {
+                this.loadProducts();
+                this.loadMeta();
+            }
+        },
+
+        onShopChange() {
+            this.loadProducts();
+            this.loadMeta();
         },
 
         get categoryList() {
             return Object.keys(this.categories).sort((a, b) => a.localeCompare(b, 'ru'));
         },
 
+        get favProducts() {
+            if (!this.favorites || !this.favorites.size) return [];
+            return this.allProducts.filter(p => this.favorites.has(p.id));
+        },
+
         get filteredProducts() {
-            let list = this.activeCat
-                ? (this.categories[this.activeCat] || [])
-                : this.allProducts;
+            let list;
+            if (this.activeCat === '__recent__') {
+                list = this.recent.slice();
+            } else if (this.activeCat === '__favorites__') {
+                list = this.favProducts;
+            } else {
+                list = this.activeCat
+                    ? (this.categories[this.activeCat] || [])
+                    : this.allProducts;
+            }
             if (this.search.trim()) {
                 const q = this.search.toLowerCase().trim();
                 list = list.filter(p => p.name.toLowerCase().includes(q));
@@ -437,6 +565,10 @@ function posApp() {
             return this.cart.reduce((s, i) => s + i.qty * i.price, 0);
         },
 
+        get totalMotivation() {
+            return this.cart.reduce((s, i) => s + this.calcMotivation(i), 0);
+        },
+
         loadProducts() {
             if (!this.shop) { this.allProducts = []; this.categories = {}; return; }
             this.loading = true;
@@ -450,6 +582,66 @@ function posApp() {
                     this.loading = false;
                 })
                 .catch(() => { this.loading = false; });
+        },
+
+        loadMeta() {
+            if (!this.shop) return;
+            fetch('/api/pos/meta?shop=' + encodeURIComponent(this.shop))
+                .then(r => r.json())
+                .then(data => {
+                    this.favorites = new Set(data.favorites || []);
+                    this.recent = data.recent || [];
+                    this.motivations = data.motivations || {};
+                })
+                .catch(() => {});
+        },
+
+        /* ── Мотивация ── */
+        getMotivation(productId) {
+            return this.motivations[String(productId)] || null;
+        },
+
+        motivLabel(productId, price) {
+            const m = this.getMotivation(productId);
+            if (!m) return '';
+            if (m.type === 'percent') {
+                return '🎯 ' + m.value + '% = ' + this.fmtPrice(price * m.value / 100);
+            }
+            return '🎯 ' + this.fmtPrice(m.value);
+        },
+
+        calcMotivation(item) {
+            const m = this.getMotivation(item.id);
+            if (!m) return 0;
+            if (m.type === 'percent') return item.qty * item.price * m.value / 100;
+            return item.qty * m.value;
+        },
+
+        /* ── Избранное ── */
+        isFavorite(productId) {
+            return this.favorites && this.favorites.has(productId);
+        },
+
+        toggleFavorite(productId) {
+            const body = new URLSearchParams({
+                csrf_token: this.csrfToken,
+                product_id: productId,
+            });
+            fetch('/api/pos/favorite', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    const newFav = new Set(this.favorites);
+                    if (data.is_favorite) newFav.add(productId);
+                    else newFav.delete(productId);
+                    this.favorites = newFav;
+                }
+            })
+            .catch(() => {});
         },
 
         fmtPrice(n) {
@@ -468,9 +660,7 @@ function posApp() {
         addToCart(product) {
             const existing = this.cart.find(i => i.id === product.id);
             if (existing) {
-                if (existing.qty < product.stock) {
-                    existing.qty++;
-                }
+                if (existing.qty < product.stock) existing.qty++;
             } else {
                 this.cart.push({
                     id: product.id,
@@ -480,6 +670,14 @@ function posApp() {
                     stock: product.stock,
                 });
             }
+        },
+
+        setQty(idx, qty) {
+            const item = this.cart[idx];
+            if (!item) return;
+            if (qty < 1) { this.cart.splice(idx, 1); return; }
+            if (qty > item.stock) return;
+            item.qty = qty;
         },
 
         removeFromCart(idx) {
@@ -507,11 +705,11 @@ function posApp() {
             this.checkoutError = '';
             this.checkoutLoading = true;
 
+            /* Capture motivation total before clearing cart */
+            const motivationTotal = this.totalMotivation;
+
             const items = this.cart.map(i => ({
-                id: i.id,
-                name: i.name,
-                qty: i.qty,
-                price: i.price,
+                id: i.id, name: i.name, qty: i.qty, price: i.price,
             }));
 
             const body = new URLSearchParams({
@@ -532,8 +730,10 @@ function posApp() {
                 if (data.ok) {
                     this.cart = [];
                     this.mobileCartOpen = false;
+                    data.motivation = motivationTotal;
                     this.successData = data;
                     this.loadProducts();
+                    this.loadMeta(); /* обновить недавние после продажи */
                 } else {
                     this.checkoutError = data.error || 'Ошибка проведения';
                 }
