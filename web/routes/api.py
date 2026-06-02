@@ -81,6 +81,11 @@ def my_notifications(request: Request, limit: int = 20):
             return {"ok": True, "unread": 0, "items": []}
         user_db_id = row[0]
 
+        unread = conn.execute(
+            "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
+            (user_db_id,),
+        ).fetchone()[0]
+
         rows = conn.execute(
             """
             SELECT id, notification_type, message, is_read, created_at
@@ -92,7 +97,6 @@ def my_notifications(request: Request, limit: int = 20):
             (user_db_id, min(limit, 50)),
         ).fetchall()
 
-        unread = sum(1 for r in rows if not r[3])
         conn.close()
 
         items = [
