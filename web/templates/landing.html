@@ -8,23 +8,68 @@
     <meta property="og:title" content="DailySales — Управление продажами в Telegram">
     <meta property="og:description" content="Продажи, аналитика, команда и мотивация — прямо в Telegram. Начните бесплатно.">
     <meta property="og:type" content="website">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
                 extend: {
+                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
                     animation: {
-                        'float': 'float 6s ease-in-out infinite',
+                        'float': 'float 7s ease-in-out infinite',
+                        'float-delayed': 'float 7s ease-in-out 3.5s infinite',
                         'pulse-slow': 'pulse-slow 2.5s ease-in-out infinite',
+                        'gradient-shift': 'gradient-shift 8s ease infinite',
+                        'shimmer': 'shimmer 2.5s linear infinite',
+                        'spin-slow': 'spin 12s linear infinite',
+                        'bounce-soft': 'bounce-soft 2s ease-in-out infinite',
+                        'slide-up': 'slide-up 0.6s ease forwards',
+                        'fade-in': 'fade-in 0.8s ease forwards',
+                        'counter-up': 'counter-up 0.4s ease forwards',
+                        'orb1': 'orb1 14s ease-in-out infinite',
+                        'orb2': 'orb2 18s ease-in-out infinite',
+                        'orb3': 'orb3 11s ease-in-out infinite',
                     },
                     keyframes: {
                         'float': {
-                            '0%, 100%': { transform: 'translateY(0px)' },
-                            '50%': { transform: 'translateY(-8px)' },
+                            '0%,100%': { transform: 'translateY(0px) rotate(0deg)' },
+                            '50%': { transform: 'translateY(-10px) rotate(0.5deg)' },
                         },
                         'pulse-slow': {
-                            '0%, 100%': { opacity: '1' },
-                            '50%': { opacity: '0.6' },
+                            '0%,100%': { opacity: '1', transform: 'scale(1)' },
+                            '50%': { opacity: '0.5', transform: 'scale(0.95)' },
+                        },
+                        'shimmer': {
+                            '0%': { backgroundPosition: '-200% center' },
+                            '100%': { backgroundPosition: '200% center' },
+                        },
+                        'bounce-soft': {
+                            '0%,100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-6px)' },
+                        },
+                        'slide-up': {
+                            '0%': { opacity: '0', transform: 'translateY(24px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        'fade-in': {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        'orb1': {
+                            '0%,100%': { transform: 'translate(0,0) scale(1)' },
+                            '33%': { transform: 'translate(80px,-60px) scale(1.15)' },
+                            '66%': { transform: 'translate(-50px,40px) scale(0.9)' },
+                        },
+                        'orb2': {
+                            '0%,100%': { transform: 'translate(0,0) scale(1)' },
+                            '33%': { transform: 'translate(-70px,50px) scale(1.1)' },
+                            '66%': { transform: 'translate(60px,-70px) scale(0.85)' },
+                        },
+                        'orb3': {
+                            '0%,100%': { transform: 'translate(0,0) scale(1)' },
+                            '50%': { transform: 'translate(40px,60px) scale(1.2)' },
                         },
                     }
                 }
@@ -32,113 +77,253 @@
         }
     </script>
     <style>
+        * { font-family: 'Inter', system-ui, sans-serif; }
+
+        /* ── Hero background ── */
+        .hero-bg {
+            background: #020617;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* ── Dot grid ── */
+        .dot-grid {
+            background-image: radial-gradient(circle, rgba(255,255,255,.07) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
         /* ── Gradient text ── */
         .gradient-text {
-            background: linear-gradient(135deg, #60a5fa 0%, #818cf8 55%, #c084fc 100%);
+            background: linear-gradient(135deg, #60a5fa 0%, #818cf8 50%, #c084fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .gradient-text-green {
+            background: linear-gradient(135deg, #34d399 0%, #60a5fa 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
-        /* ── Hero dark background with radial blobs ── */
-        .hero-bg {
-            background:
-                radial-gradient(ellipse 80% 50% at 20% 20%, rgba(59,130,246,.18) 0%, transparent 60%),
-                radial-gradient(ellipse 60% 40% at 80% 10%, rgba(168,85,247,.12) 0%, transparent 55%),
-                #020617;
-        }
-
-        /* ── Subtle lift on feature cards ── */
-        .card-lift {
-            transition: transform .2s ease, box-shadow .2s ease;
-        }
-        .card-lift:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(0,0,0,.12);
-        }
-
-        /* ── Glowing primary CTA ── */
+        /* ── Shimmer CTA ── */
         .btn-primary {
-            background: linear-gradient(135deg, #2563eb, #4f46e5);
-            transition: filter .2s ease, transform .2s ease, box-shadow .2s ease;
-            box-shadow: 0 0 20px rgba(59,130,246,.35);
+            background: linear-gradient(90deg, #1d4ed8, #4f46e5, #7c3aed, #4f46e5, #1d4ed8);
+            background-size: 300% auto;
+            animation: shimmer 3s linear infinite;
+            transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+            box-shadow: 0 0 24px rgba(79,70,229,.45), 0 4px 16px rgba(0,0,0,.3);
         }
         .btn-primary:hover {
-            filter: brightness(1.1);
-            transform: translateY(-2px);
-            box-shadow: 0 0 36px rgba(59,130,246,.55);
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 0 48px rgba(79,70,229,.65), 0 8px 24px rgba(0,0,0,.35);
+            filter: brightness(1.08);
+        }
+        .btn-ghost {
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.1);
+            transition: all .2s ease;
+            backdrop-filter: blur(12px);
+        }
+        .btn-ghost:hover {
+            background: rgba(255,255,255,.08);
+            border-color: rgba(255,255,255,.2);
+            transform: translateY(-1px);
         }
 
-        /* ── Pricing popular card ── */
+        /* ── Card glassmorphism ── */
+        .card-glass {
+            background: rgba(255,255,255,.03);
+            border: 1px solid rgba(255,255,255,.06);
+            backdrop-filter: blur(16px);
+            transition: all .3s ease;
+        }
+        .card-glass:hover {
+            background: rgba(255,255,255,.06);
+            border-color: rgba(255,255,255,.12);
+            transform: translateY(-4px);
+            box-shadow: 0 24px 64px rgba(0,0,0,.3);
+        }
+
+        /* ── Feature cards (light section) ── */
+        .feat-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            transition: all .3s cubic-bezier(.4,0,.2,1);
+            position: relative;
+            overflow: hidden;
+        }
+        .feat-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(96,165,250,.05), rgba(129,140,248,.05));
+            opacity: 0;
+            transition: opacity .3s ease;
+        }
+        .feat-card:hover {
+            border-color: rgba(96,165,250,.4);
+            box-shadow: 0 0 0 1px rgba(96,165,250,.2), 0 20px 60px rgba(96,165,250,.1);
+            transform: translateY(-6px);
+        }
+        .feat-card:hover::before { opacity: 1; }
+
+        /* ── Feat icon ── */
+        .feat-icon {
+            width: 52px; height: 52px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 14px;
+            font-size: 24px;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        /* ── Pricing popular ── */
         .card-popular {
             background: linear-gradient(160deg, #1d4ed8 0%, #4338ca 100%);
+            box-shadow: 0 0 0 1px rgba(96,165,250,.3), 0 32px 80px rgba(29,78,216,.35);
         }
 
-        /* ── Smooth scroll offset ── */
-        :target { scroll-margin-top: 80px; }
+        /* ── Scroll reveal ── */
+        .reveal {
+            opacity: 0;
+            transform: translateY(32px);
+            transition: opacity .7s ease, transform .7s cubic-bezier(.4,0,.2,1);
+        }
+        .reveal.visible { opacity: 1; transform: translateY(0); }
+        .reveal-scale {
+            opacity: 0; transform: scale(.94);
+            transition: opacity .6s ease, transform .6s cubic-bezier(.4,0,.2,1);
+        }
+        .reveal-scale.visible { opacity: 1; transform: scale(1); }
+        .reveal-left {
+            opacity: 0; transform: translateX(-24px);
+            transition: opacity .7s ease, transform .7s ease;
+        }
+        .reveal-left.visible { opacity: 1; transform: translateX(0); }
+        .reveal-right {
+            opacity: 0; transform: translateX(24px);
+            transition: opacity .7s ease, transform .7s ease;
+        }
+        .reveal-right.visible { opacity: 1; transform: translateX(0); }
 
-        /* ── Feature icon container ── */
-        .feat-icon {
-            width: 48px;
-            height: 48px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 12px;
-            font-size: 22px;
-            flex-shrink: 0;
+        /* stagger delays */
+        .d1 { transition-delay: .05s; }
+        .d2 { transition-delay: .12s; }
+        .d3 { transition-delay: .19s; }
+        .d4 { transition-delay: .26s; }
+        .d5 { transition-delay: .33s; }
+        .d6 { transition-delay: .40s; }
+        .d7 { transition-delay: .47s; }
+        .d8 { transition-delay: .54s; }
+        .d9 { transition-delay: .61s; }
+
+        /* ── Scroll progress ── */
+        #scroll-progress {
+            position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);
+            transform-origin: left;
+            transform: scaleX(0);
+            transition: transform .1s linear;
         }
 
-        /* ── Step connector line ── */
-        .step-line {
-            position: absolute;
-            top: 32px;
-            left: calc(50% + 48px);
-            right: calc(-50% + 48px);
+        /* ── Navbar scrolled ── */
+        nav.scrolled {
+            background: rgba(2,6,23,.95) !important;
+            box-shadow: 0 1px 0 rgba(255,255,255,.06);
+        }
+
+        /* ── Step connector ── */
+        .step-connector {
+            position: absolute; top: 32px;
+            left: calc(50% + 48px); right: calc(-50% + 48px);
             height: 1px;
-            background: linear-gradient(90deg, #bfdbfe, transparent);
+            background: linear-gradient(90deg, rgba(96,165,250,.5), rgba(96,165,250,.1));
         }
+
+        /* ── Glow badge ── */
+        .badge-glow {
+            background: rgba(255,255,255,.06);
+            border: 1px solid rgba(255,255,255,.12);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 0 20px rgba(52,211,153,.1);
+        }
+
+        /* ── Floating card in hero ── */
+        .float-card {
+            background: rgba(15,23,42,.85);
+            border: 1px solid rgba(255,255,255,.1);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.5);
+        }
+
+        /* ── Stats card ── */
+        .stat-card {
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.07);
+            border-radius: 16px;
+            transition: all .3s ease;
+        }
+        .stat-card:hover {
+            background: rgba(255,255,255,.07);
+            border-color: rgba(255,255,255,.14);
+            transform: translateY(-2px);
+        }
+
+        /* ── Glow underline on nav links ── */
+        .nav-link {
+            position: relative; color: rgba(148,163,184,1);
+            transition: color .2s;
+        }
+        .nav-link::after {
+            content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+            height: 1px; background: #60a5fa;
+            transform: scaleX(0); transition: transform .2s;
+        }
+        .nav-link:hover { color: #fff; }
+        .nav-link:hover::after { transform: scaleX(1); }
+
+        /* ── CTA dark section ── */
+        .cta-bg {
+            background: linear-gradient(160deg, #020617 0%, #0c1445 50%, #020617 100%);
+        }
+
+        :target { scroll-margin-top: 80px; }
     </style>
 </head>
 <body class="antialiased text-slate-900 bg-white">
 
+<!-- Scroll progress bar -->
+<div id="scroll-progress"></div>
+
 <!-- ══════════════════════════════════════════════════════
      NAV
 ══════════════════════════════════════════════════════ -->
-<nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/85 backdrop-blur-xl border-b border-white/[0.06]">
+<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-slate-950/70 backdrop-blur-xl border-b border-white/[0.06] transition-all duration-300">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-
-        <!-- Logo -->
         <a href="/" class="flex items-center gap-3 group">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform">DS</div>
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/40 group-hover:scale-110 group-hover:shadow-blue-500/60 transition-all duration-200">DS</div>
             <span class="text-white font-semibold text-lg tracking-tight">DailySales</span>
         </a>
 
-        <!-- Desktop links -->
-        <div class="hidden md:flex items-center gap-8 text-sm text-slate-400">
-            <a href="#features" class="hover:text-white transition-colors">Возможности</a>
-            <a href="#how"      class="hover:text-white transition-colors">Как работает</a>
-            <a href="#pricing"  class="hover:text-white transition-colors">Тарифы</a>
+        <div class="hidden md:flex items-center gap-8 text-sm">
+            <a href="#features" class="nav-link">Возможности</a>
+            <a href="#how"      class="nav-link">Как работает</a>
+            <a href="#pricing"  class="nav-link">Тарифы</a>
         </div>
 
-        <!-- Actions -->
         <div class="flex items-center gap-3">
-            <a href="/dashboard" class="hidden sm:inline text-sm text-slate-400 hover:text-white transition-colors px-4 py-2">
-                Войти
-            </a>
+            <a href="/dashboard" class="hidden sm:inline text-sm text-slate-400 hover:text-white transition-colors px-4 py-2">Войти</a>
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank"
                class="btn-primary text-white text-sm font-semibold px-5 py-2 rounded-lg inline-flex items-center gap-2">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
-                </svg>
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
                 Попробовать
             </a>
             {% else %}
-            <a href="/dashboard"
-               class="btn-primary text-white text-sm font-semibold px-5 py-2 rounded-lg">
-                Войти
-            </a>
+            <a href="/dashboard" class="btn-primary text-white text-sm font-semibold px-5 py-2 rounded-lg">Войти</a>
             {% endif %}
         </div>
     </div>
@@ -148,62 +333,91 @@
 <!-- ══════════════════════════════════════════════════════
      HERO
 ══════════════════════════════════════════════════════ -->
-<section class="hero-bg pt-40 pb-28 px-4 text-center relative overflow-hidden">
+<section class="hero-bg pt-36 pb-24 px-4 text-center relative">
 
-    <!-- Blurred blobs -->
-    <div class="absolute top-16 left-1/4 w-[500px] h-[500px] bg-blue-600/8 rounded-full blur-3xl pointer-events-none -translate-x-1/2"></div>
-    <div class="absolute top-32 right-1/4 w-80 h-80 bg-purple-600/8 rounded-full blur-3xl pointer-events-none translate-x-1/2"></div>
+    <!-- Dot grid overlay -->
+    <div class="dot-grid absolute inset-0 pointer-events-none opacity-60"></div>
 
-    <div class="max-w-4xl mx-auto relative z-10">
+    <!-- Animated gradient orbs -->
+    <div class="absolute top-20 left-[15%] w-[600px] h-[600px] rounded-full pointer-events-none animate-orb1"
+         style="background:radial-gradient(ellipse,rgba(59,130,246,.18) 0%,transparent 70%);filter:blur(1px)"></div>
+    <div class="absolute top-40 right-[10%] w-[500px] h-[500px] rounded-full pointer-events-none animate-orb2"
+         style="background:radial-gradient(ellipse,rgba(168,85,247,.14) 0%,transparent 70%);filter:blur(1px)"></div>
+    <div class="absolute bottom-20 left-[35%] w-[400px] h-[400px] rounded-full pointer-events-none animate-orb3"
+         style="background:radial-gradient(ellipse,rgba(52,211,153,.08) 0%,transparent 70%);filter:blur(1px)"></div>
+
+    <!-- Bottom fade -->
+    <div class="absolute bottom-0 left-0 right-0 h-32 pointer-events-none"
+         style="background:linear-gradient(to bottom,transparent,#020617)"></div>
+
+    <div class="max-w-5xl mx-auto relative z-10">
 
         <!-- Badge -->
-        <div class="inline-flex items-center gap-2.5 bg-white/[0.06] border border-white/[0.1] rounded-full px-4 py-1.5 text-sm text-slate-300 mb-10 backdrop-blur-sm">
-            <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow"></span>
+        <div class="inline-flex items-center gap-2.5 badge-glow rounded-full px-4 py-1.5 text-sm text-slate-300 mb-10"
+             style="animation:slide-up .6s ease both">
+            <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow shadow-sm shadow-emerald-400/60"></span>
             14 дней Премиум — бесплатно, без карты
         </div>
 
         <!-- Headline -->
-        <h1 class="text-5xl sm:text-6xl lg:text-[72px] font-extrabold text-white leading-[1.08] tracking-tight mb-6">
+        <h1 class="text-5xl sm:text-6xl lg:text-[76px] font-extrabold text-white leading-[1.06] tracking-tight mb-6"
+            style="animation:slide-up .7s .1s ease both">
             Управляйте<br>
             магазином&nbsp;<span class="gradient-text">в Telegram</span>
         </h1>
 
         <!-- Sub -->
-        <p class="text-xl sm:text-2xl text-slate-400 leading-relaxed max-w-2xl mx-auto mb-12">
+        <p class="text-xl sm:text-2xl text-slate-400 leading-relaxed max-w-2xl mx-auto mb-12"
+           style="animation:slide-up .7s .2s ease both">
             Перестаньте узнавать итоги дня из вечерних звонков.
-            Продажи, остатки, команда и аналитика&nbsp;— в одном Telegram-боте.
+            Продажи, остатки, команда и аналитика&nbsp;— в одном боте.
         </p>
 
         <!-- CTAs -->
-        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center"
+             style="animation:slide-up .7s .3s ease both">
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank"
-               class="btn-primary text-white font-semibold px-9 py-4 rounded-xl text-base inline-flex items-center gap-2.5">
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
-                </svg>
+               class="btn-primary text-white font-bold px-9 py-4 rounded-xl text-base inline-flex items-center gap-2.5">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
                 Начать в Telegram
             </a>
             {% else %}
-            <a href="/dashboard"
-               class="btn-primary text-white font-semibold px-9 py-4 rounded-xl text-base">
-                Начать бесплатно
-            </a>
+            <a href="/dashboard" class="btn-primary text-white font-bold px-9 py-4 rounded-xl text-base">Начать бесплатно</a>
             {% endif %}
-
-            <a href="#features"
-               class="text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base border border-white/10 hover:border-white/20 transition-all inline-flex items-center gap-2">
+            <a href="#features" class="btn-ghost text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base inline-flex items-center gap-2">
                 Узнать больше
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
+                <svg class="w-4 h-4 animate-bounce-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </a>
         </div>
     </div>
 
-    <!-- Browser mockup -->
-    <div class="mt-24 max-w-5xl mx-auto relative z-10 animate-float">
-        <div class="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-1">
+    <!-- Dashboard mockup with floating cards -->
+    <div class="mt-20 max-w-5xl mx-auto relative z-10 animate-float" style="animation-delay:.5s">
+
+        <!-- Floating notification card (left) -->
+        <div class="absolute -left-4 sm:-left-10 top-8 float-card px-4 py-3 text-left w-52 animate-float" style="animation-delay:1s;animation-duration:6s">
+            <div class="flex items-center gap-2.5 mb-1.5">
+                <div class="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">DS</div>
+                <span class="text-xs text-slate-400 font-medium">DailySales</span>
+            </div>
+            <p class="text-xs text-white font-semibold leading-snug">🎯 84% плана выполнено</p>
+            <p class="text-xs text-slate-400 mt-0.5">Магазин Центр · сегодня</p>
+        </div>
+
+        <!-- Floating stat card (right) -->
+        <div class="absolute -right-4 sm:-right-10 top-16 float-card px-4 py-3 text-left w-44 animate-float" style="animation-delay:2.5s;animation-duration:8s">
+            <div class="text-xs text-slate-400 mb-1">Выручка сегодня</div>
+            <div class="text-xl font-extrabold text-white">47 800 ₽</div>
+            <div class="flex items-center gap-1 mt-1">
+                <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                <span class="text-xs text-emerald-400 font-semibold">+23%</span>
+                <span class="text-xs text-slate-500">vs вчера</span>
+            </div>
+        </div>
+
+        <!-- Main mockup frame -->
+        <div class="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-1 shadow-2xl shadow-black/50">
             <div class="bg-slate-900 rounded-xl overflow-hidden">
 
                 <!-- Browser chrome -->
@@ -213,101 +427,109 @@
                         <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
                         <div class="w-3 h-3 rounded-full bg-emerald-500/80"></div>
                     </div>
-                    <div class="flex-1 mx-3 bg-slate-800 rounded-md px-3 py-1 text-xs text-slate-500 text-left flex items-center gap-2">
-                        <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <div class="flex-1 mx-3 bg-slate-800/80 rounded-md px-3 py-1.5 text-xs text-slate-500 text-left flex items-center gap-2">
+                        <svg class="w-3 h-3 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                         dailysales.app/dashboard
+                    </div>
+                    <div class="flex gap-1.5 opacity-40">
+                        <div class="w-6 h-1.5 rounded bg-slate-700"></div>
+                        <div class="w-4 h-1.5 rounded bg-slate-700"></div>
                     </div>
                 </div>
 
                 <!-- Mock dashboard -->
-                <div class="grid grid-cols-12 min-h-[280px]">
+                <div class="grid grid-cols-12 min-h-[300px]">
 
                     <!-- Sidebar -->
-                    <div class="col-span-3 bg-slate-950 border-r border-white/[0.05] p-4 space-y-1.5">
-                        <div class="h-7 bg-slate-800 rounded-lg mb-5 flex items-center px-2 gap-2">
-                            <div class="w-4 h-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded"></div>
+                    <div class="col-span-3 bg-slate-950 border-r border-white/[0.04] p-4 space-y-1">
+                        <div class="h-8 bg-slate-800/80 rounded-lg mb-5 flex items-center px-3 gap-2">
+                            <div class="w-4 h-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-md flex-shrink-0"></div>
                             <div class="w-16 h-2 bg-slate-600 rounded"></div>
                         </div>
-                        <div class="h-7 bg-blue-600/25 border border-blue-500/20 rounded-lg flex items-center px-2 gap-2">
-                            <div class="w-3 h-3 bg-blue-400/60 rounded"></div>
-                            <div class="w-14 h-2 bg-blue-400/50 rounded"></div>
+                        <div class="h-8 bg-blue-600/20 border border-blue-500/20 rounded-lg flex items-center px-3 gap-2">
+                            <div class="w-3 h-3 bg-blue-400/60 rounded flex-shrink-0"></div>
+                            <div class="w-14 h-2 bg-blue-400/40 rounded"></div>
                         </div>
-                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
-                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                        <div class="h-8 rounded-lg flex items-center px-3 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded flex-shrink-0"></div>
                             <div class="w-12 h-2 bg-slate-700 rounded"></div>
                         </div>
-                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
-                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                        <div class="h-8 rounded-lg flex items-center px-3 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded flex-shrink-0"></div>
                             <div class="w-16 h-2 bg-slate-700 rounded"></div>
                         </div>
-                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
-                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                        <div class="h-8 rounded-lg flex items-center px-3 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded flex-shrink-0"></div>
                             <div class="w-10 h-2 bg-slate-700 rounded"></div>
                         </div>
-                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
-                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                        <div class="h-8 rounded-lg flex items-center px-3 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded flex-shrink-0"></div>
                             <div class="w-18 h-2 bg-slate-700 rounded"></div>
                         </div>
                     </div>
 
                     <!-- Main content -->
-                    <div class="col-span-9 p-6 space-y-4">
-                        <!-- Period tabs -->
-                        <div class="flex gap-2 mb-2">
-                            <div class="bg-blue-600/20 border border-blue-500/30 rounded-lg px-3 py-1 text-xs text-blue-400">Сегодня</div>
-                            <div class="rounded-lg px-3 py-1 text-xs text-slate-600 border border-slate-800">Неделя</div>
-                            <div class="rounded-lg px-3 py-1 text-xs text-slate-600 border border-slate-800">Месяц</div>
+                    <div class="col-span-9 p-5 space-y-3.5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex gap-2">
+                                <div class="bg-blue-600/25 border border-blue-500/30 rounded-lg px-3 py-1.5 text-xs text-blue-400 font-medium">Сегодня</div>
+                                <div class="rounded-lg px-3 py-1.5 text-xs text-slate-600 border border-slate-800">Неделя</div>
+                                <div class="rounded-lg px-3 py-1.5 text-xs text-slate-600 border border-slate-800">Месяц</div>
+                            </div>
+                            <div class="w-24 h-7 bg-blue-600/15 border border-blue-500/20 rounded-lg"></div>
                         </div>
 
                         <!-- KPI cards -->
                         <div class="grid grid-cols-3 gap-3">
-                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
-                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
+                            <div class="bg-slate-800/80 rounded-xl p-3.5 border border-white/[0.04]">
+                                <div class="text-xs text-slate-500 mb-1.5">Выручка</div>
                                 <div class="text-lg font-bold text-emerald-400">184 700 ₽</div>
-                                <div class="w-16 h-1.5 bg-emerald-400/20 rounded mt-1.5"></div>
+                                <div class="flex items-center gap-1 mt-1">
+                                    <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+                                    <div class="text-xs text-emerald-400">+12%</div>
+                                </div>
                             </div>
-                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
-                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
+                            <div class="bg-slate-800/80 rounded-xl p-3.5 border border-white/[0.04]">
+                                <div class="text-xs text-slate-500 mb-1.5">Продажи</div>
                                 <div class="text-lg font-bold text-blue-400">47</div>
-                                <div class="w-10 h-1.5 bg-blue-400/20 rounded mt-1.5"></div>
+                                <div class="flex items-center gap-1 mt-1">
+                                    <div class="w-2 h-2 rounded-full bg-blue-400"></div>
+                                    <div class="text-xs text-blue-400">+8%</div>
+                                </div>
                             </div>
-                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
-                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
-                                <div class="text-lg font-bold text-purple-400">12 340 ₽</div>
-                                <div class="w-20 h-1.5 bg-purple-400/20 rounded mt-1.5"></div>
-                            </div>
-                        </div>
-
-                        <!-- Bar chart -->
-                        <div class="bg-slate-800 rounded-xl px-6 pt-4 pb-3 border border-white/[0.04] flex items-end gap-2 h-28">
-                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:38%"></div>
-                            <div class="flex-1 bg-blue-500/35 rounded-t" style="height:55%"></div>
-                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:42%"></div>
-                            <div class="flex-1 bg-blue-500/40 rounded-t" style="height:72%"></div>
-                            <div class="flex-1 bg-blue-500/65 rounded-t" style="height:95%"></div>
-                            <div class="flex-1 bg-blue-500/35 rounded-t" style="height:58%"></div>
-                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:44%"></div>
-                            <div class="flex-1 bg-emerald-500/40 rounded-t relative" style="height:80%">
-                                <div class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-emerald-400 whitespace-nowrap font-medium">+12%</div>
+                            <div class="bg-slate-800/80 rounded-xl p-3.5 border border-white/[0.04]">
+                                <div class="text-xs text-slate-500 mb-1.5">Ср. чек</div>
+                                <div class="text-lg font-bold text-purple-400">3 930 ₽</div>
+                                <div class="flex items-center gap-1 mt-1">
+                                    <div class="w-2 h-2 rounded-full bg-purple-400"></div>
+                                    <div class="text-xs text-purple-400">+3%</div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Staff rows -->
-                        <div class="space-y-1.5">
-                            <div class="h-7 bg-slate-800 rounded-lg flex items-center px-3 gap-3 border border-white/[0.03]">
-                                <div class="w-5 h-5 bg-blue-500/30 rounded-full"></div>
-                                <div class="w-20 h-1.5 bg-slate-600 rounded"></div>
-                                <div class="flex-1"></div>
-                                <div class="w-14 h-2 bg-emerald-400/35 rounded"></div>
-                                <div class="w-10 h-1.5 bg-slate-700 rounded"></div>
+                        <!-- Progress bar (plan) -->
+                        <div class="bg-slate-800/80 rounded-xl p-3.5 border border-white/[0.04]">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs text-slate-400">🎯 План месяца</span>
+                                <span class="text-xs font-bold text-white">84%</span>
                             </div>
-                            <div class="h-7 bg-slate-800 rounded-lg flex items-center px-3 gap-3 border border-white/[0.03]">
-                                <div class="w-5 h-5 bg-purple-500/30 rounded-full"></div>
-                                <div class="w-16 h-1.5 bg-slate-600 rounded"></div>
-                                <div class="flex-1"></div>
-                                <div class="w-12 h-2 bg-emerald-400/25 rounded"></div>
-                                <div class="w-10 h-1.5 bg-slate-700 rounded"></div>
+                            <div class="w-full bg-slate-700 rounded-full h-2">
+                                <div class="h-2 rounded-full" style="width:84%;background:linear-gradient(90deg,#3b82f6,#8b5cf6)"></div>
                             </div>
+                        </div>
+
+                        <!-- Chart bars -->
+                        <div class="bg-slate-800/80 rounded-xl px-5 pt-3.5 pb-3 border border-white/[0.04] flex items-end gap-1.5 h-20">
+                            <div class="flex-1 rounded-t" style="height:38%;background:rgba(59,130,246,.3)"></div>
+                            <div class="flex-1 rounded-t" style="height:55%;background:rgba(59,130,246,.35)"></div>
+                            <div class="flex-1 rounded-t" style="height:42%;background:rgba(59,130,246,.3)"></div>
+                            <div class="flex-1 rounded-t" style="height:70%;background:rgba(59,130,246,.4)"></div>
+                            <div class="flex-1 rounded-t relative" style="height:95%;background:linear-gradient(to top,rgba(59,130,246,.6),rgba(139,92,246,.5))">
+                                <div class="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] text-emerald-400 whitespace-nowrap font-bold">+12%</div>
+                            </div>
+                            <div class="flex-1 rounded-t" style="height:58%;background:rgba(59,130,246,.35)"></div>
+                            <div class="flex-1 rounded-t" style="height:48%;background:rgba(59,130,246,.3)"></div>
+                            <div class="flex-1 rounded-t" style="height:75%;background:rgba(59,130,246,.4)"></div>
                         </div>
                     </div>
                 </div>
@@ -315,7 +537,8 @@
         </div>
 
         <!-- Glow under mockup -->
-        <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-10 bg-blue-600/25 blur-2xl rounded-full pointer-events-none"></div>
+        <div class="absolute -bottom-8 left-1/2 -translate-x-1/2 w-3/4 h-12 rounded-full pointer-events-none"
+             style="background:rgba(59,130,246,.2);filter:blur(24px)"></div>
     </div>
 </section>
 
@@ -323,24 +546,26 @@
 <!-- ══════════════════════════════════════════════════════
      STATS STRIP
 ══════════════════════════════════════════════════════ -->
-<section class="bg-slate-900 border-y border-white/[0.06] py-10">
-    <div class="max-w-5xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-        <div>
-            <div class="text-3xl font-bold text-white mb-1">5 мин</div>
-            <div class="text-sm text-slate-400">До первой зафиксированной продажи</div>
+<section class="bg-slate-950 border-y border-white/[0.06] py-12">
+    <div class="max-w-5xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        <div class="stat-card text-center py-6 px-4 reveal d1">
+            <div class="text-3xl font-extrabold text-white mb-1 counter" data-target="5" data-suffix=" мин">0 мин</div>
+            <div class="text-sm text-slate-400">До первой продажи</div>
         </div>
-        <div>
-            <div class="text-3xl font-bold text-white mb-1">14 дней</div>
-            <div class="text-sm text-slate-400">Премиум бесплатно, карта не нужна</div>
+        <div class="stat-card text-center py-6 px-4 reveal d2">
+            <div class="text-3xl font-extrabold text-white mb-1 counter" data-target="14" data-suffix=" дней">0 дней</div>
+            <div class="text-sm text-slate-400">Премиум бесплатно</div>
         </div>
-        <div>
-            <div class="text-3xl font-bold text-white mb-1">0</div>
-            <div class="text-sm text-slate-400">Лишних приложений для сотрудников</div>
+        <div class="stat-card text-center py-6 px-4 reveal d3">
+            <div class="text-3xl font-extrabold text-white mb-1">0</div>
+            <div class="text-sm text-slate-400">Лишних приложений</div>
         </div>
-        <div>
-            <div class="text-3xl font-bold text-white mb-1">∞</div>
-            <div class="text-sm text-slate-400">Магазинов и сотрудников на Премиум</div>
+        <div class="stat-card text-center py-6 px-4 reveal d4">
+            <div class="text-3xl font-extrabold text-white mb-1 gradient-text">∞</div>
+            <div class="text-sm text-slate-400">Магазинов на Премиум</div>
         </div>
+
     </div>
 </section>
 
@@ -351,67 +576,68 @@
 <section id="features" class="bg-white py-28 px-4">
     <div class="max-w-7xl mx-auto">
 
-        <div class="text-center mb-20">
-            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Возможности</div>
-            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Перестаньте вести учёт вручную</h2>
-            <p class="text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed">Один инструмент вместо Excel, мессенджеров и разрозненных тетрадей</p>
+        <div class="text-center mb-20 reveal">
+            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Возможности</div>
+            <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Перестаньте вести учёт вручную</h2>
+            <p class="text-xl text-slate-500 max-w-2xl mx-auto">Один инструмент вместо Excel, мессенджеров и разрозненных тетрадей</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d1">
                 <div class="feat-icon bg-blue-50 mb-5">💰</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Продажи и инвентарь</h3>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Продажи и инвентарь</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Продажа — три нажатия. Остатки обновляются автоматически. Больше вопросов «что осталось на складе?» — нет.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d2">
                 <div class="feat-icon bg-emerald-50 mb-5">📊</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Аналитика и отчёты</h3>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Аналитика и отчёты</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Кто продаёт больше всех? Какой магазин проседает? Ответ — в 2 клика, без единой формулы в Excel.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d3">
                 <div class="feat-icon bg-purple-50 mb-5">🎯</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Планы и мотивация</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Сотрудник сам видит свой прогресс и получает push при 50, 75 и 100% плана. Мотивация работает без ежедневных напоминаний.</p>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Планы и мотивация</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Сотрудник сам видит свой прогресс и получает push при 50, 75 и 100% плана. Мотивация работает без напоминаний.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d4">
                 <div class="feat-icon bg-orange-50 mb-5">👥</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Команда и зарплаты</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Каждый видит только своё. ФОТ за месяц считается автоматически по сменам и ставкам. Никаких таблиц зарплат вручную.</p>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Команда и зарплаты</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Каждый видит только своё. ФОТ за месяц считается автоматически по сменам и ставкам. Никаких таблиц вручную.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d5">
                 <div class="feat-icon bg-teal-50 mb-5">🔗</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Google Sheets</h3>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Google Sheets</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Каждая продажа сама попадает в вашу Google-таблицу. Без выгрузок вручную. Авторизация прямо в боте — за минуту.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d6">
                 <div class="feat-icon bg-indigo-50 mb-5">🏢</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Несколько организаций</h3>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Несколько организаций</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Управляете сетью точек? Данные разделены, доступ разграничен по ролям. Все организации — из одного кабинета.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d7">
                 <div class="feat-icon bg-rose-50 mb-5">🔔</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Уведомления</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Остатки на нуле? Сотрудник зафиксировал продажу? Telegram сообщит сразу — не нужно постоянно заходить и проверять.</p>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Уведомления</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Остатки на нуле? Зафиксировали продажу? Telegram сообщит сразу — не нужно постоянно заходить и проверять.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d8">
                 <div class="feat-icon bg-sky-50 mb-5">🌐</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Веб-кабинет</h3>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Веб-кабинет</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Полный кабинет руководителя — в браузере. Войти через Telegram за 5 секунд. Никакого пароля и отдельных аккаунтов.</p>
             </div>
 
-            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+            <div class="feat-card p-7 reveal d9">
                 <div class="feat-icon bg-amber-50 mb-5">💳</div>
-                <h3 class="text-lg font-semibold text-slate-900 mb-2">Оплата и подписки</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">СБП или карта — оплата за минуту прямо в боте. Квитанция сразу. Напоминание о продлении — заранее, не после отключения.</p>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Оплата и подписки</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">СБП или карта — оплата за минуту прямо в боте. Квитанция сразу. Напоминание о продлении — заранее, не после.</p>
             </div>
+
         </div>
     </div>
 </section>
@@ -420,42 +646,49 @@
 <!-- ══════════════════════════════════════════════════════
      HOW IT WORKS
 ══════════════════════════════════════════════════════ -->
-<section id="how" class="bg-slate-50 py-28 px-4">
-    <div class="max-w-5xl mx-auto">
+<section id="how" class="py-28 px-4 relative overflow-hidden" style="background:#f8fafc">
 
-        <div class="text-center mb-20">
-            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Быстрый старт</div>
-            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Запуск за 3 шага</h2>
+    <!-- Subtle grid -->
+    <div class="absolute inset-0 pointer-events-none" style="background-image:radial-gradient(circle,rgba(148,163,184,.15) 1px,transparent 1px);background-size:32px 32px;opacity:.6"></div>
+
+    <div class="max-w-5xl mx-auto relative z-10">
+
+        <div class="text-center mb-20 reveal">
+            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Быстрый старт</div>
+            <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Запуск за 3 шага</h2>
             <p class="text-xl text-slate-500">Без настройки серверов. Без карты. Сразу в деле.</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-10 relative">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
 
-            <!-- Connector (desktop only) -->
-            <div class="hidden md:block absolute top-8 left-[calc(33%+16px)] right-[calc(33%+16px)] h-px bg-gradient-to-r from-blue-200 via-blue-100 to-blue-200"></div>
+            <!-- Connector lines -->
+            <div class="hidden md:block step-connector"></div>
 
-            <div class="text-center group">
-                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
-                    1
+            <div class="text-center group reveal d1">
+                <div class="relative inline-block mb-8">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto shadow-xl shadow-blue-500/30 group-hover:scale-110 group-hover:shadow-blue-500/50 transition-all duration-300">1</div>
+                    <div class="absolute -inset-1 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity blur-sm"></div>
                 </div>
-                <h3 class="text-xl font-semibold text-slate-900 mb-3">Откройте бота в Telegram</h3>
-                <p class="text-slate-500 leading-relaxed text-sm">Нажмите /start — и вы уже внутри. Имя из профиля подтягивается само. Никакой регистрации.</p>
+                <h3 class="text-xl font-bold text-slate-900 mb-3">Откройте бота в Telegram</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Нажмите /start — и вы уже внутри. Имя из профиля подтягивается само. Никакой регистрации.</p>
             </div>
 
-            <div class="text-center group">
-                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
-                    2
+            <div class="text-center group reveal d2">
+                <div class="relative inline-block mb-8">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto shadow-xl shadow-blue-500/30 group-hover:scale-110 group-hover:shadow-blue-500/50 transition-all duration-300">2</div>
+                    <div class="absolute -inset-1 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity blur-sm"></div>
                 </div>
-                <h3 class="text-xl font-semibold text-slate-900 mb-3">Добавьте товары и команду</h3>
-                <p class="text-slate-500 leading-relaxed text-sm">Загрузите каталог из Excel одним файлом. Отправьте ссылку сотрудникам — роль и магазин назначатся автоматически.</p>
+                <h3 class="text-xl font-bold text-slate-900 mb-3">Добавьте товары и команду</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Загрузите каталог из Excel одним файлом. Отправьте ссылку сотрудникам — роль и магазин назначатся автоматически.</p>
             </div>
 
-            <div class="text-center group">
-                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
-                    3
+            <div class="text-center group reveal d3">
+                <div class="relative inline-block mb-8">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto shadow-xl shadow-blue-500/30 group-hover:scale-110 group-hover:shadow-blue-500/50 transition-all duration-300">3</div>
+                    <div class="absolute -inset-1 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity blur-sm"></div>
                 </div>
-                <h3 class="text-xl font-semibold text-slate-900 mb-3">Контролируйте в реальном времени</h3>
-                <p class="text-slate-500 leading-relaxed text-sm">Сотрудники фиксируют продажи — вы сразу видите дашборд. Рейтинги, остатки, зарплаты — всё актуально прямо сейчас.</p>
+                <h3 class="text-xl font-bold text-slate-900 mb-3">Контролируйте в реальном времени</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Сотрудники фиксируют продажи — вы сразу видите дашборд. Рейтинги, остатки, зарплаты — всё актуально прямо сейчас.</p>
             </div>
         </div>
     </div>
@@ -468,24 +701,22 @@
 <section id="pricing" class="bg-white py-28 px-4">
     <div class="max-w-6xl mx-auto">
 
-        <div class="text-center mb-20">
-            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Тарифы</div>
-            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Прозрачные цены</h2>
-            <p class="text-xl text-slate-500">Начните бесплатно, расширяйтесь по мере роста бизнеса</p>
+        <div class="text-center mb-20 reveal">
+            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Тарифы</div>
+            <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Прозрачные цены</h2>
+            <p class="text-xl text-slate-500">Начните бесплатно, расширяйтесь по мере роста</p>
         </div>
 
-        {# ── Defaults used when DB is not yet available ── #}
         {% set _d_free = {'price_fmt': '0\u00a0₽', 'duration_label': 'навсегда', 'max_products': '50', 'max_shops': '1', 'max_sales': '100', 'can_export': false, 'can_analytics': false, 'can_notifications': false, 'can_integrations': false} %}
         {% set _d_basic = {'price_fmt': '500\u00a0₽', 'duration_label': '30 дней', 'max_products': '200', 'max_shops': '3', 'max_sales': '500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': false} %}
         {% set _d_std = {'price_fmt': '1\u00a0200\u00a0₽', 'duration_label': '90 дней', 'max_products': '500', 'max_shops': '10', 'max_sales': '1500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
         {% set _d_prem = {'price_fmt': '4\u00a0000\u00a0₽', 'duration_label': '365 дней', 'max_products': '∞', 'max_shops': '∞', 'max_sales': '∞', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
 
-        {% set pf   = plans.get('Бесплатный', _d_free) %}
-        {% set pb   = plans.get('Базовый',    _d_basic) %}
-        {% set ps   = plans.get('Стандарт',   _d_std) %}
-        {% set pp   = plans.get('Премиум',    _d_prem) %}
+        {% set pf = plans.get('Бесплатный', _d_free) %}
+        {% set pb = plans.get('Базовый',    _d_basic) %}
+        {% set ps = plans.get('Стандарт',   _d_std) %}
+        {% set pp = plans.get('Премиум',    _d_prem) %}
 
-        {# ── CTA link macro ── #}
         {% macro cta(label, cls) %}
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank" class="{{ cls }}">{{ label }}</a>
@@ -496,58 +727,45 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
 
-            <!-- ── Бесплатный ── -->
-            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+            <!-- Бесплатный -->
+            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d1">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Бесплатный</div>
                     <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pf.price_fmt }}</div>
                     <div class="text-sm text-slate-400 mt-1.5">{{ pf.duration_label }}</div>
                 </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pf.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pf.max_products }} товаров{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pf.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}{{ pf.max_shops }} магазин{% if pf.max_shops|int > 1 %}а{% endif %}{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pf.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ pf.max_sales }} продаж / мес{% endif %}</li>
-                    <li class="flex items-start gap-2.5{% if not pf.can_analytics %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none">{% if pf.can_analytics %}✓{% else %}—{% endif %}</span>
-                        {% if pf.can_analytics %}<span class="text-emerald-500 font-bold hidden"></span>{% endif %}Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5{% if not pf.can_export %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none">{% if pf.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5{% if not pf.can_integrations %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none">{% if pf.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{% if pf.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pf.max_products }} товаров{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pf.max_shops }} магазин</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pf.max_sales }} продаж / мес</li>
+                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Google Sheets</li>
                 </ul>
-                {{ cta('Начать бесплатно', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
+                {{ cta('Начать бесплатно', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- ── Базовый ── -->
-            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+            <!-- Базовый -->
+            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d2">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Базовый</div>
                     <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pb.price_fmt }}</div>
                     <div class="text-sm text-slate-400 mt-1.5">{{ pb.duration_label }}</div>
                 </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pb.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pb.max_products }} товаров{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pb.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}До {{ pb.max_shops }} магазинов{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        {% if pb.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ pb.max_sales }} продаж / мес{% endif %}</li>
-                    <li class="flex items-start gap-2.5{% if not pb.can_analytics %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if pb.can_analytics %} text-emerald-500 font-bold{% endif %}">{% if pb.can_analytics %}✓{% else %}—{% endif %}</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5{% if not pb.can_export %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if pb.can_export %} text-emerald-500 font-bold{% endif %}">{% if pb.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5{% if not pb.can_integrations %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if pb.can_integrations %} text-emerald-500 font-bold{% endif %}">{% if pb.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До {{ pb.max_products }} товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До {{ pb.max_shops }} магазинов</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pb.max_sales }} продаж / мес</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Google Sheets</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
+                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- ── Стандарт (popular) ── -->
-            <div class="card-popular rounded-2xl p-7 relative shadow-2xl shadow-blue-500/25 -mt-3 lg:-mt-4">
-                <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-900 text-xs font-extrabold px-4 py-1 rounded-full uppercase tracking-wide shadow-sm">
+            <!-- Стандарт (popular) -->
+            <div class="card-popular rounded-2xl p-7 relative shadow-2xl -mt-3 lg:-mt-5 reveal d3">
+                <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-900 text-xs font-extrabold px-4 py-1 rounded-full uppercase tracking-wide shadow-md">
                     Популярный
                 </div>
                 <div class="mb-7">
@@ -555,56 +773,44 @@
                     <div class="text-5xl font-extrabold text-white tracking-tight">{{ ps.price_fmt }}</div>
                     <div class="text-sm text-blue-200 mt-1.5">{{ ps.duration_label }}</div>
                 </div>
-                <ul class="space-y-3 text-sm text-white/90 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
-                        {% if ps.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ ps.max_products }} товаров{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
-                        {% if ps.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}До {{ ps.max_shops }} магазинов{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
-                        {% if ps.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ ps.max_sales }} продаж / мес{% endif %}</li>
-                    <li class="flex items-start gap-2.5{% if not ps.can_analytics %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if ps.can_analytics %} text-emerald-300 font-bold{% endif %}">{% if ps.can_analytics %}✓{% else %}—{% endif %}</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5{% if not ps.can_export %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if ps.can_export %} text-emerald-300 font-bold{% endif %}">{% if ps.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5{% if not ps.can_integrations %} opacity-40{% endif %}">
-                        <span class="mt-0.5 leading-none{% if ps.can_integrations %} text-emerald-300 font-bold{% endif %}">{% if ps.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
+                <ul class="space-y-3 text-sm text-white/90 mb-8 min-h-[172px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До {{ ps.max_products }} товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До {{ ps.max_shops }} магазинов</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>{{ ps.max_sales }} продаж / мес</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Google Sheets</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg') }}
+                {{ cta('Выбрать тариф', 'block w-full text-center bg-white hover:bg-blue-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg') }}
             </div>
 
-            <!-- ── Премиум ── -->
-            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+            <!-- Премиум -->
+            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d4">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Премиум</div>
                     <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pp.price_fmt }}</div>
                     <div class="text-sm text-slate-400 mt-1.5">{{ pp.duration_label }}</div>
                 </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        <span>{% if pp.max_products == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_products }}{% endif %}&nbsp;товаров</span></li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        <span>{% if pp.max_shops == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_shops }}{% endif %}&nbsp;магазинов</span></li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
-                        <span>{% if pp.max_sales == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_sales }}{% endif %}&nbsp;продаж</span></li>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;магазинов</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;продаж</li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Все функции</li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Google Sheets</li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Приоритетная поддержка</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
+                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
         </div>
 
         <!-- Trial notice -->
-        <div class="mt-10 text-center">
+        <div class="mt-10 text-center reveal">
             <div class="inline-flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-7 py-4 text-sm text-emerald-800">
-                <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
+                <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 Каждая новая организация получает <strong class="mx-1">14 дней Премиум-доступа бесплатно</strong> — карта не нужна
             </div>
         </div>
-
-        <div class="mt-5 text-center text-sm text-slate-400">
+        <div class="mt-4 text-center text-sm text-slate-400 reveal">
             Способы оплаты:&nbsp; <strong class="text-slate-600">СБП</strong> (QR-код) &nbsp;·&nbsp; <strong class="text-slate-600">ЮKassa</strong> (банковская карта)
         </div>
     </div>
@@ -614,38 +820,43 @@
 <!-- ══════════════════════════════════════════════════════
      CTA
 ══════════════════════════════════════════════════════ -->
-<section class="hero-bg py-28 px-4 text-center relative overflow-hidden">
-    <div class="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-transparent to-purple-600/8 pointer-events-none"></div>
-    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
+<section class="py-28 px-4 text-center relative overflow-hidden cta-bg">
+
+    <!-- Dot grid -->
+    <div class="absolute inset-0 dot-grid opacity-50 pointer-events-none"></div>
+
+    <!-- Orbs -->
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] rounded-full pointer-events-none animate-orb1"
+         style="background:radial-gradient(ellipse,rgba(59,130,246,.15) 0%,transparent 70%);filter:blur(2px)"></div>
+    <div class="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full pointer-events-none animate-orb2"
+         style="background:radial-gradient(ellipse,rgba(168,85,247,.1) 0%,transparent 70%);filter:blur(2px)"></div>
 
     <div class="max-w-3xl mx-auto relative z-10">
-        <h2 class="text-4xl sm:text-5xl font-extrabold text-white mb-6 tracking-tight leading-tight">
-            Пора знать всё о своих<br>продажах — в реальном времени
-        </h2>
-        <p class="text-xl text-slate-400 mb-12 leading-relaxed">
-            14 дней Премиума бесплатно. Карта не нужна.<br>
-            Запуск за 5 минут — просто откройте бота.
-        </p>
-        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <div class="reveal">
+            <div class="inline-block text-emerald-400 text-xs font-bold uppercase tracking-[0.2em] mb-6 px-3 py-1 rounded-full border border-emerald-400/20 bg-emerald-400/5">Начните сегодня</div>
+            <h2 class="text-4xl sm:text-5xl font-extrabold text-white mb-6 tracking-tight leading-tight">
+                Пора знать всё о своих<br>
+                продажах&nbsp;<span class="gradient-text">в реальном времени</span>
+            </h2>
+            <p class="text-xl text-slate-400 mb-12 leading-relaxed">
+                14 дней Премиума бесплатно. Карта не нужна.<br>
+                Запуск за 5 минут — просто откройте бота.
+            </p>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center reveal d2">
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank"
                class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-3">
-                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
-                </svg>
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
                 Начать в Telegram — бесплатно
             </a>
             {% else %}
-            <a href="/dashboard"
-               class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-2">
+            <a href="/dashboard" class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-2">
                 Начать бесплатно
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
             </a>
             {% endif %}
-            <a href="/dashboard"
-               class="text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base border border-white/10 hover:border-white/25 transition-all">
-                Войти в кабинет
-            </a>
+            <a href="/dashboard" class="btn-ghost text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base">Войти в кабинет</a>
         </div>
     </div>
 </section>
@@ -657,17 +868,15 @@
 <footer class="bg-slate-950 border-t border-white/[0.06] py-14 px-4">
     <div class="max-w-7xl mx-auto">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
-
             <div class="md:col-span-2">
                 <div class="flex items-center gap-3 mb-4">
                     <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shadow-lg shadow-blue-500/30">DS</div>
                     <span class="text-white font-bold text-xl tracking-tight">DailySales</span>
                 </div>
                 <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                    Профессиональная система управления продажами для розничного бизнеса. Работает прямо в Telegram — без лишних приложений.
+                    Профессиональная система управления продажами для розничного бизнеса. Прямо в Telegram — без лишних приложений.
                 </p>
             </div>
-
             <div>
                 <div class="text-slate-300 font-semibold text-sm mb-5">Продукт</div>
                 <ul class="space-y-3 text-sm text-slate-500">
@@ -676,7 +885,6 @@
                     <li><a href="#how"      class="hover:text-slate-200 transition-colors">Как это работает</a></li>
                 </ul>
             </div>
-
             <div>
                 <div class="text-slate-300 font-semibold text-sm mb-5">Доступ</div>
                 <ul class="space-y-3 text-sm text-slate-500">
@@ -687,13 +895,94 @@
                 </ul>
             </div>
         </div>
-
         <div class="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-600">
             <div>© 2024–2026 DailySales. Все права защищены.</div>
             <div>Сделано с ❤️ для розничного бизнеса</div>
         </div>
     </div>
 </footer>
+
+
+<!-- ══════════════════════════════════════════════════════
+     JS: Scroll animations + counters + navbar
+══════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    /* ── Scroll progress bar ── */
+    const progressBar = document.getElementById('scroll-progress');
+    function updateProgress() {
+        const scrollTop = window.scrollY;
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = docHeight > 0 ? scrollTop / docHeight : 0;
+        progressBar.style.transform = `scaleX(${pct})`;
+    }
+
+    /* ── Navbar scroll effect ── */
+    const navbar = document.getElementById('navbar');
+    function updateNavbar() {
+        if (window.scrollY > 40) navbar.classList.add('scrolled');
+        else navbar.classList.remove('scrolled');
+    }
+
+    window.addEventListener('scroll', () => {
+        updateProgress();
+        updateNavbar();
+    }, { passive: true });
+
+    /* ── Intersection Observer (reveal) ── */
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('visible');
+            }
+        });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal, .reveal-scale, .reveal-left, .reveal-right')
+        .forEach(el => observer.observe(el));
+
+    /* ── Animated counters ── */
+    function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+    function animateCounter(el) {
+        const target = parseInt(el.dataset.target, 10);
+        const suffix = el.dataset.suffix || '';
+        const duration = 1400;
+        const start = performance.now();
+
+        function step(now) {
+            const elapsed = now - start;
+            const progress = Math.min(elapsed / duration, 1);
+            const value = Math.round(easeOutCubic(progress) * target);
+            el.textContent = value + suffix;
+            if (progress < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    const counterObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                animateCounter(entry.target);
+                counterObserver.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.5 });
+
+    document.querySelectorAll('.counter').forEach(el => counterObserver.observe(el));
+
+    /* ── Smooth anchor scroll ── */
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+        a.addEventListener('click', e => {
+            const target = document.querySelector(a.getAttribute('href'));
+            if (target) {
+                e.preventDefault();
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
+})();
+</script>
 
 </body>
 </html>
