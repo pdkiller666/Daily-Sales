@@ -155,8 +155,8 @@
         @keyframes ds-fade-in{from{opacity:0}to{opacity:1}}
         @keyframes ds-logo-glow{0%,100%{box-shadow:0 4px 14px rgba(59,130,246,.4),0 0 0 0 rgba(59,130,246,0)}50%{box-shadow:0 4px 20px rgba(59,130,246,.6),0 0 0 5px rgba(59,130,246,.12)}}
 
-        /* Page content entrance */
-        main.ds-main{animation:ds-fade-up .32s cubic-bezier(.22,1,.36,1) both}
+        /* Page content entrance — opacity only, NO transform (transform breaks position:fixed children) */
+        main.ds-main{animation:ds-fade-in .28s ease both}
 
         /* Logo mark */
         .ds-logo-mark{
