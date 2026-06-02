@@ -12,6 +12,14 @@ router = APIRouter()
 _device_flow: dict[int, dict] = {}
 
 
+def _purge_expired_device_flow() -> None:
+    """Remove stale OAuth sessions that were never completed."""
+    now = time.time()
+    stale = [tid for tid, s in _device_flow.items() if now > s.get("expires_at", 0)]
+    for tid in stale:
+        _device_flow.pop(tid, None)
+
+
 def _check_plan(telegram_id: int) -> tuple[bool, str]:
     """Returns (can_use_integrations, plan_name)."""
     try:
@@ -80,6 +88,7 @@ def integration_page(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    _purge_expired_device_flow()
     can_use, plan_name = _check_plan(telegram_id)
     has_secrets = _google_secrets_configured()
 

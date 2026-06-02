@@ -2567,6 +2567,11 @@ class Database:
             INSERT INTO notification_history (user_id, notification_type, message)
             VALUES (?, ?, ?)
         ''', (user_id, notification_type, message))
+        cursor.execute(
+            "DELETE FROM notification_history WHERE user_id = ? "
+            "AND created_at < datetime('now', '-90 days')",
+            (user_id,)
+        )
         conn.commit()
         conn.close()
 
