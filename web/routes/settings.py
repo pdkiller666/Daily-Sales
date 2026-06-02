@@ -46,6 +46,9 @@ def settings_page(request: Request, saved: str = ""):
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
+    from timezone_utils import get_common_timezones
+    tz_choices = get_common_timezones()  # {label: zone}
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": is_admin,
@@ -63,12 +66,23 @@ def settings_page(request: Request, saved: str = ""):
         "invite_preset_role": None,
         "invite_preset_shop": None,
         "invite_shops": [],
+        # timezone
+        "tz_choices": tz_choices,
+        "current_tz": "Europe/Moscow",
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
         user_db_id = _get_user_db_id(db, telegram_id)
         ctx["user_db_id"] = user_db_id
+
+        # Current timezone
+        try:
+            tz = db.get_user_timezone(telegram_id)
+            if tz:
+                ctx["current_tz"] = tz
+        except Exception:
+            pass
 
         if user_db_id:
             ctx["notif_settings"] = db.get_notification_settings(user_db_id)
@@ -216,6 +230,35 @@ async def settings_save(
             )
     except Exception:
         pass
+
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/settings/timezone")
+async def settings_timezone(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    timezone: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from timezone_utils import validate_timezone
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    tz = timezone.strip()
+    if tz and validate_timezone(tz):
+        try:
+            db = get_web_db(telegram_id, org_db)
+            db.set_user_timezone(telegram_id, tz)
+        except Exception:
+            pass
 
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 

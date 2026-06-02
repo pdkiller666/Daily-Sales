@@ -263,6 +263,25 @@
                     <span class="font-mono text-xs text-slate-400">{{ user.sub }}</span>
                 </div>
             </div>
+            <!-- Timezone selector -->
+            {% if tz_choices %}
+            <div class="mt-4 pt-3 border-t border-slate-100">
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">🕐 Часовой пояс</p>
+                <form method="post" action="/settings/timezone" class="flex gap-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <select name="timezone"
+                            class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-0">
+                        {% for label, zone in tz_choices.items() %}
+                        <option value="{{ zone }}" {% if zone == current_tz %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit"
+                            class="shrink-0 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                        ✓
+                    </button>
+                </form>
+            </div>
+            {% endif %}
             <div class="mt-4 pt-3 border-t border-slate-100">
                 <a href="/logout"
                    class="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:text-red-500 hover:border-red-200 transition-colors">
