@@ -144,7 +144,7 @@
                     {% endif %}
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50" id="inv-tbody">
                 {% for r in inventory %}
                 {#
                   inv: id[0] product_id[1] shop_name[2] quantity[3] updated_at[4]
@@ -241,6 +241,20 @@
             </tbody>
         </table>
     </div>
+    <!-- Inventory pagination -->
+    <div id="inv-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+        <span id="inv-pager-info"></span>
+        <div class="flex items-center gap-1">
+            <button id="inv-pager-prev" onclick="invPaginate(-1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                ← Пред.
+            </button>
+            <button id="inv-pager-next" onclick="invPaginate(1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                След. →
+            </button>
+        </div>
+    </div>
     {% elif shops %}
     <div class="py-16 text-center text-slate-400">
         <p class="text-5xl mb-3">📦</p>
@@ -313,6 +327,38 @@ function invAdj1(shop, pid, mode, value, csrf) {
 }
 </script>
 {% endif %}
+<script>
+(function(){
+    const PAGE = 10;
+    let _invPage = 1;
+    const tbody = document.getElementById('inv-tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= PAGE) return;
+    const pager = document.getElementById('inv-pager');
+    const info  = document.getElementById('inv-pager-info');
+    const prev  = document.getElementById('inv-pager-prev');
+    const next  = document.getElementById('inv-pager-next');
+    if (pager) pager.classList.remove('hidden');
+    function render() {
+        const total = rows.length;
+        const pages = Math.ceil(total / PAGE);
+        rows.forEach(function(r, i) {
+            r.style.display = (i >= (_invPage-1)*PAGE && i < _invPage*PAGE) ? '' : 'none';
+        });
+        if (info) info.textContent = 'Стр. ' + _invPage + ' / ' + pages + ' · ' + total + ' позиций';
+        if (prev) prev.disabled = _invPage <= 1;
+        if (next) next.disabled = _invPage >= pages;
+    }
+    window.invPaginate = function(d) {
+        const pages = Math.ceil(rows.length / PAGE);
+        _invPage = Math.max(1, Math.min(pages, _invPage + d));
+        render();
+        tbody.closest('.card').scrollIntoView({behavior:'smooth', block:'nearest'});
+    };
+    render();
+})();
+</script>
 {% endblock %}
 
 {% block footer_info %}{{ selected_shop or 'все магазины' }}{% endblock %}

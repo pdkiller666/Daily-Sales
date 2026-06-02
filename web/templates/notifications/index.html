@@ -254,7 +254,7 @@
                     <div class="mt-1.5 w-2 h-2 rounded-full shrink-0
                                 {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm text-slate-700 leading-snug">{{ h.message }}</p>
+                        <p class="text-sm text-slate-700 leading-snug">{{ h.message|safe }}</p>
                         <p class="text-xs text-slate-400 mt-1">{{ h.created_at }}</p>
                     </div>
                 </div>

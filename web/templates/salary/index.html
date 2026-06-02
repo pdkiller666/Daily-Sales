@@ -52,18 +52,18 @@
 
 {% if staff_salary %}
 <!-- Fund summary -->
-<div class="grid grid-cols-3 gap-4 mb-5">
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Сотрудников</p>
-        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ staff_salary|length }}</p>
+<div class="grid grid-cols-3 gap-3 mb-5">
+    <div class="card p-3 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1 sm:mb-2">Сотрудников</p>
+        <p class="text-lg sm:text-2xl font-bold text-slate-800">{{ staff_salary|length }}</p>
     </div>
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Фонд з/п</p>
-        <p class="text-xl sm:text-2xl font-bold text-emerald-600">{{ total_salary_fund|int|fmt_currency }}</p>
+    <div class="card p-3 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1 sm:mb-2">Фонд з/п</p>
+        <p class="text-lg sm:text-2xl font-bold text-emerald-600">{{ total_salary_fund|int|fmt_currency }}</p>
     </div>
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Сред. з/п</p>
-        <p class="text-xl sm:text-2xl font-bold text-slate-700">
+    <div class="card p-3 sm:p-4">
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1 sm:mb-2">Сред. з/п</p>
+        <p class="text-lg sm:text-2xl font-bold text-slate-700">
             {{ (total_salary_fund / staff_salary|length)|int|fmt_currency if staff_salary else '0 ₽' }}
         </p>
     </div>

@@ -50,7 +50,7 @@
 
             {% if motivations %}
             <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+                <table class="w-full text-sm min-w-[420px]">
                     <thead>
                         <tr class="bg-slate-50 border-b border-slate-100">
                             <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Товар</th>
@@ -100,6 +100,20 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+            <!-- Motivation pagination -->
+            <div id="motiv-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+                <span id="motiv-pager-info"></span>
+                <div class="flex items-center gap-1">
+                    <button id="motiv-pager-prev" onclick="motivPaginate(-1)"
+                            class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                        ← Пред.
+                    </button>
+                    <button id="motiv-pager-next" onclick="motivPaginate(1)"
+                            class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                        След. →
+                    </button>
+                </div>
             </div>
             {% else %}
             <div class="px-5 py-12 text-center text-slate-400">
@@ -420,5 +434,36 @@ async function removeMotiv(productId, productName, csrfToken) {
         alert('Ошибка при удалении мотивации');
     }
 }
+
+(function(){
+    const PAGE = 10;
+    let _motivPage = 1;
+    const tbody = document.getElementById('motiv-table');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= PAGE) return;
+    const pager = document.getElementById('motiv-pager');
+    const info  = document.getElementById('motiv-pager-info');
+    const prev  = document.getElementById('motiv-pager-prev');
+    const next  = document.getElementById('motiv-pager-next');
+    if (pager) pager.classList.remove('hidden');
+    function render() {
+        const total = rows.length;
+        const pages = Math.ceil(total / PAGE);
+        rows.forEach(function(r, i) {
+            r.style.display = (i >= (_motivPage-1)*PAGE && i < _motivPage*PAGE) ? '' : 'none';
+        });
+        if (info) info.textContent = 'Стр. ' + _motivPage + ' / ' + pages + ' · ' + total + ' ставок';
+        if (prev) prev.disabled = _motivPage <= 1;
+        if (next) next.disabled = _motivPage >= pages;
+    }
+    window.motivPaginate = function(d) {
+        const pages = Math.ceil(rows.length / PAGE);
+        _motivPage = Math.max(1, Math.min(pages, _motivPage + d));
+        render();
+        tbody.closest('.card').scrollIntoView({behavior:'smooth', block:'nearest'});
+    };
+    render();
+})();
 </script>
 {% endblock %}
