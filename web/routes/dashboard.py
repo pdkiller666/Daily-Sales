@@ -80,24 +80,27 @@ def dashboard(request: Request):
             ctx["user_count"] = len(db.get_all_users() or [])
             try:
                 uid = db.get_user_id(telegram_id)
+                conn2 = db.get_connection()
+                cur2 = conn2.cursor()
+                # Get user threshold (default 5)
+                threshold = 5
                 if uid:
-                    # Fetch low stock with product_id for clickable links
-                    conn2 = db.get_connection()
-                    cur2 = conn2.cursor()
-                    cur2.execute("""
-                        SELECT p.name, i.quantity, i.shop_name, i.product_id
-                        FROM inventory i
-                        JOIN products p ON i.product_id = p.id
-                        JOIN users u ON u.id = ?
-                        WHERE i.shop_name = u.shop_name
-                          AND i.quantity <= COALESCE(
-                              (SELECT ns.stock_threshold FROM notification_settings ns WHERE ns.user_id = ?), 5
-                          )
-                        ORDER BY i.quantity ASC
-                        LIMIT 6
-                    """, (uid, uid))
-                    ctx["low_stock"] = cur2.fetchall()
-                    conn2.close()
+                    th_row = cur2.execute(
+                        "SELECT stock_threshold FROM notification_settings WHERE user_id=?", (uid,)
+                    ).fetchone()
+                    if th_row and th_row[0] is not None:
+                        threshold = int(th_row[0])
+                # For admins/owners show low stock across ALL shops
+                cur2.execute("""
+                    SELECT p.name, i.quantity, i.shop_name, i.product_id
+                    FROM inventory i
+                    JOIN products p ON i.product_id = p.id
+                    WHERE i.quantity <= ?
+                    ORDER BY i.quantity ASC
+                    LIMIT 8
+                """, (threshold,))
+                ctx["low_stock"] = cur2.fetchall()
+                conn2.close()
             except Exception:
                 pass
             # Active plans progress for admins
