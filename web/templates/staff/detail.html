@@ -217,6 +217,51 @@
 </div>
 {% endif %}
 
+{% if is_admin and member and member.role != 'owner' %}
+{# admin can manage user-level staff; owner can manage admin+user #}
+{% set can_manage = is_owner or member.role == 'user' %}
+{% if can_manage %}
+<div class="card p-5 mt-5" x-data="{confirmRemove: false}">
+    <h2 class="font-semibold text-slate-800 mb-4">⚙️ Управление</h2>
+    <div class="flex flex-wrap gap-4 items-start">
+        <form method="post" action="/staff/{{ member_id }}/set-role" class="flex items-center gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="text-sm text-slate-600 font-medium">Роль:</label>
+            <select name="new_role"
+                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="user" {% if member.role == 'user' %}selected{% endif %}>Сотрудник</option>
+                <option value="admin" {% if member.role == 'admin' %}selected{% endif %}>Администратор</option>
+            </select>
+            <button type="submit"
+                    class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                Сохранить
+            </button>
+        </form>
+
+        <div>
+            <button x-show="!confirmRemove" @click="confirmRemove = true"
+                    class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors">
+                Удалить из организации
+            </button>
+            <form x-show="confirmRemove" method="post" action="/staff/{{ member_id }}/remove"
+                  class="flex items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <span class="text-sm text-red-600 font-medium">Подтвердить?</span>
+                <button type="submit"
+                        class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">
+                    Да, удалить
+                </button>
+                <button type="button" @click="confirmRemove = false"
+                        class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
 {% else %}
 <div class="card py-20 text-center text-slate-400">
     <p class="text-6xl mb-4">👤</p>

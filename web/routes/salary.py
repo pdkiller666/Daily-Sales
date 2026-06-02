@@ -1,5 +1,7 @@
 import io
-from fastapi import APIRouter, Request
+import logging
+from typing import Annotated
+from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from datetime import date
 
@@ -25,7 +27,7 @@ def salary_page(
     month: int = 0,
     user_id: int = 0,
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -57,6 +59,7 @@ def salary_page(
         "detail_user": None, "work_days_set": set(),
         "adjustments": [], "adj_sum": 0.0,
         "total_salary_fund": 0.0, "error": None,
+        "csrf_token": get_csrf_token(request),
     }
 
     try:
@@ -242,3 +245,92 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
 
     except Exception as exc:
         return RedirectResponse(url=f"/salary?year={year}&month={month}&error={exc}", status_code=302)
+
+
+def _get_internal_uid(db, telegram_id: int):
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+@router.post("/salary/adjustment/add")
+def salary_adj_add(
+    request: Request,
+    target_user_id: Annotated[int, Form()],
+    amount: Annotated[float, Form()],
+    year: Annotated[int, Form()],
+    month: Annotated[int, Form()],
+    comment: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/salary", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/salary?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        creator_uid = _get_internal_uid(db, telegram_id)
+        db.add_salary_adjustment(
+            user_id=target_user_id,
+            year=year,
+            month=month,
+            amount=amount,
+            comment=comment or None,
+            created_by=creator_uid,
+        )
+    except Exception as e:
+        logging.error(f"salary_adj_add error: {e}")
+
+    return RedirectResponse(
+        url=f"/salary?year={year}&month={month}&user_id={target_user_id}",
+        status_code=302,
+    )
+
+
+@router.post("/salary/adjustment/{adj_id}/delete")
+def salary_adj_delete(
+    request: Request,
+    adj_id: int,
+    year: Annotated[int, Form()],
+    month: Annotated[int, Form()],
+    target_user_id: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/salary", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/salary?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.delete_salary_adjustment(adj_id)
+    except Exception as e:
+        logging.error(f"salary_adj_delete error: {e}")
+
+    return RedirectResponse(
+        url=f"/salary?year={year}&month={month}&user_id={target_user_id}",
+        status_code=302,
+    )

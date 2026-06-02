@@ -1,7 +1,9 @@
 import io
+import logging
 from datetime import date
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+from typing import Annotated
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 
 router = APIRouter()
 PAGE_SIZE = 50
@@ -9,6 +11,79 @@ PAGE_SIZE = 50
 
 def _summary_empty():
     return (0, 0, 0, 0)
+
+
+def _get_internal_uid(db, telegram_id: int):
+    """Return internal users.id for this telegram_id, or None."""
+    try:
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _get_user_allowed_shops(telegram_id: int, db) -> list:
+    """Return list of shop names the user is allowed to access.
+    Applies scope restrictions; owners/unrestricted users get all shops."""
+    from db_utils import get_user_org_scope
+    all_shops = db.get_all_shops() or []
+    try:
+        scope_type, scope_values = get_user_org_scope(telegram_id)
+        if not scope_type or scope_type == "all":
+            return all_shops
+        if scope_type == "shop":
+            return [s for s in all_shops if s in scope_values]
+        if scope_type in ("city", "network"):
+            col = "city" if scope_type == "city" else "trade_network"
+            placeholders = ",".join("?" * len(scope_values))
+            conn = db.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
+                scope_values,
+            )
+            allowed = {row[0] for row in cur.fetchall()}
+            conn.close()
+            return [s for s in all_shops if s in allowed]
+    except Exception:
+        pass
+    return all_shops
+
+
+@router.get("/api/products-for-shop")
+def api_products_for_shop(request: Request, shop: str = ""):
+    """Return JSON list of products with stock > 0 in the given shop."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized", "products": []}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        if shop and shop not in allowed_shops:
+            return JSONResponse({"error": "Forbidden", "products": []}, status_code=403)
+        raw = db.get_all_inventory(shop_name=shop if shop else None) or []
+        # id[0] product_id[1] shop_name[2] quantity[3] name[6] category[7] price[8]
+        products = sorted(
+            [
+                {"id": r[1], "name": r[6] or "", "category": r[7] or "",
+                 "price": float(r[8] or 0), "stock": int(r[3] or 0)}
+                for r in raw if int(r[3] or 0) > 0
+            ],
+            key=lambda p: p["name"].lower(),
+        )
+        return JSONResponse({"products": products})
+    except Exception as e:
+        return JSONResponse({"error": str(e), "products": []})
 
 
 @router.get("/sales")
@@ -20,7 +95,7 @@ def sales_page(
     seller_id: int = 0,
     page: int = 1,
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -37,6 +112,9 @@ def sales_page(
         "selected_seller_id": seller_id,
         "page": 1, "total_pages": 1, "total_count": 0,
         "summary": _summary_empty(), "error": None,
+        "csrf_token": get_csrf_token(request),
+        "flash_ok": request.query_params.get("ok") == "1",
+        "flash_err": request.query_params.get("error", ""),
     }
 
     try:
@@ -54,7 +132,7 @@ def sales_page(
         ctx["date_from"] = date_from
         ctx["date_to"] = date_to
 
-        ctx["shops"] = db.get_all_shops() or []
+        ctx["shops"] = _get_user_allowed_shops(telegram_id, db)
 
         # Build sellers list for dropdown
         try:
@@ -213,3 +291,78 @@ def sales_export_xlsx(
 
     except Exception as exc:
         return RedirectResponse(url=f"/sales?error={exc}", status_code=302)
+
+
+@router.post("/sales/create")
+def sales_create(
+    request: Request,
+    product_id: Annotated[int, Form()],
+    shop_name: Annotated[str, Form()],
+    quantity: Annotated[int, Form()],
+    sale_price: Annotated[float, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/sales?error=CSRF+error", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        if shop_name not in allowed_shops:
+            return RedirectResponse(url="/sales?error=Магазин+недоступен", status_code=302)
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if not internal_uid:
+            return RedirectResponse(url="/sales?error=Пользователь+не+найден", status_code=302)
+        if quantity < 1:
+            return RedirectResponse(url="/sales?error=Неверное+количество", status_code=302)
+
+        result = db.add_sale(
+            product_id=product_id,
+            shop_name=shop_name,
+            quantity_sold=quantity,
+            user_id=internal_uid,
+            sale_price=sale_price,
+        )
+        if result is None:
+            return RedirectResponse(url="/sales?error=Недостаточно+товара+на+складе", status_code=302)
+    except Exception as e:
+        logging.error(f"sales_create error: {e}")
+        return RedirectResponse(url="/sales?error=Ошибка+записи", status_code=302)
+
+    return RedirectResponse(url="/sales?ok=1", status_code=302)
+
+
+@router.post("/sales/{sale_id}/delete")
+def sales_delete(
+    request: Request,
+    sale_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/sales", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/sales?error=CSRF+error", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.delete_sale(sale_id)
+    except Exception as e:
+        logging.error(f"sales_delete error: {e}")
+
+    return RedirectResponse(url="/sales", status_code=302)

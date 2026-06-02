@@ -120,6 +120,9 @@
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Остаток</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Цена</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Статус</th>
+                    {% if is_admin and selected_shop %}
+                    <th class="px-3 py-3 text-xs font-semibold text-slate-500 uppercase text-center hidden lg:table-cell">Корр.</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
@@ -129,31 +132,30 @@
                        updated_by[5] name[6] category[7] price[8] updated_by_name[9]
                 #}
                 {% set qty = r[3]|int %}
-                <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}"
-                    onclick="window.location='/products/{{ r[1] }}'">
-                    <td class="px-5 py-3">
-                        <p class="font-medium text-slate-800 max-w-[200px] truncate" title="{{ r[6] }}">{{ r[6] }}</p>
+                <tr class="hover:bg-slate-50/70 transition-colors {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}">
+                    <td class="px-5 py-3 cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                        <p class="font-medium text-slate-800 max-w-[200px] truncate hover:text-blue-600 transition-colors" title="{{ r[6] }}">{{ r[6] }}</p>
                     </td>
                     {% if not selected_shop %}
-                    <td class="px-3 py-3 hidden sm:table-cell">
+                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
                         <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{{ r[2] }}</span>
                     </td>
                     {% endif %}
-                    <td class="px-3 py-3 hidden sm:table-cell">
+                    <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
                         {% if r[7] %}
                         <span class="text-xs bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full">{{ r[7] }}</span>
                         {% else %}
                         <span class="text-slate-300">—</span>
                         {% endif %}
                     </td>
-                    <td class="px-3 py-3 text-right">
-                        <span class="text-lg font-bold {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-800' }}">
+                    <td class="px-3 py-3 text-right cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
+                        <span id="qty-{{ r[1] }}" class="text-lg font-bold {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-800' }}">
                             {{ qty }}
                         </span>
                         <span class="text-xs text-slate-400">&thinsp;шт.</span>
                     </td>
-                    <td class="px-3 py-3 text-right text-slate-500 hidden md:table-cell">{{ r[8]|int|fmt_currency }}</td>
-                    <td class="px-5 py-3 text-right">
+                    <td class="px-3 py-3 text-right text-slate-500 hidden md:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">{{ r[8]|int|fmt_currency }}</td>
+                    <td class="px-5 py-3 text-right cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
                         {% if qty <= 0 %}
                         <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 border border-red-100 px-2.5 py-1 rounded-full font-medium">
                             ❌ Нет
@@ -168,6 +170,48 @@
                         </span>
                         {% endif %}
                     </td>
+                    {% if is_admin and selected_shop %}
+                    <td class="px-3 py-3 text-center hidden lg:table-cell" onclick="event.stopPropagation()"
+                        x-data="{adjOpen: false, adjMode: 'add', adjVal: 1}">
+                        <div class="flex items-center gap-1 justify-center">
+                            <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, 'subtract', 1, '{{ csrf_token }}')"
+                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors text-base font-bold leading-none"
+                                    title="−1">−</button>
+                            <span id="qty-txt-{{ r[1] }}" class="text-sm font-semibold text-slate-700 w-8 text-center">{{ qty }}</span>
+                            <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, 'add', 1, '{{ csrf_token }}')"
+                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-colors text-base font-bold leading-none"
+                                    title="+1">+</button>
+                            <button @click="adjOpen = !adjOpen"
+                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:bg-slate-100 transition-colors text-xs"
+                                    title="Произвольная корректировка">✎</button>
+                        </div>
+                        <div x-show="adjOpen" x-cloak @click.stop
+                             class="absolute z-20 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3 w-52 text-left">
+                            <p class="text-xs font-semibold text-slate-500 mb-2">Корректировка остатка</p>
+                            <div class="flex gap-1 mb-2">
+                                <button @click="adjMode = 'add'"
+                                        :class="adjMode==='add' ? 'bg-emerald-600 text-white' : 'border border-slate-200 text-slate-600'"
+                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">+ Приход</button>
+                                <button @click="adjMode = 'subtract'"
+                                        :class="adjMode==='subtract' ? 'bg-red-600 text-white' : 'border border-slate-200 text-slate-600'"
+                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">− Списание</button>
+                                <button @click="adjMode = 'set'"
+                                        :class="adjMode==='set' ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-600'"
+                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">= Итог</button>
+                            </div>
+                            <input type="number" x-model="adjVal" min="0" step="1"
+                                   class="w-full border border-slate-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                            <div class="flex gap-1">
+                                <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, adjMode, adjVal, '{{ csrf_token }}'); adjOpen = false"
+                                        class="flex-1 bg-slate-800 text-white py-1.5 rounded text-xs font-medium hover:bg-slate-700 transition-colors">
+                                    Применить
+                                </button>
+                                <button @click="adjOpen = false"
+                                        class="py-1.5 px-2 border border-slate-200 text-slate-500 rounded text-xs hover:bg-slate-50 transition-colors">✕</button>
+                            </div>
+                        </div>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -194,6 +238,33 @@
     </div>
     {% endif %}
 </div>
+{% if is_admin and selected_shop %}
+<script>
+function invAdj1(shop, pid, mode, value, csrf) {
+    const body = new URLSearchParams({
+        shop_name: shop, product_id: pid, mode: mode, value: value, csrf_token: csrf
+    });
+    fetch('/inventory/adjust', {method: 'POST', body: body,
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'}})
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                const el = document.getElementById('qty-' + pid);
+                const txt = document.getElementById('qty-txt-' + pid);
+                if (el) {
+                    el.textContent = d.new_qty;
+                    el.className = el.className.replace(/text-(red|orange|slate)-\d+/, '');
+                    el.classList.add(d.new_qty <= 0 ? 'text-red-500' : d.new_qty <= 5 ? 'text-orange-500' : 'text-slate-800');
+                }
+                if (txt) txt.textContent = d.new_qty;
+            } else {
+                alert('Ошибка: ' + (d.error || 'неизвестная'));
+            }
+        })
+        .catch(() => alert('Ошибка соединения'));
+}
+</script>
+{% endif %}
 {% endblock %}
 
 {% block footer_info %}{{ selected_shop or 'все магазины' }}{% endblock %}

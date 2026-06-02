@@ -8,15 +8,40 @@
 {% endblock %}
 
 {% block content %}
+{% if flash_ok %}
+<div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+    ✅ Продажа записана
+</div>
+{% endif %}
+{% if flash_err %}
+<div class="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    ⚠️ {{ flash_err }}
+</div>
+{% endif %}
+
+<div x-data="saleModal()" @keydown.escape.window="open = false">
+
+<!-- Header -->
 <div class="flex items-center justify-between mb-6">
     <div>
         <h1 class="text-2xl font-bold text-slate-800">Продажи</h1>
         <p class="text-sm text-slate-500 mt-0.5">История транзакций</p>
     </div>
-    <a href="/sales/export.xlsx?date_from={{ date_from }}&date_to={{ date_to }}{% if selected_shop %}&shop={{ selected_shop|urlencode }}{% endif %}"
-       class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
-        📥 Excel
-    </a>
+    <div class="flex items-center gap-2">
+        {% if shops %}
+        <button @click="open = true"
+                class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Записать
+        </button>
+        {% endif %}
+        <a href="/sales/export.xlsx?date_from={{ date_from }}&date_to={{ date_to }}{% if selected_shop %}&shop={{ selected_shop|urlencode }}{% endif %}"
+           class="flex items-center gap-1.5 px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors">
+            📥 Excel
+        </a>
+    </div>
 </div>
 
 {% if error %}
@@ -24,6 +49,79 @@
     <span>⚠️</span><span>{{ error }}</span>
 </div>
 {% endif %}
+
+<!-- Sale creation modal -->
+<div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="open = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md z-10" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100">
+            <h3 class="text-base font-semibold text-slate-800">Записать продажу</h3>
+            <button @click="open = false" class="text-slate-400 hover:text-slate-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <form method="post" action="/sales/create" class="p-5 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Магазин</label>
+                <select name="shop_name" x-model="selectedShop" @change="loadProducts()"
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    {% for s in shops %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Товар</label>
+                <select name="product_id" x-model="selectedProductId" @change="setPrice()"
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        :disabled="loading || products.length === 0">
+                    <template x-if="loading"><option>Загрузка…</option></template>
+                    <template x-if="!loading && products.length === 0"><option value="">— нет товаров в наличии —</option></template>
+                    <template x-if="!loading && products.length > 0">
+                        <template x-for="p in products" :key="p.id">
+                            <option :value="p.id" x-text="p.name + ' — ' + p.stock + ' шт.'"></option>
+                        </template>
+                    </template>
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Кол-во</label>
+                    <input type="number" name="quantity" x-model="qty" min="1" step="1" required
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Цена (₽)</label>
+                    <input type="number" name="sale_price" x-model="price" min="0" step="0.01" required
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <div x-show="price > 0 && qty > 0"
+                 class="bg-emerald-50 rounded-lg px-3 py-2 text-sm text-emerald-700 font-medium text-center">
+                Итого: <span x-text="(price * qty).toLocaleString('ru-RU') + ' ₽'"></span>
+            </div>
+
+            <div class="flex gap-3 pt-1">
+                <button type="button" @click="open = false"
+                        class="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                    Отмена
+                </button>
+                <button type="submit"
+                        :disabled="products.length === 0 || loading"
+                        class="flex-1 bg-emerald-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    Записать
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <!-- Filter form -->
 <div class="card p-4 mb-5">
@@ -115,6 +213,7 @@
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Сумма</th>
                     <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Продавец</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Дата</th>
+                    {% if is_admin %}<th class="px-3 py-3"></th>{% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
@@ -152,6 +251,17 @@
                     <td class="px-5 py-3 text-right text-xs text-slate-400 whitespace-nowrap">
                         {{ s[6][:10]|fmt_date if s[6] else '—' }}
                     </td>
+                    {% if is_admin %}
+                    <td class="px-3 py-3 text-right">
+                        <form method="post" action="/sales/{{ s[0] }}/delete"
+                              onsubmit="return confirm('Удалить продажу? Остатки будут восстановлены.')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit"
+                                    class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                                    title="Удалить">✕</button>
+                        </form>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -189,17 +299,49 @@
     <div class="py-16 text-center text-slate-400">
         <p class="text-5xl mb-3">📭</p>
         <p class="text-sm font-medium">Продаж за выбранный период нет</p>
-        <p class="text-xs mt-1">Измените фильтры или запишите продажу через бот</p>
-        {% set _bu = bot_username() %}
-        {% if _bu %}
-        <a href="https://t.me/{{ _bu }}" target="_blank"
-           class="inline-flex items-center gap-1.5 mt-4 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-medium hover:bg-blue-100 transition-colors">
-            🤖 Записать продажу в боте
-        </a>
-        {% endif %}
+        <p class="text-xs mt-1">Измените фильтры или запишите продажу</p>
     </div>
     {% endif %}
 </div>
+
+</div>{# end x-data saleModal #}
+
+<script>
+function saleModal() {
+    return {
+        open: false,
+        products: [],
+        loading: false,
+        selectedShop: '{{ shops[0] if shops else "" }}',
+        selectedProductId: '',
+        price: '',
+        qty: 1,
+        init() { if (this.selectedShop) this.loadProducts(); },
+        loadProducts() {
+            if (!this.selectedShop) { this.products = []; return; }
+            this.loading = true;
+            this.products = [];
+            this.selectedProductId = '';
+            this.price = '';
+            fetch('/api/products-for-shop?shop=' + encodeURIComponent(this.selectedShop))
+                .then(r => r.json())
+                .then(data => {
+                    this.products = data.products || [];
+                    if (this.products.length > 0) {
+                        this.selectedProductId = String(this.products[0].id);
+                        this.price = this.products[0].price;
+                    }
+                    this.loading = false;
+                })
+                .catch(() => { this.loading = false; });
+        },
+        setPrice() {
+            const p = this.products.find(x => String(x.id) === String(this.selectedProductId));
+            if (p) this.price = p.price;
+        },
+    };
+}
+</script>
 {% endblock %}
 
 {% block footer_info %}{{ date_from }} — {{ date_to }}{% endblock %}

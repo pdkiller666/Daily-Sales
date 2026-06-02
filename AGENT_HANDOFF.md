@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-06-02 (сессия 291)
+> Последнее обновление: 2026-06-02 (сессия 292)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -26,9 +26,19 @@ Workflow: "Start application" → python main.py
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
 
-**Последний деплой:** GitHub `649b7c5` · Amvera `da6fbcc` (2026-06-02, сессия 291). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `3bd1b29` · Amvera `da6fbcc` (2026-06-02, сессия 292). GitHub верифицирован. Amvera получит обновление при следующем деплое.
 
-**Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Управляется владельцем/admin; продажи записываются только через бот (мобильно-ориентирован).
+**Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
+
+**Сессия 292 (2026-06-02) — Веб: полные write-actions + аудит + обновление лендинга:**
+- **Веб write-actions (Task #26)**: `POST /sales/create`, `POST /sales/{id}/delete`, `GET /api/products-for-shop` (scope-aware) — сотрудник записывает/удаляет продажи из браузера
+- `POST /inventory/adjust` (JSON+CSRF) — корректировка остатков ±N или абсолютно; inline ±1 + popover в `inventory/index.html`
+- `GET /staff/invite-code` + `POST /staff/invite-code/rotate` — инвайт-карточка с ротацией
+- `POST /staff/{id}/set-role` + `POST /staff/{id}/remove` — иерархия: admin→только user-цели; owner→admin+user; super_admin→все
+- `POST /salary/adjustment/add` + `POST /salary/adjustment/{id}/delete` — бонусы/штрафы из веба
+- Шаблоны обновлены: `sales/index.html` (Alpine saleModal), `inventory/index.html` (inline adjust), `staff/index.html` (invite card), `staff/detail.html` (role+remove), `salary/index.html` (adjustments)
+- **Аудит**: все файлы синтаксически чисты; code review APPROVED_WITH_COMMENTS (3 non-blocking: badge colour после inline-adjust; /api/products-for-shop без shop → всё; inventory_adjust передаёт telegram_id вместо internal id)
+- **Лендинг**: «Веб-кабинет» карточка обновлена (для всей команды, запись продаж/инвентарь/сотрудники); stats-strip «5 форматов» → «Бот + Веб»; features subtitle и шаг 3 в How-it-works обновлены
 
 **Сессии 287–289 (2026-06-02) — Веб-интерфейс: аудит + улучшения + лендинг:**
 - **287**: JWT TTL 30→7 дней (`web/auth.py`); rate limit 5 req/60 s на `POST /auth/code/auto`; рейтинги — Alpine.js instant-search в `web/routes/rankings.py` + `rankings/index.html`
@@ -71,7 +81,7 @@ Workflow: "Start application" → python main.py
 Telegram API                       Browser (admin/owner)
     ↓                                     ↓
 main.py  — polling, регистрация     web/app.py — FastAPI (порт 5000)
-           роутеров, APScheduler    web/routes/*.py — 15 роутеров
+           роутеров, APScheduler    web/routes/*.py — 15 роутеров (read+write)
            (9 задач)                web/templates/*.html — Jinja2+Tailwind
     ↓                                     ↓
   [оба читают одни и те же SQLite БД через Database()]

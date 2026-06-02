@@ -1,13 +1,15 @@
 import io
-from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse, StreamingResponse
+import logging
+from typing import Annotated
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 
 router = APIRouter()
 
 
 @router.get("/inventory")
 def inventory_page(request: Request, shop: str = "", q: str = "", category: str = ""):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -23,6 +25,7 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         "categories": [], "selected_category": category,
         "inventory": [], "total_items": 0,
         "out_of_stock": 0, "low_stock": 0, "error": None,
+        "csrf_token": get_csrf_token(request),
     }
 
     try:
@@ -162,3 +165,85 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
 
     except Exception as exc:
         return RedirectResponse(url=f"/inventory?error={exc}", status_code=302)
+
+
+@router.post("/inventory/adjust")
+def inventory_adjust(
+    request: Request,
+    shop_name: Annotated[str, Form()],
+    product_id: Annotated[int, Form()],
+    mode: Annotated[str, Form()],
+    value: Annotated[float, Form()],
+    reason: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Adjust stock: mode='add'|'subtract'|'set'. Returns JSON {success, new_qty}."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"success": False, "error": "Нет прав"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"success": False, "error": "CSRF error"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+
+        if mode == "set":
+            # Read current qty to compute delta
+            conn = db.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+                (product_id, shop_name),
+            )
+            row = cur.fetchone()
+            conn.close()
+            current = int(row[0] or 0) if row else 0
+            delta = int(value) - current
+        elif mode == "subtract":
+            delta = -abs(int(value))
+        else:
+            delta = abs(int(value))
+
+        if delta == 0:
+            # Read current qty and return
+            conn = db.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+                (product_id, shop_name),
+            )
+            row = cur.fetchone()
+            conn.close()
+            return JSONResponse({"success": True, "new_qty": int(row[0] or 0) if row else 0})
+
+        db.update_inventory(
+            shop_name=shop_name,
+            product_id=product_id,
+            delta=delta,
+            user_id=telegram_id,
+            change_type="manual",
+            change_reason=reason or "Ручная корректировка (веб)",
+        )
+
+        # Read new qty
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+            (product_id, shop_name),
+        )
+        row = cur.fetchone()
+        conn.close()
+        new_qty = int(row[0] or 0) if row else 0
+        return JSONResponse({"success": True, "new_qty": new_qty})
+
+    except Exception as e:
+        logging.error(f"inventory_adjust error: {e}")
+        return JSONResponse({"success": False, "error": str(e)})

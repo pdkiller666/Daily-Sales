@@ -1,5 +1,7 @@
 import sqlite3
-from fastapi import APIRouter, Request
+import logging
+from typing import Annotated
+from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
@@ -10,6 +12,19 @@ ROLE_LABELS = {
     "user": ("Сотрудник", "bg-slate-100 text-slate-600"),
     "super_admin": ("Супер-Админ", "bg-red-100 text-red-700"),
 }
+
+
+def _get_org_info(db_file: str) -> tuple:
+    """Return (org_id, invite_code) from main.db for this org db path."""
+    try:
+        conn = sqlite3.connect("data/main.db")
+        cur = conn.cursor()
+        cur.execute("SELECT id, invite_code FROM organizations WHERE db_path = ?", (db_file,))
+        row = cur.fetchone()
+        conn.close()
+        return (row[0], row[1] or "") if row else (None, "")
+    except Exception:
+        return (None, "")
 
 
 def _get_org_roles(org_db_path: str) -> dict[int, dict]:
@@ -51,7 +66,7 @@ def staff_page(
     shop: str = "",
     q: str = "",
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -64,8 +79,11 @@ def staff_page(
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "is_owner": user.get("role") in ("owner", "super_admin"),
         "staff": [], "shops": [], "shop": shop, "q": q,
         "role_labels": ROLE_LABELS, "total_count": 0, "error": None,
+        "csrf_token": get_csrf_token(request),
+        "invite_code": "", "bot_link": "",
     }
 
     try:
@@ -147,6 +165,21 @@ def staff_page(
         ctx["staff"] = staff
         ctx["total_count"] = len(staff)
 
+        # Invite code
+        try:
+            org_id, invite_code = _get_org_info(db.db_file)
+            if org_id and not invite_code:
+                from tenant_manager import TenantManager
+                tm = TenantManager()
+                invite_code = tm.generate_invite_code(org_id)
+            if invite_code:
+                from web.app import bot_holder
+                bot_uname = bot_holder.get_username() or ""
+                ctx["invite_code"] = invite_code
+                ctx["bot_link"] = f"https://t.me/{bot_uname}?start={invite_code}" if bot_uname else ""
+        except Exception:
+            pass
+
     except Exception as exc:
         ctx["error"] = str(exc)
 
@@ -155,9 +188,161 @@ def staff_page(
     )
 
 
+@router.get("/staff/invite-code")
+def staff_invite_code(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_id, invite_code = _get_org_info(db.db_file)
+        if org_id and not invite_code:
+            from tenant_manager import TenantManager
+            invite_code = TenantManager().generate_invite_code(org_id)
+        from web.app import bot_holder
+        from fastapi.responses import JSONResponse
+        bot_uname = bot_holder.get_username() or ""
+        return JSONResponse({
+            "invite_code": invite_code or "",
+            "bot_link": f"https://t.me/{bot_uname}?start={invite_code}" if (bot_uname and invite_code) else "",
+        })
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/staff/invite-code/rotate")
+def staff_rotate_invite(
+    request: Request,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/staff", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/staff?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_id, _ = _get_org_info(db.db_file)
+        if org_id:
+            from tenant_manager import TenantManager
+            TenantManager().rotate_invite_code(org_id)
+    except Exception as e:
+        logging.error(f"staff_rotate_invite error: {e}")
+
+    return RedirectResponse(url="/staff", status_code=302)
+
+
+@router.post("/staff/{user_id}/set-role")
+def staff_set_role(
+    request: Request,
+    user_id: int,
+    new_role: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    actor_role = user.get("role", "")
+    if actor_role not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+    # Owners can promote to admin; admins can only toggle between admin/user
+    allowed_targets = ("admin", "user") if actor_role == "owner" or actor_role == "super_admin" else ("user",)
+    allowed_new = ("admin", "user") if actor_role in ("owner", "super_admin") else ("admin", "user")
+    if new_role not in allowed_new:
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            # Check target's current role — admins can only change user-level staff
+            org_roles = _get_org_roles(db.db_file)
+            target_role = org_roles.get(row[0], {}).get("role", "user")
+            if actor_role == "admin" and target_role not in allowed_targets:
+                return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+            from tenant_manager import TenantManager
+            TenantManager().change_user_role(row[0], new_role)
+    except Exception as e:
+        logging.error(f"staff_set_role error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+
+@router.post("/staff/{user_id}/remove")
+def staff_remove(
+    request: Request,
+    user_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    actor_role = user.get("role", "")
+    if actor_role not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            # Enforce hierarchy: admin cannot remove admin or owner; only owner/super_admin can
+            org_roles = _get_org_roles(db.db_file)
+            target_role = org_roles.get(row[0], {}).get("role", "user")
+            if actor_role == "admin" and target_role in ("admin", "owner", "super_admin"):
+                return RedirectResponse(url=f"/staff/{user_id}?error=forbidden", status_code=302)
+            if target_role == "owner" and actor_role != "super_admin":
+                return RedirectResponse(url=f"/staff/{user_id}?error=forbidden", status_code=302)
+            from tenant_manager import TenantManager
+            TenantManager().remove_user_from_org(row[0])
+    except Exception as e:
+        logging.error(f"staff_remove error: {e}")
+
+    return RedirectResponse(url="/staff", status_code=302)
+
+
 @router.get("/staff/{user_id}")
 def staff_detail(request: Request, user_id: int):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
     from datetime import date
     import calendar as _cal
@@ -175,6 +360,7 @@ def staff_detail(request: Request, user_id: int):
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "is_owner": user.get("role") in ("owner", "super_admin"),
         "member": None, "member_id": user_id,
         "role_labels": ROLE_LABELS,
         "recent_sales": [],
@@ -187,6 +373,7 @@ def staff_detail(request: Request, user_id: int):
                        }.get(month, str(month)),
         "year": year, "month": month,
         "error": None,
+        "csrf_token": get_csrf_token(request),
     }
 
     try:

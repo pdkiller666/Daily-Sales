@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-02 (сессия 289) · 48 модулей · 48 test_imports · GitHub `abd331e` · Amvera `4eefc58`
+> Последнее обновление: 2026-06-02 (сессия 292) · 48 модулей · 48 test_imports · GitHub `3bd1b29` · Amvera `da6fbcc`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -716,15 +716,27 @@ web/
   routes/
     auth_routes.py    — GET/POST /login, GET /logout
     dashboard.py      — GET /dashboard
-    sales.py          — GET /sales, GET /sales/export.xlsx
-    products.py       — GET /products, GET/POST /products/import, POST /products/import/confirm, GET /products/{id}
-    inventory.py      — GET /inventory, GET /inventory/export.xlsx
+    sales.py          — GET /sales, GET /sales/export.xlsx,
+                         POST /sales/create (CSRF), POST /sales/{id}/delete (CSRF),
+                         GET /api/products-for-shop?shop=…
+    products.py       — GET /products, GET/POST /products/new, POST /products/create,
+                         GET/POST /products/{id}/edit, POST /products/{id}/update,
+                         POST /products/{id}/delete, GET/POST /products/import,
+                         POST /products/import/confirm, GET /products/{id}
+    inventory.py      — GET /inventory, GET /inventory/export.xlsx,
+                         POST /inventory/adjust (JSON, CSRF)
     reports.py        — GET /reports
     rankings.py       — GET /rankings
-    staff.py          — GET /staff, GET /staff/{id}
+    staff.py          — GET /staff, GET /staff/{id},
+                         GET /staff/invite-code (JSON),
+                         POST /staff/invite-code/rotate (CSRF),
+                         POST /staff/{id}/set-role (JSON, CSRF),
+                         POST /staff/{id}/remove (JSON, CSRF)
     plans.py          — GET /plans, GET /plans/new, POST /plans/create, GET /plans/{id},
                          GET /plans/{id}/edit, POST /plans/{id}/update, POST /plans/{id}/delete, POST /plans/{id}/toggle
-    salary.py         — GET /salary, GET /salary/export.xlsx
+    salary.py         — GET /salary, GET /salary/export.xlsx,
+                         POST /salary/adjustment/add (CSRF),
+                         POST /salary/adjustment/{id}/delete (CSRF)
     schedule.py       — GET /schedule, POST /schedule/toggle_day, /set_time, /remove_day, /fill_month, /set_template
     contests.py       — GET /contests, GET /contests/new, POST /contests/create,
                          GET /contests/{id}/edit, POST /contests/{id}/update, POST /contests/{id}/finish|cancel
@@ -753,12 +765,28 @@ web/
 10. **In-memory state**: `_import_sessions` (products.py) и `_device_flow` (integration.py) — теряются при рестарте
 
 ### Доступ по ролям
-| Роль | Что видит |
+| Роль | Что видит / может делать |
 |------|-----------|
 | `super_admin` | Всё включая `/payments` с бейджем |
-| `owner` | Всё кроме `/payments` |
-| `admin` | Всё кроме `/payments` (в рамках своего scope) |
-| `user` | `/dashboard`, `/sales`, `/products`, `/inventory`, `/rankings` |
+| `owner` | Всё кроме `/payments`; управляет staff (set-role, remove, rotate invite) |
+| `admin` | Всё кроме `/payments` в рамках своего scope; staff: только user-цели |
+| `user` | `/dashboard`, `/sales` (запись+удаление), `/products`, `/inventory` (adjust), `/rankings` |
+
+### Веб write-actions (добавлены сессия 292)
+| Маршрут | Метод | Описание | Кто |
+|---------|-------|----------|-----|
+| `POST /sales/create` | CSRF form | Записать продажу | user+ |
+| `POST /sales/{id}/delete` | CSRF form | Удалить продажу (только своя) | user+ |
+| `GET /api/products-for-shop` | JSON | Товары по scope пользователя | user+ |
+| `POST /inventory/adjust` | JSON+CSRF | Изменить остаток ±N или абсолютно | user+ |
+| `GET /staff/invite-code` | JSON | Текущий инвайт-код | owner/admin |
+| `POST /staff/invite-code/rotate` | CSRF form | Ротация инвайт-кода | owner/admin |
+| `POST /staff/{id}/set-role` | JSON+CSRF | Изменить роль сотрудника | owner+ |
+| `POST /staff/{id}/remove` | JSON+CSRF | Удалить сотрудника (с иерархией) | owner+ |
+| `POST /salary/adjustment/add` | CSRF form | Добавить корректировку/бонус | owner/admin |
+| `POST /salary/adjustment/{id}/delete` | CSRF form | Удалить корректировку | owner/admin |
+
+**Вспомогательная функция**: `_get_user_allowed_shops(telegram_id, db)` в `web/routes/sales.py` — определяет scope пользователя через `get_user_org_scope()`: None=все, 'shop'=список, 'city'/'network'=запрос к БД.
 
 **⚠️ Amvera: битые сборки**
 - `deploy.sh` + `git ls-remote ✅` = код дошёл до репозитория. НЕ означает что сборка прошла.
