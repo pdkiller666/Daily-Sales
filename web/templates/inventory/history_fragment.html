@@ -1,0 +1,52 @@
+{% if error %}
+<div class="p-4 text-sm text-red-600 bg-red-50 rounded-lg">⚠️ {{ error }}</div>
+{% elif not rows %}
+<div class="py-8 text-center text-slate-400">
+    <p class="text-3xl mb-2">📋</p>
+    <p class="text-sm">Изменений пока нет</p>
+</div>
+{% else %}
+<div class="text-xs text-slate-500 mb-3 flex items-center gap-2">
+    <span class="font-semibold text-slate-700">{{ product_name }}</span>
+    {% if shop %}<span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">🏪 {{ shop }}</span>{% endif %}
+    <span class="ml-auto text-slate-400">{{ rows|length }} запис{% if rows|length == 1 %}ь{% elif rows|length in [2,3,4] %}и{% else %}ей{% endif %}</span>
+</div>
+<div class="overflow-x-auto max-h-96 overflow-y-auto">
+    <table class="w-full text-xs">
+        <thead class="sticky top-0 bg-white z-10">
+            <tr class="border-b border-slate-100">
+                <th class="text-left py-2 px-2 text-slate-400 font-semibold uppercase">Дата</th>
+                <th class="text-center py-2 px-2 text-slate-400 font-semibold uppercase">Изм.</th>
+                <th class="text-center py-2 px-2 text-slate-400 font-semibold uppercase">Было</th>
+                <th class="text-center py-2 px-2 text-slate-400 font-semibold uppercase">Стало</th>
+                <th class="text-left py-2 px-2 text-slate-400 font-semibold uppercase">Кто</th>
+                <th class="text-left py-2 px-2 text-slate-400 font-semibold uppercase hidden sm:table-cell">Причина</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+            {% for r in rows %}
+            <tr class="hover:bg-slate-50/60 transition-colors">
+                <td class="py-2 px-2 text-slate-500 whitespace-nowrap">{{ r.changed_at }}</td>
+                <td class="py-2 px-2 text-center font-bold whitespace-nowrap">
+                    {% if r.delta > 0 %}
+                    <span class="text-emerald-600">+{{ r.delta }}</span>
+                    {% elif r.delta < 0 %}
+                    <span class="text-red-500">{{ r.delta }}</span>
+                    {% else %}
+                    <span class="text-slate-400">0</span>
+                    {% endif %}
+                </td>
+                <td class="py-2 px-2 text-center text-slate-400">{{ r.old_qty }}</td>
+                <td class="py-2 px-2 text-center font-semibold {{ 'text-red-500' if r.new_qty <= 0 else 'text-orange-500' if r.new_qty <= 5 else 'text-slate-700' }}">{{ r.new_qty }}</td>
+                <td class="py-2 px-2 text-slate-600 whitespace-nowrap max-w-[120px] truncate" title="{{ r.changer }}{% if r.username %} (@{{ r.username }}){% endif %}">
+                    {{ r.changer }}{% if r.username %} <span class="text-slate-400">@{{ r.username }}</span>{% endif %}
+                </td>
+                <td class="py-2 px-2 text-slate-400 hidden sm:table-cell max-w-[160px] truncate" title="{{ r.reason or r.change_type }}">
+                    {% if r.reason %}{{ r.reason }}{% else %}<span class="text-slate-300">{{ r.change_type }}</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

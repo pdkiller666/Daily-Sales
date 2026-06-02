@@ -160,6 +160,12 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/integration') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🔗</span>Интеграции
         </a>
+        {% if user and user.role == 'owner' %}
+        <a href="/subscription"
+           class="nav-link {% if request.url.path.startswith('/subscription') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">💳</span>Подписка
+        </a>
+        {% endif %}
         {% if user and user.role == 'super_admin' %}
         {% set _pcount = pending_payments_count() %}
         <a href="/payments"

@@ -247,3 +247,58 @@ def inventory_adjust(
     except Exception as e:
         logging.error(f"inventory_adjust error: {e}")
         return JSONResponse({"success": False, "error": str(e)})
+
+
+@router.get("/inventory/history")
+def inventory_history(request: Request, shop: str = "", product_id: int = 0):
+    """Возвращает HTML-фрагмент с историей изменений остатков для HTMX."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"error": "Нет прав"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    rows = []
+    product_name = ""
+    error = None
+    try:
+        db = get_web_db(telegram_id, org_db)
+        # Get product name
+        p = db.get_product(product_id)
+        if p:
+            product_name = p[1]
+        # id[0] old_qty[1] new_qty[2] delta[3] change_type[4]
+        # change_reason[5] changed_by[6] changed_at[7] changer_name[8] username[9]
+        raw = db.get_inventory_log_web(shop, product_id, limit=50) or []
+        for r in raw:
+            delta = r[3] or 0
+            rows.append({
+                "changed_at": (r[7] or "")[:16],
+                "delta": delta,
+                "new_qty": r[2],
+                "old_qty": r[1],
+                "change_type": r[4] or "manual",
+                "reason": r[5] or "",
+                "changer": r[8] or "—",
+                "username": r[9] or "",
+            })
+    except Exception as e:
+        error = str(e)
+
+    ctx = {
+        "request": request,
+        "rows": rows,
+        "shop": shop,
+        "product_name": product_name,
+        "product_id": product_id,
+        "error": error,
+    }
+    return request.app.state.templates.TemplateResponse(
+        request, "inventory/history_fragment.html", ctx
+    )

@@ -7380,6 +7380,29 @@ class Database:
             logger.error(f"get_inventory_log: {e}")
             return []
 
+    def get_inventory_log_web(self, shop_name, product_id, limit=50):
+        """История изменений остатков — JOIN по telegram_id (для веб-интерфейса)."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT il.id, il.old_quantity, il.new_quantity, il.delta,
+                       il.change_type, il.change_reason, il.changed_by, il.changed_at,
+                       COALESCE(u.first_name || ' ' || u.last_name, CAST(il.changed_by AS TEXT)) AS changer_name,
+                       u.username
+                FROM inventory_log il
+                LEFT JOIN users u ON u.telegram_id = il.changed_by
+                WHERE il.shop_name = ? AND il.product_id = ?
+                ORDER BY il.changed_at DESC, il.id DESC
+                LIMIT ?
+            ''', (shop_name, product_id, limit))
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error(f"get_inventory_log_web: {e}")
+            return []
+
     # ─── Referrals ────────────────────────────────────────────────────────
     def create_referral(self, referrer_telegram_id: int, referred_telegram_id: int) -> bool:
         """Записать реферала. Возвращает True если добавлено (не дубликат)."""

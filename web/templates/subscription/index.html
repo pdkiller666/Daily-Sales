@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Подписка{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Подписка</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">💳 Подписка</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Управление тарифом организации</p>
+    </div>
+</div>
+
+{% if msg %}
+<div class="mb-5 px-4 py-3 rounded-xl text-sm font-medium border
+    {% if msg == 'request_sent' %}bg-emerald-50 text-emerald-800 border-emerald-200
+    {% elif msg == 'already_pending' %}bg-amber-50 text-amber-700 border-amber-200
+    {% elif msg == 'csrf_error' %}bg-red-50 text-red-700 border-red-200
+    {% elif msg == 'free_plan' %}bg-slate-50 text-slate-600 border-slate-200
+    {% else %}bg-red-50 text-red-700 border-red-200{% endif %}">
+    {% if msg == 'request_sent' %}
+        ✅ Заявка на смену тарифа отправлена. Администратор рассмотрит её в ближайшее время.
+    {% elif msg == 'already_pending' %}
+        ⏳ У вас уже есть ожидающая заявка. Дождитесь её рассмотрения.
+    {% elif msg == 'csrf_error' %}
+        ⚠️ Ошибка безопасности. Повторите действие.
+    {% elif msg == 'free_plan' %}
+        ℹ️ Бесплатный тариф активируется автоматически.
+    {% elif msg == 'user_not_found' %}
+        ⚠️ Пользователь не найден в базе. Зайдите через бот.
+    {% else %}
+        ⚠️ Ошибка при отправке заявки. Попробуйте снова.
+    {% endif %}
+</div>
+{% endif %}
+
+{% if has_pending %}
+<div class="mb-5 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span class="text-lg">⏳</span>
+    <span>У вас есть <strong>ожидающая заявка</strong> на смену тарифа. Администратор рассмотрит её в ближайшее время.</span>
+</div>
+{% endif %}
+
+<!-- Current plan status -->
+<div class="card p-5 mb-5">
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Текущий тариф</p>
+            <div class="flex items-center gap-2">
+                <h2 class="text-2xl font-bold
+                    {% if current_plan == 'Премиум' %}text-amber-500
+                    {% elif current_plan == 'Стандарт' %}text-indigo-500
+                    {% elif current_plan == 'Базовый' %}text-blue-500
+                    {% else %}text-slate-500{% endif %}">
+                    {{ current_plan }}
+                </h2>
+                {% if subscription and subscription.is_trial %}
+                <span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Пробный</span>
+                {% endif %}
+            </div>
+            {% if subscription %}
+            <p class="text-sm text-slate-500 mt-1">
+                {% if subscription.is_trial %}
+                    Пробный период до <strong class="text-slate-700">{{ subscription.end_date }}</strong>
+                {% else %}
+                    Активен до <strong class="text-slate-700">{{ subscription.end_date }}</strong>
+                {% endif %}
+            </p>
+            {% else %}
+            <p class="text-sm text-slate-400 mt-1">Активная подписка не найдена</p>
+            {% endif %}
+        </div>
+        {% if current_plan == 'Бесплатный' %}
+        <div class="shrink-0">
+            <span class="inline-block px-3 py-1.5 bg-slate-100 text-slate-500 text-xs font-medium rounded-lg">Базовый доступ</span>
+        </div>
+        {% elif current_plan == 'Премиум' %}
+        <div class="shrink-0">
+            <span class="inline-block px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-semibold rounded-lg">🏆 Максимальный</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Plan comparison grid -->
+<h2 class="text-base font-semibold text-slate-700 mb-3">Тарифные планы</h2>
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    {% for plan in plans %}
+    <div class="card p-5 flex flex-col gap-3
+        {% if plan.is_current %}ring-2 ring-blue-400{% endif %}
+        {% if plan.name == 'Премиум' %}bg-gradient-to-b from-amber-50/60 to-white{% endif %}">
+
+        <!-- Plan header -->
+        <div>
+            <div class="flex items-center justify-between mb-1">
+                <span class="font-bold text-slate-800 text-base">{{ plan.label }}</span>
+                {% if plan.is_current %}
+                <span class="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold uppercase tracking-wide">Текущий</span>
+                {% endif %}
+            </div>
+            <p class="text-xl font-bold
+                {% if plan.name == 'Премиум' %}text-amber-500
+                {% elif plan.name == 'Стандарт' %}text-indigo-500
+                {% elif plan.name == 'Базовый' %}text-blue-500
+                {% else %}text-slate-400{% endif %}">
+                {{ plan.price_fmt }}
+            </p>
+            <p class="text-xs text-slate-400">{{ plan.duration_label }}</p>
+        </div>
+
+        <!-- Features list -->
+        <ul class="space-y-1.5 text-sm flex-1">
+            <li class="flex items-center gap-2">
+                <span class="text-slate-400 text-xs">📦</span>
+                <span class="text-slate-600">{{ plan.max_products }} товаров</span>
+            </li>
+            <li class="flex items-center gap-2">
+                <span class="text-slate-400 text-xs">🏪</span>
+                <span class="text-slate-600">{{ plan.max_shops }} магазин{{ 'ов' if plan.max_shops not in ('1', '∞') else ('' if plan.max_shops == '1' else '') }}</span>
+            </li>
+            <li class="flex items-center gap-2">
+                <span class="text-slate-400 text-xs">📊</span>
+                <span class="text-slate-600">{{ plan.max_sales }} продаж/мес.</span>
+            </li>
+            <li class="flex items-center gap-2 {% if not plan.can_export %}opacity-40{% endif %}">
+                <span class="{% if plan.can_export %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_export %}✓{% else %}✗{% endif %}</span>
+                <span class="text-slate-600">Экспорт Excel</span>
+            </li>
+            <li class="flex items-center gap-2 {% if not plan.can_analytics %}opacity-40{% endif %}">
+                <span class="{% if plan.can_analytics %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_analytics %}✓{% else %}✗{% endif %}</span>
+                <span class="text-slate-600">Аналитика</span>
+            </li>
+            <li class="flex items-center gap-2 {% if not plan.can_notifications %}opacity-40{% endif %}">
+                <span class="{% if plan.can_notifications %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_notifications %}✓{% else %}✗{% endif %}</span>
+                <span class="text-slate-600">Уведомления</span>
+            </li>
+            <li class="flex items-center gap-2 {% if not plan.can_integrations %}opacity-40{% endif %}">
+                <span class="{% if plan.can_integrations %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_integrations %}✓{% else %}✗{% endif %}</span>
+                <span class="text-slate-600">Google Sheets</span>
+            </li>
+        </ul>
+
+        <!-- Action button -->
+        {% if plan.is_current %}
+        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-400 cursor-default">
+            Текущий тариф
+        </button>
+        {% elif plan.name == 'Бесплатный' %}
+        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">
+            Базовый план
+        </button>
+        {% elif has_pending %}
+        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">
+            Заявка на рассмотрении
+        </button>
+        {% elif plan.is_upgrade %}
+        <form method="POST" action="/subscription/request">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="plan_type" value="{{ plan.name }}">
+            <button type="submit"
+                class="w-full py-2 rounded-xl text-xs font-semibold transition-colors
+                    {% if plan.name == 'Премиум' %}bg-amber-500 hover:bg-amber-600 text-white
+                    {% elif plan.name == 'Стандарт' %}bg-indigo-500 hover:bg-indigo-600 text-white
+                    {% else %}bg-blue-500 hover:bg-blue-600 text-white{% endif %}">
+                Запросить переход →
+            </button>
+        </form>
+        {% else %}
+        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">
+            Текущий выше
+        </button>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+<!-- How it works note -->
+<div class="card p-4 mb-5 bg-slate-50 border-slate-200">
+    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">ℹ️ Как происходит оплата</p>
+    <ol class="text-sm text-slate-600 space-y-1 list-decimal list-inside">
+        <li>Нажмите «Запросить переход» на нужном тарифе</li>
+        <li>Администратор получит уведомление и свяжется с вами для оплаты</li>
+        <li>После подтверждения оплаты тариф будет активирован автоматически</li>
+    </ol>
+    <p class="text-xs text-slate-400 mt-2">Также можно оплатить напрямую через бота командой /tariffs</p>
+</div>
+
+<!-- Payment history -->
+{% if history %}
+<div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-800">🧾 История заявок</h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">#</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Тариф</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Сумма</th>
+                    <th class="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Статус</th>
+                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Дата</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                {% for req in history %}
+                <tr class="hover:bg-slate-50/70 transition-colors">
+                    <td class="px-5 py-3 text-slate-400 text-xs">{{ req.id }}</td>
+                    <td class="px-3 py-3 font-medium text-slate-700">{{ req.plan_label }}</td>
+                    <td class="px-3 py-3 text-right text-slate-600">{{ req.amount|fmt_currency }}</td>
+                    <td class="px-3 py-3 text-center">
+                        <span class="text-xs px-2 py-0.5 rounded-full font-medium {{ req.status_css }}">
+                            {{ req.status_label }}
+                        </span>
+                    </td>
+                    <td class="px-5 py-3 text-right text-slate-400 text-xs hidden sm:table-cell">{{ req.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block footer_info %}Тариф: {{ current_plan }}{% endblock %}

@@ -144,6 +144,7 @@ def create_web_app() -> FastAPI:
     from web.routes.payments import router as payments_router
     from web.routes.notifications import router as notifications_router
     from web.routes.motivation import router as motivation_router
+    from web.routes.subscription import router as subscription_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -162,6 +163,7 @@ def create_web_app() -> FastAPI:
     app.include_router(payments_router)
     app.include_router(notifications_router)
     app.include_router(motivation_router)
+    app.include_router(subscription_router)
 
     @app.get("/")
     async def root(request: Request):
