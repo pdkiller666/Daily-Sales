@@ -55,6 +55,7 @@ def contests_page(
     request: Request,
     status_filter: str = "",
     contest_id: int = 0,
+    msg: str = "",
 ):
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -79,6 +80,7 @@ def contests_page(
         "selected_contest": None,
         "leaderboard": [], "today": today.isoformat(),
         "error": None,
+        "msg": msg,
         "csrf_token": get_csrf_token(request),
     }
 
@@ -578,6 +580,64 @@ def contests_finish(
         logger.error(f"contests_finish error: {exc}")
 
     return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=303)
+
+
+@router.post("/contests/{contest_id}/delete")
+def contests_delete(
+    request: Request,
+    contest_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_contest(contest_id)
+        if row and row[16] in ("finished", "cancelled"):
+            db.delete_contest(contest_id)
+            return RedirectResponse(url="/contests?msg=deleted", status_code=303)
+    except Exception as exc:
+        logger.error(f"contests_delete error: {exc}")
+
+    return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=303)
+
+
+@router.post("/contests/clear-archive")
+def contests_clear_archive(
+    request: Request,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+        db.clear_contests_archive()
+    except Exception as exc:
+        logger.error(f"contests_clear_archive error: {exc}")
+
+    return RedirectResponse(url="/contests?msg=archive_cleared", status_code=303)
 
 
 @router.post("/contests/{contest_id}/cancel")

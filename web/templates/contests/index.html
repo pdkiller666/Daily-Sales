@@ -18,6 +18,17 @@
             {{ contests|length }} конкурсов
         </span>
         {% if is_admin %}
+        {% set archived_count = contests | selectattr('status', 'in', ['finished', 'cancelled']) | list | length %}
+        {% if archived_count > 0 and status_filter in ('', 'finished', 'cancelled') %}
+        <form method="POST" action="/contests/clear-archive"
+              onsubmit="return confirm('Удалить все завершённые и отменённые конкурсы ({{ archived_count }} шт.)? Это действие нельзя отменить.')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 text-sm font-medium rounded-lg border border-slate-200 hover:border-red-200 transition-colors">
+                🗑 Очистить архив ({{ archived_count }})
+            </button>
+        </form>
+        {% endif %}
         <a href="/contests/new"
            class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -28,6 +39,16 @@
         {% endif %}
     </div>
 </div>
+
+{% if msg %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm border
+    {% if msg in ('deleted', 'archive_cleared') %}bg-emerald-50 border-emerald-200 text-emerald-700
+    {% else %}bg-amber-50 border-amber-200 text-amber-700{% endif %}">
+    {% if msg == 'deleted' %}✅ Конкурс удалён.
+    {% elif msg == 'archive_cleared' %}✅ Архив конкурсов очищен.
+    {% else %}⚠️ Произошла ошибка.{% endif %}
+</div>
+{% endif %}
 
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
@@ -109,7 +130,7 @@
 
         <!-- Action buttons for active/pending contests (admin only) -->
         {% if is_admin and c.status in ('active', 'pending') %}
-        <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+        <div class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100">
             <a href="/contests/{{ c.id }}/edit"
                class="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg border border-indigo-200 transition-colors">
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -134,6 +155,19 @@
                 <button type="submit"
                         class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg border border-red-200 transition-colors">
                     ❌ Отменить
+                </button>
+            </form>
+        </div>
+        {% endif %}
+        <!-- Delete button for finished/cancelled contests -->
+        {% if is_admin and c.status in ('finished', 'cancelled') %}
+        <div class="flex justify-end mt-3 pt-3 border-t border-slate-100">
+            <form method="POST" action="/contests/{{ c.id }}/delete" class="inline"
+                  onsubmit="return confirm('Удалить конкурс «{{ c.title }}»? Все данные будут безвозвратно удалены.')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-500 text-xs font-medium rounded-lg border border-red-200 transition-colors">
+                    🗑 Удалить
                 </button>
             </form>
         </div>
