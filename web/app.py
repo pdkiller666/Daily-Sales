@@ -118,8 +118,14 @@ def create_web_app() -> FastAPI:
     app.include_router(payments_router)
 
     @app.get("/")
-    async def root():
-        return RedirectResponse(url="/dashboard", status_code=302)
+    async def root(request: Request):
+        from web.auth import get_session_user
+        user = get_session_user(request)
+        if user:
+            return RedirectResponse(url="/dashboard", status_code=302)
+        return templates.TemplateResponse(request, "landing.html", {
+            "bot_username": templates.env.globals.get("bot_username", ""),
+        })
 
     @app.exception_handler(404)
     async def not_found(request: Request, exc):

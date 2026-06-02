@@ -14,6 +14,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 **Telegram Bot:** Python 3.11 · aiogram 3 · SQLite · APScheduler · openpyxl · PickleStorage (FSM)
 **Web Interface:** FastAPI + Uvicorn (port 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js
+**Landing Page:** standalone `/` route — public promo page for unauthenticated visitors; redirects to `/dashboard` when logged in
 **Infra:** Amvera (production hosting) · GitHub (version control)
 
 ## Where things live
@@ -43,6 +44,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)`
 - `web/routes/` — 15 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`
 - `web/templates/base.html` — sidebar nav (payments badge for super_admin), Tailwind + HTMX + Alpine.js CDN
+- `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors)
+- `web/templates/products/form.html` — product add/edit form (admin only)
 - `web/templates/*/` — per-module Jinja2 templates
 
 ## Architecture decisions
@@ -101,7 +104,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 6. `get_users_for_notifications()` → `[0]` = internal users.id, `[1]` = telegram_id — don't mix up
 7. `Database.db_file` (not `.db_path`) — attribute name for DB file path
 8. New router → register in `main.py`; new module → add to `test_imports.py`
-9. `get_sales_ranking()` returns 8 columns — 8th is `u.id` (user_db_id); use `row[:7]` for old 7-col unpacking
+9. `get_sales_ranking()` returns 9 columns — 7th is `u.id` (user_db_id), 8th is `u.username`; use `row[:7]` for old 7-col unpacking
 10. `get_user_org_scope()` returns `(scope_type, list[str])` NOT `(str, str)`
 11. `datetime.now()` on Amvera = UTC — use `timezone_utils` for all display; `get_utc_time()` when storing user input
 12. `shift_templates` weekday: 0=Пн, 6=Вс (Python `date.weekday()` convention)

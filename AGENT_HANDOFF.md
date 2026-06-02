@@ -30,6 +30,11 @@ Workflow: "Start application" → python main.py
 
 **Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Управляется владельцем/admin; продажи записываются только через бот (мобильно-ориентирован).
 
+**Сессии 287–289 (2026-06-02) — Веб-интерфейс: аудит + улучшения + лендинг:**
+- **287**: JWT TTL 30→7 дней (`web/auth.py`); rate limit 5 req/60 s на `POST /auth/code/auto`; рейтинги — Alpine.js instant-search в `web/routes/rankings.py` + `rankings/index.html`
+- **288**: Полный CRUD товаров в вебе — `GET/POST /products/new`, `/create`, `/{id}/edit`, `/update`, `/delete`; шаблон `web/templates/products/form.html`; кнопки «✏️ Редактировать» и «🗑 Удалить» на странице товара
+- **289**: Аудит 24 шаблонов + 66 маршрутов: Jinja2-backslash-баг в `products/detail.html` исправлен (`{% set _safe %}`); rate limit добавлен на `POST /auth/code`; лендинг `web/templates/landing.html` (route `/` — умный: auth → dashboard, иначе promo); MD-файлы обновлены
+
 **Сессии 234–237 (2026-05-31) — «Системный» shop fix + filter panel + perf:**
 - 234-235: `get_all_shops()` / `get_inventory_shops()` — параметр `include_system=False`; суперадмин передаёт `include_system=True`
 - 236: Пресет инвайта — UNION с inventory (ТЦ Бум теперь виден)

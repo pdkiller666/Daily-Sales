@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DailySales — Управление продажами в Telegram</title>
+    <meta name="description" content="Профессиональная система управления магазином прямо в Telegram. Продажи, аналитика, команда, Google Sheets — всё в одном боте. 14 дней Премиум бесплатно.">
+    <meta property="og:title" content="DailySales — Управление продажами в Telegram">
+    <meta property="og:description" content="Продажи, аналитика, команда и мотивация — прямо в Telegram. Начните бесплатно.">
+    <meta property="og:type" content="website">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse-slow 2.5s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        'float': {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-8px)' },
+                        },
+                        'pulse-slow': {
+                            '0%, 100%': { opacity: '1' },
+                            '50%': { opacity: '0.6' },
+                        },
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* ── Gradient text ── */
+        .gradient-text {
+            background: linear-gradient(135deg, #60a5fa 0%, #818cf8 55%, #c084fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── Hero dark background with radial blobs ── */
+        .hero-bg {
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 20%, rgba(59,130,246,.18) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 80% 10%, rgba(168,85,247,.12) 0%, transparent 55%),
+                #020617;
+        }
+
+        /* ── Subtle lift on feature cards ── */
+        .card-lift {
+            transition: transform .2s ease, box-shadow .2s ease;
+        }
+        .card-lift:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0,0,0,.12);
+        }
+
+        /* ── Glowing primary CTA ── */
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb, #4f46e5);
+            transition: filter .2s ease, transform .2s ease, box-shadow .2s ease;
+            box-shadow: 0 0 20px rgba(59,130,246,.35);
+        }
+        .btn-primary:hover {
+            filter: brightness(1.1);
+            transform: translateY(-2px);
+            box-shadow: 0 0 36px rgba(59,130,246,.55);
+        }
+
+        /* ── Pricing popular card ── */
+        .card-popular {
+            background: linear-gradient(160deg, #1d4ed8 0%, #4338ca 100%);
+        }
+
+        /* ── Smooth scroll offset ── */
+        :target { scroll-margin-top: 80px; }
+
+        /* ── Feature icon container ── */
+        .feat-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-size: 22px;
+            flex-shrink: 0;
+        }
+
+        /* ── Step connector line ── */
+        .step-line {
+            position: absolute;
+            top: 32px;
+            left: calc(50% + 48px);
+            right: calc(-50% + 48px);
+            height: 1px;
+            background: linear-gradient(90deg, #bfdbfe, transparent);
+        }
+    </style>
+</head>
+<body class="antialiased text-slate-900 bg-white">
+
+<!-- ══════════════════════════════════════════════════════
+     NAV
+══════════════════════════════════════════════════════ -->
+<nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/85 backdrop-blur-xl border-b border-white/[0.06]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+
+        <!-- Logo -->
+        <a href="/" class="flex items-center gap-3 group">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/30 group-hover:scale-105 transition-transform">DS</div>
+            <span class="text-white font-semibold text-lg tracking-tight">DailySales</span>
+        </a>
+
+        <!-- Desktop links -->
+        <div class="hidden md:flex items-center gap-8 text-sm text-slate-400">
+            <a href="#features" class="hover:text-white transition-colors">Возможности</a>
+            <a href="#how"      class="hover:text-white transition-colors">Как работает</a>
+            <a href="#pricing"  class="hover:text-white transition-colors">Тарифы</a>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center gap-3">
+            <a href="/dashboard" class="hidden sm:inline text-sm text-slate-400 hover:text-white transition-colors px-4 py-2">
+                Войти
+            </a>
+            {% if bot_username %}
+            <a href="https://t.me/{{ bot_username }}" target="_blank"
+               class="btn-primary text-white text-sm font-semibold px-5 py-2 rounded-lg inline-flex items-center gap-2">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
+                </svg>
+                Попробовать
+            </a>
+            {% else %}
+            <a href="/dashboard"
+               class="btn-primary text-white text-sm font-semibold px-5 py-2 rounded-lg">
+                Войти
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</nav>
+
+
+<!-- ══════════════════════════════════════════════════════
+     HERO
+══════════════════════════════════════════════════════ -->
+<section class="hero-bg pt-40 pb-28 px-4 text-center relative overflow-hidden">
+
+    <!-- Blurred blobs -->
+    <div class="absolute top-16 left-1/4 w-[500px] h-[500px] bg-blue-600/8 rounded-full blur-3xl pointer-events-none -translate-x-1/2"></div>
+    <div class="absolute top-32 right-1/4 w-80 h-80 bg-purple-600/8 rounded-full blur-3xl pointer-events-none translate-x-1/2"></div>
+
+    <div class="max-w-4xl mx-auto relative z-10">
+
+        <!-- Badge -->
+        <div class="inline-flex items-center gap-2.5 bg-white/[0.06] border border-white/[0.1] rounded-full px-4 py-1.5 text-sm text-slate-300 mb-10 backdrop-blur-sm">
+            <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow"></span>
+            14 дней Премиум — бесплатно, без карты
+        </div>
+
+        <!-- Headline -->
+        <h1 class="text-5xl sm:text-6xl lg:text-[72px] font-extrabold text-white leading-[1.08] tracking-tight mb-6">
+            Управляйте<br>
+            магазином&nbsp;<span class="gradient-text">в Telegram</span>
+        </h1>
+
+        <!-- Sub -->
+        <p class="text-xl sm:text-2xl text-slate-400 leading-relaxed max-w-2xl mx-auto mb-12">
+            Продажи, инвентарь, аналитика, команда и мотивация&nbsp;—
+            всё в одном боте для розничной торговли.
+            Никаких лишних приложений.
+        </p>
+
+        <!-- CTAs -->
+        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            {% if bot_username %}
+            <a href="https://t.me/{{ bot_username }}" target="_blank"
+               class="btn-primary text-white font-semibold px-9 py-4 rounded-xl text-base inline-flex items-center gap-2.5">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
+                </svg>
+                Начать в Telegram
+            </a>
+            {% else %}
+            <a href="/dashboard"
+               class="btn-primary text-white font-semibold px-9 py-4 rounded-xl text-base">
+                Начать бесплатно
+            </a>
+            {% endif %}
+
+            <a href="#features"
+               class="text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base border border-white/10 hover:border-white/20 transition-all inline-flex items-center gap-2">
+                Узнать больше
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </a>
+        </div>
+    </div>
+
+    <!-- Browser mockup -->
+    <div class="mt-24 max-w-5xl mx-auto relative z-10 animate-float">
+        <div class="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-1">
+            <div class="bg-slate-900 rounded-xl overflow-hidden">
+
+                <!-- Browser chrome -->
+                <div class="flex items-center gap-2 px-4 py-3 bg-slate-950 border-b border-white/[0.06]">
+                    <div class="flex gap-1.5">
+                        <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-emerald-500/80"></div>
+                    </div>
+                    <div class="flex-1 mx-3 bg-slate-800 rounded-md px-3 py-1 text-xs text-slate-500 text-left flex items-center gap-2">
+                        <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        dailysales.app/dashboard
+                    </div>
+                </div>
+
+                <!-- Mock dashboard -->
+                <div class="grid grid-cols-12 min-h-[280px]">
+
+                    <!-- Sidebar -->
+                    <div class="col-span-3 bg-slate-950 border-r border-white/[0.05] p-4 space-y-1.5">
+                        <div class="h-7 bg-slate-800 rounded-lg mb-5 flex items-center px-2 gap-2">
+                            <div class="w-4 h-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded"></div>
+                            <div class="w-16 h-2 bg-slate-600 rounded"></div>
+                        </div>
+                        <div class="h-7 bg-blue-600/25 border border-blue-500/20 rounded-lg flex items-center px-2 gap-2">
+                            <div class="w-3 h-3 bg-blue-400/60 rounded"></div>
+                            <div class="w-14 h-2 bg-blue-400/50 rounded"></div>
+                        </div>
+                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                            <div class="w-12 h-2 bg-slate-700 rounded"></div>
+                        </div>
+                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                            <div class="w-16 h-2 bg-slate-700 rounded"></div>
+                        </div>
+                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                            <div class="w-10 h-2 bg-slate-700 rounded"></div>
+                        </div>
+                        <div class="h-7 rounded-lg flex items-center px-2 gap-2">
+                            <div class="w-3 h-3 bg-slate-700 rounded"></div>
+                            <div class="w-18 h-2 bg-slate-700 rounded"></div>
+                        </div>
+                    </div>
+
+                    <!-- Main content -->
+                    <div class="col-span-9 p-6 space-y-4">
+                        <!-- Period tabs -->
+                        <div class="flex gap-2 mb-2">
+                            <div class="bg-blue-600/20 border border-blue-500/30 rounded-lg px-3 py-1 text-xs text-blue-400">Сегодня</div>
+                            <div class="rounded-lg px-3 py-1 text-xs text-slate-600 border border-slate-800">Неделя</div>
+                            <div class="rounded-lg px-3 py-1 text-xs text-slate-600 border border-slate-800">Месяц</div>
+                        </div>
+
+                        <!-- KPI cards -->
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
+                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
+                                <div class="text-lg font-bold text-emerald-400">184 700 ₽</div>
+                                <div class="w-16 h-1.5 bg-emerald-400/20 rounded mt-1.5"></div>
+                            </div>
+                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
+                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
+                                <div class="text-lg font-bold text-blue-400">47</div>
+                                <div class="w-10 h-1.5 bg-blue-400/20 rounded mt-1.5"></div>
+                            </div>
+                            <div class="bg-slate-800 rounded-xl p-3 border border-white/[0.04]">
+                                <div class="w-14 h-1.5 bg-slate-600 rounded mb-2"></div>
+                                <div class="text-lg font-bold text-purple-400">12 340 ₽</div>
+                                <div class="w-20 h-1.5 bg-purple-400/20 rounded mt-1.5"></div>
+                            </div>
+                        </div>
+
+                        <!-- Bar chart -->
+                        <div class="bg-slate-800 rounded-xl px-6 pt-4 pb-3 border border-white/[0.04] flex items-end gap-2 h-28">
+                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:38%"></div>
+                            <div class="flex-1 bg-blue-500/35 rounded-t" style="height:55%"></div>
+                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:42%"></div>
+                            <div class="flex-1 bg-blue-500/40 rounded-t" style="height:72%"></div>
+                            <div class="flex-1 bg-blue-500/65 rounded-t" style="height:95%"></div>
+                            <div class="flex-1 bg-blue-500/35 rounded-t" style="height:58%"></div>
+                            <div class="flex-1 bg-blue-500/30 rounded-t" style="height:44%"></div>
+                            <div class="flex-1 bg-emerald-500/40 rounded-t relative" style="height:80%">
+                                <div class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-emerald-400 whitespace-nowrap font-medium">+12%</div>
+                            </div>
+                        </div>
+
+                        <!-- Staff rows -->
+                        <div class="space-y-1.5">
+                            <div class="h-7 bg-slate-800 rounded-lg flex items-center px-3 gap-3 border border-white/[0.03]">
+                                <div class="w-5 h-5 bg-blue-500/30 rounded-full"></div>
+                                <div class="w-20 h-1.5 bg-slate-600 rounded"></div>
+                                <div class="flex-1"></div>
+                                <div class="w-14 h-2 bg-emerald-400/35 rounded"></div>
+                                <div class="w-10 h-1.5 bg-slate-700 rounded"></div>
+                            </div>
+                            <div class="h-7 bg-slate-800 rounded-lg flex items-center px-3 gap-3 border border-white/[0.03]">
+                                <div class="w-5 h-5 bg-purple-500/30 rounded-full"></div>
+                                <div class="w-16 h-1.5 bg-slate-600 rounded"></div>
+                                <div class="flex-1"></div>
+                                <div class="w-12 h-2 bg-emerald-400/25 rounded"></div>
+                                <div class="w-10 h-1.5 bg-slate-700 rounded"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Glow under mockup -->
+        <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-10 bg-blue-600/25 blur-2xl rounded-full pointer-events-none"></div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     STATS STRIP
+══════════════════════════════════════════════════════ -->
+<section class="bg-slate-900 border-y border-white/[0.06] py-10">
+    <div class="max-w-5xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+        <div>
+            <div class="text-3xl font-bold text-white mb-1">14 дней</div>
+            <div class="text-sm text-slate-400">Премиум бесплатно</div>
+        </div>
+        <div>
+            <div class="text-3xl font-bold text-white mb-1">4 тарифа</div>
+            <div class="text-sm text-slate-400">Для любого масштаба</div>
+        </div>
+        <div>
+            <div class="text-3xl font-bold text-white mb-1">∞</div>
+            <div class="text-sm text-slate-400">Магазинов на Премиум</div>
+        </div>
+        <div>
+            <div class="text-3xl font-bold text-white mb-1">5 форматов</div>
+            <div class="text-sm text-slate-400">Экспорта в Google Sheets</div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     FEATURES
+══════════════════════════════════════════════════════ -->
+<section id="features" class="bg-white py-28 px-4">
+    <div class="max-w-7xl mx-auto">
+
+        <div class="text-center mb-20">
+            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Возможности</div>
+            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Всё для розничного бизнеса</h2>
+            <p class="text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed">Один бот заменяет таблицы, мессенджеры и разрозненные программы учёта</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-blue-50 mb-5">💰</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Продажи и инвентарь</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Быстрая регистрация продаж одним нажатием. Двухуровневый каталог, поиск, корзина, кнопки количества. Складской учёт с историей и импортом из Excel. Кросс-продажи между магазинами сети.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-emerald-50 mb-5">📊</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Аналитика и отчёты</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Дашборд за день / неделю / месяц. Отчёты по магазинам, городам, продавцам с ручным фильтром. Рейтинги с позицией пользователя. Экспорт в Excel — 4 листа, включая графики.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-purple-50 mb-5">🎯</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Планы и мотивация</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Планы по продавцу или магазину на неделю / месяц. Push-уведомления при 50 / 75 / 100%. Матрица комиссий, конкурсы с автоподведением итогов, командные бонусы.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-orange-50 mb-5">👥</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Команда и зарплаты</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Роли: директор, администратор, сотрудник. Зоны доступа по магазину, городу, сети. Графики смен с шаблонами по дням недели, ставки, ФОТ месяца, корректировки и бонусы.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-teal-50 mb-5">🔗</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Google Sheets</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Автоматический экспорт в таблицу при каждой продаже. Авторизация через Device Flow прямо в боте — без браузера. 5 форматов: продажи, сотрудники, товары, план-факт, мотивация.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-indigo-50 mb-5">🏢</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Несколько организаций</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Каждая организация — изолированная база данных. Инвайт-ссылки с пресетом роли и магазина. Суперадмин переключается между контекстами. Кастомные названия должностей.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-rose-50 mb-5">🔔</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Уведомления</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Push при низких остатках, продаже в смену, вступлении сотрудника. Массовые и запланированные рассылки с фильтром по роли и магазину. Все уведомления — с кнопкой «✅ Прочитано».</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-sky-50 mb-5">🌐</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Веб-кабинет</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Полноценный веб-интерфейс для владельца и администратора. Продажи, товары, отчёты, рейтинги, настройки команды и интеграций. Вход через Telegram — без пароля и регистрации.</p>
+            </div>
+
+            <div class="card-lift bg-slate-50 border border-slate-100 rounded-2xl p-7">
+                <div class="feat-icon bg-amber-50 mb-5">💳</div>
+                <h3 class="text-lg font-semibold text-slate-900 mb-2">Оплата и подписки</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">СБП (QR-код) и ЮKassa (банковская карта). Промокоды со скидками и лимитами. Автоотклонение просроченных заявок. Квитанция и напоминания при истечении тарифа.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     HOW IT WORKS
+══════════════════════════════════════════════════════ -->
+<section id="how" class="bg-slate-50 py-28 px-4">
+    <div class="max-w-5xl mx-auto">
+
+        <div class="text-center mb-20">
+            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Быстрый старт</div>
+            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Запуск за 3 шага</h2>
+            <p class="text-xl text-slate-500">Без настройки серверов. Без карты. Сразу в деле.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-10 relative">
+
+            <!-- Connector (desktop only) -->
+            <div class="hidden md:block absolute top-8 left-[calc(33%+16px)] right-[calc(33%+16px)] h-px bg-gradient-to-r from-blue-200 via-blue-100 to-blue-200"></div>
+
+            <div class="text-center group">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
+                    1
+                </div>
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">Откройте бота в Telegram</h3>
+                <p class="text-slate-500 leading-relaxed text-sm">Нажмите «/start». Создайте организацию или присоединитесь по инвайт-ссылке. Имя берётся из вашего Telegram-профиля автоматически.</p>
+            </div>
+
+            <div class="text-center group">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
+                    2
+                </div>
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">Добавьте товары и команду</h3>
+                <p class="text-slate-500 leading-relaxed text-sm">Загрузите каталог через Excel или вручную. Пригласите сотрудников по ссылке — они сразу получат нужную роль и магазин без лишних вопросов.</p>
+            </div>
+
+            <div class="text-center group">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto mb-7 shadow-xl shadow-blue-500/25 group-hover:scale-105 transition-transform">
+                    3
+                </div>
+                <h3 class="text-xl font-semibold text-slate-900 mb-3">Работайте и смотрите аналитику</h3>
+                <p class="text-slate-500 leading-relaxed text-sm">Сотрудники фиксируют продажи в боте с телефона. Дашборд, рейтинги и отчёты обновляются мгновенно. Веб-кабинет — для глубокого анализа с компьютера.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     PRICING
+══════════════════════════════════════════════════════ -->
+<section id="pricing" class="bg-white py-28 px-4">
+    <div class="max-w-6xl mx-auto">
+
+        <div class="text-center mb-20">
+            <div class="inline-block text-blue-600 text-sm font-semibold uppercase tracking-widest mb-3">Тарифы</div>
+            <h2 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-5 tracking-tight">Прозрачные цены</h2>
+            <p class="text-xl text-slate-500">Начните бесплатно, расширяйтесь по мере роста бизнеса</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
+
+            <!-- Free -->
+            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+                <div class="mb-7">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Бесплатный</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">0 ₽</div>
+                    <div class="text-sm text-slate-400 mt-1.5">навсегда</div>
+                </div>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 50 товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>1 магазин</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>100 продаж / мес</li>
+                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Google Sheets</li>
+                </ul>
+                {% if bot_username %}
+                <a href="https://t.me/{{ bot_username }}" target="_blank"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Начать бесплатно
+                </a>
+                {% else %}
+                <a href="/dashboard"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Начать бесплатно
+                </a>
+                {% endif %}
+            </div>
+
+            <!-- Basic -->
+            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+                <div class="mb-7">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Базовый</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">500 ₽</div>
+                    <div class="text-sm text-slate-400 mt-1.5">30 дней</div>
+                </div>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 200 товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 3 магазинов</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>500 продаж / мес</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Google Sheets</li>
+                </ul>
+                {% if bot_username %}
+                <a href="https://t.me/{{ bot_username }}" target="_blank"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Выбрать тариф
+                </a>
+                {% else %}
+                <a href="/dashboard"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Выбрать тариф
+                </a>
+                {% endif %}
+            </div>
+
+            <!-- Standard — popular -->
+            <div class="card-popular rounded-2xl p-7 relative shadow-2xl shadow-blue-500/25 -mt-3 lg:-mt-4">
+                <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-900 text-xs font-extrabold px-4 py-1 rounded-full uppercase tracking-wide shadow-sm">
+                    Популярный
+                </div>
+                <div class="mb-7">
+                    <div class="text-xs font-bold text-blue-200 uppercase tracking-widest mb-3">Стандарт</div>
+                    <div class="text-5xl font-extrabold text-white tracking-tight">1 200 ₽</div>
+                    <div class="text-sm text-blue-200 mt-1.5">90 дней</div>
+                </div>
+                <ul class="space-y-3 text-sm text-white/90 mb-8 min-h-[160px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До 500 товаров</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До 10 магазинов</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>1 500 продаж / мес</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Google Sheets</li>
+                </ul>
+                {% if bot_username %}
+                <a href="https://t.me/{{ bot_username }}" target="_blank"
+                   class="block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg">
+                    Выбрать тариф
+                </a>
+                {% else %}
+                <a href="/dashboard"
+                   class="block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg">
+                    Выбрать тариф
+                </a>
+                {% endif %}
+            </div>
+
+            <!-- Premium -->
+            <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
+                <div class="mb-7">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Премиум</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">4 000 ₽</div>
+                    <div class="text-sm text-slate-400 mt-1.5">365 дней</div>
+                </div>
+                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> товаров</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> магазинов</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> продаж</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Все функции</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Google Sheets</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Приоритетная поддержка</li>
+                </ul>
+                {% if bot_username %}
+                <a href="https://t.me/{{ bot_username }}" target="_blank"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Выбрать тариф
+                </a>
+                {% else %}
+                <a href="/dashboard"
+                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
+                    Выбрать тариф
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Trial notice -->
+        <div class="mt-10 text-center">
+            <div class="inline-flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-7 py-4 text-sm text-emerald-800">
+                <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Каждая новая организация получает <strong class="mx-1">14 дней Премиум-доступа бесплатно</strong> — карта не нужна
+            </div>
+        </div>
+
+        <div class="mt-5 text-center text-sm text-slate-400">
+            Способы оплаты:&nbsp; <strong class="text-slate-600">СБП</strong> (QR-код) &nbsp;·&nbsp; <strong class="text-slate-600">ЮKassa</strong> (банковская карта)
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     CTA
+══════════════════════════════════════════════════════ -->
+<section class="hero-bg py-28 px-4 text-center relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-transparent to-purple-600/8 pointer-events-none"></div>
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="max-w-3xl mx-auto relative z-10">
+        <h2 class="text-4xl sm:text-5xl font-extrabold text-white mb-6 tracking-tight leading-tight">
+            Готовы навести порядок<br>в продажах?
+        </h2>
+        <p class="text-xl text-slate-400 mb-12 leading-relaxed">
+            14 дней Премиума бесплатно. Никаких карт. Никакой настройки серверов.<br>
+            Просто откройте бота — и начните.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            {% if bot_username %}
+            <a href="https://t.me/{{ bot_username }}" target="_blank"
+               class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-3">
+                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/>
+                </svg>
+                Начать в Telegram — бесплатно
+            </a>
+            {% else %}
+            <a href="/dashboard"
+               class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-2">
+                Начать бесплатно
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+            </a>
+            {% endif %}
+            <a href="/dashboard"
+               class="text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base border border-white/10 hover:border-white/25 transition-all">
+                Войти в кабинет
+            </a>
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     FOOTER
+══════════════════════════════════════════════════════ -->
+<footer class="bg-slate-950 border-t border-white/[0.06] py-14 px-4">
+    <div class="max-w-7xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+
+            <div class="md:col-span-2">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shadow-lg shadow-blue-500/30">DS</div>
+                    <span class="text-white font-bold text-xl tracking-tight">DailySales</span>
+                </div>
+                <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
+                    Профессиональная система управления продажами для розничного бизнеса. Работает прямо в Telegram — без лишних приложений.
+                </p>
+            </div>
+
+            <div>
+                <div class="text-slate-300 font-semibold text-sm mb-5">Продукт</div>
+                <ul class="space-y-3 text-sm text-slate-500">
+                    <li><a href="#features" class="hover:text-slate-200 transition-colors">Возможности</a></li>
+                    <li><a href="#pricing"  class="hover:text-slate-200 transition-colors">Тарифы</a></li>
+                    <li><a href="#how"      class="hover:text-slate-200 transition-colors">Как это работает</a></li>
+                </ul>
+            </div>
+
+            <div>
+                <div class="text-slate-300 font-semibold text-sm mb-5">Доступ</div>
+                <ul class="space-y-3 text-sm text-slate-500">
+                    <li><a href="/dashboard" class="hover:text-slate-200 transition-colors">Войти в кабинет</a></li>
+                    {% if bot_username %}
+                    <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="hover:text-slate-200 transition-colors">Telegram-бот</a></li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-600">
+            <div>© 2024–2026 DailySales. Все права защищены.</div>
+            <div>Сделано с ❤️ для розничного бизнеса</div>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>
