@@ -516,6 +516,26 @@ def staff_detail(request: Request, user_id: int):
         except Exception:
             ctx["cities"] = []
 
+        # 7-day revenue chart for this user
+        try:
+            from datetime import timedelta
+            tz_staff = db.get_user_timezone(u[1] if u else telegram_id) or "Europe/Moscow"
+            from timezone_utils import get_current_user_time
+            today_tz = get_current_user_time(tz_staff).date()
+            chart_labels = []
+            chart_data = []
+            for i in range(6, -1, -1):
+                d = today_tz - timedelta(days=i)
+                ds = d.isoformat()
+                summary = db.get_sales_summary(start_date=ds, end_date=ds, user_id=user_id) or (0, 0, 0, 0)
+                chart_labels.append(d.strftime('%d.%m'))
+                chart_data.append(int(float(summary[2] or 0)))
+            ctx["chart_labels"] = chart_labels
+            ctx["chart_data"] = chart_data
+        except Exception:
+            ctx["chart_labels"] = []
+            ctx["chart_data"] = []
+
         # Active plans for this user
         try:
             from timezone_utils import get_current_user_time

@@ -160,6 +160,59 @@
 </div>
 {% endif %}
 
+<!-- 7-day revenue chart -->
+{% if chart_labels %}
+{% set week_sum = chart_data | sum %}
+<div class="card p-5 mb-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-800">📈 Выручка — 7 дней</h2>
+        {% if week_sum > 0 %}
+        <span class="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg">
+            {{ week_sum|fmt_currency }} ₽
+        </span>
+        {% endif %}
+    </div>
+    <div class="relative" style="height:140px">
+        <canvas id="staffRevenueChart"></canvas>
+    </div>
+</div>
+<script>
+(function(){
+    const labels = {{ chart_labels | tojson }};
+    const data   = {{ chart_data   | tojson }};
+    const ctx = document.getElementById('staffRevenueChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                data,
+                backgroundColor: data.map(v => v > 0 ? 'rgba(59,130,246,0.7)' : 'rgba(203,213,225,0.4)'),
+                borderRadius: 5,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: {display: false},
+                tooltip: {
+                    backgroundColor: '#1e293b', titleColor: '#94a3b8', bodyColor: '#f1f5f9', padding: 8,
+                    callbacks: { label: c => '  ' + c.parsed.y.toLocaleString('ru-RU') + ' ₽' }
+                }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: {color:'rgba(0,0,0,0.04)'}, border:{display:false},
+                     ticks: { callback: v => v>=1000?(v/1000).toFixed(0)+'к':v, font:{size:10}, color:'#94a3b8' } },
+                x: { grid: {display:false}, border:{display:false}, ticks: {font:{size:10}, color:'#94a3b8'} }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
 <!-- Recent sales table -->
 {% if recent_sales %}
 <div class="card overflow-hidden">
