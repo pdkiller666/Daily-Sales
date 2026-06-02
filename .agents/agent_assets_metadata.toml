@@ -1,0 +1,13 @@
+uploads = []
+
+[[generated]]
+id = "JrubACxN8CzG1D4Y8k2Tb"
+uri = "file://web/static/og-image.png"
+type = "image"
+title = "DailySales OG social preview image"
+
+[[outputs]]
+id = "3oDSYUa-MQqV0_eo3J3ql"
+uri = "file://web/static/og-image.png"
+type = "image"
+title = "OG-изображение (социальные превью)"
