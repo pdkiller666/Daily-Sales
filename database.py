@@ -2804,7 +2804,8 @@ class Database:
 
         if shop_name:
             cursor.execute('''
-                SELECT i.*, p.name, p.category, p.price, 
+                SELECT i.id, i.product_id, i.shop_name, i.quantity, i.updated_at, i.updated_by,
+                       p.name, p.category, p.price,
                        u.first_name || ' ' || u.last_name as updated_by_name
                 FROM inventory i
                 JOIN products p ON i.product_id = p.id
@@ -2814,7 +2815,8 @@ class Database:
             ''', (shop_name,))
         else:
             cursor.execute('''
-                SELECT i.*, p.name, p.category, p.price, 
+                SELECT i.id, i.product_id, i.shop_name, i.quantity, i.updated_at, i.updated_by,
+                       p.name, p.category, p.price,
                        u.first_name || ' ' || u.last_name as updated_by_name
                 FROM inventory i
                 JOIN products p ON i.product_id = p.id
