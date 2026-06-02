@@ -91,7 +91,11 @@ def schedule_page(
         "today_day": today.day if (today.year == year and today.month == month) else 0,
         "msg": msg,
         "error": None,
+        "csrf_token": "",
     }
+
+    from web.auth import get_csrf_token
+    ctx["csrf_token"] = get_csrf_token(request)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -160,13 +164,16 @@ def schedule_toggle_day(
     work_date: Annotated[str, Form()],
     year: Annotated[int, Form()],
     month: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return _redirect_back(user_id, year, month)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -191,13 +198,16 @@ def schedule_set_time(
     end_time: Annotated[str, Form()],
     year: Annotated[int, Form()],
     month: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return _redirect_back(user_id, year, month)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -227,13 +237,16 @@ def schedule_remove_day(
     work_date: Annotated[str, Form()],
     year: Annotated[int, Form()],
     month: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return _redirect_back(user_id, year, month)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -255,13 +268,16 @@ def schedule_fill_month(
     user_id: Annotated[int, Form()],
     year: Annotated[int, Form()],
     month: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/schedule?user_id={user_id}&year={year}&month={month}", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -291,13 +307,16 @@ def schedule_set_template(
     is_off: Annotated[str, Form()] = "",
     year: Annotated[int, Form()] = 0,
     month: Annotated[int, Form()] = 0,
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return _redirect_back(user_id, year, month, "#templates")
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 

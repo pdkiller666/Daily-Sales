@@ -118,6 +118,7 @@
 
 <div class="flex items-center gap-3">
     <form method="post" action="/products/import/confirm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="session_id" value="{{ session_id }}">
         <button type="submit"
                 class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors">
@@ -138,6 +139,7 @@
         <div class="card p-6">
             <form method="post" action="/products/import" enctype="multipart/form-data"
                   id="importForm" x-data="{ fileName: '', dragging: false }">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
                 <!-- Drag & drop zone -->
                 <div class="border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer mb-5"

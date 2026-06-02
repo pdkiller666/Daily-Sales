@@ -84,6 +84,7 @@
         {% endif %}
 
         <form method="post" action="/integration/auth/poll" class="mb-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="conn_id" value="{{ auth_conn_id }}">
             <button type="submit"
                     class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm py-3 rounded-xl transition-colors">
@@ -145,6 +146,7 @@
             <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                 {% if has_secrets %}
                 <form method="post" action="/integration/auth/start">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="conn_id" value="{{ c.id }}">
                     <button type="submit"
                             class="text-xs px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-medium transition-colors">
@@ -154,6 +156,7 @@
                 {% endif %}
 
                 <form method="post" action="/integration/{{ c.id }}/toggle">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit"
                             class="text-xs px-3 py-1.5 border rounded-lg font-medium transition-colors
                                    {% if c.enabled %}bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200
@@ -164,6 +167,7 @@
 
                 <form method="post" action="/integration/{{ c.id }}/delete"
                       onsubmit="return confirm('Удалить подключение «{{ c.name }}» и все его настройки?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit"
                             class="text-xs px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg font-medium transition-colors">
                         🗑 Удалить
@@ -250,6 +254,7 @@
 
     <div x-show="open" x-cloak class="mt-4">
         <form method="post" action="/integration/create">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">

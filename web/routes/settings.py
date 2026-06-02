@@ -35,7 +35,7 @@ def _get_org_id_for_user(telegram_id: int) -> int | None:
 
 @router.get("/settings")
 def settings_page(request: Request, saved: str = ""):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
@@ -49,6 +49,7 @@ def settings_page(request: Request, saved: str = ""):
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": is_admin,
+        "csrf_token": get_csrf_token(request),
         "notif_settings": None,
         "user_db_id": None,
         "saved": saved == "1",
@@ -176,6 +177,7 @@ def settings_page(request: Request, saved: str = ""):
 @router.post("/settings")
 async def settings_save(
     request: Request,
+    csrf_token: str = Form(default=""),
     low_stock_alerts: str = Form(default=""),
     daily_reports: str = Form(default=""),
     sales_alerts: str = Form(default=""),
@@ -185,12 +187,14 @@ async def settings_save(
     stock_threshold: int = Form(default=5),
     notification_time: str = Form(default="09:00"),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -217,12 +221,14 @@ async def settings_save(
 
 
 @router.post("/settings/rotate_invite")
-async def rotate_invite(request: Request):
-    from web.auth import get_session_user
+async def rotate_invite(request: Request, csrf_token: str = Form(default="")):
+    from web.auth import get_session_user, verify_csrf_token
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings#invite", status_code=303)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/settings#invite", status_code=303)
 
@@ -238,14 +244,17 @@ async def rotate_invite(request: Request):
 @router.post("/settings/save_invite_preset")
 async def save_invite_preset(
     request: Request,
+    csrf_token: str = Form(default=""),
     preset_role: str = Form(default=""),
     preset_shop: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings#invite", status_code=303)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/settings#invite", status_code=303)
 

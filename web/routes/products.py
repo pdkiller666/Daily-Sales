@@ -93,9 +93,11 @@ def products_import_page(
     telegram_id = int(user["sub"])
 
     # Base context for upload form
+    from web.auth import get_csrf_token
     ctx: dict = {
         "request": request, "user": user, "is_admin": True,
         "max_items": BULK_IMPORT_MAX,
+        "csrf_token": get_csrf_token(request),
         "preview": None, "error": error or None,
         "session_id": "", "total": 0, "skipped": 0,
         "page": 1, "page_count": 1, "has_prev": False, "has_next": False,
@@ -129,13 +131,19 @@ def products_import_page(
 
 
 @router.post("/products/import")
-async def products_import_upload(request: Request, file: UploadFile = File(...)):
-    from web.auth import get_session_user
+async def products_import_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
     from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/products/import", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
 
@@ -211,14 +219,20 @@ async def products_import_upload(request: Request, file: UploadFile = File(...))
 
 
 @router.post("/products/import/confirm")
-def products_import_confirm(request: Request, session_id: str = Form(default="")):
-    from web.auth import get_session_user
+def products_import_confirm(
+    request: Request,
+    session_id: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/products/import", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
 

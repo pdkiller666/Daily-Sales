@@ -98,7 +98,11 @@ def integration_page(
         "auth_verify_url": verify_url or "https://google.com/device",
         "msg": msg,
         "error": error,
+        "csrf_token": "",
     }
+
+    from web.auth import get_csrf_token
+    ctx["csrf_token"] = get_csrf_token(request)
 
     if can_use:
         try:
@@ -166,13 +170,16 @@ def integration_create(
     request: Request,
     name: Annotated[str, Form()],
     spreadsheet_id: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -204,12 +211,15 @@ def integration_create(
 async def integration_auth_start(
     request: Request,
     conn_id: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -257,14 +267,17 @@ async def integration_auth_start(
 async def integration_auth_poll(
     request: Request,
     conn_id: Annotated[int, Form()],
+    csrf_token: str = Form(default=""),
 ):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -329,13 +342,15 @@ async def integration_auth_poll(
 
 
 @router.post("/integration/{cid}/toggle")
-def integration_toggle(request: Request, cid: int):
-    from web.auth import get_session_user
+def integration_toggle(request: Request, cid: int, csrf_token: str = Form(default="")):
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
@@ -355,13 +370,15 @@ def integration_toggle(request: Request, cid: int):
 
 
 @router.post("/integration/{cid}/delete")
-def integration_delete(request: Request, cid: int):
-    from web.auth import get_session_user
+def integration_delete(request: Request, cid: int, csrf_token: str = Form(default="")):
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/dashboard", status_code=302)
 
