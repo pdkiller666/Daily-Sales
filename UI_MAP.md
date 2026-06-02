@@ -2,7 +2,7 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-05-31
+> Обновлён: 2026-06-02
 
 ---
 
@@ -77,6 +77,7 @@
    - 5.8 Сотрудники (`admin_users`)
    - 5.9 Магазины (`admin_shops`)
    - 5.10 Google Sheets (`integration_menu`)
+   - 5.11 Отсутствия (`abs_admin`)
 6. [Продажа (все роли)](#6-продажа)
 7. [Отчёты и рейтинги](#7-отчёты-и-рейтинги)
 8. [Профиль и настройки](#8-профиль-и-настройки)
@@ -184,7 +185,8 @@
  ├─ 🏆 Конкурсы             [contests_menu]           → §5.7
  ├─ 👥 Упр. сотрудниками    [admin_users]             → §5.8
  ├─ 🏪 Упр. магазинами      [admin_shops]             → §5.9
- └─ 📊 Google Sheets        [integration_menu]        → §5.10
+ ├─ 📊 Google Sheets        [integration_menu]        → §5.10
+ └─ 📋 Отсутствия           [abs_admin]               → §5.11
 ```
 
 > Суперадмин также видит кнопку смены контекста орга `[change_org_context]`.
@@ -450,6 +452,37 @@
 
 ---
 
+### 5.11 Отсутствия
+
+**callback_data: `abs_admin`** (admin/owner) · **callback_data: `abs_my`** (сотрудник — в «Команда сегодня»)
+
+```
+📋 Отсутствия сотрудников (admin)
+ ├─ [abs_pnd]        — список заявок «На рассмотрении»
+ │    └─ [abs_rv_{id}]  — карточка заявки
+ │         ├─ ✅ Одобрить  [abs_ok_{id}]  → status = approved
+ │         └─ ❌ Отклонить [abs_rj_{id}]  → FSM: AbsenceStates.reject_comment
+ │              └─ message handler → status = rejected
+ └─ Статистика: кол-во pending по типам
+
+📋 Мои отсутствия (user/admin — кнопка «Мои отсутствия» в Команда/Профиль)
+ ├─ Сводка: Отпуск, Больничный, Отгул, Прогул, Другое
+ ├─ ➕ Подать заявку  [abs_new]
+ │    └─ [abs_nt_{type}] — выбрать тип (vacation/sick/compensatory/absence/other)
+ │         └─ FSM: AbsenceStates.new_start_date → new_end_date → new_comment
+ │              → add_absence(..., status='pending') → уведомление admin
+ └─ 📂 История за год  [abs_hist_{year}]
+      └─ Список записей с датами и статусами
+
+Типы отсутствий: vacation (Отпуск) · sick (Больничный) · compensatory (Отгул) · absence (Прогул) · other (Другое)
+Статусы: pending → approved / rejected / cancelled
+```
+
+**Web:** `/absences` — календарный вид; admin видит всех сотрудников, user — только себя.
+`GET /absences/settings` — настройка типов (is_paid, penalty_mode) для admin.
+
+---
+
 ## 6. Продажа
 
 **callback_data: `new_sale`** (все роли)
@@ -523,6 +556,7 @@
  ├─ 🔔 Уведомления            [notifications_menu]    → §9
  ├─ 🕐 Часовой пояс           [set_timezone_menu]
  │    └─ Список timezone → [set_tz_{zone}]
+ ├─ 📋 Мои отсутствия         [abs_my]                → §5.11
  └─ 💳 Подписка               [subscription_menu]     → §10
 ```
 

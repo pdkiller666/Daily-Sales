@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-02 (сессия 292) · 48 модулей · 48 test_imports · GitHub `3bd1b29` · Amvera `da6fbcc`
+> Последнее обновление: 2026-06-02 (сессия 345) · 49 модулей · 49 test_imports · GitHub `ef29cac` · Amvera `933ef27`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -9,7 +9,7 @@ Telegram API
    main.py  ──── запускает polling, регистрирует роутеры, инициализирует планировщик
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
-   │                    РОУТЕРЫ (21 штука)                          │
+   │                    РОУТЕРЫ (22 штуки)                          │
    │  router              ← handlers.py         (старт, профиль)   │
    │  admin_router        ← admin_handlers.py   (орг, юзеры)       │
    │  sales_router        ← sales_handlers.py   (продажи)          │
@@ -31,6 +31,7 @@ Telegram API
    │  filter_router       ← filter_handlers.py  (общий фильтр)      │
    │  referral_router     ← referral_handlers.py (реф. программа)   │
    │  addon_router        ← addon_handlers.py   (надстройки)        │
+   │  absence_router      ← absence_handlers.py (отсутствия)        │
    └────────────────────────────────────────────────────────────────┘
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
@@ -86,6 +87,8 @@ Telegram API
 | `user_hints_seen` | user_id, hint_key, seen_at |
 | `user_product_favorites` | user_id, product_id |
 | `user_product_recent` | user_id, product_id, last_used |
+| `absence_type_settings` | id, type (vacation/sick/compensatory/absence/other), is_paid, annual_limit, penalty_mode, penalty_amount, updated_at — UNIQUE(type); 5 записей по умолчанию |
+| `absence_records` | id, user_id, type, start_date, end_date, status (pending/approved/rejected/cancelled), is_paid, comment, admin_comment, created_by, reviewed_by, created_at, reviewed_at |
 
 ### data/shop_bot.db ТОЛЬКО (платежи всегда централизованы)
 
@@ -106,7 +109,9 @@ Telegram API
 ```
 idx_sales_user_date, idx_sales_shop_date, idx_inventory_shop_prod,
 idx_work_schedule_date, idx_seller_earnings_sale,
-idx_users_shop_name, idx_users_telegram_id
+idx_users_shop_name, idx_users_telegram_id,
+idx_absence_user (absence_records · user_id+start_date),
+idx_absence_status (absence_records · status)
 ```
 
 ---
@@ -312,6 +317,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `BackupStates` | backup_handlers.py | Восстановление из бэкапа |
 | `PaymentSystemStates` | payment_system_admin.py | Настройка ЮKassa (shop_id, secret_key, return_url) |
 | `AddonStates` | addon_handlers.py | `entering_qty` — ввод кол-ва надстроек |
+| `AbsenceStates` | absence_handlers.py | `new_start_date`, `new_end_date`, `new_comment`, `reject_comment` — флоу заявки/отклонения |
 
 ---
 
@@ -502,6 +508,27 @@ addon_buy_products_1        — экран покупки +100 товаров (1
 addon_confirm_{type}        — подтверждение; redirect → confirm_payment_request с plan_type 'addon_shops_1'/'addon_products_1'
 ```
 
+### absence_handlers.py (absence_router)
+
+```
+abs_my              — экран «Мои отсутствия»: сводка по типам + кнопка «➕ Подать заявку»
+abs_hist_{year}     — история за год (список записей)
+abs_new             — выбор типа заявки
+abs_nt_{type}       — выбран тип → FSM: AbsenceStates.new_start_date
+  → AbsenceStates.new_end_date → AbsenceStates.new_comment → создание absence_record
+abs_admin           — экран admin: сводка pending + кнопки «🕐 На рассмотрении» / «📋 Все»
+abs_pnd             — список pending заявок
+abs_rv_{id}         — карточка заявки (admin): Одобрить / Отклонить
+abs_ok_{id}         — одобрить (status → approved)
+abs_rj_{id}         — начало отклонения → FSM: AbsenceStates.reject_comment
+  → abs_reject_do (message) → status → rejected
+abs_del_{id}        — удалить запись (только pending/создатель)
+
+Типы: vacation (Отпуск), sick (Больничный), compensatory (Отгул),
+      absence (Прогул), other (Другое)
+Статусы: pending → approved / rejected / cancelled
+```
+
 ### pdf_utils.py (без роутера)
 
 ```python
@@ -632,6 +659,8 @@ data = current_db.get_something()                     # без await — пол�
 24. **Реф. deep-link**: аргумент `/start ref_TELEGRAMID` → после `.upper()` сохраняется как `REF_{ID}` в FSM. Бонус применяется в **обоих** путях создания орги: `select_city` (callback) и `process_city` (message-handler) в `handlers.py`
 25. **`products` колонки `photo_file_id` + `description`** — добавлены ALTER TABLE миграцией в `create_tables()`. При SELECT всех полей — индексы: photo_file_id=6, description=7. Старый код с `row[0:6]` unpacking не сломается, но новые данные не получит
 26. **`pdf_utils.py`** требует `reportlab`. При `ImportError` возвращает `None` без краша — обработать в handler и уведомить пользователя
+27. **`get_absence_days_map(year, month, user_id=None)`** → `{user_id: {day_num: {type, status, id}}}` — возвращает вложенный dict с ВНЕШНИМ ключом user_id. Вызывающий код должен делать `.get(user_id, {})` для извлечения дня-карты. Без этого распаковка даст пустой dict или KeyError.
+28. **Callback handlers (не message-handlers) НЕ используют `fsm_edit(callback, text, markup)`** — это функция только для message-handlers (принимает `message`). В callback-хендлерах: `await callback.answer()` + `await callback.message.edit_text(text, markup=markup, parse_mode=...)`.
 
 ---
 
@@ -744,6 +773,8 @@ web/
     integration.py    — GET /integration, POST /integration/create, /auth/start, /auth/poll,
                          POST /integration/{id}/toggle, /integration/{id}/delete
     payments.py       — GET /payments, POST /payments/{id}/confirm, /payments/{id}/reject
+    absences.py       — GET /absences, POST /absences/add, /absences/update,
+                         GET /absences/settings, POST /absences/settings/update
   templates/
     base.html         — сайдбар, nav (включает Платежи только для super_admin + pending badge)
     auth/, dashboard/, sales/, products/, inventory/, reports/, rankings/,

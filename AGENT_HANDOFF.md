@@ -143,7 +143,7 @@ main.py  — polling, регистрация     web/app.py — FastAPI (пор�
 main.py  — polling, регистрация роутеров, APScheduler (9 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
-│  21 РОУТЕР (handlers)                                            │
+│  22 РОУТЕРА (handlers)                                           │
 │  router               ← handlers.py         (старт, профиль)    │
 │  admin_router         ← admin_handlers.py   (орг, юзеры)        │
 │  sales_router         ← sales_handlers.py   (продажи)           │
@@ -166,6 +166,7 @@ main.py  — polling, регистрация роутеров, APScheduler (9 з
 │  integration_router   ← integration_handlers.py (Google Sheets) │
 │  referral_router      ← referral_handlers.py  (реф. программа)  │
 │  addon_router         ← addon_handlers.py     (надстройки)      │
+│  absence_router       ← absence_handlers.py   (отсутствия)      │
 └──────────────────────────────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -456,6 +457,8 @@ build:
 | `user_hints_seen` | user_id, hint_key, seen_at |
 | `user_product_favorites` | user_id, product_id |
 | `user_product_recent` | user_id, product_id, last_used |
+| `absence_type_settings` | id, type TEXT UNIQUE (vacation/sick/compensatory/absence/other), is_paid, annual_limit, penalty_mode ('none'/'no_pay'), penalty_amount, updated_at — 5 строк по умолчанию; absence=0/no_pay, остальные=1/none |
+| `absence_records` | id, user_id, type, start_date, end_date, status (pending/approved/rejected/cancelled), is_paid, comment, admin_comment, created_by, reviewed_by, created_at, reviewed_at |
 
 ### data/shop_bot.db ТОЛЬКО (платежи централизованы):
 
@@ -1029,6 +1032,23 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 ---
 
+**Сессии 344–345 (2026-06-02) — АУДИТ CALLBACK.ANSWER() + БАГИ РАСПИСАНИЯ:**
+
+**Сессия 344 — аудит и фиксы:**
+1. **Структурный баг `get_absence_days_map`** (`web/routes/schedule.py`, `web/routes/absences.py`): метод возвращает `{user_id: {day_num: {...}}}`, но вызывающий код не разворачивал внешний ключ user_id. Исправлено: добавлен `.get(user_id, {})` при извлечении дня-карты во всех call-сайтах.
+2. **`state.clear()` в `handlers.py`** (строка 177): заменён на `clear_state_keep_org(state)` — сохраняет `selected_org_db` при очистке состояния.
+3. **`he()` в `sales_handlers.py`**: добавлен в 3 местах (строки 1189, 1601, 1699) для имён товаров в HTML-сообщениях.
+4. **49/49 test_imports ✅** после всех фиксов.
+5. GitHub `7f4a32c` · Amvera `9e28ec1`.
+
+**Сессия 345 — полный аудит callback.answer():**
+1. **6 двойных ответов** исправлены (вызывалось `callback.answer()` дважды): `addon_buy`, `addon_upload_proof_start`, `reset_invite_handler`, `gs_exp_sync_week_confirm`, `edit_parameter_choice`, `salary_fill_month_confirm` — в каждом убран лишний вызов.
+2. **Отсутствующий answer + неверный fsm_edit** в `absence_handlers.py` (3 хендлера `abs_my`, `abs_hist`, `abs_new`): исходный код неправильно вызывал `fsm_edit(callback, text, markup)` (функция принимает message, не callback). Заменено на `await callback.answer()` + `await callback.message.edit_text(text, reply_markup=markup)`.
+3. **49/49 test_imports ✅** — без ошибок.
+4. GitHub `ef29cac` · Amvera `933ef27`.
+
+---
+
 **Сессии 234–235 (2026-05-31) — ИСПРАВЛЕНИЕ ВИДИМОСТИ МАГАЗИНА «СИСТЕМНЫЙ»:**
 1. `database.py`: добавлен параметр `include_system=False` в `get_all_shops()`, `get_shops_with_stats()`; все UNION-части (users + shops + inventory) фильтруют «Системный»/«System» для обычных пользователей. Супер-администратор передаёт `include_system=True`.
 2. `database.py`: `get_inventory_shops()` — аналогично фильтрует «Системный».
@@ -1086,6 +1106,8 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 34. **`asyncio.gather()` с `return_exceptions=True`**: используй в dashboard и любых экранах с 3+ независимыми DB-запросами. Всегда проверяй каждый результат: `if not isinstance(result, Exception)`. Паттерн: `_r = lambda i, default=None: results[i] if not isinstance(results[i], Exception) else default`.
 35. **`filter_utils.py` — магазины без сотрудников**: `get_available_filter_values()` собирает список магазинов из трёх таблиц: `users.shop_name`, `shops.name`, `inventory.shop_name`. Если новый магазин добавлен только в `inventory` (0 сотрудников) — он появится в фильтре. При изменении логики — обязательно поддерживать все три источника. Инвалидация: `invalidate_filter_values_cache(db_path)` при добавлении/удалении/переименовании магазина.
 36. **`_low_stock_count()` в dashboard**: при scope city/network магазины ищутся в `users` и `shops` таблицах. Таблица `shops` может не иметь сотрудников, но хранит city/trade_network — без неё inventory-only магазины исчезают из подсчёта низких остатков. Fallback `try/except` если таблица `shops` отсутствует.
+37. **`get_absence_days_map(year, month, user_id=None)`** → `{user_id: {day_num: {type, status, id}}}` — ключ первого уровня = user_id (int). Вызывающий код ОБЯЗАН делать `.get(user_id, {})` для получения `{day_num: {...}}`. Без этого получишь dict с user_id-ключами вместо дня-карты.
+38. **`fsm_edit(msg_or_cb, text, markup)` НЕ вызывается в callback-handlers** — функция принимает `message`, не `callback`. В callback-хендлерах: `await callback.answer()` + `await callback.message.edit_text(text, reply_markup=markup, parse_mode=...)`.
 
 ---
 
@@ -1119,6 +1141,7 @@ Chart.js (графики дашборда)    |  openpyxl (Excel импорт/э
 | `settings.py` | `/settings` + `/settings/rotate_invite` + `/settings/save_invite_preset` | all | Настройки уведомлений + invite |
 | `integration.py` | `/integration` + auth endpoints | admin (Стандарт+) | Google Sheets |
 | `payments.py` | `/payments`, `/payments/{id}/confirm|reject` | **super_admin only** | Управление платежами |
+| `absences.py` | `/absences`, `/absences/add`, `/absences/update`, `/absences/settings` | all roles (admin видит всех) | Отсутствия/заявки |
 
 ### Auth flow
 ```
@@ -1197,8 +1220,8 @@ templates.env.globals['pending_payments_count'] = get_pending_count  # из paym
 ## 10. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
-# 1. Импорт-аудит (48 модулей):
-python test_imports.py   # должно быть: Итог: 48 ОК, 0 ошибок
+# 1. Импорт-аудит (49 модулей):
+python test_imports.py   # должно быть: Итог: 49 ОК, 0 ошибок
 
 # 2. Синтаксис:
 python -c "
