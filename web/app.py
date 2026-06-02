@@ -87,6 +87,26 @@ def create_web_app() -> FastAPI:
     from web.routes.payments import get_pending_count
     templates.env.globals['pending_payments_count'] = get_pending_count
 
+    def _pending_absences_count(request):
+        """Return count of pending absence requests for the current org."""
+        try:
+            from web.auth import get_session_user
+            from web.deps import get_web_db
+            user = get_session_user(request)
+            if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+                return 0
+            db = get_web_db(int(user["sub"]), user.get("org_db"))
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT COUNT(*) FROM absence_records WHERE status='pending'"
+            ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+
+    templates.env.globals['pending_absences_count'] = _pending_absences_count
+
     def _current_org_name(request):
         """Return the display name of the org currently selected in the session."""
         try:

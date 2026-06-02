@@ -258,6 +258,15 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/schedule') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📅</span>График
         </a>
+        {% set _abscnt = pending_absences_count(request) %}
+        <a href="/absences"
+           class="nav-link {% if request.url.path.startswith('/absences') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">📋</span>
+            <span class="flex-1">Отсутствия</span>
+            {% if _abscnt > 0 %}
+            <span class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-amber-500 text-white">{{ _abscnt }}</span>
+            {% endif %}
+        </a>
         <a href="/plans"
            class="nav-link {% if request.url.path.startswith('/plans') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎯</span>Планы

@@ -1167,6 +1167,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="✏️ Редактировать профиль", callback_data="edit_profile"))
     builder.add(InlineKeyboardButton(text="📅 Мой график", callback_data="my_schedule"))
+    builder.add(InlineKeyboardButton(text="📋 Мои отсутствия", callback_data="abs_my"))
     builder.add(InlineKeyboardButton(text="🔔 Уведомления", callback_data="notifications_menu"))
     
     # Кнопка подписки и контактов доступны всем пользователям

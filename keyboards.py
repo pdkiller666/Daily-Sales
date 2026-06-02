@@ -95,6 +95,7 @@ def admin_management_menu(chat_id: int):
         InlineKeyboardButton(text="🏪 Упр. магазинами", callback_data="admin_shops"),
         InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_menu"),
         InlineKeyboardButton(text="📨 Рассылка сотрудникам", callback_data="admin_send_notification"),
+        InlineKeyboardButton(text="📋 Отсутствия сотрудников", callback_data="abs_admin"),
     )
     builder.add(back_button("main_menu"))
     builder.adjust(1)
