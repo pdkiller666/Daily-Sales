@@ -689,6 +689,63 @@ if ('serviceWorker' in navigator) {
 })();
 
 /* ══════════════════════════════════════════════════
+   4. PWA «Add to Home Screen» install prompt
+══════════════════════════════════════════════════ */
+(function () {
+    if (localStorage.getItem('ds_pwa_dismissed') === '1') return;
+
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+    const isInStandalone = window.matchMedia('(display-mode: standalone)').matches
+                        || window.navigator.standalone === true;
+    if (isInStandalone) return;
+
+    let _deferredPrompt = null;
+
+    function _showPwaPrompt(iosMode) {
+        const el = document.getElementById('ds-pwa-prompt');
+        if (!el) return;
+        if (iosMode) {
+            const txt = document.getElementById('ds-pwa-prompt-text');
+            const btn = document.getElementById('ds-pwa-install-btn');
+            if (txt) txt.textContent = 'Добавьте на экран: Safari → Поделиться → На экран «Домой»';
+            if (btn) btn.style.display = 'none';
+        }
+        el.classList.remove('hidden');
+    }
+
+    /* Android / Desktop Chrome: intercept beforeinstallprompt */
+    window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        _deferredPrompt = e;
+        setTimeout(() => _showPwaPrompt(false), 1200);
+    });
+
+    window.dsPwaInstall = function () {
+        if (!_deferredPrompt) return;
+        _deferredPrompt.prompt();
+        _deferredPrompt.userChoice.then(function (result) {
+            _deferredPrompt = null;
+            const el = document.getElementById('ds-pwa-prompt');
+            if (el) el.remove();
+            if (result.outcome === 'accepted') {
+                localStorage.setItem('ds_pwa_dismissed', '1');
+            }
+        });
+    };
+
+    window.dsPwaDismiss = function () {
+        const el = document.getElementById('ds-pwa-prompt');
+        if (el) el.remove();
+        localStorage.setItem('ds_pwa_dismissed', '1');
+    };
+
+    /* iOS Safari: no beforeinstallprompt — show manual hint */
+    if (isIOS) {
+        setTimeout(() => _showPwaPrompt(true), 1200);
+    }
+})();
+
+/* ══════════════════════════════════════════════════
    4. Dark mode toggle
 ══════════════════════════════════════════════════ */
 function _dsApplyDark(isDark) {
@@ -1373,6 +1430,14 @@ function mainApp() {
             <span class="flex-1 leading-snug">Получать браузерные уведомления о продажах коллег</span>
             <button onclick="dsRequestNotif()" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors">Включить</button>
             <button onclick="document.getElementById('ds-notif-prompt').remove()" class="shrink-0 text-blue-300 hover:text-blue-500 text-base leading-none px-1">×</button>
+        </div>
+
+        <!-- PWA install prompt -->
+        <div id="ds-pwa-prompt" class="hidden flex items-center gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-800">
+            <span class="text-lg shrink-0">📱</span>
+            <span class="flex-1 leading-snug" id="ds-pwa-prompt-text">Добавить на экран смартфона — работает как приложение</span>
+            <button id="ds-pwa-install-btn" onclick="dsPwaInstall()" class="shrink-0 px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors">Добавить</button>
+            <button onclick="dsPwaDismiss()" class="shrink-0 text-emerald-400 hover:text-emerald-600 text-base leading-none px-1">×</button>
         </div>
 
     </div>

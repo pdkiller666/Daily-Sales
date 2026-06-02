@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- ══ Primary SEO ══ -->
-    <title>DailySales — Управление продажами в Telegram для розничных магазинов</title>
-    <meta name="description" content="CRM для розницы прямо в Telegram. Учёт продаж, аналитика, команда, Google Sheets, KPI-планы и рейтинги — в одном боте без абонплаты за старт. 14 дней Премиум бесплатно.">
-    <meta name="keywords" content="CRM для магазина, учёт продаж Telegram, управление магазином бот, продажи аналитика, розничная торговля автоматизация, DailySales">
+    <title>DailySales — CRM для розничных магазинов: веб-кабинет, аналитика, команда</title>
+    <meta name="description" content="Профессиональный веб-кабинет для управления розничным магазином. Продажи, остатки, команда, аналитика — в браузере на любом устройстве. Работает и в Telegram. 14 дней Премиум бесплатно.">
+    <meta name="keywords" content="CRM для магазина, веб-кабинет магазина, учёт продаж онлайн, управление магазином, аналитика продаж, розничная торговля автоматизация, DailySales, Telegram бот магазин">
     <meta name="robots" content="index, follow">
     <meta name="author" content="DailySales">
     <link rel="canonical" href="https://dailysales.app/">
@@ -21,8 +21,8 @@
     <meta property="og:url" content="https://dailysales.app/">
     <meta property="og:site_name" content="DailySales">
     <meta property="og:locale" content="ru_RU">
-    <meta property="og:title" content="DailySales — Управление продажами в Telegram">
-    <meta property="og:description" content="Продажи, аналитика, команда и мотивация — прямо в Telegram. Без дорогих CRM. 14 дней Премиум бесплатно.">
+    <meta property="og:title" content="DailySales — CRM для розничных магазинов в браузере">
+    <meta property="og:description" content="Продажи, аналитика, команда — в удобном веб-кабинете. Работает в браузере и Telegram. 14 дней Премиум бесплатно.">
     <meta property="og:image" content="https://dailysales.app/static/og-image.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -31,8 +31,8 @@
     <!-- ══ Twitter / X card ══ -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@dailysales_app">
-    <meta name="twitter:title" content="DailySales — Управление продажами в Telegram">
-    <meta name="twitter:description" content="Продажи, аналитика, команда и мотивация — прямо в Telegram. Начните бесплатно.">
+    <meta name="twitter:title" content="DailySales — CRM для розничных магазинов в браузере">
+    <meta name="twitter:description" content="Продажи, аналитика, команда — веб-кабинет на любом устройстве. Работает и в Telegram. Начните бесплатно.">
     <meta name="twitter:image" content="https://dailysales.app/static/og-image.jpg">
 
     <!-- ══ JSON-LD Structured Data (Google Rich Results) ══ -->
@@ -42,9 +42,9 @@
       "@type": "SoftwareApplication",
       "name": "DailySales",
       "url": "https://dailysales.app/",
-      "description": "CRM для розничных магазинов в Telegram — учёт продаж, аналитика, KPI-планы, Google Sheets интеграция.",
+      "description": "Профессиональный веб-кабинет для управления розничным магазином — учёт продаж, аналитика, KPI-планы, Google Sheets интеграция. Доступен в браузере и Telegram.",
       "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web, Telegram",
+      "operatingSystem": "Web, Android, iOS, Telegram",
       "inLanguage": "ru",
       "offers": {
         "@type": "AggregateOffer",
@@ -64,7 +64,7 @@
         "url": "https://dailysales.app/"
       },
       "featureList": [
-        "Учёт продаж в Telegram",
+        "Веб-кабинет для управления магазином",
         "Аналитика и дашборд",
         "KPI-планы и рейтинги",
         "Google Sheets интеграция",
@@ -464,32 +464,36 @@
         <h1 class="text-5xl sm:text-6xl lg:text-[76px] font-extrabold text-white leading-[1.06] tracking-tight mb-6"
             style="animation:slide-up .7s .1s ease both">
             Управляйте<br>
-            магазином&nbsp;<span class="gradient-text">в Telegram</span>
+            магазином&nbsp;<span class="gradient-text">из браузера</span>
         </h1>
 
         <!-- Sub -->
         <p class="text-xl sm:text-2xl text-slate-400 leading-relaxed max-w-2xl mx-auto mb-12"
            style="animation:slide-up .7s .2s ease both">
-            Перестаньте узнавать итоги дня из вечерних звонков.
-            Продажи, остатки, команда и аналитика&nbsp;— в одном боте.
+            Дашборд, аналитика, команда&nbsp;— в веб-кабинете на любом устройстве.
+            И в Telegram, если нравится мессенджер.
         </p>
 
         <!-- CTAs -->
         <div class="flex flex-col sm:flex-row gap-4 justify-center items-center"
              style="animation:slide-up .7s .3s ease both">
+            <a href="/dashboard"
+               class="btn-primary text-white font-bold px-9 py-4 rounded-xl text-base inline-flex items-center gap-2.5">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Открыть веб-кабинет
+            </a>
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank"
-               class="btn-primary text-white font-bold px-9 py-4 rounded-xl text-base inline-flex items-center gap-2.5">
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
-                Начать в Telegram
+               class="btn-ghost text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base inline-flex items-center gap-2">
+                <svg class="w-4 h-4 opacity-70" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
+                Или в Telegram
             </a>
             {% else %}
-            <a href="/dashboard" class="btn-primary text-white font-bold px-9 py-4 rounded-xl text-base">Начать бесплатно</a>
-            {% endif %}
             <a href="#features" class="btn-ghost text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base inline-flex items-center gap-2">
                 Узнать больше
                 <svg class="w-4 h-4 animate-bounce-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </a>
+            {% endif %}
         </div>
     </div>
 
@@ -685,58 +689,73 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
 
-            <div class="feat-card p-7 reveal d1">
+            <!-- Featured: Full web interface card (spans 2 cols) -->
+            <div class="feat-card p-7 lg:col-span-2 reveal d1"
+                 style="background:linear-gradient(135deg,#f0f9ff 0%,#e8f4fd 60%,#eef2ff 100%);border-color:#bae6fd">
+                <div class="flex flex-col sm:flex-row sm:items-start gap-4">
+                    <div class="feat-icon bg-white/80 mb-0 flex-shrink-0" style="margin-bottom:0">🌐</div>
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2 mb-3">
+                            <h3 class="text-lg font-bold text-slate-900">Полноценный веб-кабинет</h3>
+                            <span class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">Главный канал</span>
+                        </div>
+                        <p class="text-slate-600 text-sm leading-relaxed mb-4">Открывается в любом браузере — ПК, планшет, смартфон. Установите ярлык на экран смартфона — работает как приложение без установки. Все разделы: дашборд, аналитика, планы, команда, склад, отчёты. <span class="text-slate-400">Предпочитаете мессенджер? Telegram-бот синхронизирован — данные единые.</span></p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">📱 Ярлык на экране</span>
+                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">💻 ПК и планшет</span>
+                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">🔐 Вход без пароля</span>
+                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">✈️ + Telegram-бот</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="feat-card p-7 reveal d2">
+                <div class="feat-icon bg-rose-50 mb-5">🔔</div>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Push-уведомления</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Остатки на нуле, коллега сделал продажу, достигнут 75% плана — уведомление приходит прямо в браузер или Telegram.</p>
+            </div>
+
+            <div class="feat-card p-7 reveal d3">
                 <div class="feat-icon bg-blue-50 mb-5">💰</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Продажи и инвентарь</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Продажа — три нажатия. Остатки обновляются автоматически. Больше вопросов «что осталось на складе?» — нет.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d2">
+            <div class="feat-card p-7 reveal d4">
                 <div class="feat-icon bg-emerald-50 mb-5">📊</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Аналитика и отчёты</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Кто продаёт больше всех? Какой магазин проседает? Ответ — в 2 клика, без единой формулы в Excel.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d3">
+            <div class="feat-card p-7 reveal d5">
                 <div class="feat-icon bg-purple-50 mb-5">🎯</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Планы и мотивация</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Сотрудник сам видит свой прогресс и получает push при 50, 75 и 100% плана. Мотивация работает без напоминаний.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d4">
+            <div class="feat-card p-7 reveal d6">
                 <div class="feat-icon bg-orange-50 mb-5">👥</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Команда и зарплаты</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Каждый видит только своё. ФОТ за месяц считается автоматически по сменам и ставкам. Никаких таблиц вручную.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d5">
+            <div class="feat-card p-7 reveal d7">
                 <div class="feat-icon bg-teal-50 mb-5">🔗</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Google Sheets</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Каждая продажа сама попадает в вашу Google-таблицу. Без выгрузок вручную. Авторизация прямо в боте — за минуту.</p>
+                <p class="text-slate-500 text-sm leading-relaxed">Каждая продажа сама попадает в вашу Google-таблицу. Без выгрузок вручную. Авторизация за минуту.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d6">
+            <div class="feat-card p-7 reveal d8">
                 <div class="feat-icon bg-indigo-50 mb-5">🏢</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Несколько организаций</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">Управляете сетью точек? Данные разделены, доступ разграничен по ролям. Все организации — из одного кабинета.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d7">
-                <div class="feat-icon bg-rose-50 mb-5">🔔</div>
-                <h3 class="text-lg font-bold text-slate-900 mb-2">Уведомления</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Остатки на нуле? Зафиксировали продажу? Telegram сообщит сразу — не нужно постоянно заходить и проверять.</p>
-            </div>
-
-            <div class="feat-card p-7 reveal d8">
-                <div class="feat-icon bg-sky-50 mb-5">🌐</div>
-                <h3 class="text-lg font-bold text-slate-900 mb-2">Веб-кабинет</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Полный кабинет руководителя — в браузере. Войти через Telegram за 5 секунд. Никакого пароля и отдельных аккаунтов.</p>
-            </div>
-
             <div class="feat-card p-7 reveal d9">
                 <div class="feat-icon bg-amber-50 mb-5">💳</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Оплата и подписки</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">СБП или онлайн — оплата за минуту прямо в боте. Квитанция сразу. Напоминание о продлении — заранее, не после.</p>
+                <p class="text-slate-500 text-sm leading-relaxed">СБП или онлайн — оплата за минуту. Квитанция сразу. Напоминание о продлении — заранее, не после.</p>
             </div>
 
         </div>
@@ -874,19 +893,11 @@
 
         <!-- Closing hook -->
         <div class="mt-12 text-center reveal">
-            <p class="text-slate-500 text-sm mb-6">Узнали себя? Начните прямо сейчас — первые 14 дней Премиум бесплатно.</p>
-            {% if bot_username %}
-            <a href="https://t.me/{{ bot_username }}" target="_blank"
-               class="btn-primary inline-flex items-center gap-2.5 text-white font-bold px-8 py-3.5 rounded-xl text-sm">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
-                Попробовать бесплатно
+            <p class="text-slate-500 text-sm mb-6">Узнали себя? Откройте кабинет прямо сейчас — первые 14 дней Премиум бесплатно.</p>
+            <a href="/dashboard" class="btn-primary inline-flex items-center gap-2.5 text-white font-bold px-8 py-3.5 rounded-xl text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Открыть веб-кабинет
             </a>
-            {% else %}
-            <a href="/dashboard" class="btn-primary inline-flex items-center gap-2 text-white font-bold px-8 py-3.5 rounded-xl text-sm">
-                Попробовать бесплатно
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
-            </a>
-            {% endif %}
         </div>
 
     </div>
@@ -919,8 +930,8 @@
                     <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-extrabold flex items-center justify-center mx-auto shadow-xl shadow-blue-500/30 group-hover:scale-110 group-hover:shadow-blue-500/50 transition-all duration-300">1</div>
                     <div class="absolute -inset-1 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity blur-sm"></div>
                 </div>
-                <h3 class="text-xl font-bold text-slate-900 mb-3">Откройте бота в Telegram</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Нажмите /start — и вы уже внутри. Имя из профиля подтягивается само. Никакой регистрации.</p>
+                <h3 class="text-xl font-bold text-slate-900 mb-3">Откройте веб-кабинет</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Перейдите на dailysales.app и войдите через Telegram за 5 секунд — никакого пароля, никакой регистрации.</p>
             </div>
 
             <div class="text-center group reveal d2">
@@ -1090,23 +1101,24 @@
             </h2>
             <p class="text-xl text-slate-400 mb-12 leading-relaxed">
                 14 дней Премиума бесплатно. Оплата не нужна.<br>
-                Запуск за 5 минут — просто откройте бота.
+                Запуск за 5 минут — откройте кабинет прямо сейчас.
             </p>
         </div>
         <div class="flex flex-col sm:flex-row gap-4 justify-center reveal d2">
+            <a href="/dashboard"
+               class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-3">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                Открыть веб-кабинет — бесплатно
+            </a>
             {% if bot_username %}
             <a href="https://t.me/{{ bot_username }}" target="_blank"
-               class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-3">
-                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
-                Начать в Telegram — бесплатно
+               class="btn-ghost text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base inline-flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 opacity-70" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.64 6.8l-1.69 7.96c-.12.56-.46.7-.93.43l-2.57-1.89-1.24 1.19c-.14.13-.25.25-.51.25l.18-2.62 4.74-4.28c.2-.18-.05-.28-.32-.1L7.89 14.17l-2.52-.79c-.55-.17-.56-.55.11-.81l9.85-3.8c.46-.17.86.11.71.83z"/></svg>
+                Или в Telegram
             </a>
             {% else %}
-            <a href="/dashboard" class="btn-primary text-white font-bold px-10 py-4 rounded-xl text-lg inline-flex items-center justify-center gap-2">
-                Начать бесплатно
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
-            </a>
-            {% endif %}
             <a href="/dashboard" class="btn-ghost text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base">Войти в кабинет</a>
+            {% endif %}
         </div>
     </div>
 </section>
@@ -1124,7 +1136,7 @@
                     <span class="text-white font-bold text-xl tracking-tight">DailySales</span>
                 </div>
                 <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                    Профессиональная система управления продажами для розничного бизнеса. Прямо в Telegram — без лишних приложений.
+                    Профессиональная CRM для розничного бизнеса — удобный веб-кабинет на любом устройстве. И Telegram-бот для тех, кто любит мессенджер.
                 </p>
             </div>
             <div>
