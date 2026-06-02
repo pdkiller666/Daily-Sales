@@ -429,6 +429,8 @@ def staff_detail(request: Request, user_id: int):
         "shops": [],
         "cities": [],
         "user_plans": [],
+        "chart_labels": [],
+        "chart_data": [],
     }
 
     try:
