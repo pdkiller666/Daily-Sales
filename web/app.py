@@ -45,6 +45,40 @@ def create_web_app() -> FastAPI:
     from web.routes.payments import get_pending_count
     templates.env.globals['pending_payments_count'] = get_pending_count
 
+    def _current_org_name(request):
+        """Return the display name of the org currently selected in the session."""
+        try:
+            from web.auth import get_session_user
+            user = get_session_user(request)
+            if not user:
+                return ""
+            org_db = user.get("org_db", "")
+            if not org_db or org_db == "data/shop_bot.db":
+                return ""
+            import sqlite3
+            conn = sqlite3.connect("data/main.db")
+            row = conn.execute(
+                "SELECT name FROM organizations WHERE db_path=?", (org_db,)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else os.path.basename(org_db)
+        except Exception:
+            return ""
+
+    def _all_orgs_for_switcher():
+        """Return list of active orgs for the super_admin org switcher."""
+        try:
+            from web.deps import get_all_active_orgs
+            return get_all_active_orgs()
+        except Exception:
+            return []
+
+    templates.env.globals['current_org_name'] = _current_org_name
+    templates.env.globals['all_orgs_for_switcher'] = _all_orgs_for_switcher
+
+    from web.auth import get_csrf_token as _get_csrf
+    templates.env.globals['csrf_token_for'] = _get_csrf
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"

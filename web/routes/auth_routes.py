@@ -1,8 +1,10 @@
 import os
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+
+TOKEN_EXPIRE_DAYS = 30
 
 
 @router.get("/login")
@@ -24,7 +26,7 @@ async def login_page(request: Request):
 @router.get("/auth/telegram/callback")
 async def telegram_callback(request: Request):
     from web.auth import verify_telegram_auth, create_session_token, COOKIE_NAME
-    from web.deps import get_user_org_db_path, get_user_role_from_db
+    from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
     from env_manager import env_manager
 
     params = dict(request.query_params)
@@ -39,8 +41,16 @@ async def telegram_callback(request: Request):
 
     org_db = get_user_org_db_path(telegram_id)
     role = get_user_role_from_db(telegram_id)
+
     if env_manager.is_super_admin(telegram_id):
         role = 'super_admin'
+        # Super_admin may not be in any org mapping — find the first available org
+        if not org_db:
+            org_db = get_first_available_org_db()
+
+    # Final fallback (shouldn't happen in normal operation)
+    if not org_db:
+        org_db = 'data/shop_bot.db'
 
     token = create_session_token(telegram_id, first_name, org_db, role)
 
@@ -55,7 +65,52 @@ async def telegram_callback(request: Request):
     return response
 
 
-TOKEN_EXPIRE_DAYS = 30
+@router.post("/switch_org")
+async def switch_org(
+    request: Request,
+    org_db: str = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Super_admin org switcher — re-issue JWT with the selected org's DB path."""
+    from web.auth import get_session_user, verify_csrf_token, create_session_token, COOKIE_NAME
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") != "super_admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    # Validate: must be a real active org with an existing file
+    import sqlite3
+    try:
+        conn = sqlite3.connect("data/main.db")
+        row = conn.execute(
+            "SELECT db_path FROM organizations WHERE db_path=? AND is_active=1",
+            (org_db,)
+        ).fetchone()
+        conn.close()
+    except Exception:
+        row = None
+
+    if not row or not os.path.exists(org_db):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    first_name = user.get("name", "")
+    role = user.get("role", "super_admin")
+
+    token = create_session_token(telegram_id, first_name, org_db, role)
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(
+        COOKIE_NAME, token,
+        httponly=True,
+        samesite='lax',
+        secure=False,
+        max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+    return response
 
 
 @router.get("/logout")

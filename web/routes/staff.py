@@ -260,7 +260,7 @@ def staff_detail(request: Request, user_id: int):
             tz_local = db.get_user_timezone(telegram_id)
             today_local = get_current_user_time(tz_local).date()
             all_progress = db.get_plans_progress(local_today=today_local) or []
-            member_shop = member.get('shop_name', '')
+            member_shop = (ctx["member"] or {}).get('shop_name', '')
             user_plans = []
             for plan_row, actual, pct in all_progress:
                 is_user_plan = (plan_row[1] == 'user' and plan_row[5] == user_id)
