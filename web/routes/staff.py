@@ -427,6 +427,8 @@ def staff_detail(request: Request, user_id: int):
         "error": None,
         "csrf_token": get_csrf_token(request),
         "shops": [],
+        "cities": [],
+        "user_plans": [],
     }
 
     try:
@@ -451,6 +453,16 @@ def staff_detail(request: Request, user_id: int):
         label, badge_cls = ROLE_LABELS.get(role, ("Сотрудник", "bg-slate-100 text-slate-600"))
         custom_title = role_info.get("custom_title", "")
 
+        import json as _json
+        scope_type_raw = role_info.get("scope_type", "")
+        scope_value_raw = role_info.get("scope_value", "")
+        scope_values: list = []
+        if scope_value_raw:
+            try:
+                scope_values = _json.loads(scope_value_raw)
+            except Exception:
+                scope_values = [scope_value_raw]
+
         ctx["member"] = {
             "id": u[0], "telegram_id": u[1],
             "first_name": u[2] or "", "last_name": u[3] or "",
@@ -459,6 +471,9 @@ def staff_detail(request: Request, user_id: int):
             "created_at": (u[11] or "")[:10],
             "role": role, "role_label": custom_title or label,
             "badge_cls": badge_cls,
+            "custom_title": custom_title,
+            "scope_type": scope_type_raw or "all",
+            "scope_values": scope_values,
         }
 
         # Monthly sales summary
@@ -494,8 +509,12 @@ def staff_detail(request: Request, user_id: int):
         ctx["cal_grid"] = cal_grid
         ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
 
-        # Available shops for reassignment
+        # Available shops and cities for scope/reassignment
         ctx["shops"] = db.get_all_shops() or []
+        try:
+            ctx["cities"] = [r[0] for r in (db.get_all_cities() or []) if r[0]]
+        except Exception:
+            ctx["cities"] = []
 
         # Active plans for this user
         try:
@@ -530,3 +549,93 @@ def staff_detail(request: Request, user_id: int):
     return request.app.state.templates.TemplateResponse(
         request, "staff/detail.html", ctx
     )
+
+
+@router.post("/staff/{user_id}/set-scope")
+def staff_set_scope(
+    request: Request,
+    user_id: int,
+    scope_type: Annotated[str, Form()],
+    scope_values: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    actor_role = user.get("role", "")
+    if actor_role not in ("owner", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            org_roles = _get_org_roles(db.db_file)
+            target_telegram_id = row[0]
+            target_role = org_roles.get(target_telegram_id, {}).get("role", "user")
+            if target_role == "owner" and actor_role != "super_admin":
+                return RedirectResponse(url=f"/staff/{user_id}?error=forbidden", status_code=302)
+            # Parse scope values (comma-separated)
+            vals = [v.strip() for v in scope_values.split(",") if v.strip()] if scope_values else []
+            stype = scope_type if scope_type in ("all", "shop", "city", "network") else "all"
+            sv = vals if stype != "all" else None
+            from tenant_manager import TenantManager
+            TenantManager().change_user_role(target_telegram_id, target_role,
+                                             scope_type=stype, scope_value=sv)
+    except Exception as e:
+        logging.error(f"staff_set_scope error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+
+@router.post("/staff/{user_id}/set-custom-title")
+def staff_set_custom_title(
+    request: Request,
+    user_id: int,
+    custom_title: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    actor_role = user.get("role", "")
+    if actor_role not in ("owner", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            org_roles = _get_org_roles(db.db_file)
+            target_telegram_id = row[0]
+            target_role = org_roles.get(target_telegram_id, {}).get("role", "user")
+            title = custom_title.strip()[:50] if custom_title.strip() else None
+            from tenant_manager import TenantManager
+            TenantManager().change_user_role(target_telegram_id, target_role,
+                                             custom_title=title)
+    except Exception as e:
+        logging.error(f"staff_set_custom_title error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=302)

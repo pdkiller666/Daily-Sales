@@ -255,9 +255,75 @@
             </button>
         </form>
         {% endif %}
+    </div>
 
-        <div>
-            <button x-show="!confirmRemove" @click="confirmRemove = true"
+    {% if is_owner %}
+    <!-- Scope and custom title controls (owner/super_admin only) -->
+    <div class="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-4 items-start"
+         x-data="{scopeType: '{{ member.scope_type if member.scope_type else "all" }}'}">
+
+        <!-- Scope type -->
+        <form method="post" action="/staff/{{ member_id }}/set-scope" class="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="text-sm text-slate-600 font-medium">Зона доступа:</label>
+            <select name="scope_type" x-model="scopeType"
+                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                <option value="all">Весь орг</option>
+                <option value="shop">По магазину</option>
+                <option value="city">По городу</option>
+                <option value="network">По сети</option>
+            </select>
+            <div x-show="scopeType !== 'all'" class="flex items-center gap-2">
+                {% if shops %}
+                <select name="scope_values" x-show="scopeType === 'shop'"
+                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]" multiple>
+                    {% for s in shops %}
+                    <option value="{{ s }}" {% if s in member.scope_values %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                {% if cities %}
+                <select name="scope_values" x-show="scopeType === 'city'"
+                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]" multiple>
+                    {% for c in cities %}
+                    <option value="{{ c }}" {% if c in member.scope_values %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <input x-show="scopeType === 'network'" type="text" name="scope_values"
+                       value="{{ member.scope_values|join(',') if member.scope_type == 'network' else '' }}"
+                       placeholder="Название сети..."
+                       class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-36">
+            </div>
+            <button type="submit"
+                    class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+                Сохранить
+            </button>
+            {% if member.scope_type and member.scope_type != 'all' %}
+            <span class="text-xs text-slate-400">
+                Сейчас: {{ {'shop':'магазин','city':'город','network':'сеть'}.get(member.scope_type, member.scope_type) }}
+                {% if member.scope_values %} — {{ member.scope_values|join(', ') }}{% endif %}
+            </span>
+            {% endif %}
+        </form>
+
+        <!-- Custom title -->
+        <form method="post" action="/staff/{{ member_id }}/set-custom-title" class="flex items-center gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="text-sm text-slate-600 font-medium">Должность:</label>
+            <input type="text" name="custom_title" value="{{ member.custom_title }}" maxlength="50"
+                   placeholder="Оставьте пустым для сброса..."
+                   class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-44">
+            <button type="submit"
+                    class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+                Сохранить
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="mt-4 pt-4 border-t border-slate-100">
+        <button x-show="!confirmRemove" @click="confirmRemove = true"
                     class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors">
                 Удалить из организации
             </button>
@@ -275,7 +341,6 @@
                 </button>
             </form>
         </div>
-    </div>
 </div>
 {% endif %}
 {% endif %}
