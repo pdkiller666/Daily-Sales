@@ -158,6 +158,7 @@ class PaymentSystemStates(StatesGroup):
     waiting_yookassa_shop_id = State()
     waiting_yookassa_secret_key = State()
     waiting_yookassa_return_url = State()
+    waiting_web_interface_url = State()
 
 class QuickSaleStates(StatesGroup):
     searching_product = State()

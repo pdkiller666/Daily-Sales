@@ -1268,6 +1268,26 @@ class Database:
         conn.commit()
         conn.close()
 
+    def get_web_interface_url(self) -> str:
+        """Получить URL веб-интерфейса (None если не настроен)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM payment_settings WHERE key = 'web_interface_url'")
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row and row[0] else None
+
+    def set_web_interface_url(self, url: str) -> None:
+        """Сохранить URL веб-интерфейса. Передать None или '' — удалить."""
+        if url:
+            self.update_payment_setting('web_interface_url', url)
+        else:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM payment_settings WHERE key = 'web_interface_url'")
+            conn.commit()
+            conn.close()
+
     # ------------------------------------------------------------------
     # Провайдер платежей
     # ------------------------------------------------------------------

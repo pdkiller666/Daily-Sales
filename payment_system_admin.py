@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import Database
-from keyboards import back_button
+from keyboards import back_button, invalidate_web_url_cache
 from states import PaymentSystemStates
 from env_manager import env_manager
 from db_utils import clear_state_keep_org
@@ -94,12 +94,16 @@ async def payment_settings_menu(callback: CallbackQuery):
     text += f"🔀 <b>Активный провайдер:</b> {provider_display}\n\n"
     text += "Настройте реквизиты для получения платежей:\n\n"
     
+    web_url = db.get_web_interface_url()
+    web_url_label = web_url if web_url else "не задан"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🔀 Провайдер оплаты: {provider_display}", callback_data="payment_provider_select")],
         [InlineKeyboardButton(text=f"💳 Номер карты: {payment_settings.get('card_number', 'Не установлен')}", callback_data="set_card_number")],
         [InlineKeyboardButton(text=f"👤 Получатель: {payment_settings.get('recipient_name', 'Не установлен')}", callback_data="set_recipient_name")],
         [InlineKeyboardButton(text=f"🏦 Банк: {payment_settings.get('bank_name', 'Не установлен')}", callback_data="set_bank_name")],
         [InlineKeyboardButton(text="💬 Инструкция для пользователей", callback_data="set_payment_instruction")],
+        [InlineKeyboardButton(text=f"🌐 Веб-интерфейс URL: {web_url_label}", callback_data="set_web_interface_url")],
         [InlineKeyboardButton(text="🧪 Тестовый платеж", callback_data="test_payment")],
         [back_button("payment_system_admin")]
     ])
@@ -389,6 +393,116 @@ async def process_bank_name(message: Message, state: FSMContext):
         logging.error(f"process_bank_name: DB error: {e}")
         await message.answer("❌ Ошибка при сохранении названия банка. Попробуйте позже.")
     await clear_state_keep_org(state)
+
+@payment_system_router.callback_query(F.data == "set_web_interface_url")
+async def set_web_interface_url_start(callback: CallbackQuery, state: FSMContext):
+    """Показать текущий URL и предложить изменить/удалить"""
+    db = _get_db()
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    current_url = db.get_web_interface_url()
+
+    text = "🌐 <b>URL веб-интерфейса</b>\n\n"
+    if current_url:
+        text += f"Текущий URL:\n<code>{he(current_url)}</code>\n\n"
+        text += "Кнопка «Веб-интерфейс» показывается всем пользователям в главном меню.\n\n"
+        text += "Нажмите <b>Изменить</b> чтобы ввести новый URL, или <b>Удалить</b> чтобы скрыть кнопку."
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Изменить", callback_data="edit_web_interface_url"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data="clear_web_interface_url"),
+            ],
+            [back_button("payment_settings")],
+        ])
+    else:
+        text += "URL не настроен. Кнопка «Веб-интерфейс» скрыта для всех пользователей.\n\n"
+        text += "Введите URL вашего веб-интерфейса (должен начинаться с <code>https://</code>):"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [back_button("payment_settings")],
+        ])
+        await state.set_state(PaymentSystemStates.waiting_web_interface_url)
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@payment_system_router.callback_query(F.data == "edit_web_interface_url")
+async def edit_web_interface_url_start(callback: CallbackQuery, state: FSMContext):
+    """Запросить новый URL"""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    text = (
+        "🌐 <b>Изменение URL веб-интерфейса</b>\n\n"
+        "Введите новый URL (должен начинаться с <code>https://</code>):\n\n"
+        "Например: <code>https://yourapp.replit.app</code>"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [back_button("payment_settings")],
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.set_state(PaymentSystemStates.waiting_web_interface_url)
+
+
+@payment_system_router.message(PaymentSystemStates.waiting_web_interface_url)
+async def process_web_interface_url(message: Message, state: FSMContext):
+    """Сохранить новый URL веб-интерфейса"""
+    db = _get_db()
+    url = message.text.strip() if message.text else ""
+
+    if not url.startswith("https://") and not url.startswith("http://"):
+        await message.answer(
+            "❌ Неверный формат. URL должен начинаться с <code>https://</code>\n\n"
+            "Попробуйте ещё раз:",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        db.set_web_interface_url(url)
+        invalidate_web_url_cache()
+        await message.answer(
+            f"✅ URL веб-интерфейса обновлён:\n<code>{he(url)}</code>\n\n"
+            "Кнопка «🌐 Веб-интерфейс» появится в главном меню всех пользователей.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")],
+            ]),
+        )
+    except Exception as e:
+        logging.error(f"process_web_interface_url: DB error: {e}")
+        await message.answer("❌ Ошибка при сохранении URL. Попробуйте позже.")
+    await clear_state_keep_org(state)
+
+
+@payment_system_router.callback_query(F.data == "clear_web_interface_url")
+async def clear_web_interface_url_handler(callback: CallbackQuery):
+    """Удалить URL — скрыть кнопку для всех пользователей"""
+    db = _get_db()
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    try:
+        db.set_web_interface_url(None)
+        invalidate_web_url_cache()
+        text = (
+            "🌐 <b>URL веб-интерфейса удалён</b>\n\n"
+            "Кнопка «Веб-интерфейс» скрыта для всех пользователей."
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚙️ Настройки оплаты", callback_data="payment_settings")],
+        ])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"clear_web_interface_url: DB error: {e}")
+        await callback.answer("❌ Ошибка при удалении URL", show_alert=True)
+
 
 # Дополнительные обработчики для управления тарифами
 @payment_system_router.callback_query(F.data == "add_plan")

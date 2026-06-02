@@ -2,6 +2,7 @@
 Модуль для создания клавиатур и кнопок
 """
 import os
+import time
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -11,6 +12,28 @@ from env_manager import env_manager
 
 # Получаем ID администратора из переменных окружения
 ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0').split(',')[0].strip() or 0)
+
+# Кэш URL веб-интерфейса — читается из shop_bot.db, TTL 60 сек
+_web_url_cache: dict = {"url": None, "ts": 0.0}
+_WEB_URL_TTL = 60.0
+
+def _get_web_interface_url() -> str | None:
+    """Вернуть URL веб-интерфейса из кэша; обновить если устарел."""
+    global _web_url_cache
+    now = time.monotonic()
+    if now - _web_url_cache["ts"] > _WEB_URL_TTL:
+        try:
+            from database import Database
+            db = Database("data/shop_bot.db")
+            _web_url_cache["url"] = db.get_web_interface_url()
+        except Exception:
+            pass
+        _web_url_cache["ts"] = now
+    return _web_url_cache["url"]
+
+def invalidate_web_url_cache() -> None:
+    """Сбросить кэш — вызывать после изменения URL супер-админом."""
+    _web_url_cache["ts"] = 0.0
 
 def main_menu(chat_id: int, user_shop: str = None):
     """Главное меню"""
@@ -35,11 +58,14 @@ def main_menu(chat_id: int, user_shop: str = None):
         buttons.append([InlineKeyboardButton(text="📦 ОСТАТКИ", callback_data="user_inventory_menu")])
         buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 
+    web_url = _get_web_interface_url()
     buttons.extend([
         [InlineKeyboardButton(text="📊 Аналитика", callback_data="analytics_hub")],
         [InlineKeyboardButton(text="👤 Мой профиль", callback_data="user_profile")],
-        [InlineKeyboardButton(text="ℹ Помощь", callback_data="help")]
     ])
+    if web_url:
+        buttons.append([InlineKeyboardButton(text="🌐 Веб-интерфейс", url=web_url)])
+    buttons.append([InlineKeyboardButton(text="ℹ Помощь", callback_data="help")])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
