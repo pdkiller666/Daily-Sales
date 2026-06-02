@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sqlite3
 from pathlib import Path
@@ -8,6 +9,10 @@ from fastapi.responses import RedirectResponse
 
 BASE_DIR = Path(__file__).parent
 _SHOP_BOT_DB = "data/shop_bot.db"
+
+# Event loop reference saved at startup so sync routes can schedule async tasks
+# via asyncio.run_coroutine_threadsafe(_main_loop).
+_main_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _fmt_plan_lim(v) -> str:
@@ -70,6 +75,12 @@ def _fmt_currency(amount) -> str:
 
 
 def create_web_app() -> FastAPI:
+    global _main_loop
+    try:
+        _main_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _main_loop = asyncio.get_event_loop()
+
     app = FastAPI(
         title="DailySales Web",
         docs_url=None,

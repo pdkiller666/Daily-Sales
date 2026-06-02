@@ -59,6 +59,7 @@ MODULES = [
     'addon_handlers',
     'absence_handlers',
     'pdf_utils',
+    'web.sale_events',
 ]
 
 passed = 0

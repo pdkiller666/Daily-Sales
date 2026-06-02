@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 from datetime import date
@@ -415,6 +416,20 @@ def sales_create(
         )
         if result is None:
             return RedirectResponse(url="/sales?error=Недостаточно+товара+на+складе", status_code=302)
+
+        # Fire post-sale side effects (GSheets, shift alerts, plan milestones)
+        # non-blocking: response returns immediately, effects run in background
+        try:
+            from web.app import _main_loop
+            from web.sale_events import post_sale_effects
+            if _main_loop is not None:
+                asyncio.run_coroutine_threadsafe(
+                    post_sale_effects(org_db, result, shop_name, telegram_id),
+                    _main_loop,
+                )
+        except Exception as _pse:
+            logging.warning(f"sales_create: post_sale_effects schedule error: {_pse}")
+
     except Exception as e:
         logging.error(f"sales_create error: {e}")
         return RedirectResponse(url="/sales?error=Ошибка+записи", status_code=302)
