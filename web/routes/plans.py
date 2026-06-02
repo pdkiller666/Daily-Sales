@@ -70,9 +70,10 @@ def _load_form_data(db):
         all_users = db.get_all_users() or []
         sellers = []
         for u in all_users:
+            # users: id[0] telegram_id[1] first_name[2] last_name[3] ... shop_name[8]
             uid = u[0]
-            name = f"{(u[1] or '').strip()} {(u[2] or '').strip()}".strip() or f"user#{uid}"
-            shop = u[3] or ""
+            name = f"{(u[2] or '').strip()} {(u[3] or '').strip()}".strip() or f"user#{uid}"
+            shop = u[8] or ""
             sellers.append({"id": uid, "name": name, "shop": shop})
         sellers.sort(key=lambda s: s["name"])
     except Exception:
@@ -679,8 +680,9 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
             shop_users = db.get_all_users(shop_name=plan_row[6]) or []
             sellers = []
             for u_row in shop_users:
+                # users: id[0] telegram_id[1] first_name[2] last_name[3]
                 uid = u_row[0]
-                name = f"{(u_row[1] or '').strip()} {(u_row[2] or '').strip()}".strip() or f"user#{uid}"
+                name = f"{(u_row[2] or '').strip()} {(u_row[3] or '').strip()}".strip() or f"user#{uid}"
                 fake_plan = list(plan_row)
                 fake_plan[4] = "seller"
                 fake_plan[5] = uid
