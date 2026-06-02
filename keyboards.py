@@ -64,7 +64,7 @@ def main_menu(chat_id: int, user_shop: str = None):
         [InlineKeyboardButton(text="👤 Мой профиль", callback_data="user_profile")],
     ])
     if web_url:
-        buttons.append([InlineKeyboardButton(text="🌐 Веб-интерфейс", url=web_url)])
+        buttons.append([InlineKeyboardButton(text="🌐 Веб-интерфейс", callback_data="web_open_hub")])
     buttons.append([InlineKeyboardButton(text="ℹ Помощь", callback_data="help")])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)

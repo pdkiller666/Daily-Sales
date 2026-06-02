@@ -113,6 +113,42 @@ async def switch_org(
     return response
 
 
+@router.get("/auth/code/auto")
+async def code_auto_login(request: Request, c: str = ""):
+    """Magic-link auto-login: validate code from URL param and issue JWT immediately."""
+    from web.auth import create_session_token, COOKIE_NAME
+    from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
+    from env_manager import env_manager
+    from web_login_codes import validate_code
+
+    telegram_id = validate_code(c.strip())
+    if not telegram_id:
+        return RedirectResponse(url="/auth/code?error=bad_code", status_code=302)
+
+    org_db = get_user_org_db_path(telegram_id)
+    role = get_user_role_from_db(telegram_id)
+
+    if env_manager.is_super_admin(telegram_id):
+        role = 'super_admin'
+        if not org_db:
+            org_db = get_first_available_org_db()
+
+    if not org_db:
+        org_db = 'data/shop_bot.db'
+
+    first_name = _get_display_name(telegram_id, org_db)
+    token = create_session_token(telegram_id, first_name, org_db, role)
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(
+        COOKIE_NAME, token,
+        httponly=True,
+        samesite='lax',
+        secure=False,
+        max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+    return response
+
+
 @router.get("/auth/code")
 async def code_login_page(request: Request):
     """Show the code-based login form (bot-code alternative to Telegram Widget)."""
