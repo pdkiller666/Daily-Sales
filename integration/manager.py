@@ -390,6 +390,21 @@ class IntegrationManager:
                 headers = ['Магазин', 'Товар', 'Категория', 'Количество', 'Обновлено']
                 rows = [[str(r[i]) for i in range(min(len(r), 5))] for r in rows_raw]
                 return {'headers': headers, 'rows': rows}
+            elif export_type == 'products':
+                rows_raw = db.get_all_products_for_export()
+                headers = ['Название', 'Категория', 'Цена', 'Описание']
+                rows = [[str(r[i]) for i in range(min(len(r), 4))] for r in rows_raw]
+                return {'headers': headers, 'rows': rows}
+            elif export_type == 'staff':
+                rows_raw = db.get_all_staff_for_export()
+                headers = ['Сотрудник', 'Магазин', 'Город', 'Телефон']
+                rows = [[str(r[i]) for i in range(min(len(r), 4))] for r in rows_raw]
+                return {'headers': headers, 'rows': rows}
+            elif export_type == 'plans':
+                rows_raw = db.get_all_plans_for_export()
+                headers = ['Тип плана', 'Метрика', 'Цель', 'Магазин', 'Продавец']
+                rows = [[str(r[i]) for i in range(min(len(r), 5))] for r in rows_raw]
+                return {'headers': headers, 'rows': rows}
         except Exception as e:
             logger.error(f"_get_replace_data error ({export_type}): {e}")
         return None

@@ -7352,6 +7352,68 @@ class Database:
             logger.error(f"get_all_inventory_for_export: {e}")
             return []
 
+    def get_all_products_for_export(self) -> list:
+        """Return all products for replace_sheet export.
+        Columns: name, category, price, description."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT name, category, price, COALESCE(description, '')
+                   FROM products
+                   ORDER BY category, name'''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_products_for_export: {e}")
+            return []
+
+    def get_all_staff_for_export(self) -> list:
+        """Return all staff (users) for replace_sheet export.
+        Columns: full_name, shop_name, city, phone."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')),
+                          COALESCE(shop_name, ''),
+                          COALESCE(city, ''),
+                          COALESCE(phone, '')
+                   FROM users
+                   WHERE telegram_id != 0
+                   ORDER BY shop_name, first_name, last_name'''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_staff_for_export: {e}")
+            return []
+
+    def get_all_plans_for_export(self) -> list:
+        """Return all active sales plans for replace_sheet export.
+        Columns: plan_type, metric_type, target_value, shop_name, seller_name."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT sp.plan_type, sp.metric_type, sp.target_value,
+                          COALESCE(sp.shop_name, ''),
+                          COALESCE(TRIM(u.first_name || ' ' || COALESCE(u.last_name,'')), '') AS seller_name
+                   FROM sales_plans sp
+                   LEFT JOIN users u ON u.id = sp.user_id
+                   WHERE sp.is_active = 1
+                   ORDER BY sp.plan_type, sp.shop_name, seller_name'''
+            )
+            result = cursor.fetchall()
+            conn.close()
+            return result
+        except Exception as e:
+            logger.error(f"get_all_plans_for_export: {e}")
+            return []
+
     def calculate_monthly_salary(self, user_id, year, month):
         """Рассчитать зарплату за месяц: смены × ставка + корректировки"""
         try:
