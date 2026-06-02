@@ -282,6 +282,7 @@ def create_web_app() -> FastAPI:
     from web.routes.pos import router as pos_router
     from web.routes.api import router as api_router
     from web.routes.absences import router as absences_router
+    from web.routes.support import router as support_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -307,6 +308,7 @@ def create_web_app() -> FastAPI:
     app.include_router(pos_router)
     app.include_router(api_router)
     app.include_router(absences_router)
+    app.include_router(support_router)
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():

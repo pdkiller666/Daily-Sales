@@ -1360,6 +1360,11 @@ function mainApp() {
         <div>
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Система</p>
             <div class="grid grid-cols-4 gap-2">
+                <a href="/support" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/support') %}sht-active{% endif %}">
+                    <span class="sht-icon">🛡️</span>
+                    <span class="sht-label">Поддержка</span>
+                </a>
                 <a href="/integration" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/integration') %}sht-active{% endif %}">
                     <span class="sht-icon">🔗</span>
