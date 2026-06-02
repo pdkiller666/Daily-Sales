@@ -108,13 +108,22 @@
             </thead>
             <tbody class="divide-y divide-slate-50">
                 {% for p in products %}
-                {# p: id[0] name[1] category[2] price[3] created_at[4] #}
+                {# p: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6] #}
                 {% set qty = stock.get(p[0], 0) %}
+                {% set web_photo = p[5] if p|length > 5 and p[5] and p[5].startswith('/static/') else '' %}
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
                     onclick="window.location='/products/{{ p[0] }}'">
                     <td class="px-5 py-3 text-xs text-slate-400">{{ loop.index }}</td>
                     <td class="px-3 py-3">
-                        <p class="font-medium text-slate-800 max-w-[220px] truncate" title="{{ p[1] }}">{{ p[1] }}</p>
+                        <div class="flex items-center gap-2.5">
+                            {% if web_photo %}
+                            <img src="{{ web_photo }}" alt=""
+                                 class="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-100">
+                            {% else %}
+                            <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 shrink-0 text-xs select-none">📦</div>
+                            {% endif %}
+                            <p class="font-medium text-slate-800 max-w-[200px] truncate" title="{{ p[1] }}">{{ p[1] }}</p>
+                        </div>
                     </td>
                     <td class="px-3 py-3 hidden sm:table-cell">
                         {% if p[2] %}
