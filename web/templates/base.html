@@ -1141,6 +1141,16 @@ function mainApp() {
         <div>
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Операции</p>
             <div class="grid grid-cols-4 gap-2">
+                <a href="/sales" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/sales') and _p.split('/')|length <= 2 %}sht-active{% endif %}">
+                    <span class="sht-icon">💰</span>
+                    <span class="sht-label">Продажи</span>
+                </a>
+                <a href="/products" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/products') %}sht-active{% endif %}">
+                    <span class="sht-icon">📦</span>
+                    <span class="sht-label">Товары</span>
+                </a>
                 <a href="/inventory" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/inventory') %}sht-active{% endif %}">
                     <span class="sht-icon">🏪</span>
