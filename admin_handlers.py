@@ -955,7 +955,6 @@ async def _show_invite_screen(message, org_id: int, invite_code: str):
 @admin_router.callback_query(F.data.startswith("reset_invite_"))
 async def reset_invite_handler(callback: CallbackQuery, state: FSMContext):
     """Б) Сбросить код приглашения (сгенерировать новый)."""
-    await callback.answer()
     try:
         org_id = int(callback.data.replace("reset_invite_", ""))
     except ValueError:
@@ -963,6 +962,7 @@ async def reset_invite_handler(callback: CallbackQuery, state: FSMContext):
         return
     new_code = tenant_manager.rotate_invite_code(org_id)
     if new_code:
+        await callback.answer()
         await _show_invite_screen(callback.message, org_id, new_code)
     else:
         await callback.answer("❌ Не удалось сбросить код", show_alert=True)

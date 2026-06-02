@@ -1719,7 +1719,6 @@ async def gs_editsheet_input(message: Message, state: FSMContext):
 @integration_router.callback_query(F.data.regexp(r'^gs_exp_sync_week_\d+$'))
 async def gs_exp_sync_week_confirm(callback: CallbackQuery, state: FSMContext):
     exp_id = int(callback.data.split("_")[4])
-    await callback.answer()
 
     current_db = await get_db(callback.from_user.id, state)
     _tz = await current_db.get_user_timezone(callback.from_user.id)
@@ -1738,6 +1737,7 @@ async def gs_exp_sync_week_confirm(callback: CallbackQuery, state: FSMContext):
 
     rendered_sheet = _render_sheet_macro(exp[4])
 
+    await callback.answer()
     await callback.message.edit_text(
         f"🔄 <b>Синхронизировать продажи за текущую неделю?</b>\n\n"
         f"📅 Период: <b>{date_from_disp} — {date_to_disp}</b>\n"

@@ -80,7 +80,6 @@ async def addons_menu(callback: CallbackQuery, state: FSMContext):
 @addon_router.callback_query(F.data.startswith("addon_buy_"))
 async def addon_buy(callback: CallbackQuery, state: FSMContext):
     """Показ реквизитов для покупки надстройки"""
-    await callback.answer()
     # addon_buy_shops_1 → addon_type='shops', qty=1
     # addon_buy_products_1 → addon_type='products', qty=1
     rest = callback.data[len("addon_buy_"):]
@@ -114,6 +113,7 @@ async def addon_buy(callback: CallbackQuery, state: FSMContext):
     bank_name = payment_settings.get('bank_name', '')
     provider = db.get_payment_provider()
 
+    await callback.answer()
     await state.update_data(
         addon_plan_type=plan_type,
         addon_amount=total_price,
@@ -173,11 +173,11 @@ async def addon_buy(callback: CallbackQuery, state: FSMContext):
 @addon_router.callback_query(F.data == "addon_upload_proof")
 async def addon_upload_proof_start(callback: CallbackQuery, state: FSMContext):
     """Запрос скриншота оплаты надстройки"""
-    await callback.answer()
     data = await state.get_data()
     if not data.get('addon_plan_type'):
         await callback.answer("❌ Выберите надстройку снова", show_alert=True)
         return
+    await callback.answer()
 
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(AddonStates.waiting_for_proof)

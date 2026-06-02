@@ -154,7 +154,8 @@ async def abs_my(callback: CallbackQuery, state: FSMContext):
     kb.button(text='📂 История за год', callback_data=f'abs_hist_{today.year}')
     kb.adjust(1)
     kb.row(back_button('slr_my_schedule'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @absence_router.callback_query(F.data.startswith('abs_hist_'))
@@ -180,7 +181,8 @@ async def abs_hist(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.button(text='← Назад', callback_data='abs_my')
     kb.row(home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 # ─── Новая заявка ─────────────────────────────────────────────────────────────
@@ -193,7 +195,8 @@ async def abs_new(callback: CallbackQuery, state: FSMContext):
         kb.button(text=_TYPE_LABELS[k], callback_data=f'abs_nt_{k}')
     kb.adjust(2)
     kb.row(back_button('abs_my'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @absence_router.callback_query(F.data.startswith('abs_nt_'))

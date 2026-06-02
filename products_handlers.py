@@ -1048,13 +1048,12 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
 @products_router.callback_query(F.data.startswith("edit_param_"))
 async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
     """Выбор параметра для редактирования"""
-    await callback.answer()
     param = callback.data.replace("edit_param_", "")
     await state.update_data(edit_param=param)
-    
     await state.update_data(anchor_msg_id=callback.message.message_id)
 
     if param == 'description':
+        await callback.answer()
         await callback.message.edit_text(
             "📝 Введите новое описание товара\n(или «-» чтобы удалить текущее):",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
@@ -1062,6 +1061,7 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ProductStates.waiting_for_edit_description)
         return
     elif param == 'photo':
+        await callback.answer()
         await callback.message.edit_text(
             "📷 Отправьте новое фото товара\n(или «-» чтобы удалить текущее):",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
@@ -1079,6 +1079,7 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Неизвестный параметр", show_alert=True)
         return
 
+    await callback.answer()
     await callback.message.edit_text(
         f"✏️ Введите новое значение для '{param_names[param]}':",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])

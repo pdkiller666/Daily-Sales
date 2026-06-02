@@ -852,7 +852,6 @@ async def salary_fill_month_confirm(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
-    await callback.answer()
     parts = callback.data.split("_")
     # slr_fill_{uid}_{yr}_{mo}
     target_uid = int(parts[2])
@@ -896,6 +895,7 @@ async def salary_fill_month_confirm(callback: CallbackQuery, state: FSMContext):
     ))
     builder.row(back_button(f"slr_cal_{target_uid}_{yr}_{mo}"))
 
+    await callback.answer()
     await callback.message.edit_text(
         "\n".join(lines),
         reply_markup=builder.as_markup(),
