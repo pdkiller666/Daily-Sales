@@ -4,24 +4,37 @@ from database import Database
 from tenant_manager import tenant_manager
 
 
+def _enable_wal(db: Database) -> Database:
+    """Enable WAL journal mode for better concurrent read/write performance."""
+    try:
+        conn = db.get_connection()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.close()
+    except Exception:
+        pass
+    return db
+
+
 def get_web_db(telegram_id: int, org_db: str | None = None) -> Database:
     """Return a Database instance for the user's org.
 
     shop_bot.db is intentionally excluded as a valid org_db — it is the
     personal/payments DB and must never be shown in place of an org DB.
+    WAL mode is enabled for better concurrent read performance.
     """
     if org_db and org_db != 'data/shop_bot.db' and os.path.exists(org_db):
         db = Database(org_db)
         db.create_tables()
-        return db
+        return _enable_wal(db)
     path = tenant_manager.get_user_db_path(telegram_id)
     if path and os.path.exists(path) and path != 'data/shop_bot.db':
         db = Database(path)
         db.create_tables()
-        return db
+        return _enable_wal(db)
     db = Database('data/shop_bot.db')
     db.create_tables()
-    return db
+    return _enable_wal(db)
 
 
 def get_user_role_from_db(telegram_id: int) -> str:

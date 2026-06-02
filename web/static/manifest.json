@@ -1,0 +1,31 @@
+{
+  "name": "DailySales CRM",
+  "short_name": "DailySales",
+  "description": "CRM — управление продажами для розницы",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "any",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Касса POS", "url": "/pos", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] },
+    { "name": "Дашборд",   "url": "/dashboard", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] },
+    { "name": "Продажи",   "url": "/sales", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] }
+  ]
+}

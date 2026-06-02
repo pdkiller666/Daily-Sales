@@ -149,6 +149,7 @@ def create_web_app() -> FastAPI:
     from web.routes.promocodes import router as promocodes_router
     from web.routes.shops import router as shops_router
     from web.routes.pos import router as pos_router
+    from web.routes.api import router as api_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -172,6 +173,19 @@ def create_web_app() -> FastAPI:
     app.include_router(promocodes_router)
     app.include_router(shops_router)
     app.include_router(pos_router)
+    app.include_router(api_router)
+
+    @app.get("/sw.js")
+    async def service_worker(request: Request):
+        """Serve SW from root so it can control the full site scope."""
+        import pathlib
+        from fastapi.responses import FileResponse
+        sw_path = pathlib.Path(__file__).parent / "static" / "sw.js"
+        return FileResponse(str(sw_path), headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Content-Type": "application/javascript",
+        })
 
     @app.get("/")
     async def root(request: Request):

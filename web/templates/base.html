@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}DailySales{% endblock %} — DailySales</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='68' text-anchor='middle' font-size='58' font-family='Arial Black,sans-serif' font-weight='900' fill='white'>D</text></svg>">
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="DailySales">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -253,13 +260,6 @@ function toastMgr() {
     <!-- Topbar -->
     <header class="sticky top-0 z-10 flex items-center justify-between h-14 px-4 sm:px-6 bg-white border-b border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
-            <button @click="open=!open"
-                    class="lg:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M4 6h16M4 12h16M4 18h16"/>
-                </svg>
-            </button>
             <div class="flex items-center gap-1.5 text-sm text-slate-500">
                 {% block breadcrumb %}{% endblock %}
             </div>
@@ -322,6 +322,152 @@ function toastMgr() {
 </div>
 
 {% block extra_js %}{% endblock %}
+
+<script>
+/* ══════════════════════════════════════════════════
+   1. Service Worker registration (PWA)
+══════════════════════════════════════════════════ */
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .catch(() => {});
+    });
+}
+
+/* ══════════════════════════════════════════════════
+   2. Swipe gestures (mobile)
+   • Swipe left/right on period selectors → navigate periods
+   • Swipe right from left edge (< 40px) → browser back
+══════════════════════════════════════════════════ */
+(function () {
+    let _ts = null;
+    const MIN_DIST = 70, MAX_VERT = 45;
+
+    function _inScrollable(el) {
+        while (el && el !== document.body) {
+            const s = getComputedStyle(el);
+            if (s.overflowX === 'auto' || s.overflowX === 'scroll') return true;
+            el = el.parentElement;
+        }
+        return false;
+    }
+
+    document.addEventListener('touchstart', e => {
+        const t = e.touches[0];
+        _ts = { x: t.clientX, y: t.clientY, target: e.target };
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+        if (!_ts) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - _ts.x;
+        const dy = Math.abs(t.clientY - _ts.y);
+        const startX = _ts.x;
+        const tgt = _ts.target;
+        _ts = null;
+
+        if (Math.abs(dx) < MIN_DIST || dy > MAX_VERT) return;
+        if (_inScrollable(tgt)) return;
+        if (tgt.closest('input,textarea,select,[contenteditable]')) return;
+
+        const dir = dx > 0 ? 'right' : 'left';
+
+        /* Period navigation (dashboard, rankings, reports…) */
+        const pLinks = Array.from(document.querySelectorAll('a[href*="period="]'));
+        if (pLinks.length >= 2) {
+            const activeIdx = pLinks.findIndex(a =>
+                a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
+            );
+            if (activeIdx >= 0) {
+                const target = dir === 'left'
+                    ? pLinks[activeIdx + 1]
+                    : pLinks[activeIdx - 1];
+                if (target) { target.click(); return; }
+            }
+        }
+
+        /* Tab navigation (rankings tabs, etc.) */
+        const tLinks = Array.from(document.querySelectorAll('a[href*="tab="]'));
+        if (tLinks.length >= 2) {
+            const activeIdx = tLinks.findIndex(a =>
+                a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
+            );
+            if (activeIdx >= 0) {
+                const target = dir === 'left'
+                    ? tLinks[activeIdx + 1]
+                    : tLinks[activeIdx - 1];
+                if (target) { target.click(); return; }
+            }
+        }
+
+        /* Swipe right from left screen edge → go back */
+        if (dir === 'right' && startX < 40 && window.history.length > 1) {
+            window.history.back();
+        }
+    }, { passive: true });
+})();
+
+/* ══════════════════════════════════════════════════
+   3. Browser notification prompt + polling
+══════════════════════════════════════════════════ */
+(function () {
+    if (!('Notification' in window)) return;
+
+    /* Show prompt in the More-sheet if permission not decided */
+    function _showPrompt() {
+        const el = document.getElementById('ds-notif-prompt');
+        if (!el) return;
+        if (Notification.permission === 'default') {
+            el.classList.remove('hidden');
+        }
+    }
+    setTimeout(_showPrompt, 800);
+
+    /* Polling loop */
+    let _poll = null;
+    window.dsStartNotifPolling = function () {
+        if (_poll) return;
+        if (!localStorage.getItem('ds_notif_since')) {
+            localStorage.setItem('ds_notif_since', new Date().toISOString());
+        }
+        _poll = setInterval(async () => {
+            const since = localStorage.getItem('ds_notif_since') || new Date(Date.now() - 65000).toISOString();
+            try {
+                const res = await fetch('/api/sales-feed?since=' + encodeURIComponent(since));
+                const data = await res.json();
+                /* Update checkpoint to now regardless */
+                localStorage.setItem('ds_notif_since', new Date().toISOString());
+                if (data.ok && data.count > 0 && document.hidden) {
+                    const item = data.items[0];
+                    const extra = data.count > 1 ? ` (+${data.count - 1} ещё)` : '';
+                    new Notification('💰 Новая продажа — DailySales', {
+                        body: `${item.product}: ${Number(item.total).toLocaleString('ru')} ₽${item.seller ? ' · ' + item.seller : ''}${extra}`,
+                        icon: '/static/icon.svg',
+                        tag: 'ds-sale',
+                        renotify: true,
+                    });
+                }
+            } catch (_) {}
+        }, 60000);
+    };
+
+    window.dsRequestNotif = function () {
+        Notification.requestPermission().then(perm => {
+            const el = document.getElementById('ds-notif-prompt');
+            if (el) el.remove();
+            if (perm === 'granted') {
+                localStorage.setItem('ds_notif_since', new Date().toISOString());
+                window.dsStartNotifPolling();
+            }
+        });
+    };
+
+    /* Auto-start if already granted */
+    if (Notification.permission === 'granted') {
+        window.dsStartNotifPolling();
+    }
+})();
+</script>
 
 {# ═══ BOTTOM NAV + MORE SHEET (mobile / tablet, hidden on lg+) ═══ #}
 {% set _p = request.url.path %}
@@ -497,6 +643,15 @@ function toastMgr() {
                class="shrink-0 flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors px-2 py-1 rounded-lg hover:bg-red-50">
                 🚪 Выйти
             </a>
+        </div>
+
+        <!-- Notification permission prompt (shown if not yet granted) -->
+        <div id="ds-notif-prompt"
+             class="hidden flex items-center gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700">
+            <span class="text-lg shrink-0">🔔</span>
+            <span class="flex-1 leading-snug">Получать браузерные уведомления о продажах коллег</span>
+            <button onclick="dsRequestNotif()" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors">Включить</button>
+            <button onclick="document.getElementById('ds-notif-prompt').remove()" class="shrink-0 text-blue-300 hover:text-blue-500 text-base leading-none px-1">×</button>
         </div>
 
     </div>
