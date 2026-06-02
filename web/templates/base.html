@@ -33,6 +33,9 @@
         .sht-item.sht-active{background:#eff6ff;border-color:#bfdbfe;color:#2563eb}
         .sht-icon{font-size:1.4rem;line-height:1}
         .sht-label{font-size:.65rem;font-weight:600;text-align:center;line-height:1.2}
+        /* ── Sheet slide-up transition helpers (CDN Tailwind doesn't scan x-transition attrs) ── */
+        .sheet-from{transform:translateY(100%)}
+        .sheet-to{transform:translateY(0)}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="{open:false, moreOpen:false}">
@@ -313,7 +316,7 @@ function toastMgr() {
     </main>
 
     <!-- Footer -->
-    <footer class="shrink-0 py-3 px-6 text-center text-xs text-slate-400 border-t border-slate-100">
+    <footer class="shrink-0 py-3 px-6 pb-20 lg:pb-3 text-center text-xs text-slate-400 border-t border-slate-100">
         DailySales&nbsp;·&nbsp;{% block footer_info %}{% endblock %}
     </footer>
 </div>
@@ -322,7 +325,7 @@ function toastMgr() {
 
 {# ═══ BOTTOM NAV + MORE SHEET (mobile / tablet, hidden on lg+) ═══ #}
 {% set _p = request.url.path %}
-{% set _bn_more = not (_p == '/dashboard' or _p.startswith('/pos') or (_p.startswith('/sales') and not _p.startswith('/sales/')) or _p.startswith('/products')) %}
+{% set _bn_more = not (_p == '/dashboard' or _p.startswith('/pos') or _p.startswith('/sales') or _p.startswith('/products')) %}
 
 <!-- More-sheet backdrop -->
 <div x-show="moreOpen" x-cloak @click="moreOpen=false"
@@ -335,11 +338,11 @@ function toastMgr() {
 
 <!-- More sheet -->
 <div x-show="moreOpen" x-cloak
-     x-transition:enter="transition duration-250 ease-out"
-     x-transition:enter-start="translate-y-full"
-     x-transition:enter-end="translate-y-0"
+     x-transition:enter="transition duration-300 ease-out"
+     x-transition:enter-start="sheet-from"
+     x-transition:enter-end="sheet-to"
      x-transition:leave="transition duration-200 ease-in"
-     x-transition:leave-end="translate-y-full"
+     x-transition:leave-end="sheet-from"
      class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
      style="max-height:80vh;padding-bottom:env(safe-area-inset-bottom,0)">
 
@@ -517,7 +520,7 @@ function toastMgr() {
         </a>
 
         <a href="/sales"
-           class="bnav-item {% if _p.startswith('/sales') and not _p.startswith('/sales/') %}bn-active{% endif %}">
+           class="bnav-item {% if _p.startswith('/sales') %}bn-active{% endif %}">
             <span class="bnav-icon">💰</span>
             <span class="bnav-label">Продажи</span>
         </a>
