@@ -252,6 +252,23 @@ def contests_create(
     city_filter: str = Form(default=""),
     filter_categories: List[str] = Form(default=[]),
     filter_products: List[str] = Form(default=[]),
+    reward_mode: str = Form(default="total"),
+    tier_count: int = Form(default=0),
+    tier_pct_1: str = Form(default=""), tier_bonus_1: str = Form(default=""),
+    tier_pct_2: str = Form(default=""), tier_bonus_2: str = Form(default=""),
+    tier_pct_3: str = Form(default=""), tier_bonus_3: str = Form(default=""),
+    indiv_enabled: str = Form(default=""),
+    indiv_shops: str = Form(default=""),
+    indiv_target_1: str = Form(default=""),
+    indiv_target_2: str = Form(default=""),
+    indiv_target_3: str = Form(default=""),
+    indiv_target_4: str = Form(default=""),
+    indiv_target_5: str = Form(default=""),
+    indiv_target_6: str = Form(default=""),
+    indiv_target_7: str = Form(default=""),
+    indiv_target_8: str = Form(default=""),
+    indiv_target_9: str = Form(default=""),
+    indiv_target_10: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
@@ -336,6 +353,29 @@ def contests_create(
                 return _re_render("Выберите хотя бы один товар.")
             product_filter = _json.dumps([int(p) for p in filter_products])
 
+        # Build individual_targets JSON (N4)
+        individual_targets = None
+        if indiv_enabled and indiv_shops.strip():
+            shop_list = [s.strip() for s in indiv_shops.split(",") if s.strip()]
+            target_vals = [
+                indiv_target_1, indiv_target_2, indiv_target_3, indiv_target_4,
+                indiv_target_5, indiv_target_6, indiv_target_7, indiv_target_8,
+                indiv_target_9, indiv_target_10,
+            ]
+            targets_dict = {}
+            for idx, sh in enumerate(shop_list):
+                raw = target_vals[idx] if idx < len(target_vals) else ""
+                if raw.strip():
+                    try:
+                        targets_dict[sh] = float(raw.replace(",", ".").strip())
+                    except ValueError:
+                        pass
+            if targets_dict:
+                individual_targets = _json.dumps(targets_dict, ensure_ascii=False)
+
+        # Effective reward_mode (N3)
+        eff_reward_mode = reward_mode if reward_mode in ("total", "per_sale") else "total"
+
         new_id = db.create_contest(
             title=title_clean,
             description=description.strip() or None,
@@ -351,9 +391,34 @@ def contests_create(
             category_filter=category_filter,
             product_filter=product_filter,
             created_by=telegram_id,
+            reward_mode=eff_reward_mode,
+            individual_targets=individual_targets,
         )
         if not new_id:
             return _re_render("Не удалось создать конкурс. Попробуйте ещё раз.")
+
+        # Save per_sale tiers (N3)
+        if eff_reward_mode == "per_sale" and tier_count > 0:
+            tier_pcts = [tier_pct_1, tier_pct_2, tier_pct_3]
+            tier_bonuses = [tier_bonus_1, tier_bonus_2, tier_bonus_3]
+            tiers = []
+            for i in range(min(tier_count, 3)):
+                pct_raw = tier_pcts[i].strip()
+                bon_raw = tier_bonuses[i].strip()
+                if pct_raw and bon_raw:
+                    try:
+                        tiers.append({
+                            "min_plan_pct": float(pct_raw.replace(",", ".")),
+                            "bonuses": [{"product_id": None, "product_name": "all",
+                                         "bonus_per_unit": float(bon_raw.replace(",", "."))}],
+                        })
+                    except ValueError:
+                        pass
+            if tiers:
+                try:
+                    db.save_contest_product_bonuses(new_id, tiers)
+                except Exception as tier_exc:
+                    logger.warning(f"save tiers failed for contest {new_id}: {tier_exc}")
 
         return RedirectResponse(url=f"/contests?contest_id={new_id}", status_code=303)
 

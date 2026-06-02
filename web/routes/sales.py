@@ -54,6 +54,34 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
     return all_shops
 
 
+@router.get("/api/product-motivation")
+def api_product_motivation(request: Request, product_id: int = 0):
+    """Return motivation info for a given product (for sale preview)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        if not product_id:
+            return JSONResponse({"none": True})
+        db = get_web_db(telegram_id, org_db)
+        info = db.get_product_motivation(product_id)
+        if not info:
+            return JSONResponse({"none": True})
+        return JSONResponse({
+            "none": False,
+            "motivation_type": info["motivation_type"],
+            "motivation_value": float(info["motivation_value"] or 0),
+        })
+    except Exception as exc:
+        return JSONResponse({"none": True, "error": str(exc)})
+
+
 @router.get("/api/products-for-shop")
 def api_products_for_shop(request: Request, shop: str = ""):
     """Return JSON list of products with stock > 0 in the given shop."""

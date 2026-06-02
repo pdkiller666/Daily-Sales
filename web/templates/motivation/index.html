@@ -129,6 +129,23 @@
             <form method="post" action="/motivation/set" @submit="loading = true">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="product_id" :value="editProductId || ''">
+                <input type="hidden" name="month_offset" :value="monthOffset">
+
+                <!-- Month selector -->
+                <div class="mb-4">
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">Месяц применения</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        {% for off, lbl in month_labels.items() %}
+                        <button type="button"
+                                @click="monthOffset = {{ off }}"
+                                :class="monthOffset == {{ off }} ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:border-blue-300'"
+                                class="px-2 py-1.5 rounded-lg text-[11px] font-medium transition-colors text-center leading-tight">
+                            {{ lbl }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1" x-show="monthOffset != 0">Будет сохранено для выбранного месяца + пересчёт заработков</p>
+                </div>
 
                 <!-- Product selector (shown only when not editing) -->
                 <div class="mb-4" x-show="!editProductId" x-transition>
@@ -235,7 +252,57 @@
             </form>
         </div>
 
-        <!-- Bulk set by category -->
+        <!-- Extra conditions (N2) -->
+        <div class="card p-5 mt-4" x-data="{ extraOpen: false }">
+            <div class="flex items-center justify-between cursor-pointer" @click="extraOpen = !extraOpen">
+                <div>
+                    <h2 class="font-semibold text-slate-800">📉 Доп. условия текущего месяца</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Коэффициент смены · мин. продавцов</p>
+                </div>
+                <svg class="w-4 h-4 text-slate-400 transition-transform" :class="extraOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+            <div x-show="extraOpen" x-cloak x-transition class="mt-4">
+                {% if extra_saved %}
+                <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">✅ Доп. условия сохранены</div>
+                {% endif %}
+                {% if extra_conditions %}
+                <div class="mb-3 space-y-1">
+                    <p class="text-xs font-semibold text-slate-500 uppercase mb-1.5">Активные условия</p>
+                    {% for ec in extra_conditions %}
+                    <div class="flex items-center gap-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                        <span class="text-slate-500">{{ ec[2] or 'Глобальное' }}</span>
+                        {% if ec[3] %}<span class="text-blue-600 font-medium">📍 {{ ec[3] }}</span>{% endif %}
+                        {% if ec[4] %}<span class="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium">Мин. {{ ec[4] }} прод.</span>{% endif %}
+                        {% if ec[5] %}<span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">×{{ ec[5] }}</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <form method="post" action="/motivation/set_extra" class="space-y-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Коэффициент ×</label>
+                            <input type="number" name="coefficient" min="0.01" max="10" step="0.01"
+                                   placeholder="напр. 0.8"
+                                   class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <p class="text-[10px] text-slate-400 mt-0.5">Множитель к комиссии</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Мин. продавцов</label>
+                            <input type="number" name="min_sellers" min="0" step="1"
+                                   placeholder="напр. 2"
+                                   class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <p class="text-[10px] text-slate-400 mt-0.5">0 = без ограничений</p>
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-slate-700 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-slate-800 transition-colors">
+                        ✅ Сохранить условия на текущий месяц
+                    </button>
+                </form>
+            </div>
+        </div>
+
         {% if categories %}
         <div class="card p-5 mt-4" x-data="{ bulkOpen: false }">
             <div class="flex items-center justify-between cursor-pointer" @click="bulkOpen = !bulkOpen">
@@ -255,7 +322,7 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1.5">Категория</label>
-                        <select name="category" required
+                        <select name="category_name" required
                                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                             <option value="">— выберите категорию —</option>
                             {% for cat in categories %}
@@ -309,6 +376,7 @@ function motivForm() {
         editProductName: '',
         selectedProductId: '',
         filterCategory: '{{ selected_category }}',
+        monthOffset: 0,
     };
 }
 

@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -22,6 +23,24 @@ def _fmt_rate(mtype, mval) -> str:
         return str(mval)
 
 
+def _month_label(y, m):
+    names = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+             "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
+    return f"{names[m - 1]} {y}"
+
+
+def _offset_month(offset: int):
+    """Return (year, month) shifted by offset from today."""
+    today = date.today()
+    m = today.month + offset
+    y = today.year
+    while m < 1:
+        m += 12; y -= 1
+    while m > 12:
+        m -= 12; y += 1
+    return y, m
+
+
 @router.get("/motivation")
 def motivation_page(request: Request, category: str = ""):
     from web.auth import get_csrf_token, get_session_user
@@ -36,6 +55,15 @@ def motivation_page(request: Request, category: str = ""):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    today = date.today()
+    prev_y, prev_m = _offset_month(-1)
+    next_y, next_m = _offset_month(+1)
+    month_labels = {
+        "-1": _month_label(prev_y, prev_m),
+        "0":  _month_label(today.year, today.month) + " (текущий)",
+        "1":  _month_label(next_y, next_m),
+    }
+
     ctx: dict = {
         "request": request,
         "user": user,
@@ -47,6 +75,9 @@ def motivation_page(request: Request, category: str = ""):
         "error": None,
         "saved": request.query_params.get("saved") == "1",
         "removed": request.query_params.get("removed") == "1",
+        "month_labels": month_labels,
+        "extra_conditions": [],
+        "extra_saved": request.query_params.get("extra_saved") == "1",
     }
 
     try:
@@ -88,6 +119,12 @@ def motivation_page(request: Request, category: str = ""):
             })
         ctx["motivations"] = motivations
 
+        try:
+            raw_extra = db.get_extra_conditions_for_month(today.year, today.month) or []
+            ctx["extra_conditions"] = raw_extra
+        except Exception:
+            ctx["extra_conditions"] = []
+
     except Exception as exc:
         logger.error(f"motivation_page error: {exc}")
         ctx["error"] = str(exc)
@@ -104,6 +141,7 @@ def motivation_set(
     product_id: int = Form(...),
     motivation_type: str = Form(default="percentage"),
     motivation_value: str = Form(default=""),
+    month_offset: int = Form(default=0),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -130,13 +168,69 @@ def motivation_set(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        db.set_product_motivation(product_id, motivation_type, val, telegram_id)
-        logger.info(f"Motivation set: product={product_id} type={motivation_type} val={val} by={telegram_id}")
+        if month_offset == 0:
+            db.set_product_motivation(product_id, motivation_type, val, telegram_id)
+        else:
+            ty, tm = _offset_month(month_offset)
+            db.set_motivation_for_month(product_id, ty, tm, motivation_type, val, telegram_id)
+            try:
+                db.recalculate_month_earnings(product_id, ty, tm)
+            except Exception:
+                pass
+        logger.info(f"Motivation set: product={product_id} type={motivation_type} val={val} offset={month_offset} by={telegram_id}")
     except Exception as exc:
         logger.error(f"motivation_set error: {exc}")
         return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
 
     return RedirectResponse(url="/motivation?saved=1", status_code=303)
+
+
+@router.post("/motivation/set_extra")
+def motivation_set_extra(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    min_sellers: str = Form(default=""),
+    coefficient: str = Form(default=""),
+    shop_name: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    today = date.today()
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        ms = int(min_sellers.strip()) if min_sellers.strip() else None
+        coeff = float(coefficient.replace(",", ".").strip()) if coefficient.strip() else None
+        if coeff is not None and not (0.01 <= coeff <= 10.0):
+            raise ValueError("Коэффициент должен быть от 0.01 до 10")
+        if ms is not None and ms < 0:
+            raise ValueError("Минимум продавцов не может быть отрицательным")
+
+        db = get_web_db(telegram_id, org_db)
+        db.set_extra_condition_for_month(
+            condition_type="global",
+            year=today.year,
+            month=today.month,
+            shop_name=shop_name.strip() or None,
+            min_sellers=ms,
+            coefficient=coeff,
+            user_id=telegram_id,
+        )
+    except Exception as exc:
+        logger.error(f"motivation_set_extra error: {exc}")
+        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+
+    return RedirectResponse(url="/motivation?extra_saved=1", status_code=303)
 
 
 @router.post("/motivation/set_category")

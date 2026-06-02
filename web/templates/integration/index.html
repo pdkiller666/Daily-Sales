@@ -118,32 +118,34 @@
     {% set logs = conn_logs.get(c.id, []) %}
     <div class="card overflow-hidden" x-data="{ logsOpen: false }">
         <!-- Connection header -->
-        <div class="flex items-center gap-4 p-5 border-b border-slate-100">
-            <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 text-xl">
-                📊
-            </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap">
-                    <p class="font-semibold text-slate-800">{{ c.name }}</p>
-                    {% if c.enabled %}
-                    <span class="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5 font-medium">Включено</span>
-                    {% else %}
-                    <span class="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2 py-0.5 font-medium">Выключено</span>
-                    {% endif %}
-                    {% if c.has_token %}
-                    <span class="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 rounded-full px-2 py-0.5 font-medium">🔑 Авторизовано</span>
-                    {% else %}
-                    <span class="text-[10px] bg-amber-50 text-amber-600 border border-amber-100 rounded-full px-2 py-0.5 font-medium">⚠️ Не авторизовано</span>
-                    {% endif %}
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 p-5 border-b border-slate-100">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 text-xl">
+                    📊
                 </div>
-                {% if c.spreadsheet_id %}
-                <p class="text-xs text-slate-400 mt-0.5 font-mono truncate">ID: {{ c.spreadsheet_id }}</p>
-                {% endif %}
-                <p class="text-xs text-slate-400">Создано {{ c.created_at }} · {{ exports|length }} правил экспорта</p>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <p class="font-semibold text-slate-800">{{ c.name }}</p>
+                        {% if c.enabled %}
+                        <span class="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5 font-medium">Включено</span>
+                        {% else %}
+                        <span class="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2 py-0.5 font-medium">Выключено</span>
+                        {% endif %}
+                        {% if c.has_token %}
+                        <span class="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 rounded-full px-2 py-0.5 font-medium">🔑 Авторизовано</span>
+                        {% else %}
+                        <span class="text-[10px] bg-amber-50 text-amber-600 border border-amber-100 rounded-full px-2 py-0.5 font-medium">⚠️ Не авторизовано</span>
+                        {% endif %}
+                    </div>
+                    {% if c.spreadsheet_id %}
+                    <p class="text-xs text-slate-400 mt-0.5 font-mono truncate">ID: {{ c.spreadsheet_id }}</p>
+                    {% endif %}
+                    <p class="text-xs text-slate-400 whitespace-nowrap">Создано {{ c.created_at[:10] if c.created_at else '—' }} · {{ exports|length }} правил экспорта</p>
+                </div>
             </div>
 
             <!-- Actions -->
-            <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <div class="flex items-center gap-2 flex-wrap sm:ml-auto sm:shrink-0">
                 {% if has_secrets %}
                 <form method="post" action="/integration/auth/start">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

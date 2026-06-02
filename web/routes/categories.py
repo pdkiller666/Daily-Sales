@@ -31,11 +31,16 @@ def categories_page(request: Request, msg: str = ""):
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
         rows = conn.execute(
-            """SELECT category, COUNT(*) as cnt,
-                      SUM(CASE WHEN quantity > 0 THEN 1 ELSE 0 END) as in_stock
-               FROM products
-               GROUP BY category
-               ORDER BY category"""
+            """SELECT p.category, COUNT(*) as cnt,
+                      COUNT(CASE WHEN COALESCE(inv.qty, 0) > 0 THEN 1 END) as in_stock
+               FROM products p
+               LEFT JOIN (
+                   SELECT product_id, SUM(quantity) as qty
+                   FROM inventory
+                   GROUP BY product_id
+               ) inv ON inv.product_id = p.id
+               GROUP BY p.category
+               ORDER BY p.category"""
         ).fetchall()
         conn.close()
         ctx["categories"] = [

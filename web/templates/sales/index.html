@@ -198,6 +198,9 @@
             <div x-show="price > 0 && qty > 0"
                  class="bg-emerald-50 rounded-lg px-3 py-2 text-sm text-emerald-700 font-medium text-center">
                 Итого: <span x-text="(price * qty).toLocaleString('ru-RU') + ' ₽'"></span>
+                <template x-if="motivPreview">
+                    <span class="block text-xs font-normal text-emerald-600 mt-0.5" x-text="motivPreview"></span>
+                </template>
             </div>
 
             <div class="flex gap-3 pt-1">
@@ -417,6 +420,7 @@ function saleModal() {
         search: '',
         crossShop: false,
         productTab: 'all',
+        motivPreview: '',
         // edit modal state
         editOpen: false,
         editSaleId: null,
@@ -484,7 +488,28 @@ function saleModal() {
 
         setPrice() {
             const p = this.products.find(x => String(x.id) === String(this.selectedProductId));
-            if (p) this.price = p.price;
+            if (p) { this.price = p.price; this.fetchMotivPreview(p.id); }
+            else this.motivPreview = '';
+        },
+
+        fetchMotivPreview(productId) {
+            this.motivPreview = '';
+            if (!productId) return;
+            fetch('/api/product-motivation?product_id=' + productId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.none) { this.motivPreview = ''; return; }
+                    const qty = parseFloat(this.qty) || 1;
+                    const price = parseFloat(this.price) || 0;
+                    let earn = 0;
+                    if (data.motivation_type === 'percentage') {
+                        earn = price * qty * data.motivation_value / 100;
+                    } else {
+                        earn = data.motivation_value * qty;
+                    }
+                    this.motivPreview = '🎯 Ваша мотивация: ~' + earn.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+                })
+                .catch(() => { this.motivPreview = ''; });
         },
 
         openEdit(saleId) {
