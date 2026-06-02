@@ -15,6 +15,10 @@
     </div>
     <div class="flex items-center gap-2">
         {% if is_admin %}
+        <a href="/products/new"
+           class="flex items-center gap-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition-colors">
+            ➕ Добавить
+        </a>
         <a href="/products/import"
            class="flex items-center gap-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors">
             📊 Импорт Excel

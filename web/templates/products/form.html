@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{% if is_edit %}Редактировать товар{% else %}Новый товар{% endif %}{% endblock %}
+
+{% block breadcrumb %}
+<a href="/products" class="text-slate-400 text-xs hover:text-blue-500">Товары</a>
+<span class="text-slate-300 text-xs">/</span>
+{% if is_edit %}
+<a href="/products/{{ edit_id }}" class="text-slate-400 text-xs hover:text-blue-500 truncate max-w-[160px]">{{ product_name }}</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Редактировать</span>
+{% else %}
+<span class="font-medium text-slate-700 text-sm">Новый товар</span>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">
+            {% if is_edit %}Редактировать товар{% else %}Добавить товар{% endif %}
+        </h1>
+        <p class="text-sm text-slate-500 mt-0.5">
+            {% if is_edit %}{{ product_name }}{% else %}Новая позиция в каталоге{% endif %}
+        </p>
+    </div>
+    <a href="{% if is_edit %}/products/{{ edit_id }}{% else %}/products{% endif %}"
+       class="text-sm text-slate-400 hover:text-slate-600 flex items-center gap-1">
+        ← Назад
+    </a>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span>❌</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<div class="card p-6 max-w-xl">
+    <form method="post"
+          action="{% if is_edit %}/products/{{ edit_id }}/update{% else %}/products/create{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <!-- Name -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-name">
+                Название <span class="text-red-500">*</span>
+            </label>
+            <input id="f-name" type="text" name="name"
+                   value="{{ form_data.name if form_data else '' }}"
+                   placeholder="Например: iPhone 15 Pro 256GB"
+                   required autofocus
+                   class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+        </div>
+
+        <!-- Category -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-cat">
+                Категория
+            </label>
+            <input id="f-cat" type="text" name="category"
+                   value="{{ form_data.category if form_data else '' }}"
+                   placeholder="Например: Смартфоны"
+                   list="cat-list"
+                   class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            {% if categories %}
+            <datalist id="cat-list">
+                {% for cat in categories %}
+                <option value="{{ cat }}">
+                {% endfor %}
+            </datalist>
+            {% endif %}
+            <p class="mt-1 text-xs text-slate-400">Начните вводить — подскажем существующие категории</p>
+        </div>
+
+        <!-- Price -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-price">
+                Цена (₽)
+            </label>
+            <div class="relative">
+                <input id="f-price" type="number" name="price" min="0" step="0.01"
+                       value="{{ form_data.price if form_data else '0' }}"
+                       class="w-full border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₽</span>
+            </div>
+        </div>
+
+        <!-- Description -->
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-desc">
+                Описание
+            </label>
+            <textarea id="f-desc" name="description" rows="3"
+                      placeholder="Дополнительная информация о товаре (необязательно)"
+                      class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none">{{ form_data.description if form_data else '' }}</textarea>
+        </div>
+
+        <!-- Submit -->
+        <div class="flex items-center gap-3">
+            <button type="submit"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
+                {% if is_edit %}💾 Сохранить изменения{% else %}➕ Добавить товар{% endif %}
+            </button>
+            <a href="{% if is_edit %}/products/{{ edit_id }}{% else %}/products{% endif %}"
+               class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-500 hover:bg-slate-50 transition-colors">
+                Отмена
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

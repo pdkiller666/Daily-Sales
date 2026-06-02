@@ -48,8 +48,8 @@
 </div>
 
 <!-- Ranking list -->
-<div class="card overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+<div class="card overflow-hidden" x-data="{q:''}">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3 flex-wrap gap-y-2">
         <h2 class="font-semibold text-slate-800">
             {% if tab == 'sellers' %}Рейтинг продавцов
             {% elif tab == 'shops' %}Рейтинг магазинов
@@ -65,6 +65,9 @@
         <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
             {{ ranking|length }} позиций
         </span>
+        <input x-model.debounce.200ms="q" type="search" placeholder="🔍 фильтр…"
+               class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-blue-400"
+               @keydown.escape="q=''">
     </div>
 
     {% if ranking %}
@@ -77,7 +80,9 @@
                     {% else %}hover:bg-slate-50/60{% endif %}"
              {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}'"
              {% elif tab == 'shops' and r.label %}onclick="window.location='/inventory?shop={{ r.label|urlencode }}'"
-             {% endif %}>
+             {% endif %}
+             data-label="{{ r.label|lower }}"
+             x-show="!q || $el.dataset.label.includes(q.toLowerCase())">
             <div class="flex items-center gap-4">
 
                 <!-- Position -->

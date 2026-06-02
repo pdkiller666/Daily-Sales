@@ -259,6 +259,215 @@ def products_import_confirm(
     return RedirectResponse(url=f"/products?imported={added}", status_code=302)
 
 
+@router.get("/products/new")
+def products_new_form(request: Request):
+    """Show form to create a new product (admin only)."""
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+
+    return request.app.state.templates.TemplateResponse(request, "products/form.html", {
+        "request": request, "user": user, "is_admin": True,
+        "csrf_token": get_csrf_token(request),
+        "categories": categories,
+        "form_data": None, "error": None, "is_edit": False,
+    })
+
+
+@router.post("/products/create")
+def products_create(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    name: str = Form(...),
+    category: str = Form(default=""),
+    price: str = Form(default="0"),
+    description: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        from fastapi.responses import Response
+        return Response(content="Недействительный CSRF-токен. Обновите страницу.", status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+
+    def _re_render(err, fd=None):
+        return request.app.state.templates.TemplateResponse(request, "products/form.html", {
+            "request": request, "user": user, "is_admin": True,
+            "csrf_token": get_csrf_token(request),
+            "categories": categories,
+            "form_data": fd or {"name": name, "category": category, "price": price, "description": description},
+            "error": err, "is_edit": False,
+        })
+
+    name_clean = name.strip()
+    if not name_clean:
+        return _re_render("Введите название товара.")
+    try:
+        price_val = float(price.replace(",", ".").strip() or "0")
+        if price_val < 0:
+            raise ValueError
+    except ValueError:
+        return _re_render("Цена должна быть числом ≥ 0.")
+
+    try:
+        new_id = db.add_product(
+            name=name_clean,
+            category=category.strip() or None,
+            price=price_val,
+            description=description.strip() or None,
+        )
+        if not new_id:
+            return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
+        return RedirectResponse(url=f"/products/{new_id}?success=Товар+добавлен", status_code=303)
+    except Exception as exc:
+        return _re_render(f"Ошибка: {exc}")
+
+
+@router.get("/products/{product_id}/edit")
+def products_edit_form(request: Request, product_id: int):
+    """Show edit form for an existing product (admin only)."""
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/products/{product_id}", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    product = db.get_product(product_id)
+    if not product:
+        return RedirectResponse(url="/products", status_code=302)
+
+    categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+    return request.app.state.templates.TemplateResponse(request, "products/form.html", {
+        "request": request, "user": user, "is_admin": True,
+        "csrf_token": get_csrf_token(request),
+        "categories": categories,
+        "form_data": {
+            "name": product[1] or "",
+            "category": product[2] or "",
+            "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
+            "description": product[6] if len(product) > 6 else "",
+        },
+        "error": None, "is_edit": True,
+        "edit_id": product_id,
+        "product_name": product[1] or "Товар",
+    })
+
+
+@router.post("/products/{product_id}/update")
+def products_update(
+    request: Request,
+    product_id: int,
+    csrf_token: str = Form(default=""),
+    name: str = Form(...),
+    category: str = Form(default=""),
+    price: str = Form(default="0"),
+    description: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/products/{product_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        from fastapi.responses import Response
+        return Response(content="Недействительный CSRF-токен. Обновите страницу.", status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+
+    def _re_render(err):
+        return request.app.state.templates.TemplateResponse(request, "products/form.html", {
+            "request": request, "user": user, "is_admin": True,
+            "csrf_token": get_csrf_token(request),
+            "categories": categories,
+            "form_data": {"name": name, "category": category, "price": price, "description": description},
+            "error": err, "is_edit": True,
+            "edit_id": product_id, "product_name": name,
+        })
+
+    name_clean = name.strip()
+    if not name_clean:
+        return _re_render("Введите название товара.")
+    try:
+        price_val = float(price.replace(",", ".").strip() or "0")
+        if price_val < 0:
+            raise ValueError
+    except ValueError:
+        return _re_render("Цена должна быть числом ≥ 0.")
+
+    try:
+        db.update_product(
+            product_id,
+            name=name_clean,
+            category=category.strip() or "",
+            price=price_val,
+            description=description.strip() or "",
+        )
+        return RedirectResponse(url=f"/products/{product_id}?success=Сохранено", status_code=303)
+    except Exception as exc:
+        return _re_render(f"Ошибка: {exc}")
+
+
+@router.post("/products/{product_id}/delete")
+def products_delete(
+    request: Request,
+    product_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import Response
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/products/{product_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу.", status_code=403)
+
+    try:
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+        db.delete_product(product_id)
+    except Exception as exc:
+        logging.error(f"products_delete error: {exc}")
+
+    return RedirectResponse(url="/products?success=Товар+удалён", status_code=303)
+
+
 @router.get("/products/{product_id}")
 def product_detail(request: Request, product_id: int):
     from web.auth import get_session_user

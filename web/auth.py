@@ -11,7 +11,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 _SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest() if BOT_TOKEN else 'dev_secret_shopbot_change_me'
 ALGORITHM = "HS256"
 COOKIE_NAME = "web_session"
-TOKEN_EXPIRE_DAYS = 30
+TOKEN_EXPIRE_DAYS = 7
 
 
 def verify_telegram_auth(data: dict) -> bool:

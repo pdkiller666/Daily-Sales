@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
-TOKEN_EXPIRE_DAYS = 30
+TOKEN_EXPIRE_DAYS = 7
 
 # Rate limiting for /auth/code/auto — 5 attempts per 60 s per IP
 _code_attempt_log: dict = {}

@@ -36,6 +36,21 @@
     <div class="text-right shrink-0">
         <p class="text-2xl font-bold text-emerald-600">{{ product[3]|int|fmt_currency }}</p>
         <p class="text-xs text-slate-400 mt-0.5">розничная цена</p>
+        {% if is_admin %}
+        <div class="flex gap-2 mt-2.5 justify-end">
+            <a href="/products/{{ product[0] }}/edit"
+               class="text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors font-medium">
+                ✏️ Изменить
+            </a>
+            <button onclick="if(confirm('Удалить товар «{{ product[1]|replace(\"'\",\"\") }}»? Это действие нельзя отменить.'))document.getElementById('del-form').submit()"
+                    class="text-xs px-2.5 py-1 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors font-medium">
+                🗑 Удалить
+            </button>
+        </div>
+        <form id="del-form" method="post" action="/products/{{ product[0] }}/delete" class="hidden">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token_for(request) }}">
+        </form>
+        {% endif %}
     </div>
 </div>
 
