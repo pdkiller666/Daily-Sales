@@ -816,6 +816,58 @@ class Database:
             )
         ''')
 
+        # ── Настройки типов отсутствий (per-org) ────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS absence_type_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL UNIQUE,
+                is_paid INTEGER DEFAULT 1,
+                annual_limit INTEGER DEFAULT 0,
+                penalty_mode TEXT DEFAULT 'none',
+                penalty_amount REAL DEFAULT 0.0,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        for _atp, _pd, _pm in [
+            ('vacation',     1, 'none'),
+            ('sick',         1, 'none'),
+            ('compensatory', 1, 'none'),
+            ('absence',      0, 'no_pay'),
+            ('other',        1, 'none'),
+        ]:
+            cursor.execute(
+                'INSERT OR IGNORE INTO absence_type_settings '
+                '(type, is_paid, penalty_mode) VALUES (?, ?, ?)',
+                (_atp, _pd, _pm)
+            )
+
+        # ── Записи об отсутствиях ────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS absence_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                is_paid INTEGER,
+                comment TEXT,
+                admin_comment TEXT,
+                created_by INTEGER,
+                reviewed_by INTEGER,
+                created_at TEXT DEFAULT (datetime('now')),
+                reviewed_at TEXT
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_absence_user '
+            'ON absence_records(user_id, start_date)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_absence_status '
+            'ON absence_records(status)'
+        )
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS contests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7618,4 +7670,349 @@ class Database:
             if addon_type in result:
                 result[addon_type] += qty
         return result
+
+    # ════════════════════════════════════════════════════════════════════════
+    # МОДУЛЬ ОТСУТСТВИЙ (отпуска, больничные, прогулы, отгулы)
+    # ════════════════════════════════════════════════════════════════════════
+
+    def get_absence_type_settings(self) -> dict:
+        """Вернуть настройки всех типов отсутствий.
+        Returns: {type_str: {is_paid, annual_limit, penalty_mode, penalty_amount}}
+        """
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                'SELECT type, is_paid, annual_limit, penalty_mode, penalty_amount '
+                'FROM absence_type_settings'
+            ).fetchall()
+            return {
+                r[0]: {
+                    'is_paid': bool(r[1]),
+                    'annual_limit': r[2] or 0,
+                    'penalty_mode': r[3] or 'none',
+                    'penalty_amount': float(r[4] or 0),
+                }
+                for r in rows
+            }
+        except Exception as e:
+            logger.error(f"get_absence_type_settings: {e}")
+            return {}
+        finally:
+            conn.close()
+
+    def set_absence_type_setting(self, atype: str, is_paid: int,
+                                  annual_limit: int, penalty_mode: str,
+                                  penalty_amount: float) -> bool:
+        """Обновить настройки типа отсутствия."""
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                '''INSERT INTO absence_type_settings
+                       (type, is_paid, annual_limit, penalty_mode, penalty_amount, updated_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(type) DO UPDATE SET
+                       is_paid=excluded.is_paid,
+                       annual_limit=excluded.annual_limit,
+                       penalty_mode=excluded.penalty_mode,
+                       penalty_amount=excluded.penalty_amount,
+                       updated_at=excluded.updated_at''',
+                (atype, int(is_paid), int(annual_limit), penalty_mode, float(penalty_amount))
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"set_absence_type_setting: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def add_absence(self, user_id: int, atype: str, start_date: str,
+                    end_date: str, comment: str = None,
+                    created_by: int = None, status: str = 'pending',
+                    is_paid=None) -> int:
+        """Добавить запись об отсутствии. Возвращает id новой записи (0 при ошибке)."""
+        conn = self.get_connection()
+        try:
+            cur = conn.execute(
+                '''INSERT INTO absence_records
+                       (user_id, type, start_date, end_date, comment,
+                        created_by, status, is_paid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (user_id, atype, start_date, end_date, comment,
+                 created_by, status, is_paid)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception as e:
+            logger.error(f"add_absence: {e}")
+            return 0
+        finally:
+            conn.close()
+
+    def update_absence_status(self, absence_id: int, status: str,
+                               admin_comment: str = None,
+                               reviewed_by: int = None) -> bool:
+        """Сменить статус заявки (approved/rejected/cancelled)."""
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                '''UPDATE absence_records
+                   SET status=?, admin_comment=?, reviewed_by=?,
+                       reviewed_at=datetime('now')
+                   WHERE id=?''',
+                (status, admin_comment, reviewed_by, absence_id)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"update_absence_status: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_absence_by_id(self, absence_id: int):
+        """Вернуть запись об отсутствии по id (или None)."""
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                'SELECT id, user_id, type, start_date, end_date, status, '
+                'is_paid, comment, admin_comment, created_by, reviewed_by, '
+                'created_at, reviewed_at FROM absence_records WHERE id=?',
+                (absence_id,)
+            ).fetchone()
+        except Exception as e:
+            logger.error(f"get_absence_by_id: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_absences_for_user(self, user_id: int,
+                               year: int = None, month: int = None) -> list:
+        """Список отсутствий сотрудника (опционально за год/месяц).
+        Возвращает строки: (id, type, start_date, end_date, status,
+                             is_paid, comment, admin_comment, created_at)
+        """
+        conn = self.get_connection()
+        try:
+            if year and month:
+                import calendar as _cal
+                _, days = _cal.monthrange(year, month)
+                ms = f"{year}-{month:02d}-01"
+                me = f"{year}-{month:02d}-{days:02d}"
+                rows = conn.execute(
+                    '''SELECT id, type, start_date, end_date, status, is_paid,
+                              comment, admin_comment, created_at
+                       FROM absence_records
+                       WHERE user_id=? AND start_date <= ? AND end_date >= ?
+                       ORDER BY start_date DESC''',
+                    (user_id, me, ms)
+                ).fetchall()
+            elif year:
+                rows = conn.execute(
+                    '''SELECT id, type, start_date, end_date, status, is_paid,
+                              comment, admin_comment, created_at
+                       FROM absence_records
+                       WHERE user_id=? AND start_date LIKE ?
+                       ORDER BY start_date DESC''',
+                    (user_id, f"{year}-%")
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    '''SELECT id, type, start_date, end_date, status, is_paid,
+                              comment, admin_comment, created_at
+                       FROM absence_records
+                       WHERE user_id=?
+                       ORDER BY start_date DESC LIMIT 100''',
+                    (user_id,)
+                ).fetchall()
+            return rows or []
+        except Exception as e:
+            logger.error(f"get_absences_for_user: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_pending_absences(self) -> list:
+        """Все ожидающие заявки с именем сотрудника.
+        Строки: (id, user_id, type, start_date, end_date, comment,
+                  created_at, first_name, last_name, shop_name)
+        """
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                '''SELECT ar.id, ar.user_id, ar.type, ar.start_date, ar.end_date,
+                          ar.comment, ar.created_at,
+                          u.first_name, u.last_name, u.shop_name
+                   FROM absence_records ar
+                   JOIN users u ON u.id = ar.user_id
+                   WHERE ar.status = 'pending'
+                   ORDER BY ar.created_at ASC'''
+            ).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_pending_absences: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_all_absences_admin(self, year: int, month: int) -> list:
+        """Все отсутствия за месяц с именами сотрудников (для веб-таблицы).
+        Строки: (id, user_id, type, start_date, end_date, status,
+                  is_paid, comment, admin_comment, created_at,
+                  first_name, last_name, shop_name)
+        """
+        import calendar as _cal
+        _, days = _cal.monthrange(year, month)
+        ms = f"{year}-{month:02d}-01"
+        me = f"{year}-{month:02d}-{days:02d}"
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                '''SELECT ar.id, ar.user_id, ar.type, ar.start_date, ar.end_date,
+                          ar.status, ar.is_paid, ar.comment, ar.admin_comment,
+                          ar.created_at,
+                          u.first_name, u.last_name, u.shop_name
+                   FROM absence_records ar
+                   JOIN users u ON u.id = ar.user_id
+                   WHERE ar.start_date <= ? AND ar.end_date >= ?
+                   ORDER BY ar.start_date ASC, u.first_name ASC''',
+                (me, ms)
+            ).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_all_absences_admin: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_absence_days_map(self, year: int, month: int,
+                              user_id: int = None) -> dict:
+        """Карта отсутствий для наложения на календарь расписания.
+        Returns: {user_id: {day_num: {type, status, absence_id}}}
+        """
+        import calendar as _cal
+        from datetime import date, timedelta
+        _, days_in_month = _cal.monthrange(year, month)
+        ms = f"{year}-{month:02d}-01"
+        me = f"{year}-{month:02d}-{days_in_month:02d}"
+        conn = self.get_connection()
+        try:
+            q = ('SELECT ar.id, ar.user_id, ar.type, ar.start_date, ar.end_date, ar.status '
+                 'FROM absence_records ar '
+                 'WHERE ar.start_date <= ? AND ar.end_date >= ? '
+                 "AND ar.status IN ('pending','approved')")
+            params: tuple = (me, ms)
+            if user_id is not None:
+                q += ' AND ar.user_id = ?'
+                params = (me, ms, user_id)
+            rows = conn.execute(q, params).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_absence_days_map: {e}")
+            rows = []
+        finally:
+            conn.close()
+
+        result: dict = {}
+        month_start_d = date(year, month, 1)
+        month_end_d = date(year, month, days_in_month)
+        for row in rows:
+            ab_id, uid, atype, sd, ed, status = row
+            try:
+                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+            except Exception:
+                continue
+            cur = d_start
+            if uid not in result:
+                result[uid] = {}
+            while cur <= d_end:
+                result[uid][cur.day] = {
+                    'type': atype, 'status': status, 'id': ab_id
+                }
+                cur += timedelta(days=1)
+        return result
+
+    def get_paid_absence_days_count(self, user_id: int,
+                                     year: int, month: int) -> int:
+        """Количество оплачиваемых одобренных дней отсутствия за месяц.
+        Используется в расчёте зарплаты как надбавка к отработанным дням.
+        """
+        import calendar as _cal
+        from datetime import date, timedelta
+        _, days_in_month = _cal.monthrange(year, month)
+        ms = f"{year}-{month:02d}-01"
+        me = f"{year}-{month:02d}-{days_in_month:02d}"
+        conn = self.get_connection()
+        try:
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+            rows = conn.execute(
+                '''SELECT ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.user_id=? AND ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (user_id, me, ms)
+            ).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_paid_absence_days_count: {e}")
+            return 0
+        finally:
+            conn.close()
+
+        month_start_d = date(year, month, 1)
+        month_end_d = date(year, month, days_in_month)
+        total = 0
+        for atype, sd, ed, is_paid_override in rows:
+            paid = bool(is_paid_override) if is_paid_override is not None \
+                else type_paid.get(atype, True)
+            if not paid:
+                continue
+            try:
+                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                if d_end >= d_start:
+                    total += (d_end - d_start).days + 1
+            except Exception:
+                pass
+        return total
+
+    def get_absence_used_days(self, user_id: int, atype: str, year: int) -> int:
+        """Использованных дней данного типа за год (для лимитов)."""
+        from datetime import date, timedelta
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                '''SELECT start_date, end_date FROM absence_records
+                   WHERE user_id=? AND type=? AND status='approved'
+                     AND start_date LIKE ?''',
+                (user_id, atype, f"{year}-%")
+            ).fetchall() or []
+        except Exception as e:
+            logger.error(f"get_absence_used_days: {e}")
+            return 0
+        finally:
+            conn.close()
+
+        year_start = date(year, 1, 1)
+        year_end = date(year, 12, 31)
+        total = 0
+        for sd, ed in rows:
+            try:
+                d_start = max(date.fromisoformat(sd[:10]), year_start)
+                d_end = min(date.fromisoformat(ed[:10]), year_end)
+                if d_end >= d_start:
+                    total += (d_end - d_start).days + 1
+            except Exception:
+                pass
+        return total
+
+    def apply_absence_penalty(self, user_id: int, absence_id: int,
+                               year: int, month: int,
+                               amount: float, admin_id: int) -> bool:
+        """Добавить штраф за прогул в salary_adjustments."""
+        comment = f"Штраф (прогул, запись #{absence_id})"
+        return bool(self.add_salary_adjustment(
+            user_id, year, month, -abs(amount), comment, admin_id
+        ))
 

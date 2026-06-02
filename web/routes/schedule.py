@@ -88,6 +88,7 @@ def schedule_page(
         "work_days": set(),
         "work_day_times": {},
         "templates": {},
+        "absence_map": {},
         "today_day": today.day if (today.year == year and today.month == month) else 0,
         "msg": msg,
         "error": None,
@@ -135,6 +136,10 @@ def schedule_page(
             ctx["work_days"] = work_days
             ctx["work_day_times"] = work_day_times
             ctx["cal_grid"] = _build_cal_grid(year, month)
+            try:
+                ctx["absence_map"] = db.get_absence_days_map(year, month, user_id)
+            except Exception:
+                ctx["absence_map"] = {}
 
             raw_templates = db.get_shift_templates(user_id) or {}
             templates: dict[int, dict] = {}

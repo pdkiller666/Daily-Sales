@@ -110,10 +110,11 @@ def _salary_user_earnings(request, user, year: int, month: int):
                 "shop": row[7] or "—",
             })
 
-        # Base salary from schedule × rate
+        # Base salary from schedule × rate (+ paid approved absences)
         worked = db.get_worked_days_count(user_db_id, year, month)
+        paid_abs = db.get_paid_absence_days_count(user_db_id, year, month)
         rate = db.get_salary_rate(user_db_id)
-        base_salary = worked * rate
+        base_salary = (worked + paid_abs) * rate
         adj_sum = db.get_salary_adjustments_sum(user_db_id, year, month)
 
         ctx.update({
@@ -123,6 +124,7 @@ def _salary_user_earnings(request, user, year: int, month: int):
             "total_adj": round(adj_sum, 2),
             "grand_total": round(base_salary + total_commission + adj_sum, 2),
             "worked_days": worked,
+            "paid_absence_days": paid_abs,
             "daily_rate": rate,
         })
 
@@ -196,8 +198,9 @@ def salary_page(
             uid = row[0]
             rate = float(row[3] or 0)
             worked = db.get_worked_days_count(uid, year, month)
+            paid_abs = db.get_paid_absence_days_count(uid, year, month)
             adj_sum = db.get_salary_adjustments_sum(uid, year, month)
-            base = rate * worked
+            base = rate * (worked + paid_abs)
             total = base + adj_sum
             total_fund += total
 

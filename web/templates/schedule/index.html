@@ -142,6 +142,7 @@
                 {% set is_today = day == today_day %}
                 {% set date_str = "%04d-%02d-%02d"|format(year, month, day) %}
                 {% set cell_id = "day_" ~ day %}
+                {% set abs_info = absence_map.get(day) if absence_map else none %}
 
                 <div class="relative"
                      @click.away="editing === {{ day }} && (editing = null)">
@@ -164,6 +165,17 @@
                         </span>
                         {% endif %}
                     </button>
+                    {% if abs_info %}
+                    {% set _atype = abs_info.type %}
+                    {% set _pending = abs_info.status == 'pending' %}
+                    {% if _atype == 'vacation' %}{% set _dot = 'bg-slate-400' %}
+                    {% elif _atype == 'sick' %}{% set _dot = 'bg-blue-500' %}
+                    {% elif _atype == 'compensatory' %}{% set _dot = 'bg-amber-400' %}
+                    {% elif _atype == 'absence' %}{% set _dot = 'bg-red-500' %}
+                    {% else %}{% set _dot = 'bg-purple-400' %}{% endif %}
+                    <span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full {{ _dot }} {% if _pending %}opacity-50{% endif %}"
+                          title="{% if _atype == 'vacation' %}⚪ Отпуск{% elif _atype == 'sick' %}🔵 Больничный{% elif _atype == 'compensatory' %}🟡 Отгул{% elif _atype == 'absence' %}🔴 Прогул{% else %}⬜ Другое{% endif %}{% if _pending %} (ожидание){% endif %}"></span>
+                    {% endif %}
 
                     <!-- Popup panel -->
                     <div x-show="editing === {{ day }}" x-cloak

@@ -150,6 +150,7 @@ def create_web_app() -> FastAPI:
     from web.routes.shops import router as shops_router
     from web.routes.pos import router as pos_router
     from web.routes.api import router as api_router
+    from web.routes.absences import router as absences_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -174,6 +175,7 @@ def create_web_app() -> FastAPI:
     app.include_router(shops_router)
     app.include_router(pos_router)
     app.include_router(api_router)
+    app.include_router(absences_router)
 
     @app.get("/sw.js")
     async def service_worker(request: Request):

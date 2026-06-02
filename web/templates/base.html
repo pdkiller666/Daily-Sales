@@ -702,6 +702,7 @@ const DS_NAV_ALL = [
     {key:'categories',    icon:'🗂️', label:'Категории',    href:'/categories',    adminOnly:true},
     {key:'notifications', icon:'🔔', label:'Рассылки',     href:'/notifications', adminOnly:true},
     {key:'motivation',    icon:'💎', label:'Мотивация',    href:'/motivation',    adminOnly:true},
+    {key:'absences',      icon:'📋', label:'Отсутствия',   href:'/absences'},
     {key:'settings',      icon:'⚙️', label:'Настройки',   href:'/settings'},
 ];
 
@@ -894,6 +895,10 @@ function mainApp() {
             icon: '🏬', title: 'Магазины',
             text: 'Список торговых точек организации. Каждый магазин — отдельный склад. Сотрудника можно привязать к конкретному магазину или дать доступ ко всем.',
         },
+        absences: {
+            icon: '📋', title: 'Управление отсутствиями',
+            text: 'Сотрудник подаёт заявку на отпуск, больничный или отгул прямо в боте. Администратор одобряет или отклоняет здесь. Оплачиваемые отсутствия учитываются в расчёте зарплаты автоматически.',
+        },
     };
 
     const PATH_MAP = [
@@ -916,6 +921,7 @@ function mainApp() {
         [p => p.startsWith('/subscription'),               'subscription'],
         [p => p.startsWith('/categories'),                 'categories'],
         [p => p.startsWith('/shops'),                      'shops'],
+        [p => p.startsWith('/absences'),                   'absences'],
     ];
 
     function _seen() {
