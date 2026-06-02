@@ -712,6 +712,7 @@ function mainApp() {
         editNavOpen: false,
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
+        selectedSlot: null,
         userRole: '{{ user.role if user else "user" }}',
 
         init() {
@@ -761,12 +762,26 @@ function mainApp() {
         /* ── Nav Editor ── */
         openEditNav() {
             this.editSlots = this.navCfg.slice();
+            this.selectedSlot = null;
             this.editNavOpen = true;
             this.moreOpen = false;
         },
 
         isInEditSlots(key) { return this.editSlots.includes(key); },
         editSlotIndex(key) { return this.editSlots.indexOf(key); },
+
+        selectOrSwapSlot(idx) {
+            if (this.selectedSlot === null) {
+                this.selectedSlot = idx;               /* выделить */
+            } else if (this.selectedSlot === idx) {
+                this.selectedSlot = null;              /* снять выделение */
+            } else {
+                const arr = [...this.editSlots];
+                [arr[this.selectedSlot], arr[idx]] = [arr[idx], arr[this.selectedSlot]];
+                this.editSlots = arr;
+                this.selectedSlot = null;              /* поменять и снять */
+            }
+        },
 
         toggleEditItem(key) {
             const idx = this.editSlots.indexOf(key);
@@ -1036,22 +1051,39 @@ function mainApp() {
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-3">Выбранные разделы (до 4)</p>
             <div class="flex gap-2">
                 <template x-for="(key, idx) in editSlots" :key="'slot'+idx">
-                    <div class="flex-1 min-w-0 flex flex-col items-center gap-1 relative bg-blue-50 border-2 border-blue-300 rounded-xl py-2.5 px-1">
-                        <button @click="removeEditSlot(idx)"
-                                class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[11px] leading-none flex items-center justify-center shadow">×</button>
+                    <div @click="selectOrSwapSlot(idx)"
+                         :class="selectedSlot === idx
+                             ? 'bg-blue-600 border-blue-600 scale-105 shadow-lg'
+                             : 'bg-blue-50 border-blue-300 hover:border-blue-500'"
+                         class="flex-1 min-w-0 flex flex-col items-center gap-1 relative border-2 rounded-xl py-2.5 px-1 cursor-pointer transition-all duration-150 select-none">
+                        <button @click.stop="removeEditSlot(idx)"
+                                class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[11px] leading-none flex items-center justify-center shadow z-10">×</button>
                         <span class="text-xl leading-none" x-text="DS_NAV_ALL.find(i=>i.key===key)?.icon||'?'"></span>
-                        <span class="text-[10px] font-semibold text-blue-700 text-center leading-tight truncate w-full px-0.5"
+                        <span class="text-[10px] font-semibold leading-tight text-center truncate w-full px-0.5"
+                              :class="selectedSlot === idx ? 'text-white' : 'text-blue-700'"
                               x-text="DS_NAV_ALL.find(i=>i.key===key)?.label||key"></span>
+                        <!-- Swap indicator -->
+                        <div x-show="selectedSlot === idx"
+                             class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[9px] font-bold text-blue-600 bg-white border border-blue-400 rounded-full px-1 leading-tight whitespace-nowrap shadow-sm">
+                            ↔ своп
+                        </div>
                     </div>
                 </template>
                 <template x-for="n in Math.max(0, 4 - editSlots.length)" :key="'empty'+n">
-                    <div class="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl py-2.5 px-1">
-                        <span class="text-slate-300 text-xl font-light">+</span>
-                        <span class="text-[10px] text-slate-300">пусто</span>
+                    <div class="flex-1 min-w-0 flex flex-col items-center justify-center gap-1 bg-slate-50 border-2 border-dashed rounded-xl py-2.5 px-1 transition-colors"
+                         :class="selectedSlot !== null ? 'border-amber-300 bg-amber-50 cursor-pointer' : 'border-slate-200'">
+                        <span class="text-xl font-light"
+                              :class="selectedSlot !== null ? 'text-amber-400' : 'text-slate-300'">+</span>
+                        <span class="text-[10px]"
+                              :class="selectedSlot !== null ? 'text-amber-500 font-semibold' : 'text-slate-300'"
+                              x-text="selectedSlot !== null ? 'переместить' : 'пусто'"></span>
                     </div>
                 </template>
             </div>
-            <p class="text-[10px] text-slate-400 mt-2 text-center">Нажмите × чтобы убрать · выберите раздел ниже чтобы добавить</p>
+            <p class="text-[10px] text-slate-400 mt-4 text-center leading-snug">
+                Нажмите слот чтобы выделить · нажмите другой слот чтобы поменять местами<br>
+                Нажмите × чтобы убрать · нажмите раздел ниже чтобы добавить
+            </p>
         </div>
 
         <!-- Все разделы -->
