@@ -1,3 +1,4 @@
+import logging
 import calendar as _cal
 from datetime import date
 from fastapi import APIRouter, Request, Form
@@ -12,6 +13,7 @@ MONTH_NAMES = {
     9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+_SYSTEM_SHOPS = ("Системный", "System")
 
 
 def _adjacent_month(year: int, month: int, delta: int):
@@ -32,6 +34,13 @@ def _build_cal_grid(year: int, month: int):
         week += [0] * (7 - len(week))
         cal_grid.append(week)
     return cal_grid
+
+
+def _redirect_back(user_id: int, year: int, month: int, anchor: str = "") -> RedirectResponse:
+    url = f"/schedule?user_id={user_id}&year={year}&month={month}"
+    if anchor:
+        url += anchor
+    return RedirectResponse(url=url, status_code=302)
 
 
 @router.get("/schedule")
@@ -90,7 +99,8 @@ def schedule_page(
         all_users = db.get_all_users() or []
         staff_list = []
         for u in all_users:
-            if u[8] in ("Системный", "System", None) and not u[8]:
+            # Skip system pseudo-users
+            if u[8] in _SYSTEM_SHOPS:
                 continue
             staff_list.append({
                 "id": u[0],
@@ -106,8 +116,8 @@ def schedule_page(
             ctx["selected_user"] = sel
 
             work_dates = db.get_work_schedule(user_id, year, month)
-            work_days = set()
-            work_day_times = {}
+            work_days: set[int] = set()
+            work_day_times: dict[int, tuple] = {}
             for date_str in work_dates:
                 try:
                     day_num = int(date_str[8:10])
@@ -115,15 +125,15 @@ def schedule_page(
                     st, et = db.get_work_day_time(user_id, date_str)
                     if st or et:
                         work_day_times[day_num] = (st or "", et or "")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.error(f"schedule_page day parse error: {e}")
 
             ctx["work_days"] = work_days
             ctx["work_day_times"] = work_day_times
             ctx["cal_grid"] = _build_cal_grid(year, month)
 
             raw_templates = db.get_shift_templates(user_id) or {}
-            templates = {}
+            templates: dict[int, dict] = {}
             for wd in range(7):
                 val = raw_templates.get(wd)
                 if val and val[0]:
@@ -135,6 +145,7 @@ def schedule_page(
             ctx["templates"] = templates
 
     except Exception as exc:
+        logging.error(f"schedule_page error: {exc}")
         ctx["error"] = str(exc)
 
     return request.app.state.templates.TemplateResponse(
@@ -165,13 +176,10 @@ def schedule_toggle_day(
     try:
         db = get_web_db(telegram_id, org_db)
         db.toggle_work_day(user_id, work_date, marked_by=telegram_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"schedule_toggle_day error: {e}")
 
-    return RedirectResponse(
-        url=f"/schedule?user_id={user_id}&year={year}&month={month}",
-        status_code=302,
-    )
+    return _redirect_back(user_id, year, month)
 
 
 @router.post("/schedule/set_time")
@@ -198,22 +206,18 @@ def schedule_set_time(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        existing = db.get_work_day_time(user_id, work_date)
-        if existing[0] is None and existing[1] is None:
-            db.add_work_day(user_id, work_date,
-                            start_time=start_time or None,
-                            end_time=end_time or None,
-                            marked_by=telegram_id)
-        else:
-            db.set_work_day_time(user_id, work_date,
-                                 start_time or None, end_time or None)
-    except Exception:
-        pass
+        st = start_time or None
+        et = end_time or None
+        # INSERT OR IGNORE ensures the day row exists (handles both new days and
+        # days already marked via toggle_work_day with no time).
+        db.add_work_day(user_id, work_date, start_time=st, end_time=et,
+                        marked_by=telegram_id)
+        # Always UPDATE afterwards so the time is set even if the INSERT was ignored.
+        db.set_work_day_time(user_id, work_date, st, et)
+    except Exception as e:
+        logging.error(f"schedule_set_time error: {e}")
 
-    return RedirectResponse(
-        url=f"/schedule?user_id={user_id}&year={year}&month={month}",
-        status_code=302,
-    )
+    return _redirect_back(user_id, year, month)
 
 
 @router.post("/schedule/remove_day")
@@ -239,13 +243,10 @@ def schedule_remove_day(
     try:
         db = get_web_db(telegram_id, org_db)
         db.remove_work_day(user_id, work_date)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"schedule_remove_day error: {e}")
 
-    return RedirectResponse(
-        url=f"/schedule?user_id={user_id}&year={year}&month={month}",
-        status_code=302,
-    )
+    return _redirect_back(user_id, year, month)
 
 
 @router.post("/schedule/fill_month")
@@ -271,8 +272,8 @@ def schedule_fill_month(
     try:
         db = get_web_db(telegram_id, org_db)
         added = db.fill_month_by_template(user_id, year, month, marked_by=telegram_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"schedule_fill_month error: {e}")
 
     return RedirectResponse(
         url=f"/schedule?user_id={user_id}&year={year}&month={month}&msg=added:{added}",
@@ -311,10 +312,7 @@ def schedule_set_template(
             db.set_shift_template(user_id, weekday,
                                   start_time or None,
                                   end_time or None)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"schedule_set_template error: {e}")
 
-    return RedirectResponse(
-        url=f"/schedule?user_id={user_id}&year={year}&month={month}#templates",
-        status_code=302,
-    )
+    return _redirect_back(user_id, year, month, anchor="#templates")
