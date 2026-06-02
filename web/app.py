@@ -236,6 +236,22 @@ def create_web_app() -> FastAPI:
     from web.auth import get_csrf_token as _get_csrf
     templates.env.globals['csrf_token_for'] = _get_csrf
 
+    def _is_beta_mode() -> bool:
+        """Return True while the project is in beta (default ON; toggle via super_admin /settings)."""
+        try:
+            conn = sqlite3.connect(_SHOP_BOT_DB)
+            row = conn.execute(
+                "SELECT value FROM payment_settings WHERE key='beta_mode'"
+            ).fetchone()
+            conn.close()
+            if row is None:
+                return True  # key absent → beta ON by default
+            return row[0] != "0"
+        except Exception:
+            return True
+
+    templates.env.globals['beta_mode'] = _is_beta_mode
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"

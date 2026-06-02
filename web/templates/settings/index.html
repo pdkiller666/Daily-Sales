@@ -480,6 +480,48 @@
 </div>
 {% endif %}
 
+{% if beta_mode_enabled is not none %}
+<!-- ══ SUPER ADMIN: System settings ══ -->
+<div id="system" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
+    <div class="flex items-center gap-2 mb-4">
+        <span class="text-lg">⚙️</span>
+        <h2 class="font-semibold text-slate-800">Системные настройки</h2>
+        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
+    </div>
+
+    <!-- Beta mode toggle -->
+    <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100">
+        <div class="flex-1">
+            <p class="text-sm font-medium text-slate-800">Режим бета-тестирования</p>
+            <p class="text-xs text-slate-500 mt-0.5">
+                Отображает баннер «BETA» на лендинге и в дашборде, предупреждает пользователей что продукт в стадии тестирования,
+                касса и юридическое лицо ещё не подключены.
+                Отключите тумблером когда проект выйдет в production.
+            </p>
+            <p class="text-xs text-amber-600 mt-1 font-medium">
+                {% if beta_mode_enabled %}✅ Сейчас: BETA-режим включён{% else %}🚀 Сейчас: Production-режим (BETA выключен){% endif %}
+            </p>
+        </div>
+        <form method="post" action="/settings/beta-mode" class="flex-shrink-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="enabled" value="{{ '0' if beta_mode_enabled else '1' }}">
+            <button type="submit"
+                    class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                           {% if beta_mode_enabled %}bg-amber-400 hover:bg-amber-500{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
+                    title="{{ 'Выключить бета-режим' if beta_mode_enabled else 'Включить бета-режим' }}">
+                <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
+                             {% if beta_mode_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
+            </button>
+        </form>
+    </div>
+
+    <p class="text-xs text-slate-400 mt-3">
+        Виден только пользователю с ролью <code class="bg-slate-100 px-1 rounded">super_admin</code>.
+        Флаг хранится в <code class="bg-slate-100 px-1 rounded">payment_settings.beta_mode</code> (shop_bot.db).
+    </p>
+</div>
+{% endif %}
+
 <script>
 function copyText(elemId, btn) {
     const el = document.getElementById(elemId);

@@ -199,6 +199,22 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
             ctx["org_plan"] = "—"
             ctx["org_plan_end"] = ""
 
+        # Beta mode flag (super_admin only)
+        if user.get("role") == "super_admin":
+            try:
+                import sqlite3 as _sqlite3
+                _sdb2 = "data/shop_bot.db"
+                _c2 = _sqlite3.connect(_sdb2)
+                _row = _c2.execute(
+                    "SELECT value FROM payment_settings WHERE key='beta_mode'"
+                ).fetchone()
+                _c2.close()
+                ctx["beta_mode_enabled"] = (_row is None or _row[0] != "0")
+            except Exception:
+                ctx["beta_mode_enabled"] = True
+        else:
+            ctx["beta_mode_enabled"] = None  # hide toggle
+
         # Referral stats (from shop_bot.db)
         try:
             import sqlite3 as _sqlite3
@@ -396,6 +412,34 @@ async def save_invite_preset(
         tenant_manager.set_invite_preset(org_id, role_val, shop_val)
 
     return RedirectResponse(url="/settings#invite", status_code=303)
+
+
+@router.post("/settings/beta-mode")
+async def settings_beta_mode(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    enabled: str = Form(default="0"),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings#system", status_code=303)
+    if user.get("role") != "super_admin":
+        return RedirectResponse(url="/settings", status_code=303)
+
+    import sqlite3 as _sqlite3
+    _sdb = "data/shop_bot.db"
+    _conn = _sqlite3.connect(_sdb)
+    _conn.execute(
+        "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
+        "VALUES ('beta_mode', ?, datetime('now'))",
+        ("1" if enabled == "1" else "0",),
+    )
+    _conn.commit()
+    _conn.close()
+    return RedirectResponse(url="/settings#system", status_code=303)
 
 
 @router.get("/settings/backup")

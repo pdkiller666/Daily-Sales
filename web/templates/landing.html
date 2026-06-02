@@ -371,11 +371,37 @@
 <!-- ══════════════════════════════════════════════════════
      NAV
 ══════════════════════════════════════════════════════ -->
-<nav id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-slate-950/70 backdrop-blur-xl border-b border-white/[0.06] transition-all duration-300">
+{% if beta_mode() %}
+<div id="beta-top-bar"
+     class="w-full bg-amber-500/10 border-b border-amber-400/20 backdrop-blur-sm px-4 py-2 text-center relative z-[200]"
+     style="display:none">
+    <p class="text-xs sm:text-sm text-amber-300 inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5">
+        <span class="font-semibold">⚠️ Бета-версия</span>
+        <span class="text-amber-400/60">·</span>
+        <span>Продукт в стадии тестирования — часть функций может работать нестабильно</span>
+        <span class="text-amber-400/60">·</span>
+        <span>Касса и юридическое лицо пока не подключены</span>
+    </p>
+    <button onclick="document.getElementById('beta-top-bar').style.display='none';localStorage.setItem('ds_beta_dismissed','1')"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-amber-400/60 hover:text-amber-300 text-lg leading-none transition-colors"
+            title="Закрыть">×</button>
+</div>
+<script>
+(function(){
+    var bar = document.getElementById('beta-top-bar');
+    if(bar && localStorage.getItem('ds_beta_dismissed') !== '1') bar.style.display = '';
+})();
+</script>
+{% endif %}
+
+<nav id="navbar" class="fixed {% if beta_mode() %}top-0{% else %}top-0{% endif %} left-0 right-0 z-50 bg-slate-950/70 backdrop-blur-xl border-b border-white/[0.06] transition-all duration-300">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         <a href="/" class="flex items-center gap-3 group">
             <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/40 group-hover:scale-110 group-hover:shadow-blue-500/60 transition-all duration-200">DS</div>
             <span class="text-white font-semibold text-lg tracking-tight">DailySales</span>
+            {% if beta_mode() %}
+            <span class="text-[10px] font-bold uppercase tracking-widest bg-amber-400/15 text-amber-400 border border-amber-400/30 px-1.5 py-0.5 rounded-full leading-none">BETA</span>
+            {% endif %}
         </a>
 
         <div class="hidden md:flex items-center gap-8 text-sm">
