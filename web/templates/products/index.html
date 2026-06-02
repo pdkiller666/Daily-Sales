@@ -13,10 +13,24 @@
         <h1 class="text-2xl font-bold text-slate-800">Товары</h1>
         <p class="text-sm text-slate-500 mt-0.5">Каталог товаров</p>
     </div>
-    <span class="text-sm text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
-        {{ total_count }} позиций
-    </span>
+    <div class="flex items-center gap-2">
+        {% if is_admin %}
+        <a href="/products/import"
+           class="flex items-center gap-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors">
+            📊 Импорт Excel
+        </a>
+        {% endif %}
+        <span class="text-sm text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
+            {{ total_count }} позиций
+        </span>
+    </div>
 </div>
+
+{% if request.query_params.get('imported') %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+    <span>✅</span><span>Импортировано <strong>{{ request.query_params.get('imported') }} товаров</strong> из Excel</span>
+</div>
+{% endif %}
 
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">

@@ -1,7 +1,16 @@
-from fastapi import APIRouter, Request
+import io
+import logging
+import uuid as _uuid
+from fastapi import APIRouter, Request, File, UploadFile, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+
+BULK_IMPORT_MAX = 100  # max products per upload (mirrors bot)
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+# In-memory import session store: {session_id: [{'name':..,'category':..,'price':..}]}
+_import_sessions: dict[str, list] = {}
 
 
 @router.get("/products")
@@ -61,6 +70,140 @@ def products_page(request: Request, q: str = "", category: str = ""):
     return request.app.state.templates.TemplateResponse(
         request, "products/index.html", ctx
     )
+
+
+@router.get("/products/import")
+def products_import_page(request: Request):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "products/import.html",
+        {"request": request, "user": user, "is_admin": True,
+         "max_items": BULK_IMPORT_MAX, "preview": None, "error": None,
+         "session_id": "", "total": 0, "skipped": 0},
+    )
+
+
+@router.post("/products/import")
+async def products_import_upload(request: Request, file: UploadFile = File(...)):
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    def _err(msg: str):
+        return request.app.state.templates.TemplateResponse(
+            request, "products/import.html",
+            {"request": request, "user": user, "is_admin": True,
+             "max_items": BULK_IMPORT_MAX, "preview": None, "error": msg,
+             "session_id": "", "total": 0, "skipped": 0},
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        return _err("Принимаются только файлы .xlsx (Excel 2007+).")
+
+    try:
+        raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    except Exception as e:
+        return _err(f"Ошибка чтения файла: {e}")
+
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return _err("Файл слишком большой (максимум 5 МБ).")
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+        valid: list[dict] = []
+        skipped = 0
+        for row in ws.iter_rows(values_only=True):
+            if not row or len(row) < 3:
+                skipped += 1
+                continue
+            name = str(row[0]).strip() if row[0] is not None else ""
+            category = str(row[1]).strip() if row[1] is not None else "Без категории"
+            try:
+                price = float(str(row[2]).replace(",", ".").strip())
+            except (ValueError, TypeError):
+                skipped += 1
+                continue
+            if not name or len(name) < 2 or price <= 0:
+                skipped += 1
+                continue
+            valid.append({
+                "name": name[:50],
+                "category": category[:30] or "Без категории",
+                "price": price,
+            })
+            if len(valid) >= BULK_IMPORT_MAX:
+                break
+        wb.close()
+    except Exception as e:
+        logging.error(f"products_import_upload parse error: {e}")
+        return _err(f"Ошибка разбора файла: {e}")
+
+    if not valid:
+        return _err(
+            "Файл не содержит подходящих строк. "
+            "Убедитесь, что столбцы: A=Название, B=Категория, C=Цена (число > 0)."
+        )
+
+    session_id = str(_uuid.uuid4())
+    _import_sessions[session_id] = valid
+
+    return request.app.state.templates.TemplateResponse(
+        request, "products/import.html",
+        {"request": request, "user": user, "is_admin": True,
+         "max_items": BULK_IMPORT_MAX,
+         "preview": valid[:20],
+         "total": len(valid),
+         "skipped": skipped,
+         "session_id": session_id,
+         "error": None},
+    )
+
+
+@router.post("/products/import/confirm")
+def products_import_confirm(request: Request, session_id: str = Form(default="")):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    data = _import_sessions.pop(session_id, None)
+    if not data:
+        return RedirectResponse(
+            url="/products/import?error=Сессия+не+найдена.+Загрузите+файл+снова.",
+            status_code=302,
+        )
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        added, skipped_names = db.add_products_bulk(data)
+    except Exception as e:
+        logging.error(f"products_import_confirm bulk insert: {e}")
+        return RedirectResponse(
+            url=f"/products/import?error={e}",
+            status_code=302,
+        )
+
+    return RedirectResponse(url=f"/products?imported={added}", status_code=302)
 
 
 @router.get("/products/{product_id}")
