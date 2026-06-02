@@ -574,6 +574,7 @@ def product_detail(request: Request, product_id: int):
         "inventory_by_shop": [], "inventory_log": [],
         "recent_sales": [], "total_stock": 0,
         "month_revenue": 0.0, "month_qty": 0,
+        "chart_labels": [], "chart_data": [],
         "error": None,
     }
 
@@ -649,6 +650,30 @@ def product_detail(request: Request, product_id: int):
         ctx["recent_sales"] = raw_sales
         ctx["month_qty"] = int(month_row[0] or 0) if month_row else 0
         ctx["month_revenue"] = float(month_row[1] or 0) if month_row else 0.0
+
+        # 7-day chart data
+        try:
+            from datetime import timedelta
+            chart_labels = []
+            chart_data = []
+            conn2 = db.get_connection()
+            cur2 = conn2.cursor()
+            for i in range(6, -1, -1):
+                d = today - timedelta(days=i)
+                ds = d.isoformat()
+                cur2.execute(
+                    "SELECT COALESCE(SUM(quantity_sold * sale_price),0) FROM sales WHERE product_id=? AND date(sale_date)=?",
+                    (product_id, ds)
+                )
+                val = cur2.fetchone()
+                chart_labels.append(d.strftime('%d.%m'))
+                chart_data.append(int(float((val[0] if val else 0) or 0)))
+            conn2.close()
+            ctx["chart_labels"] = chart_labels
+            ctx["chart_data"] = chart_data
+        except Exception:
+            ctx["chart_labels"] = []
+            ctx["chart_data"] = []
 
     except Exception as exc:
         ctx["error"] = str(exc)
