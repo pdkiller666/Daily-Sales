@@ -96,6 +96,10 @@
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Система</p>
 
+        <a href="/integration"
+           class="nav-link {% if request.url.path.startswith('/integration') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🔗</span>Интеграции
+        </a>
         <a href="/settings"
            class="nav-link {% if request.url.path.startswith('/settings') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">⚙️</span>Настройки

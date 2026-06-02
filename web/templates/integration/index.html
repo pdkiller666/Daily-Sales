@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Интеграции{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Интеграции</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">Интеграции</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Подключение Google Таблиц к данным магазина</p>
+    </div>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span>❌</span><span>{{ error }}</span>
+</div>
+{% endif %}
+{% if msg %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+    <span>✅</span><span>{{ msg }}</span>
+</div>
+{% endif %}
+
+{% if not can_use %}
+<!-- Upgrade required -->
+<div class="card p-8 text-center max-w-lg mx-auto">
+    <p class="text-5xl mb-4">🔒</p>
+    <h2 class="text-lg font-bold text-slate-800 mb-2">Требуется тариф Стандарт или выше</h2>
+    <p class="text-sm text-slate-500 mb-1">Текущий тариф: <strong>{{ plan_name }}</strong></p>
+    <p class="text-sm text-slate-500 mb-5">
+        Интеграция с Google Таблицами доступна начиная с тарифа <strong>Стандарт</strong>.
+        Она позволяет автоматически экспортировать продажи, остатки и другие данные в ваши таблицы.
+    </p>
+    <a href="https://t.me/{{ bot_username() }}" target="_blank"
+       class="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors">
+        🤖 Обновить тариф в боте
+    </a>
+</div>
+
+{% elif auth_pending %}
+<!-- Device Flow pending -->
+<div class="max-w-lg mx-auto">
+    <div class="card p-8 text-center">
+        <p class="text-5xl mb-4">🔑</p>
+        <h2 class="text-lg font-bold text-slate-800 mb-3">Авторизация Google</h2>
+        <p class="text-sm text-slate-500 mb-5">
+            Откройте ссылку ниже в браузере и введите код подтверждения:
+        </p>
+
+        <!-- User code display -->
+        <div class="bg-slate-50 border-2 border-slate-200 rounded-2xl px-8 py-5 mb-5 inline-block">
+            <p class="text-xs text-slate-400 mb-1 uppercase tracking-wide font-semibold">Код подтверждения</p>
+            <p class="text-3xl font-bold font-mono text-slate-800 tracking-widest">{{ auth_user_code }}</p>
+        </div>
+
+        <div class="mb-5">
+            <a href="{{ auth_verify_url }}" target="_blank"
+               class="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium text-sm hover:underline">
+                🌐 {{ auth_verify_url }}
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+            </a>
+        </div>
+
+        <ol class="text-left text-sm text-slate-600 space-y-2 mb-6 bg-blue-50 rounded-xl p-4">
+            <li class="flex gap-2"><span class="font-bold text-blue-600 shrink-0">1.</span> Перейдите по ссылке выше</li>
+            <li class="flex gap-2"><span class="font-bold text-blue-600 shrink-0">2.</span> Войдите в Google аккаунт</li>
+            <li class="flex gap-2"><span class="font-bold text-blue-600 shrink-0">3.</span> Введите код: <strong class="font-mono">{{ auth_user_code }}</strong></li>
+            <li class="flex gap-2"><span class="font-bold text-blue-600 shrink-0">4.</span> Разрешите доступ к Google Таблицам</li>
+            <li class="flex gap-2"><span class="font-bold text-blue-600 shrink-0">5.</span> Нажмите кнопку ниже</li>
+        </ol>
+
+        {% if error %}
+        <div class="mb-4 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+            <span>⚠️</span><span>{{ error }}</span>
+        </div>
+        {% endif %}
+
+        <form method="post" action="/integration/auth/poll" class="mb-3">
+            <input type="hidden" name="conn_id" value="{{ auth_conn_id }}">
+            <button type="submit"
+                    class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm py-3 rounded-xl transition-colors">
+                ✅ Я авторизовал — продолжить
+            </button>
+        </form>
+        <a href="/integration" class="text-xs text-slate-400 hover:text-slate-600 hover:underline">
+            Отменить авторизацию
+        </a>
+    </div>
+</div>
+
+{% else %}
+<!-- Main integration page -->
+
+{% if not has_secrets %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span class="text-lg shrink-0">⚠️</span>
+    <div>
+        <p class="font-semibold mb-1">Секреты Google OAuth не настроены</p>
+        <p>Авторизация недоступна. Добавьте <code class="bg-amber-100 px-1 rounded">GOOGLE_OAUTH_CLIENT_ID</code> и <code class="bg-amber-100 px-1 rounded">GOOGLE_OAUTH_CLIENT_SECRET</code> в Replit Secrets.</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Connection list -->
+{% if connections %}
+<div class="space-y-4 mb-6">
+    {% for c in connections %}
+    {% set exports = conn_exports.get(c.id, []) %}
+    {% set logs = conn_logs.get(c.id, []) %}
+    <div class="card overflow-hidden" x-data="{ logsOpen: false }">
+        <!-- Connection header -->
+        <div class="flex items-center gap-4 p-5 border-b border-slate-100">
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 text-xl">
+                📊
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <p class="font-semibold text-slate-800">{{ c.name }}</p>
+                    {% if c.enabled %}
+                    <span class="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5 font-medium">Включено</span>
+                    {% else %}
+                    <span class="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-2 py-0.5 font-medium">Выключено</span>
+                    {% endif %}
+                    {% if c.has_token %}
+                    <span class="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 rounded-full px-2 py-0.5 font-medium">🔑 Авторизовано</span>
+                    {% else %}
+                    <span class="text-[10px] bg-amber-50 text-amber-600 border border-amber-100 rounded-full px-2 py-0.5 font-medium">⚠️ Не авторизовано</span>
+                    {% endif %}
+                </div>
+                {% if c.spreadsheet_id %}
+                <p class="text-xs text-slate-400 mt-0.5 font-mono truncate">ID: {{ c.spreadsheet_id }}</p>
+                {% endif %}
+                <p class="text-xs text-slate-400">Создано {{ c.created_at }} · {{ exports|length }} правил экспорта</p>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                {% if has_secrets %}
+                <form method="post" action="/integration/auth/start">
+                    <input type="hidden" name="conn_id" value="{{ c.id }}">
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-medium transition-colors">
+                        🔑 Авторизовать
+                    </button>
+                </form>
+                {% endif %}
+
+                <form method="post" action="/integration/{{ c.id }}/toggle">
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 border rounded-lg font-medium transition-colors
+                                   {% if c.enabled %}bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200
+                                   {% else %}bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200{% endif %}">
+                        {% if c.enabled %}⏸ Выключить{% else %}▶ Включить{% endif %}
+                    </button>
+                </form>
+
+                <form method="post" action="/integration/{{ c.id }}/delete"
+                      onsubmit="return confirm('Удалить подключение «{{ c.name }}» и все его настройки?')">
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg font-medium transition-colors">
+                        🗑 Удалить
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Exports list -->
+        {% if exports %}
+        <div class="px-5 py-3 border-b border-slate-50 bg-slate-50/50">
+            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Правила экспорта</p>
+            <div class="space-y-1">
+                {% for e in exports %}
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="w-2 h-2 rounded-full shrink-0 {% if e.enabled %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
+                    <span class="text-slate-700 font-medium">{{ e.export_type }}</span>
+                    <span class="text-slate-400">→ {{ e.target_sheet or '—' }}</span>
+                    <span class="text-slate-400">{{ e.operation or '' }}</span>
+                    <span class="text-slate-300">|</span>
+                    <span class="text-slate-400">{{ e.schedule }}</span>
+                    {% if e.last_run %}
+                    <span class="text-slate-300">|</span>
+                    <span class="text-slate-400">последний: {{ e.last_run }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Logs toggle -->
+        {% if logs %}
+        <div class="px-5 py-2">
+            <button @click="logsOpen = !logsOpen"
+                    class="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors">
+                <span x-text="logsOpen ? '▲' : '▼'"></span>
+                <span x-text="logsOpen ? 'Скрыть лог' : 'Показать лог (' + {{ logs|length }} + ')'"></span>
+            </button>
+            <div x-show="logsOpen" x-cloak class="mt-2 space-y-1">
+                {% for l in logs %}
+                <div class="flex items-start gap-2 text-xs py-1 border-t border-slate-50">
+                    <span class="shrink-0 mt-0.5 w-2 h-2 rounded-full
+                                 {% if l.status == 'success' %}bg-emerald-400
+                                 {% elif l.status == 'error' %}bg-red-400
+                                 {% else %}bg-slate-300{% endif %}">
+                    </span>
+                    <span class="text-slate-400 shrink-0">{{ l.created_at }}</span>
+                    <span class="{% if l.status == 'error' %}text-red-600{% else %}text-slate-600{% endif %}">
+                        {{ l.message }}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="px-5 py-2 text-xs text-slate-300">Лог пуст</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card py-16 text-center text-slate-400 mb-6">
+    <p class="text-5xl mb-4">📊</p>
+    <p class="text-base font-medium text-slate-600">Подключений нет</p>
+    <p class="text-sm mt-1">Добавьте первое подключение к Google Таблицам ниже</p>
+</div>
+{% endif %}
+
+<!-- Add connection form -->
+<div class="card p-5" x-data="{ open: {{ 'true' if not connections else 'false' }} }">
+    <button @click="open = !open"
+            class="flex items-center justify-between w-full text-left">
+        <div class="flex items-center gap-2">
+            <span class="text-base">➕</span>
+            <span class="font-semibold text-slate-800">Добавить подключение</span>
+        </div>
+        <svg :class="open ? 'rotate-180' : ''"
+             class="w-4 h-4 text-slate-400 transition-transform duration-200"
+             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </button>
+
+    <div x-show="open" x-cloak class="mt-4">
+        <form method="post" action="/integration/create">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                        Название подключения <span class="text-red-400">*</span>
+                    </label>
+                    <input type="text" name="name" required
+                           placeholder="Например: Продажи июнь"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+                        ID Google Таблицы
+                    </label>
+                    <input type="text" name="spreadsheet_id"
+                           placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <p class="text-[11px] text-slate-400 mt-1">Из URL таблицы: /spreadsheets/d/<strong>ID</strong>/edit</p>
+                </div>
+            </div>
+            <button type="submit"
+                    class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                ➕ Создать подключение
+            </button>
+        </form>
+        <div class="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400 space-y-1">
+            <p>После создания подключения нажмите <strong>«🔑 Авторизовать»</strong> и войдите в Google аккаунт.</p>
+            <p>Правила экспорта (какие данные и когда отправлять) настраиваются через бота в разделе Интеграции.</p>
+        </div>
+    </div>
+</div>
+
+{% endif %} {# end else can_use #}
+{% endblock %}
+
+{% block footer_info %}Google Sheets Интеграция{% endblock %}
