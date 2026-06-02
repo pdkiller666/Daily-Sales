@@ -76,6 +76,31 @@
     {% endfor %}
 </div>
 
+<!-- Chart card (top-10 by revenue) -->
+{% if ranking|length >= 2 %}
+<div class="card mb-5 overflow-hidden" x-data="{chartOpen: window.innerWidth >= 1024}">
+    <button @click="chartOpen = !chartOpen"
+            class="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 transition-colors">
+        <div class="flex items-center gap-2">
+            <span class="text-base">📊</span>
+            <span class="font-semibold text-slate-800 text-sm">
+                Диаграмма — топ-{{ [ranking|length, 10]|min }} по выручке
+            </span>
+        </div>
+        <svg class="w-4 h-4 text-slate-400 transition-transform" :class="chartOpen ? 'rotate-180' : ''"
+             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </button>
+    <div x-show="chartOpen" x-cloak x-transition>
+        <div class="px-5 pb-5">
+            <canvas id="rankingChart"
+                    style="max-height:{{ [ranking|length, 10]|min * 36 + 20 }}px"></canvas>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Ranking list -->
 <div class="card overflow-hidden" x-data="{q:''}">
     <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3 flex-wrap gap-y-2">
@@ -207,4 +232,96 @@
 {% block footer_info %}
 {% if tab == 'sellers' %}Продавцы{% elif tab == 'shops' %}Магазины{% else %}Города{% endif %}
 · {{ ranking|length }} позиций
+{% endblock %}
+
+{% block extra_js %}
+{% if ranking|length >= 2 %}
+<script>
+(function () {
+    const top10 = {{ ranking[:10] | tojson }};
+    if (!top10.length) return;
+
+    const isDark = () => document.documentElement.classList.contains('dark');
+
+    const labels  = top10.map(r => r.label);
+    const revenues = top10.map(r => r.revenue);
+    const maxRev   = Math.max(...revenues) || 1;
+
+    /* Medal colours for top-3, blue for the rest */
+    const barColors = top10.map((r, i) => {
+        if (i === 0) return '#f59e0b';
+        if (i === 1) return '#94a3b8';
+        if (i === 2) return '#f97316';
+        return '#3b82f6';
+    });
+
+    function gridColor() { return isDark() ? '#334155' : '#e2e8f0'; }
+    function textColor() { return isDark() ? '#94a3b8' : '#64748b'; }
+
+    const ctx = document.getElementById('rankingChart');
+    if (!ctx) return;
+
+    const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Выручка ₽',
+                data: revenues,
+                backgroundColor: barColors,
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ' ' + Number(ctx.raw).toLocaleString('ru') + ' ₽',
+                        afterLabel: (ctx) => {
+                            const r = top10[ctx.dataIndex];
+                            return ` ${r.count} продаж · ${r.qty} шт.`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: gridColor() },
+                    ticks: {
+                        color: textColor(),
+                        callback: v => {
+                            if (v >= 1_000_000) return (v/1_000_000).toFixed(1) + 'М';
+                            if (v >= 1_000)     return (v/1_000).toFixed(0) + 'К';
+                            return v;
+                        }
+                    }
+                },
+                y: {
+                    grid: { display: false },
+                    ticks: {
+                        color: textColor(),
+                        font: { size: 12 },
+                        maxRotation: 0,
+                    }
+                }
+            }
+        }
+    });
+
+    /* Keep chart colours in sync when dark mode is toggled */
+    const observer = new MutationObserver(() => {
+        chart.options.scales.x.grid.color     = gridColor();
+        chart.options.scales.x.ticks.color    = textColor();
+        chart.options.scales.y.ticks.color    = textColor();
+        chart.update('none');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+})();
+</script>
+{% endif %}
 {% endblock %}

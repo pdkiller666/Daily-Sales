@@ -67,6 +67,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **PWA**: `web/static/manifest.json` + SW at `/sw.js` (served via FastAPI route with `Service-Worker-Allowed: /`); SW caches `/static/` assets cache-first, authenticated routes network-only
 - **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
 - **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
+- **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
+- **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
 
 ## Product
 

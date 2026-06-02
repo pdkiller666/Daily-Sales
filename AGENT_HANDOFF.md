@@ -40,9 +40,11 @@ Workflow: "Start application" → python main.py
 - **API эндпоинт**: `web/routes/api.py` → `GET /api/sales-feed?since=ISO` — возвращает продажи других сотрудников (`u.telegram_id != current`) с момента `since`, max 10; поля: id, product, total, created_at, seller, shop. Требует авторизации (проверка `get_session_user`).
 - **Аудит**: `get_connection()` существует в `database.py:112` ✅; `logo.jpg` в `web/static/` ✅; все изменения синтаксически чисты; приложение запустилось без ошибок.
 
+**Сессия 331 (2026-06-02) — Веб: тёмная тема + горячие клавиши:**
+- **Тёмная тема**: ранний скрипт в `<head>` (`localStorage.ds_dark`) применяет `.dark` до отрисовки (no flash); `tailwind.config = { darkMode: 'class' }`; 80+ CSS-переопределений в `<style>` (`html.dark .bg-white → #1e293b` и т.д.); охвачены: sidebar, topbar, bottom nav, шторка «Ещё», таблицы, inputs, badges, shadow; кнопка 🌙/☀️ в топбаре (`#ds-dark-icon`); CSS-переключатель в шторке `#ds-dark-toggle` (`.ds-dark-toggle` + `.ds-dark-knob` управляются через CSS `html.dark`); `dsToggleDark()` → `_dsApplyDark(isDark)` обновляет `<html class>`, иконку и `theme-color` мета.
+- **Горячие клавиши** (IIFE в `base.html`): `Alt+D` — тёмная тема; `Alt+N` — кнопка `[data-shortcut="new"]` / `.ds-primary-btn`; `/` — фокус на поиске; `Escape` — закрытие шторки (custom event `ds-escape`); `?` — всплывающая подсказка 3.5 сек (тёмная карточка, список клавиш); все клавиши кроме Alt+D/Alt+N отключены если курсор в input.
+
 **Что осталось из плана (приоритет убывает):**
-- 🌙 Тёмная тема (CSS variables + Alpine toggle + localStorage)
-- ⌨️ Горячие клавиши (Ctrl+S = продажа, / = поиск, ? = список)
 - 📊 Excel-экспорт в вебе (рейтинги, зарплата)
 - 📄 Серверная пагинация для больших таблиц
 - 🏆 Графики в рейтингах (Chart.js уже подключён)
