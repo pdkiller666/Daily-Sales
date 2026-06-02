@@ -547,8 +547,9 @@ def staff_detail(request: Request, user_id: int):
             member_shop = (ctx["member"] or {}).get('shop_name', '')
             user_plans = []
             for plan_row, actual, pct in all_progress:
-                is_user_plan = (plan_row[1] == 'user' and plan_row[5] == user_id)
-                is_shop_plan = (plan_row[1] == 'shop' and plan_row[6] == member_shop)
+                # plan_row[4] = target_type ('seller' or 'shop'), NOT plan_row[1] (plan_type)
+                is_user_plan = (plan_row[4] == 'seller' and plan_row[5] == user_id)
+                is_shop_plan = (plan_row[4] == 'shop' and plan_row[6] == member_shop)
                 if is_user_plan or is_shop_plan:
                     target = float(plan_row[3] or 1)
                     user_plans.append({

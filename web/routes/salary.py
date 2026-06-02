@@ -263,6 +263,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/salary", status_code=302)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
