@@ -39,6 +39,7 @@ router = APIRouter()
 BULK_IMPORT_MAX = 100   # max products per upload (mirrors bot)
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 PREVIEW_PAGE_SIZE = 20  # rows per preview page
+PRODUCTS_PAGE_SIZE = 50  # rows per products list page
 
 # In-memory import session store — bound to user:
 # {session_id: {"telegram_id": int, "items": [...], "skipped": int}}
@@ -46,7 +47,7 @@ _import_sessions: dict[str, dict] = {}
 
 
 @router.get("/products")
-def products_page(request: Request, q: str = "", category: str = ""):
+def products_page(request: Request, q: str = "", category: str = "", page: int = 1):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -62,6 +63,7 @@ def products_page(request: Request, q: str = "", category: str = ""):
         "products": [], "categories": [],
         "selected_category": category, "q": q,
         "stock": {}, "total_count": 0, "error": None,
+        "page": 1, "total_pages": 1, "base_url": "/products",
     }
 
     try:
@@ -91,10 +93,28 @@ def products_page(request: Request, q: str = "", category: str = ""):
 
         products.sort(key=lambda p: ((p[2] or ""), (p[1] or "").lower()))
 
-        ctx["products"] = products
+        total = len(products)
+        total_pages = max(1, (total + PRODUCTS_PAGE_SIZE - 1) // PRODUCTS_PAGE_SIZE)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * PRODUCTS_PAGE_SIZE
+
+        # Build base_url for pagination links (preserves filters)
+        parts = []
+        if q:
+            from urllib.parse import quote
+            parts.append(f"q={quote(q)}")
+        if category:
+            from urllib.parse import quote
+            parts.append(f"category={quote(category)}")
+        base_url = "/products?" + "&".join(parts) if parts else "/products?"
+
+        ctx["products"] = products[start: start + PRODUCTS_PAGE_SIZE]
         ctx["categories"] = categories
         ctx["stock"] = stock
-        ctx["total_count"] = len(products)
+        ctx["total_count"] = total
+        ctx["page"] = page
+        ctx["total_pages"] = total_pages
+        ctx["base_url"] = base_url
 
     except Exception as exc:
         ctx["error"] = str(exc)

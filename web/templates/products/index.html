@@ -164,6 +164,32 @@
     </div>
     {% endif %}
 </div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between mt-4 flex-wrap gap-3">
+    <a {% if page > 1 %}href="{{ base_url }}&page={{ page - 1 }}"{% else %}href="#"{% endif %}
+       class="flex items-center gap-1 text-sm {{ 'text-blue-600 hover:text-blue-800' if page > 1 else 'text-slate-300 cursor-default' }}">
+        ← Назад
+    </a>
+    <div class="flex items-center gap-1 flex-wrap justify-center">
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <span class="px-3 py-1 rounded-lg text-sm font-semibold bg-blue-600 text-white">{{ p }}</span>
+            {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 1 and p <= page + 1) %}
+            <a href="{{ base_url }}&page={{ p }}"
+               class="px-3 py-1 rounded-lg text-sm text-slate-600 hover:bg-slate-100">{{ p }}</a>
+            {% elif p == 3 or p == total_pages - 2 %}
+            <span class="px-1 text-slate-400 text-sm">…</span>
+            {% endif %}
+        {% endfor %}
+    </div>
+    <a {% if page < total_pages %}href="{{ base_url }}&page={{ page + 1 }}"{% else %}href="#"{% endif %}
+       class="flex items-center gap-1 text-sm {{ 'text-blue-600 hover:text-blue-800' if page < total_pages else 'text-slate-300 cursor-default' }}">
+        Вперёд →
+    </a>
+</div>
+{% endif %}
 {% endblock %}
 
-{% block footer_info %}{{ total_count }} товаров{% endblock %}
+{% block footer_info %}{{ total_count }} товаров · стр. {{ page }}/{{ total_pages }}{% endblock %}

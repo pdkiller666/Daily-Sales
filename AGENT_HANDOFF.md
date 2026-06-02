@@ -44,10 +44,12 @@ Workflow: "Start application" → python main.py
 - **Тёмная тема**: ранний скрипт в `<head>` (`localStorage.ds_dark`) применяет `.dark` до отрисовки (no flash); `tailwind.config = { darkMode: 'class' }`; 80+ CSS-переопределений в `<style>` (`html.dark .bg-white → #1e293b` и т.д.); охвачены: sidebar, topbar, bottom nav, шторка «Ещё», таблицы, inputs, badges, shadow; кнопка 🌙/☀️ в топбаре (`#ds-dark-icon`); CSS-переключатель в шторке `#ds-dark-toggle` (`.ds-dark-toggle` + `.ds-dark-knob` управляются через CSS `html.dark`); `dsToggleDark()` → `_dsApplyDark(isDark)` обновляет `<html class>`, иконку и `theme-color` мета.
 - **Горячие клавиши** (IIFE в `base.html`): `Alt+D` — тёмная тема; `Alt+N` — кнопка `[data-shortcut="new"]` / `.ds-primary-btn`; `/` — фокус на поиске; `Escape` — закрытие шторки (custom event `ds-escape`); `?` — всплывающая подсказка 3.5 сек (тёмная карточка, список клавиш); все клавиши кроме Alt+D/Alt+N отключены если курсор в input.
 
+**Сессия 332 (2026-06-02) — Веб: Chart.js диаграмма рейтингов:**
+- **Диаграмма в рейтингах**: карточка с горизонтальным бар-чартом (Chart.js, `indexAxis:'y'`) — топ-10 по выручке; цвета: 🥇 amber-400, 🥈 slate-400, 🥉 orange-400, остальные blue-400; тултип показывает `N продаж · N шт.`; X-ось с форматированием (К/М); `MutationObserver` на `<html class>` синхронизирует цвета при переключении тёмной темы (`chart.update('none')`); коллапс-кнопка (на десктопе открыта по умолчанию, на мобильном — закрыта); canvas высота адаптивная: `N * 36 + 20 px`.
+
 **Что осталось из плана (приоритет убывает):**
-- 📊 Excel-экспорт в вебе (рейтинги, зарплата)
+- 📊 Excel-экспорт зарплаты (рейтинги уже имеют `/rankings/export.xlsx`)
 - 📄 Серверная пагинация для больших таблиц
-- 🏆 Графики в рейтингах (Chart.js уже подключён)
 
 **Сессия 294 (2026-06-02) — Веб: Рассылки, Мотивация, Ставки зарплаты, Личный заработок, Excel из отчётов:**
 - **P1 /notifications** (`web/routes/notifications.py`, `web/templates/notifications/index.html`): полная страница рассылок для admin/owner/super_admin — форма создания рассылки (текст + получатели: всем/по магазину/по роли + «сейчас»/«запланировать»), список запланированных с кнопкой отмены (DELETE JSON CSRF), история отправленных. Запись в `scheduled_notifications` → APScheduler отправляет. Пункт «🔔 Рассылки» добавлен в сайдбар (admin+ only).
