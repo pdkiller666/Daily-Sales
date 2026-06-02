@@ -360,6 +360,196 @@ def contests_create(
         return _re_render(f"Ошибка при создании конкурса: {exc}")
 
 
+@router.get("/contests/{contest_id}/edit")
+def contests_edit(request: Request, contest_id: int):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    try:
+        row = db.get_contest(contest_id)
+    except Exception:
+        row = None
+
+    if not row:
+        return RedirectResponse(url="/contests", status_code=302)
+
+    status = row[16] or "pending"
+    if status in ("finished", "cancelled"):
+        return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=302)
+
+    import json as _json
+    def _parse_json_list(val):
+        if not val:
+            return []
+        try:
+            return _json.loads(val)
+        except Exception:
+            return []
+
+    shops, cities, categories, products = _load_contest_form_data(db)
+
+    form_data = {
+        "title": row[1] or "",
+        "description": row[2] or "",
+        "contest_type": row[3] or "any",
+        "metric_type": row[4] or "turnover",
+        "target_value": str(row[5]) if row[5] else "",
+        "reward_type": row[6] or "fixed",
+        "reward_value": row[7] or "",
+        "start_date": row[8] or "",
+        "end_date": row[9] or "",
+        "shop_filter": row[10] or "",
+        "city_filter": row[11] or "",
+        "filter_categories": _parse_json_list(row[14]),
+        "filter_products": [str(p) for p in _parse_json_list(row[13])],
+    }
+
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "shops": shops, "cities": cities,
+        "categories": categories, "products": products,
+        "contest_type_labels": CONTEST_TYPE_LABELS,
+        "metric_labels": METRIC_LABELS,
+        "reward_type_labels": REWARD_TYPE_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "error": None,
+        "form_data": form_data,
+        "today": date.today().isoformat(),
+        "is_edit": True,
+        "edit_id": contest_id,
+        "edit_status": status,
+    }
+    return request.app.state.templates.TemplateResponse(request, "contests/form.html", ctx)
+
+
+@router.post("/contests/{contest_id}/update")
+def contests_update(
+    request: Request,
+    contest_id: int,
+    csrf_token: str = Form(default=""),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+    target_value: str = Form(default=""),
+    reward_value: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/contests", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен. Обновите страницу и попробуйте снова.",
+                        status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    try:
+        row = db.get_contest(contest_id)
+    except Exception:
+        row = None
+
+    if not row:
+        return RedirectResponse(url="/contests", status_code=302)
+
+    status = row[16] or "pending"
+    if status in ("finished", "cancelled"):
+        return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=302)
+
+    def _parse_json_list(val):
+        if not val:
+            return []
+        try:
+            return _json.loads(val)
+        except Exception:
+            return []
+
+    shops, cities, categories, products = _load_contest_form_data(db)
+
+    form_data = {
+        "title": row[1] or "",
+        "description": row[2] or "",
+        "contest_type": row[3] or "any",
+        "metric_type": row[4] or "turnover",
+        "target_value": target_value,
+        "reward_type": row[6] or "fixed",
+        "reward_value": reward_value,
+        "start_date": start_date,
+        "end_date": end_date,
+        "shop_filter": row[10] or "",
+        "city_filter": row[11] or "",
+        "filter_categories": _parse_json_list(row[14]),
+        "filter_products": [str(p) for p in _parse_json_list(row[13])],
+    }
+
+    def _re_render(err):
+        ctx = {
+            "request": request, "user": user, "is_admin": True,
+            "shops": shops, "cities": cities,
+            "categories": categories, "products": products,
+            "contest_type_labels": CONTEST_TYPE_LABELS,
+            "metric_labels": METRIC_LABELS,
+            "reward_type_labels": REWARD_TYPE_LABELS,
+            "csrf_token": get_csrf_token(request),
+            "error": err,
+            "today": date.today().isoformat(),
+            "form_data": form_data,
+            "is_edit": True,
+            "edit_id": contest_id,
+            "edit_status": status,
+        }
+        return request.app.state.templates.TemplateResponse(request, "contests/form.html", ctx)
+
+    try:
+        if not start_date or not end_date:
+            return _re_render("Укажите даты начала и конца конкурса.")
+        from datetime import date as _date
+        sd = _date.fromisoformat(start_date)
+        ed = _date.fromisoformat(end_date)
+        if ed <= sd:
+            return _re_render("Дата окончания должна быть позже даты начала.")
+
+        tv = 0.0
+        if target_value.strip():
+            try:
+                tv = float(target_value.replace(",", ".").strip())
+            except ValueError:
+                return _re_render("Целевое значение должно быть числом.")
+
+        rv = reward_value.strip() or ""
+
+        updated = db.update_contest(
+            contest_id,
+            start_date=start_date,
+            end_date=end_date,
+            target_value=tv,
+            reward_value=rv,
+        )
+        if not updated:
+            return _re_render("Не удалось сохранить изменения. Попробуйте ещё раз.")
+
+        return RedirectResponse(url=f"/contests?contest_id={contest_id}", status_code=303)
+
+    except Exception as exc:
+        logger.error(f"contests_update error: {exc}")
+        return _re_render(f"Ошибка при сохранении: {exc}")
+
+
 @router.post("/contests/{contest_id}/finish")
 def contests_finish(
     request: Request,

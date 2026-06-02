@@ -12,11 +12,13 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ## Stack
 
-- Python 3.11 · aiogram 3 · SQLite · APScheduler · openpyxl · PickleStorage (FSM)
-- Amvera (production hosting) · GitHub (version control)
+**Telegram Bot:** Python 3.11 · aiogram 3 · SQLite · APScheduler · openpyxl · PickleStorage (FSM)
+**Web Interface:** FastAPI + Uvicorn (port 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js
+**Infra:** Amvera (production hosting) · GitHub (version control)
 
 ## Where things live
 
+### Bot
 - `main.py` — bot entry, router registration, 9 APScheduler jobs
 - `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
@@ -34,6 +36,14 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `data/main.db` — organizations, user_org_mapping
 - `data/shop_bot.db` — personal mode + payments/subscriptions (centralized)
 - `data/tenants/org_*.db` — isolated per-org DBs (Amvera: only `org_huawei.db`)
+
+### Web Interface (`web/`)
+- `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals (`bot_username`, `pending_payments_count`)
+- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`
+- `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)`
+- `web/routes/` — 15 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`
+- `web/templates/base.html` — sidebar nav (payments badge for super_admin), Tailwind + HTMX + Alpine.js CDN
+- `web/templates/*/` — per-module Jinja2 templates
 
 ## Architecture decisions
 

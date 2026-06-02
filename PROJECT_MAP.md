@@ -698,6 +698,68 @@ run:
 
 **Исключения из деплоя на Amvera:** `AGENT_HANDOFF.md`, `replit.md`, `PROJECT_MAP.md`, `README.md`, `*.db`, `*.pkl`, `data/tenants/`, `data/backup/`.
 
+---
+
+## 11. ВЕБ-ИНТЕРФЕЙС (`web/`)
+
+### Стек
+FastAPI + Uvicorn (порт 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js
+
+Запускается в `main.py` через `threading.Thread`; аутентификация — Telegram Login Widget → JWT cookie `web_session` (24ч).
+
+### Файловая структура
+```
+web/
+  app.py              — create_web_app(); регистрация роутеров, Jinja2 globals/filters
+  auth.py             — get_session_user(), get_csrf_token(), verify_csrf_token()
+  deps.py             — get_web_db(telegram_id, org_db) → Database(path)
+  routes/
+    auth_routes.py    — GET/POST /login, GET /logout
+    dashboard.py      — GET /dashboard
+    sales.py          — GET /sales, GET /sales/export.xlsx
+    products.py       — GET /products, GET/POST /products/import, POST /products/import/confirm, GET /products/{id}
+    inventory.py      — GET /inventory, GET /inventory/export.xlsx
+    reports.py        — GET /reports
+    rankings.py       — GET /rankings
+    staff.py          — GET /staff, GET /staff/{id}
+    plans.py          — GET /plans, GET /plans/new, POST /plans/create, GET /plans/{id},
+                         GET /plans/{id}/edit, POST /plans/{id}/update, POST /plans/{id}/delete, POST /plans/{id}/toggle
+    salary.py         — GET /salary, GET /salary/export.xlsx
+    schedule.py       — GET /schedule, POST /schedule/toggle_day, /set_time, /remove_day, /fill_month, /set_template
+    contests.py       — GET /contests, GET /contests/new, POST /contests/create,
+                         GET /contests/{id}/edit, POST /contests/{id}/update, POST /contests/{id}/finish|cancel
+    settings.py       — GET/POST /settings, POST /settings/rotate_invite, /settings/save_invite_preset
+    integration.py    — GET /integration, POST /integration/create, /auth/start, /auth/poll,
+                         POST /integration/{id}/toggle, /integration/{id}/delete
+    payments.py       — GET /payments, POST /payments/{id}/confirm, /payments/{id}/reject
+  templates/
+    base.html         — сайдбар, nav (включает Платежи только для super_admin + pending badge)
+    auth/, dashboard/, sales/, products/, inventory/, reports/, rankings/,
+    staff/, plans/, salary/, schedule/, contests/, settings/, integration/, payments/
+    errors/403.html, errors/404.html
+  static/             — (пустой, авто-создаётся)
+```
+
+### Ключевые правила (web-специфичные)
+1. **DB в веб — sync**: `get_web_db()` → `Database(path)` без await; НЕ `AsyncDatabase`
+2. **TemplateResponse**: первый аргумент — `request` → `TemplateResponse(request, "tmpl.html", ctx)`
+3. **POST redirect**: status_code=**303** (не 302)
+4. **CSRF**: в роуте `ctx["csrf_token"] = get_csrf_token(request)`; в шаблоне `{{ csrf_token }}`; проверка `verify_csrf_token(request, form.get("csrf_token"))`
+5. **Flash**: только query-параметры; нет server-side session storage
+6. **Платежи**: всегда `Database("data/shop_bot.db")` напрямую (не `get_web_db`)
+7. **super_admin в web**: `user.get("role") == "super_admin"` (устанавливается через `env_manager.is_super_admin()` при логине)
+8. **Новый роутер**: добавить import + `app.include_router(...)` в `web/app.py`
+9. **Jinja2 globals**: `bot_username()`, `pending_payments_count()` — зарегистрированы в `app.py`
+10. **In-memory state**: `_import_sessions` (products.py) и `_device_flow` (integration.py) — теряются при рестарте
+
+### Доступ по ролям
+| Роль | Что видит |
+|------|-----------|
+| `super_admin` | Всё включая `/payments` с бейджем |
+| `owner` | Всё кроме `/payments` |
+| `admin` | Всё кроме `/payments` (в рамках своего scope) |
+| `user` | `/dashboard`, `/sales`, `/products`, `/inventory`, `/rankings` |
+
 **⚠️ Amvera: битые сборки**
 - `deploy.sh` + `git ls-remote ✅` = код дошёл до репозитория. НЕ означает что сборка прошла.
 - "Internal server error" в логах Amvera = инфраструктурная ошибка, не ошибка кода. Amvera продолжает крутить последний успешный образ.

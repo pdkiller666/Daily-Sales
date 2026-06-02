@@ -28,6 +28,8 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `82e2eec` · Amvera `9e8e855` (2026-06-02, сессия 273). Оба хэша верифицированы через `git ls-remote`.
 
+**Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Управляется владельцем/admin; продажи записываются только через бот (мобильно-ориентирован).
+
 **Сессии 234–237 (2026-05-31) — «Системный» shop fix + filter panel + perf:**
 - 234-235: `get_all_shops()` / `get_inventory_shops()` — параметр `include_system=False`; суперадмин передаёт `include_system=True`
 - 236: Пресет инвайта — UNION с inventory (ТЦ Бум теперь виден)
@@ -61,8 +63,14 @@ Workflow: "Start application" → python main.py
 ## 1. АРХИТЕКТУРА ПРОЕКТА
 
 ```
-Telegram API
-    ↓
+Telegram API                       Browser (admin/owner)
+    ↓                                     ↓
+main.py  — polling, регистрация     web/app.py — FastAPI (порт 5000)
+           роутеров, APScheduler    web/routes/*.py — 15 роутеров
+           (9 задач)                web/templates/*.html — Jinja2+Tailwind
+    ↓                                     ↓
+  [оба читают одни и те же SQLite БД через Database()]
+
 main.py  — polling, регистрация роутеров, APScheduler (9 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -585,6 +593,36 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 ## 6. ИСТОРИЯ СЕССИЙ
 
+**Сессии 261–273 (2026-06-02) — ВЕБ-ИНТЕРФЕЙС (задачи #1–#7, #10, #14, #15):**
+
+Реализован полноценный веб-интерфейс (`web/`) на FastAPI + Jinja2 + Tailwind + HTMX + Alpine.js.
+Работает на порту 5000 параллельно с ботом. Аутентификация: Telegram Login Widget → JWT cookie.
+
+| Задача | URL / функциональность | GitHub hash |
+|--------|------------------------|-------------|
+| #1 График работы | `/schedule` — месячный календарь смен, редактирование времени, шаблоны по дням недели, bulk-fill | (merged) |
+| #2 Планы продаж | `/plans`, `/plans/new`, `/plans/{id}/edit` — полный CRUD; форма с multi-select фильтров по категориям/товарам | (merged) |
+| #3 Конкурсы | `/contests`, `/contests/new` — создание, завершение, отмена, лидерборд | (merged) |
+| #4 Invite-система | `/settings` — блок приглашений: код, deep-link, сброс кода, пресет роли/магазина | (merged) |
+| #5 Excel-импорт | `/products/import` — drag-and-drop .xlsx, preview с пагинацией (20 строк/стр), подтверждение | `13b9ebf` |
+| #6 Платежи | `/payments` (super_admin only) — pending заявки, Подтвердить/Отклонить, История, бейдж в nav | `d1e196f` |
+| #7 Google Sheets | `/integration` — Device Flow OAuth, список подключений, toggle, удаление, лог экспортов | (merged) |
+| #10 Milestone badges | `/plans/{id}` — цветные бейджи 50%/75%/100% в истории milestone-алертов | (merged) |
+| #14 Редактирование конкурсов | `/contests/{id}/edit` — изменение дат, цели, награды для active/pending | (merged) |
+| #15 Победитель конкурса | `/contests` (при finished + leaderboard) — карточка победителя с результатом и призом | `82e2eec` |
+
+**Ключевые web-паттерны (не нарушать):**
+- **Auth check**: `get_session_user(request)` → dict `{sub: telegram_id, role, org_db}` или `None`
+- **DB access**: `get_web_db(telegram_id, org_db)` из `web/deps.py` → `Database(path)` sync (не AsyncDatabase!)
+- **CSRF**: `get_csrf_token(request)` в роуте → передать в ctx как `csrf_token`; в шаблоне `{{ csrf_token }}`; верифицировать `verify_csrf_token(request, form.get("csrf_token"))`
+- **Flash**: через query-параметры (`?saved=1`, `?error=msg`, `?imported=N`, `?msg=confirmed_N`)
+- **TemplateResponse**: первый аргумент всегда `request` → `TemplateResponse(request, "name.html", ctx)`
+- **POST redirect**: `RedirectResponse(url=..., status_code=303)` (не 302!)
+- **Pending badge**: `pending_payments_count()` — Jinja2 global в `web/app.py`; запрашивает shop_bot.db напрямую через sqlite3
+- **In-memory sessions**: `_import_sessions` (products.py) и `_device_flow` (integration.py) — теряются при рестарте; известный риск
+- **Платежи**: `payment_requests` всегда в `shop_bot.db` — всегда `Database("data/shop_bot.db")` напрямую, не через `get_web_db`
+- **super_admin**: в web = `user.role == 'super_admin'`; устанавливается при логине через `env_manager.is_super_admin(telegram_id)`
+
 **Сессии 1–10:** базовая архитектура, multi-tenancy, роли, FSM flows, меню.
 
 **Сессии 11–15:** PickleStorage, кеш путей БД, bulk import, полный audit callback.answer() (58 хендлеров).
@@ -982,7 +1020,112 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 
 ---
 
-## 8. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
+## 9. ВЕБ-ИНТЕРФЕЙС
+
+### Стек и запуск
+```
+FastAPI + Uvicorn (порт 5000)  |  Jinja2 шаблоны  |  Tailwind CSS CDN
+HTMX (динамические запросы)   |  Alpine.js (реактивность UI)
+Chart.js (графики дашборда)    |  openpyxl (Excel импорт/экспорт)
+```
+Запуск: `main.py` запускает `uvicorn` через `threading.Thread` рядом с ботом.
+Шаблоны: `web/templates/` — `base.html` (сайдбар, nav) + подпапки per-роут.
+Статика: `web/static/` (авто-создаётся при старте).
+
+### Маршруты (все файлы в `web/routes/`)
+| Файл | URL prefix | Доступ | Назначение |
+|------|-----------|--------|------------|
+| `auth_routes.py` | `/login`, `/logout` | public | Telegram Login Widget |
+| `dashboard.py` | `/dashboard` | all roles | Сводка продаж, графики |
+| `sales.py` | `/sales`, `/sales/export.xlsx` | all roles | Продажи + Excel-экспорт |
+| `products.py` | `/products`, `/products/import` | all roles | Каталог + Excel-импорт |
+| `inventory.py` | `/inventory`, `/inventory/export.xlsx` | all roles | Остатки по магазинам |
+| `reports.py` | `/reports` | admin | Аналитика по продукту/категории/магазину/продавцу |
+| `rankings.py` | `/rankings` | all roles | Рейтинги продавцов/магазинов/городов |
+| `staff.py` | `/staff`, `/staff/{id}` | admin | Сотрудники + профиль |
+| `plans.py` | `/plans`, `/plans/new`, `/plans/{id}` | admin | Планы продаж CRUD |
+| `salary.py` | `/salary`, `/salary/export.xlsx` | admin | Зарплата + Excel |
+| `schedule.py` | `/schedule` + 5 POST-эндпоинтов | admin | График смен + шаблоны |
+| `contests.py` | `/contests`, `/contests/new`, `/contests/{id}` | admin | Конкурсы CRUD |
+| `settings.py` | `/settings` + `/settings/rotate_invite` + `/settings/save_invite_preset` | all | Настройки уведомлений + invite |
+| `integration.py` | `/integration` + auth endpoints | admin (Стандарт+) | Google Sheets |
+| `payments.py` | `/payments`, `/payments/{id}/confirm|reject` | **super_admin only** | Управление платежами |
+
+### Auth flow
+```
+GET /login → Telegram Login Widget (JS) → POST /login (с hash verification)
+    → JWT cookie «web_session» (HS256, 24ч) → redirect /dashboard
+    → claims: sub=telegram_id, name, role, org_db
+```
+CSRF: derived from JWT secret + telegram_id. `get_csrf_token(request)` / `verify_csrf_token(request, token)`.
+
+### Паттерны веб-кода (обязательны)
+```python
+# Auth check (первая строка каждого роута):
+user = get_session_user(request)
+if not user: return RedirectResponse(url="/login", status_code=302)
+
+# DB access (sync! не AsyncDatabase):
+db = get_web_db(int(user["sub"]), user.get("org_db"))
+
+# Template response (request — ПЕРВЫЙ аргумент):
+return request.app.state.templates.TemplateResponse(request, "name.html", ctx)
+
+# POST → redirect (303, не 302):
+return RedirectResponse(url="/page?saved=1", status_code=303)
+
+# CSRF в роуте:
+from web.auth import get_csrf_token, verify_csrf_token
+ctx["csrf_token"] = get_csrf_token(request)
+form = await request.form()
+if not verify_csrf_token(request, form.get("csrf_token", "")): ...
+
+# CSRF в шаблоне:
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+```
+
+### Flash-сообщения (через query params, не сессию)
+```
+?saved=1          → «Сохранено»
+?error=text       → красный баннер
+?imported=N       → «Импортировано N товаров»
+?msg=confirmed_N  → «Заявка #N подтверждена»
+?msg=rejected_N   → «Заявка #N отклонена»
+```
+
+### Jinja2 globals (web/app.py)
+```python
+templates.env.globals['bot_username'] = lambda: bot_holder.get_username() or ''
+templates.env.globals['pending_payments_count'] = get_pending_count  # из payments.py
+```
+Фильтры: `fmt_date` (YYYY-MM-DD → DD.MM.YYYY), `fmt_currency` (→ «1 234 ₽»).
+
+### Ограничения веб vs бот
+| Функция | Бот | Веб |
+|---------|-----|-----|
+| Запись продаж | ✅ | ❌ (intentional — mobile-first) |
+| Корректировки зарплаты (бонусы/удержания) | ✅ | ❌ (только просмотр) |
+| Управление сотрудниками (добавить/уволить/роль) | ✅ | ❌ (только просмотр) |
+| Уведомления (отправить/запланировать) | ✅ | ❌ (только настройки) |
+| Управление магазинами | ✅ | ❌ |
+| Планы продаж CRUD | ✅ | ✅ |
+| График смен | ✅ | ✅ |
+| Конкурсы CRUD | ✅ | ✅ |
+| Отчёты/рейтинги | ✅ | ✅ |
+| Excel-экспорт | ✅ | ✅ |
+| Excel-импорт товаров | ✅ | ✅ |
+| Google Sheets интеграция | ✅ | ✅ |
+| Управление платежами | ✅ | ✅ (super_admin) |
+| Invite-система | ✅ | ✅ |
+
+### Известные риски
+- `_import_sessions` (products.py) и `_device_flow` (integration.py) — in-memory dict, теряются при рестарте
+- Pagination в sales/reports — in-memory после fetch всех записей (медленно при 10k+ продаж)
+- Платежи (`payment_requests`) — всегда в `data/shop_bot.db`, всегда через `sqlite3.connect` напрямую (не `get_web_db`)
+
+---
+
+## 10. ЧЕКЛИСТ ПЕРЕД ДЕПЛОЕМ
 
 ```bash
 # 1. Импорт-аудит (48 модулей):

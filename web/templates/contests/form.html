@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Новый конкурс{% endblock %}
+{% block title %}{% if is_edit %}Редактировать конкурс{% else %}Новый конкурс{% endif %}{% endblock %}
 
 {% block breadcrumb %}
 <span class="text-slate-400 text-xs">🏠</span>
 <span class="text-slate-300 text-xs">/</span>
 <a href="/contests" class="text-slate-500 hover:text-slate-700 text-sm transition-colors">Конкурсы</a>
 <span class="text-slate-300 text-xs">/</span>
-<span class="font-medium text-slate-700 text-sm">Создать</span>
+<span class="font-medium text-slate-700 text-sm">{% if is_edit %}Редактировать{% else %}Создать{% endif %}</span>
 {% endblock %}
 
 {% block content %}
@@ -51,9 +51,18 @@
 </a>
 
 <div class="mb-6">
-    <h1 class="text-2xl font-bold text-slate-800">Новый конкурс</h1>
-    <p class="text-sm text-slate-500 mt-0.5">Заполните параметры нового конкурса</p>
+    <h1 class="text-2xl font-bold text-slate-800">{% if is_edit %}Редактировать конкурс{% else %}Новый конкурс{% endif %}</h1>
+    <p class="text-sm text-slate-500 mt-0.5">
+        {% if is_edit %}Изменить даты, цель и награду конкурса{% else %}Заполните параметры нового конкурса{% endif %}
+    </p>
 </div>
+
+{% if is_edit %}
+<div class="mb-5 flex items-start gap-2 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+    <span class="shrink-0">ℹ️</span>
+    <span>Можно изменить даты, целевое значение и награду. Тип конкурса, метрику и название изменить нельзя.</span>
+</div>
+{% endif %}
 
 {% if error %}
 <div class="mb-5 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
@@ -61,37 +70,44 @@
 </div>
 {% endif %}
 
-<form method="POST" action="/contests/create" id="contestForm">
+<form method="POST" action="{% if is_edit %}/contests/{{ edit_id }}/update{% else %}/contests/create{% endif %}" id="contestForm">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <!-- ─── Basic info ─── -->
-    <div class="card p-6 mb-4">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4">Основная информация</h2>
+    <div class="card p-6 mb-4 {% if is_edit %}opacity-60{% endif %}">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Основная информация
+            {% if is_edit %}<span class="text-xs font-normal text-slate-400 ml-1">(не редактируется)</span>{% endif %}
+        </h2>
         <div class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1.5">Название *</label>
-                <input type="text" name="title" value="{{ cur_title }}" required
+                <label class="block text-xs font-medium text-slate-600 mb-1.5">Название</label>
+                <input type="text" name="title" value="{{ cur_title }}"
+                       {% if is_edit %}disabled{% else %}required{% endif %}
                        placeholder="например: Лучший продавец месяца"
-                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                       class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 {% if is_edit %}bg-slate-50 cursor-not-allowed{% endif %}">
             </div>
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">Описание</label>
                 <textarea name="description" rows="2" placeholder="Краткое описание условий конкурса"
-                          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none">{{ cur_desc }}</textarea>
+                          {% if is_edit %}disabled{% endif %}
+                          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none {% if is_edit %}bg-slate-50 cursor-not-allowed{% endif %}">{{ cur_desc }}</textarea>
             </div>
         </div>
     </div>
 
     <!-- ─── Contest type ─── -->
-    <div class="card p-6 mb-4">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4">Тип конкурса</h2>
+    <div class="card p-6 mb-4 {% if is_edit %}opacity-60{% endif %}">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Тип конкурса
+            {% if is_edit %}<span class="text-xs font-normal text-slate-400 ml-1">(не редактируется)</span>{% endif %}
+        </h2>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {% for val, lbl in [('any','🌐 Любые продажи'),('category','📂 По категории'),('product','📦 По товару')] %}
-            <label class="type-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+            <label class="type-radio-label flex items-center gap-3 p-3 border-2 rounded-xl {% if is_edit %}cursor-not-allowed{% else %}cursor-pointer{% endif %} transition-all
                           {% if cur_type == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                 <input type="radio" name="contest_type" value="{{ val }}"
                        {% if cur_type == val %}checked{% endif %}
-                       class="accent-indigo-600 type-radio" onchange="onTypeChange()">
+                       {% if is_edit %}disabled{% endif %}
+                       class="accent-indigo-600 type-radio" {% if not is_edit %}onchange="onTypeChange()"{% endif %}>
                 <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
             </label>
             {% endfor %}
@@ -144,16 +160,19 @@
 
     <!-- ─── Metric + Target ─── -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-        <div class="card p-6">
-            <h2 class="text-sm font-semibold text-slate-700 mb-4">Метрика</h2>
+        <div class="card p-6 {% if is_edit %}opacity-60{% endif %}">
+            <h2 class="text-sm font-semibold text-slate-700 mb-4">Метрика
+                {% if is_edit %}<span class="text-xs font-normal text-slate-400 ml-1">(не редактируется)</span>{% endif %}
+            </h2>
             <div class="space-y-2">
                 {% for val, lbl, sub in [('turnover','Выручка (₽)','Сумма продаж в рублях'),('quantity','Количество (шт.)','Число проданных единиц')] %}
-                <label class="metric-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+                <label class="metric-radio-label flex items-center gap-3 p-3 border-2 rounded-xl {% if is_edit %}cursor-not-allowed{% else %}cursor-pointer{% endif %} transition-all
                               {% if cur_metric == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                     <input type="radio" name="metric_type" value="{{ val }}"
                            {% if cur_metric == val %}checked{% endif %}
+                           {% if is_edit %}disabled{% endif %}
                            class="accent-indigo-600 metric-radio"
-                           onchange="onMetricChange()">
+                           {% if not is_edit %}onchange="onMetricChange()"{% endif %}>
                     <div>
                         <p class="text-sm font-medium text-slate-700">{{ lbl }}</p>
                         <p class="text-xs text-slate-400">{{ sub }}</p>
@@ -198,17 +217,19 @@
     <!-- ─── Reward ─── -->
     <div class="card p-6 mb-4">
         <h2 class="text-sm font-semibold text-slate-700 mb-4">Награда</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 {% if is_edit %}opacity-60{% endif %}">
             {% for val, lbl in reward_type_labels.items() %}
-            <label class="reward-radio-label flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-all
+            <label class="reward-radio-label flex items-center gap-3 p-3 border-2 rounded-xl {% if is_edit %}cursor-not-allowed{% else %}cursor-pointer{% endif %} transition-all
                           {% if cur_reward_type == val %}border-indigo-400 bg-indigo-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
                 <input type="radio" name="reward_type" value="{{ val }}"
                        {% if cur_reward_type == val %}checked{% endif %}
-                       class="accent-indigo-600 reward-radio" onchange="onRewardTypeChange()">
+                       {% if is_edit %}disabled{% endif %}
+                       class="accent-indigo-600 reward-radio" {% if not is_edit %}onchange="onRewardTypeChange()"{% endif %}>
                 <span class="text-sm font-medium text-slate-700">{{ lbl }}</span>
             </label>
             {% endfor %}
         </div>
+        {% if is_edit %}<p class="text-xs text-slate-400 mb-3">Тип награды изменить нельзя. Можно изменить размер.</p>{% endif %}
         <div>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">
                 Размер награды <span id="rewardUnit" class="text-slate-400">
@@ -223,14 +244,17 @@
     </div>
 
     <!-- ─── Filters ─── -->
-    <div class="card p-6 mb-6">
-        <h2 class="text-sm font-semibold text-slate-700 mb-1">Фильтры участников</h2>
+    <div class="card p-6 mb-6 {% if is_edit %}opacity-60{% endif %}">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Фильтры участников
+            {% if is_edit %}<span class="text-xs font-normal text-slate-400 ml-1">(не редактируется)</span>{% endif %}
+        </h2>
         <p class="text-xs text-slate-400 mb-4">Опционально. Ограничьте конкурс конкретным магазином или городом.</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">Магазин</label>
                 <select name="shop_filter"
-                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                        {% if is_edit %}disabled{% endif %}
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white {% if is_edit %}cursor-not-allowed{% endif %}">
                     <option value="">— Все магазины —</option>
                     {% for sh in shops %}
                     <option value="{{ sh }}" {% if cur_shop == sh %}selected{% endif %}>{{ sh }}</option>
@@ -240,7 +264,8 @@
             <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">Город</label>
                 <select name="city_filter"
-                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
+                        {% if is_edit %}disabled{% endif %}
+                        class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white {% if is_edit %}cursor-not-allowed{% endif %}">
                     <option value="">— Все города —</option>
                     {% for city in cities %}
                     <option value="{{ city }}" {% if cur_city == city %}selected{% endif %}>{{ city }}</option>
@@ -254,9 +279,9 @@
     <div class="flex items-center gap-3">
         <button type="submit"
                 class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
-            Создать конкурс
+            {% if is_edit %}Сохранить изменения{% else %}Создать конкурс{% endif %}
         </button>
-        <a href="/contests"
+        <a href="{% if is_edit %}/contests?contest_id={{ edit_id }}{% else %}/contests{% endif %}"
            class="px-4 py-2.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">
             Отмена
         </a>

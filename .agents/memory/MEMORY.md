@@ -5,3 +5,4 @@
 - [Addon plan_type routing](confirm-payment-addon.md) — confirm_payment_request: plan_type starting 'addon_' calls create_subscription_addon instead of create_subscription; format: addon_shops_1, addon_products_1
 - [Referral deep link format](referral-deeplink.md) — /start ref_TELEGRAMID stored as REF_ after .upper(); bonus applied in select_city (callback) AND process_city (message) after their try/except blocks
 - [FastAPI web layer setup](web-layer-setup.md) — Starlette 1.x TemplateResponse API changed + jinja2 not bundled + port 5000
+- [Web route patterns](web-route-patterns.md) — sync DB (not AsyncDatabase), 303 redirect, CSRF via ctx, flash via query params, payments always use shop_bot.db directly
