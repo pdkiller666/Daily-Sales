@@ -78,7 +78,40 @@
                     Войдите через Telegram для доступа к панели управления
                 </p>
 
-                {% if bot_username %}
+                {% if show_code_form %}
+                    <!-- Code login form -->
+                    {% if error == 'bad_code' %}
+                    <div class="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+                        <span class="shrink-0 mt-0.5">⚠️</span>
+                        <span>Неверный или просроченный код. Запросите новый командой <b>/weblogin</b> в боте.</span>
+                    </div>
+                    {% endif %}
+                    <div class="text-center mb-4">
+                        <span class="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-full px-3 py-1">
+                            <span>🤖</span> Отправьте <code class="font-mono font-bold">/weblogin</code> боту
+                        </span>
+                    </div>
+                    <form method="post" action="/auth/code" class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1.5">Код из бота</label>
+                            <input type="text" name="code" inputmode="numeric" maxlength="6" pattern="\d{6}"
+                                   value="{{ code_value or '' }}"
+                                   placeholder="000000"
+                                   autofocus
+                                   class="w-full text-center text-2xl font-mono tracking-[0.5em] px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                        </div>
+                        <button type="submit"
+                                class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors text-sm">
+                            Войти
+                        </button>
+                    </form>
+                    <div class="mt-5 text-center">
+                        <a href="/login" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                            ← Войти через Telegram
+                        </a>
+                    </div>
+
+                {% elif bot_username %}
                     <div class="flex justify-center">
                         <script async src="https://telegram.org/js/telegram-widget.js?22"
                             data-telegram-login="{{ bot_username }}"
@@ -87,6 +120,18 @@
                             data-auth-url="{{ auth_url }}"
                             data-request-access="write">
                         </script>
+                    </div>
+                    <div class="mt-5 flex items-center gap-3">
+                        <div class="flex-1 border-t border-slate-100"></div>
+                        <span class="text-xs text-slate-300 shrink-0">или</span>
+                        <div class="flex-1 border-t border-slate-100"></div>
+                    </div>
+                    <div class="mt-3 text-center">
+                        <a href="/auth/code"
+                           class="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-600 transition-colors">
+                            <span>🔑</span> Войти по коду из бота
+                        </a>
+                        <p class="text-[11px] text-slate-300 mt-1">Если кнопка показывает чужой аккаунт</p>
                     </div>
                 {% else %}
                     <div class="text-center p-4 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-700">
@@ -99,12 +144,14 @@
                     <p class="text-xs text-slate-400">
                         Доступ только для пользователей, зарегистрированных в боте
                     </p>
+                    {% if not show_code_form %}
                     <div class="border-t border-slate-100 pt-4">
                         <p class="text-xs text-slate-300">
                             После первого входа установите домен в BotFather:
                             <code class="bg-slate-50 px-1 py-0.5 rounded text-slate-500">/setdomain</code>
                         </p>
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </div>

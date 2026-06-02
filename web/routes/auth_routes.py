@@ -113,6 +113,87 @@ async def switch_org(
     return response
 
 
+@router.get("/auth/code")
+async def code_login_page(request: Request):
+    """Show the code-based login form (bot-code alternative to Telegram Widget)."""
+    from web.auth import get_session_user
+    if get_session_user(request):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request, "auth/login.html", {
+        "bot_username": "",   # hide widget on code page
+        "auth_url": "",
+        "error": request.query_params.get("error"),
+        "show_code_form": True,
+    })
+
+
+@router.post("/auth/code")
+async def code_login_submit(
+    request: Request,
+    code: str = Form(default=""),
+):
+    """Validate a one-time bot code and issue a web session JWT."""
+    from web.auth import create_session_token, COOKIE_NAME
+    from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
+    from env_manager import env_manager
+    from web_login_codes import validate_code
+
+    telegram_id = validate_code(code.strip())
+    if not telegram_id:
+        templates = request.app.state.templates
+        return templates.TemplateResponse(request, "auth/login.html", {
+            "bot_username": "",
+            "auth_url": "",
+            "error": "bad_code",
+            "show_code_form": True,
+            "code_value": code.strip(),
+        })
+
+    org_db = get_user_org_db_path(telegram_id)
+    role = get_user_role_from_db(telegram_id)
+
+    if env_manager.is_super_admin(telegram_id):
+        role = 'super_admin'
+        if not org_db:
+            org_db = get_first_available_org_db()
+
+    if not org_db:
+        org_db = 'data/shop_bot.db'
+
+    # Get display name from main.db (user_org_mapping → org DB → users)
+    first_name = _get_display_name(telegram_id, org_db)
+
+    token = create_session_token(telegram_id, first_name, org_db, role)
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(
+        COOKIE_NAME, token,
+        httponly=True,
+        samesite='lax',
+        secure=False,
+        max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+    return response
+
+
+def _get_display_name(telegram_id: int, org_db: str) -> str:
+    """Try to fetch first_name for the user from their org DB or fallback."""
+    try:
+        from database import Database
+        if org_db and org_db != 'data/shop_bot.db' and os.path.exists(org_db):
+            db = Database(org_db)
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT first_name FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+    except Exception:
+        pass
+    return "Пользователь"
+
+
 @router.get("/logout")
 @router.post("/logout")
 async def logout(request: Request):

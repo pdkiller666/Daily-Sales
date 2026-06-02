@@ -40,6 +40,7 @@ from filter_handlers import filter_router
 from integration_handlers import integration_router
 from referral_handlers import referral_router
 from addon_handlers import addon_router
+from web_auth_handlers import router as web_auth_router
 import scheduler_module
 from utils import he
 
@@ -135,6 +136,7 @@ dp.include_router(filter_router)
 dp.include_router(integration_router)
 dp.include_router(referral_router)
 dp.include_router(addon_router)
+dp.include_router(web_auth_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):
