@@ -475,121 +475,123 @@
             <p class="text-xl text-slate-500">Начните бесплатно, расширяйтесь по мере роста бизнеса</p>
         </div>
 
+        {# ── Defaults used when DB is not yet available ── #}
+        {% set _d_free = {'price_fmt': '0\u00a0₽', 'duration_label': 'навсегда', 'max_products': '50', 'max_shops': '1', 'max_sales': '100', 'can_export': false, 'can_analytics': false, 'can_notifications': false, 'can_integrations': false} %}
+        {% set _d_basic = {'price_fmt': '500\u00a0₽', 'duration_label': '30 дней', 'max_products': '200', 'max_shops': '3', 'max_sales': '500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': false} %}
+        {% set _d_std = {'price_fmt': '1\u00a0200\u00a0₽', 'duration_label': '90 дней', 'max_products': '500', 'max_shops': '10', 'max_sales': '1500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
+        {% set _d_prem = {'price_fmt': '4\u00a0000\u00a0₽', 'duration_label': '365 дней', 'max_products': '∞', 'max_shops': '∞', 'max_sales': '∞', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
+
+        {% set pf   = plans.get('Бесплатный', _d_free) %}
+        {% set pb   = plans.get('Базовый',    _d_basic) %}
+        {% set ps   = plans.get('Стандарт',   _d_std) %}
+        {% set pp   = plans.get('Премиум',    _d_prem) %}
+
+        {# ── CTA link macro ── #}
+        {% macro cta(label, cls) %}
+            {% if bot_username %}
+            <a href="https://t.me/{{ bot_username }}" target="_blank" class="{{ cls }}">{{ label }}</a>
+            {% else %}
+            <a href="/dashboard" class="{{ cls }}">{{ label }}</a>
+            {% endif %}
+        {% endmacro %}
+
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
 
-            <!-- Free -->
+            <!-- ── Бесплатный ── -->
             <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Бесплатный</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">0 ₽</div>
-                    <div class="text-sm text-slate-400 mt-1.5">навсегда</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pf.price_fmt }}</div>
+                    <div class="text-sm text-slate-400 mt-1.5">{{ pf.duration_label }}</div>
                 </div>
                 <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 50 товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>1 магазин</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>100 продаж / мес</li>
-                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Google Sheets</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pf.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pf.max_products }} товаров{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pf.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}{{ pf.max_shops }} магазин{% if pf.max_shops|int > 1 %}а{% endif %}{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pf.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ pf.max_sales }} продаж / мес{% endif %}</li>
+                    <li class="flex items-start gap-2.5{% if not pf.can_analytics %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none">{% if pf.can_analytics %}✓{% else %}—{% endif %}</span>
+                        {% if pf.can_analytics %}<span class="text-emerald-500 font-bold hidden"></span>{% endif %}Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5{% if not pf.can_export %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none">{% if pf.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5{% if not pf.can_integrations %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none">{% if pf.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
                 </ul>
-                {% if bot_username %}
-                <a href="https://t.me/{{ bot_username }}" target="_blank"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Начать бесплатно
-                </a>
-                {% else %}
-                <a href="/dashboard"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Начать бесплатно
-                </a>
-                {% endif %}
+                {{ cta('Начать бесплатно', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- Basic -->
+            <!-- ── Базовый ── -->
             <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Базовый</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">500 ₽</div>
-                    <div class="text-sm text-slate-400 mt-1.5">30 дней</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pb.price_fmt }}</div>
+                    <div class="text-sm text-slate-400 mt-1.5">{{ pb.duration_label }}</div>
                 </div>
                 <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 200 товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До 3 магазинов</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>500 продаж / мес</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5 opacity-40"><span class="mt-0.5 leading-none">—</span>Google Sheets</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pb.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pb.max_products }} товаров{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pb.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}До {{ pb.max_shops }} магазинов{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        {% if pb.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ pb.max_sales }} продаж / мес{% endif %}</li>
+                    <li class="flex items-start gap-2.5{% if not pb.can_analytics %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if pb.can_analytics %} text-emerald-500 font-bold{% endif %}">{% if pb.can_analytics %}✓{% else %}—{% endif %}</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5{% if not pb.can_export %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if pb.can_export %} text-emerald-500 font-bold{% endif %}">{% if pb.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5{% if not pb.can_integrations %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if pb.can_integrations %} text-emerald-500 font-bold{% endif %}">{% if pb.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
                 </ul>
-                {% if bot_username %}
-                <a href="https://t.me/{{ bot_username }}" target="_blank"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Выбрать тариф
-                </a>
-                {% else %}
-                <a href="/dashboard"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Выбрать тариф
-                </a>
-                {% endif %}
+                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- Standard — popular -->
+            <!-- ── Стандарт (popular) ── -->
             <div class="card-popular rounded-2xl p-7 relative shadow-2xl shadow-blue-500/25 -mt-3 lg:-mt-4">
                 <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-900 text-xs font-extrabold px-4 py-1 rounded-full uppercase tracking-wide shadow-sm">
                     Популярный
                 </div>
                 <div class="mb-7">
                     <div class="text-xs font-bold text-blue-200 uppercase tracking-widest mb-3">Стандарт</div>
-                    <div class="text-5xl font-extrabold text-white tracking-tight">1 200 ₽</div>
-                    <div class="text-sm text-blue-200 mt-1.5">90 дней</div>
+                    <div class="text-5xl font-extrabold text-white tracking-tight">{{ ps.price_fmt }}</div>
+                    <div class="text-sm text-blue-200 mt-1.5">{{ ps.duration_label }}</div>
                 </div>
                 <ul class="space-y-3 text-sm text-white/90 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До 500 товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До 10 магазинов</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>1 500 продаж / мес</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Google Sheets</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
+                        {% if ps.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ ps.max_products }} товаров{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
+                        {% if ps.max_shops == '∞' %}<strong>∞</strong>&nbsp;магазинов{% else %}До {{ ps.max_shops }} магазинов{% endif %}</li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>
+                        {% if ps.max_sales == '∞' %}<strong>∞</strong>&nbsp;продаж{% else %}{{ ps.max_sales }} продаж / мес{% endif %}</li>
+                    <li class="flex items-start gap-2.5{% if not ps.can_analytics %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if ps.can_analytics %} text-emerald-300 font-bold{% endif %}">{% if ps.can_analytics %}✓{% else %}—{% endif %}</span>Аналитика и отчёты</li>
+                    <li class="flex items-start gap-2.5{% if not ps.can_export %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if ps.can_export %} text-emerald-300 font-bold{% endif %}">{% if ps.can_export %}✓{% else %}—{% endif %}</span>Экспорт в Excel</li>
+                    <li class="flex items-start gap-2.5{% if not ps.can_integrations %} opacity-40{% endif %}">
+                        <span class="mt-0.5 leading-none{% if ps.can_integrations %} text-emerald-300 font-bold{% endif %}">{% if ps.can_integrations %}✓{% else %}—{% endif %}</span>Google Sheets</li>
                 </ul>
-                {% if bot_username %}
-                <a href="https://t.me/{{ bot_username }}" target="_blank"
-                   class="block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg">
-                    Выбрать тариф
-                </a>
-                {% else %}
-                <a href="/dashboard"
-                   class="block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg">
-                    Выбрать тариф
-                </a>
-                {% endif %}
+                {{ cta('Выбрать тариф', 'block w-full text-center bg-white hover:bg-slate-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg') }}
             </div>
 
-            <!-- Premium -->
+            <!-- ── Премиум ── -->
             <div class="card-lift border border-slate-200 rounded-2xl p-7 bg-white">
                 <div class="mb-7">
                     <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Премиум</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">4 000 ₽</div>
-                    <div class="text-sm text-slate-400 mt-1.5">365 дней</div>
+                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pp.price_fmt }}</div>
+                    <div class="text-sm text-slate-400 mt-1.5">{{ pp.duration_label }}</div>
                 </div>
                 <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[160px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> товаров</span></li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> магазинов</span></li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><span><strong>∞</strong> продаж</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        <span>{% if pp.max_products == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_products }}{% endif %}&nbsp;товаров</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        <span>{% if pp.max_shops == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_shops }}{% endif %}&nbsp;магазинов</span></li>
+                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>
+                        <span>{% if pp.max_sales == '∞' %}<strong>∞</strong>{% else %}{{ pp.max_sales }}{% endif %}&nbsp;продаж</span></li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Все функции</li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Google Sheets</li>
                     <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Приоритетная поддержка</li>
                 </ul>
-                {% if bot_username %}
-                <a href="https://t.me/{{ bot_username }}" target="_blank"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Выбрать тариф
-                </a>
-                {% else %}
-                <a href="/dashboard"
-                   class="block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm">
-                    Выбрать тариф
-                </a>
-                {% endif %}
+                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
         </div>
 

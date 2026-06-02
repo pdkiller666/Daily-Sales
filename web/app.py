@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +7,47 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 
 BASE_DIR = Path(__file__).parent
+_SHOP_BOT_DB = "data/shop_bot.db"
+
+
+def _fmt_plan_lim(v) -> str:
+    return "∞" if v == -1 else str(v)
+
+
+def _get_landing_plans() -> dict:
+    plans: dict = {}
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name, price, duration_days, max_products, max_shops,
+                   max_sales_per_month, can_export_reports, can_view_analytics,
+                   can_use_notifications, can_use_integrations
+            FROM subscription_plans WHERE is_active = 1 ORDER BY price ASC
+        """)
+        for row in cur.fetchall():
+            name, price, days, mp, ms, msal, exp, anal, notif, integ = row
+            price_int = int(price)
+            plans[name] = {
+                "price": price_int,
+                "price_fmt": (
+                    f"{price_int:,}".replace(",", "\u00a0") + "\u00a0₽"
+                    if price_int > 0 else "0\u00a0₽"
+                ),
+                "duration_days": days,
+                "duration_label": "навсегда" if days == 0 else f"{days} дней",
+                "max_products": _fmt_plan_lim(mp),
+                "max_shops": _fmt_plan_lim(ms),
+                "max_sales": _fmt_plan_lim(msal),
+                "can_export": bool(exp),
+                "can_analytics": bool(anal),
+                "can_notifications": bool(notif),
+                "can_integrations": bool(integ),
+            }
+        conn.close()
+    except Exception:
+        pass
+    return plans
 
 
 def _fmt_date(s: str) -> str:
@@ -125,6 +167,7 @@ def create_web_app() -> FastAPI:
             return RedirectResponse(url="/dashboard", status_code=302)
         return templates.TemplateResponse(request, "landing.html", {
             "bot_username": templates.env.globals.get("bot_username", ""),
+            "plans": _get_landing_plans(),
         })
 
     @app.exception_handler(404)
