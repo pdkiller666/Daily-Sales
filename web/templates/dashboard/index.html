@@ -310,6 +310,16 @@
     });
 })();
 </script>
+<script>
+// Auto-refresh dashboard every 60 s (pauses when tab is hidden)
+(function(){
+    let _t;
+    function schedule(){ _t = setTimeout(() => location.reload(), 60000); }
+    function cancel(){ clearTimeout(_t); }
+    schedule();
+    document.addEventListener('visibilitychange', () => document.hidden ? cancel() : schedule());
+})();
+</script>
 {% endblock %}
 
 {% block footer_info %}{{ today_label }}{% endblock %}

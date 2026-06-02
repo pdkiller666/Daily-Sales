@@ -189,7 +189,14 @@
     <div class="py-16 text-center text-slate-400">
         <p class="text-5xl mb-3">📭</p>
         <p class="text-sm font-medium">Продаж за выбранный период нет</p>
-        <p class="text-xs mt-1">Измените фильтры или выберите другой период</p>
+        <p class="text-xs mt-1">Измените фильтры или запишите продажу через бот</p>
+        {% set _bu = bot_username() %}
+        {% if _bu %}
+        <a href="https://t.me/{{ _bu }}" target="_blank"
+           class="inline-flex items-center gap-1.5 mt-4 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-medium hover:bg-blue-100 transition-colors">
+            🤖 Записать продажу в боте
+        </a>
+        {% endif %}
     </div>
     {% endif %}
 </div>

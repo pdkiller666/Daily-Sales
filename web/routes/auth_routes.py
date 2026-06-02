@@ -1,10 +1,27 @@
 import os
+import time as _time
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
 TOKEN_EXPIRE_DAYS = 30
+
+# Rate limiting for /auth/code/auto — 5 attempts per 60 s per IP
+_code_attempt_log: dict = {}
+_RATE_WINDOW = 60
+_RATE_MAX = 5
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if request is allowed, False if rate-limited."""
+    now = _time.time()
+    hits = [t for t in _code_attempt_log.get(ip, []) if now - t < _RATE_WINDOW]
+    if len(hits) >= _RATE_MAX:
+        return False
+    hits.append(now)
+    _code_attempt_log[ip] = hits
+    return True
 
 
 @router.get("/login")
@@ -121,9 +138,13 @@ async def code_auto_login(request: Request, c: str = ""):
     from env_manager import env_manager
     from web_login_codes import validate_code
 
+    _ip = (request.client.host if request.client else "unknown")
+    if not _check_rate_limit(_ip):
+        return RedirectResponse(url="/auth/code?error=Слишком+много+попыток%2C+подождите+минуту", status_code=302)
+
     telegram_id = validate_code(c.strip())
     if not telegram_id:
-        return RedirectResponse(url="/auth/code?error=bad_code", status_code=302)
+        return RedirectResponse(url="/auth/code?error=Неверный+или+просроченный+код", status_code=302)
 
     org_db = get_user_org_db_path(telegram_id)
     role = get_user_role_from_db(telegram_id)
@@ -138,7 +159,18 @@ async def code_auto_login(request: Request, c: str = ""):
 
     first_name = _get_display_name(telegram_id, org_db)
     token = create_session_token(telegram_id, first_name, org_db, role)
-    response = RedirectResponse(url="/dashboard", status_code=302)
+    # Stay on current page if referer is one of our own pages
+    referer = request.headers.get("referer", "")
+    try:
+        from urllib.parse import urlparse
+        ref_path = urlparse(referer).path or "/dashboard"
+        _safe = ("/dashboard", "/sales", "/products", "/inventory", "/reports",
+                 "/rankings", "/staff", "/plans", "/salary", "/schedule",
+                 "/settings", "/integration", "/contests")
+        redirect_to = ref_path if any(ref_path.startswith(p) for p in _safe) else "/dashboard"
+    except Exception:
+        redirect_to = "/dashboard"
+    response = RedirectResponse(url=redirect_to, status_code=302)
     response.set_cookie(
         COOKIE_NAME, token,
         httponly=True,

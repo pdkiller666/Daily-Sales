@@ -25,6 +25,49 @@
 </head>
 <body class="h-full bg-slate-100" x-data="{open:false}">
 
+<!-- ── Toast notifications (reads ?success= / ?error= from URL) ── -->
+<div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style="max-width:320px"
+     x-data="toastMgr()" x-init="init()">
+    <template x-for="(t, i) in list" :key="i">
+        <div x-show="t.v"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-x-4"
+             x-transition:enter-end="opacity-100 translate-x-0"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-end="opacity-0"
+             :class="t.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'"
+             class="pointer-events-auto flex items-start gap-2 px-4 py-3 rounded-xl border shadow-lg text-sm">
+            <span x-text="t.ok ? '✅' : '❌'" class="shrink-0 mt-0.5"></span>
+            <span x-text="t.msg" class="flex-1 leading-snug"></span>
+            <button @click="t.v=false" class="shrink-0 text-lg leading-none opacity-40 hover:opacity-70 ml-1">×</button>
+        </div>
+    </template>
+</div>
+<script>
+function toastMgr() {
+    return {
+        list: [],
+        init() {
+            const p = new URLSearchParams(location.search);
+            const s = p.get('success'), e = p.get('error');
+            if (s) this.show(true, decodeURIComponent(s));
+            if (e) this.show(false, decodeURIComponent(e));
+            if (s || e) {
+                const u = new URL(location);
+                u.searchParams.delete('success');
+                u.searchParams.delete('error');
+                history.replaceState({}, '', u);
+            }
+        },
+        show(ok, msg) {
+            const t = {ok, msg, v: true};
+            this.list.push(t);
+            setTimeout(() => { t.v = false; }, 5000);
+        }
+    };
+}
+</script>
+
 <!-- Mobile overlay -->
 <div x-show="open" x-cloak @click="open=false"
      class="fixed inset-0 z-20 bg-black/50 lg:hidden"></div>

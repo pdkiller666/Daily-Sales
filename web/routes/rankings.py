@@ -1,5 +1,6 @@
+import io
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 
 router = APIRouter()
 
@@ -123,3 +124,112 @@ def rankings_page(
     return request.app.state.templates.TemplateResponse(
         request, "rankings/index.html", ctx
     )
+
+
+@router.get("/rankings/export.xlsx")
+def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "month"):
+    """Export current ranking tab to Excel."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from timezone_utils import get_current_user_time
+
+        telegram_id = int(user["sub"])
+        org_db = user.get("org_db")
+        db = get_web_db(telegram_id, org_db)
+
+        tz = db.get_user_timezone(telegram_id)
+        today = get_current_user_time(tz).date()
+        df, dt = _period_dates(period, today)
+        kwargs: dict = {}
+        if df:
+            kwargs["start_date"] = df
+        if dt:
+            kwargs["end_date"] = dt
+
+        thin = Side(style="thin", color="D1D5DB")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        hdr_fill = PatternFill("solid", fgColor="1E3A5F")
+        hdr_font = Font(bold=True, color="FFFFFF", size=11)
+        even_fill = PatternFill("solid", fgColor="F0F4FF")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+
+        if tab == "shops":
+            raw = db.get_shop_ranking(**kwargs) or []
+            ws.title = "Рейтинг магазинов"
+            headers = ["#", "Магазин", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)"]
+            col_widths = [5, 28, 12, 14, 14, 18]
+            rows = [(i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), int(r[4] or 0), float(r[2] or 0))
+                    for i, r in enumerate(raw)]
+        elif tab == "cities":
+            raw = db.get_city_ranking(**kwargs) or []
+            ws.title = "Рейтинг городов"
+            headers = ["#", "Город", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)"]
+            col_widths = [5, 24, 12, 14, 14, 18]
+            rows = [(i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), int(r[4] or 0), float(r[2] or 0))
+                    for i, r in enumerate(raw) if r[0]]
+        else:
+            raw = db.get_sales_ranking(**kwargs) or []
+            ws.title = "Рейтинг продавцов"
+            headers = ["#", "Продавец", "Магазин", "Продано (шт.)", "Транзакций", "Выручка (₽)", "З/П (₽)"]
+            col_widths = [5, 28, 22, 14, 14, 18, 14]
+            rows = []
+            for i, r in enumerate(raw):
+                fname = (r[0] or "").strip()
+                lname = (r[1] or "").strip()
+                name = f"{fname} {lname}".strip() or f"@{r[8]}" if len(r) > 8 and r[8] else f"{fname} {lname}".strip()
+                rows.append((i + 1, name, r[2] or "—", int(r[3] or 0), int(r[5] or 0), float(r[4] or 0), float(r[6] or 0)))
+
+        for i, (h, w) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=1, column=i, value=h)
+            cell.font = hdr_font
+            cell.fill = hdr_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+            ws.column_dimensions[get_column_letter(i)].width = w
+        ws.row_dimensions[1].height = 26
+        ws.freeze_panes = "A2"
+
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        for row_idx, row in enumerate(rows, 2):
+            row_fill = even_fill if row_idx % 2 == 0 else None
+            for col_idx, val in enumerate(row, 1):
+                display_val = val
+                if col_idx == 1:
+                    display_val = f"{medals.get(val, '')} {val}".strip()
+                cell = ws.cell(row=row_idx, column=col_idx, value=display_val)
+                cell.border = border
+                if row_fill:
+                    cell.fill = row_fill
+                if col_idx >= len(headers) - (1 if tab == "sellers" else 0):
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = Alignment(horizontal="right")
+
+        # Period note
+        period_labels = {"week": "7 дней", "month": "Месяц", "prev_month": "Прошлый месяц", "all": "Всё время"}
+        note_row = len(rows) + 3
+        ws.cell(row=note_row, column=1, value=f"Период: {period_labels.get(period, period)}").font = Font(italic=True, color="94A3B8", size=9)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        tab_names = {"sellers": "продавцы", "shops": "магазины", "cities": "города"}
+        filename = f"ranking_{tab_names.get(tab, tab)}_{period}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        return RedirectResponse(url=f"/rankings?tab={tab}&period={period}&error={exc}", status_code=302)
