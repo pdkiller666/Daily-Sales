@@ -174,7 +174,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     "Обратитесь к администратору для восстановления доступа.",
                     parse_mode="HTML",
                 )
-                await state.clear()
+                await clear_state_keep_org(state)
             else:
                 await anchor.edit_text(
                     "❌ Ссылка приглашения недействительна.\n\nКак вы планируете использовать систему?",

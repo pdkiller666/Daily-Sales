@@ -1186,7 +1186,7 @@ async def use_default_price(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         f"✅ Товар добавлен в корзину!\n\n"
-        f"🏷 {product[1]}\n"
+        f"🏷 {he(product[1])}\n"
         f"📦 Количество: {quantity} шт.\n"
         f"💰 Цена: {format_currency(product[3])}\n"
         f"💵 Сумма: {format_currency(quantity * product[3])}{motivation_text}\n\n"
@@ -1598,7 +1598,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             # Добавляем информацию о мотивации для каждого товара, если она есть
             earning_text = f"\n   🎯 Ваша мотивация: {format_currency(result['expected_earning'])}" if result['expected_earning'] > 0 else ""
 
-            message_text += f"🏷 {result['name']}\n"
+            message_text += f"🏷 {he(result['name'])}\n"
             message_text += f"   📦 {result['quantity']} шт. × {format_currency(result['price'])} = {format_currency(result['total'])}{earning_text}\n"
             message_text += f"   📊 Остаток: {result['new_stock']} шт.\n\n"
 
@@ -1696,7 +1696,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                     _earn = r.get('expected_earning', 0) or 0
                     _earn_part = f" 💰 {format_currency(_earn)}" if _earn > 0 else ""
                     notif_lines.append(
-                        f"• {r['name']}: {r['quantity']} шт. "
+                        f"• {he(r['name'])}: {r['quantity']} шт. "
                         f"× {format_currency(r['price'])} = {format_currency(r['total'])}{_earn_part}"
                     )
                 _total_earn_notif = sum(r.get('expected_earning', 0) or 0 for r in results)

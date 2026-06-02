@@ -149,8 +149,18 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                     "shop": shop or "",
                 })
             ctx["absences"] = absences
-            ctx["absence_map"] = db.get_absence_days_map(year, month,
-                                                          user_id or None)
+            _abs_raw = db.get_absence_days_map(year, month, user_id or None)
+            if user_id:
+                ctx["absence_map"] = _abs_raw.get(user_id, {})
+            else:
+                # admin без фильтра: merge всех пользователей (для красивого
+                # вида — используем только первого встреченного на каждый день)
+                merged: dict = {}
+                for _uid_key, _day_map in _abs_raw.items():
+                    for _day, _info in _day_map.items():
+                        if _day not in merged:
+                            merged[_day] = _info
+                ctx["absence_map"] = merged
         else:
             # Сотрудник видит только свои записи
             import sqlite3 as _sq
@@ -179,7 +189,8 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                         "name": "", "shop": "",
                     })
                 ctx["absences"] = absences
-                ctx["absence_map"] = db.get_absence_days_map(year, month, uid)
+                _abs_raw2 = db.get_absence_days_map(year, month, uid)
+                ctx["absence_map"] = _abs_raw2.get(uid, {})
 
     except Exception as exc:
         logging.error(f"absences_page error: {exc}")

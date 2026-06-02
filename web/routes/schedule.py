@@ -137,7 +137,8 @@ def schedule_page(
             ctx["work_day_times"] = work_day_times
             ctx["cal_grid"] = _build_cal_grid(year, month)
             try:
-                ctx["absence_map"] = db.get_absence_days_map(year, month, user_id)
+                _abs_raw = db.get_absence_days_map(year, month, user_id)
+                ctx["absence_map"] = _abs_raw.get(user_id, {})
             except Exception:
                 ctx["absence_map"] = {}
 
