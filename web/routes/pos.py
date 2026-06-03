@@ -101,7 +101,7 @@ def pos_page(request: Request):
             pass
         ctx["default_shop"] = default_shop
     except Exception as e:
-        ctx["error"] = str(e)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
         ctx["default_shop"] = ""
 
     return request.app.state.templates.TemplateResponse(request, "pos/index.html", ctx)
@@ -176,7 +176,7 @@ def api_pos_meta(request: Request, shop: str = ""):
             "motivations": motivations,
         })
     except Exception as e:
-        return JSONResponse({"error": str(e), "favorites": [], "recent": [], "motivations": {}})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "favorites": [], "recent": [], "motivations": {}})
 
 
 @router.post("/api/pos/favorite")
@@ -205,7 +205,7 @@ def api_pos_toggle_favorite(
         is_fav = db.toggle_favorite_product(internal_uid, product_id)
         return JSONResponse({"ok": True, "is_favorite": is_fav})
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
 @router.get("/api/pos/products")
@@ -255,7 +255,7 @@ def api_pos_products(request: Request, shop: str = ""):
 
         return JSONResponse({"products": products, "categories": categories})
     except Exception as e:
-        return JSONResponse({"error": str(e), "products": [], "categories": {}})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": [], "categories": {}})
 
 
 @router.post("/pos/checkout")

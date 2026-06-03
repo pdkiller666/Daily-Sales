@@ -117,7 +117,7 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         ctx["base_url"] = base_url
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "products/index.html", ctx
@@ -763,7 +763,7 @@ def product_detail(request: Request, product_id: int):
             ctx["chart_data"] = []
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "products/detail.html", ctx

@@ -165,7 +165,7 @@ def _salary_user_earnings(request, user, year: int, month: int):
     except Exception as exc:
         import logging
         logging.error(f"_salary_user_earnings error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "salary/earnings.html", ctx
@@ -319,7 +319,7 @@ def salary_page(
             ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "salary/index.html", ctx

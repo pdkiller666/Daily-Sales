@@ -173,7 +173,7 @@ def integration_page(
             ctx["conn_logs"] = conn_logs
         except Exception as exc:
             logging.error(f"integration_page: {exc}")
-            ctx["error"] = str(exc)
+            ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "integration/index.html", ctx

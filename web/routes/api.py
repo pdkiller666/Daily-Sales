@@ -197,4 +197,4 @@ async def set_nav_config(request: Request):
         return {"ok": True}
     except Exception as e:
         from fastapi.responses import JSONResponse
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)

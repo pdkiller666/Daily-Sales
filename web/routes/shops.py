@@ -36,7 +36,7 @@ def shops_page(request: Request):
         db = get_web_db(telegram_id, org_db)
         ctx["shops"] = db.get_shops_with_stats() or []
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "shops/index.html", ctx
@@ -163,7 +163,7 @@ def shop_stock_page(request: Request, shop_name: str, new: str = ""):
         ctx["current_stock"] = {row[1]: int(row[3] or 0) for row in inv}
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "shops/stock.html", ctx

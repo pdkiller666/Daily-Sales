@@ -251,7 +251,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
 
     except Exception as exc:
         logging.error(f"absences_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "absences/index.html", ctx
@@ -513,7 +513,7 @@ def absences_settings_page(request: Request):
         ctx["settings"] = db.get_absence_type_settings()
     except Exception as exc:
         logging.error(f"absences_settings_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "absences/settings.html", ctx

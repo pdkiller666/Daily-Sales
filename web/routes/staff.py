@@ -181,7 +181,7 @@ def staff_page(
             pass
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "staff/index.html", ctx
@@ -217,7 +217,7 @@ def staff_invite_code(request: Request):
         })
     except Exception as e:
         from fastapi.responses import JSONResponse
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
 @router.post("/staff/invite-code/rotate")
@@ -567,7 +567,7 @@ def staff_detail(request: Request, user_id: int):
             ctx["user_plans"] = []
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "staff/detail.html", ctx

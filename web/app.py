@@ -89,6 +89,25 @@ def _fmt_currency(amount) -> str:
         return "0\u00a0₽"
 
 
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' "
+    "https://unpkg.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com "
+    "https://telegram.org; "
+    "style-src 'self' 'unsafe-inline' "
+    "https://cdn.tailwindcss.com https://cdn.jsdelivr.net "
+    "https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob: https:; "
+    "connect-src 'self'; "
+    "frame-src https://telegram.org; "
+    "frame-ancestors 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none';"
+)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Attach security headers to every response."""
 
@@ -101,6 +120,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "camera=(), microphone=(), geolocation=(), payment=(self)"
         )
         response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Content-Security-Policy"] = _CSP
         # HSTS — only on HTTPS (Amvera/production serves via HTTPS)
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (

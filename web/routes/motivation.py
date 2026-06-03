@@ -133,7 +133,7 @@ def motivation_page(request: Request, category: str = ""):
 
     except Exception as exc:
         logger.error(f"motivation_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "motivation/index.html", ctx
@@ -314,4 +314,4 @@ def motivation_remove(
         return JSONResponse({"ok": False, "error": "Мотивация не найдена"}, status_code=404)
     except Exception as exc:
         logger.error(f"motivation_remove error: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)

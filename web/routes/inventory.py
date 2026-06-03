@@ -76,7 +76,7 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         ctx["low_stock"] = sum(1 for r in inventory if 0 < int(r[3] or 0) <= 5)
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "inventory/index.html", ctx
@@ -271,7 +271,7 @@ def inventory_adjust(
 
     except Exception as e:
         logging.error(f"inventory_adjust error: {e}")
-        return JSONResponse({"success": False, "error": str(e)})
+        return JSONResponse({"success": False, "error": "Внутренняя ошибка сервера"})
 
 
 @router.get("/inventory/history")

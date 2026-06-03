@@ -329,7 +329,7 @@ def plans_page(request: Request, active_only: str = "1"):
 
     except Exception as exc:
         logger.error(f"plans_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "plans/index.html", ctx)
 
@@ -702,6 +702,6 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
     except Exception as exc:
         logger.error(f"plan_detail {plan_id} error: {exc}")
         if not ctx.get("error"):
-            ctx["error"] = str(exc)
+            ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "plans/detail.html", ctx)

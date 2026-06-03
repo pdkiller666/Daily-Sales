@@ -102,7 +102,7 @@ def api_product_motivation(request: Request, product_id: int = 0):
             "motivation_value": float(info["motivation_value"] or 0),
         })
     except Exception as exc:
-        return JSONResponse({"none": True, "error": str(exc)})
+        return JSONResponse({"none": True, "error": "Внутренняя ошибка сервера"})
 
 
 @router.get("/api/products-for-shop")
@@ -136,7 +136,7 @@ def api_products_for_shop(request: Request, shop: str = ""):
         )
         return JSONResponse({"products": products})
     except Exception as e:
-        return JSONResponse({"error": str(e), "products": []})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": []})
 
 
 @router.get("/sales")
@@ -240,7 +240,7 @@ def sales_page(
         ctx["summary"] = db.get_sales_summary(**sum_kwargs) or _summary_empty()
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "sales/index.html", ctx
@@ -486,7 +486,7 @@ def api_get_sale(request: Request, sale_id: int):
             "product_name": sale[7] or "",
         })
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
 def _get_inventory_qty(db, shop_name: str, product_id: int) -> int:
@@ -664,7 +664,7 @@ def api_recent_products(request: Request, shop: str = ""):
                 result.append({"id": pid, "name": name, "price": price, "category": cat, "stock": stock})
         return JSONResponse({"products": result})
     except Exception as e:
-        return JSONResponse({"error": str(e), "products": []})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": []})
 
 
 @router.get("/api/favorite-products")
@@ -697,4 +697,4 @@ def api_favorite_products(request: Request, shop: str = ""):
         products.sort(key=lambda p: p["name"].lower())
         return JSONResponse({"products": products})
     except Exception as e:
-        return JSONResponse({"error": str(e), "products": []})
+        return JSONResponse({"error": "Внутренняя ошибка сервера", "products": []})

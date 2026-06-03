@@ -147,7 +147,7 @@ def rankings_page(
             ctx["ranking"] = ranking
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "rankings/index.html", ctx

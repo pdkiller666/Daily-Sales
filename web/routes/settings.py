@@ -281,7 +281,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
             ctx["referral"] = {"total_referred": 0, "bonus_granted": 0, "bonus_days": 0}
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     try:
         return request.app.state.templates.TemplateResponse(

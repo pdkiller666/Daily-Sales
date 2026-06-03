@@ -258,7 +258,7 @@ def chat_page(request: Request, topic: int = 1):
 
     except Exception as exc:
         logger.error(f"chat_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "chat/index.html", ctx)
 
@@ -499,7 +499,7 @@ def chat_delete_message(
         return JSONResponse({"ok": ok})
     except Exception as exc:
         logger.error(f"chat_delete error: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
 @router.post("/chat/topics/create")

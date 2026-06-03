@@ -139,7 +139,7 @@ def notifications_page(
 
     except Exception as exc:
         logger.error(f"notifications_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "notifications/index.html", ctx
@@ -248,4 +248,4 @@ def notifications_delete_scheduled(
         return JSONResponse({"ok": False, "error": "Уведомление не найдено"}, status_code=404)
     except Exception as exc:
         logger.error(f"notifications_delete error: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)

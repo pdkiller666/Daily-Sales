@@ -170,7 +170,7 @@ def contests_page(
                 ctx["leaderboard"] = leaderboard
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "contests/index.html", ctx

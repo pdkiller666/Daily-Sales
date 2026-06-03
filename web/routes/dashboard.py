@@ -172,6 +172,6 @@ def dashboard(request: Request):
                 ctx["plans_dash"] = []
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "dashboard/index.html", ctx)

@@ -179,7 +179,7 @@ def reports_page(
             ctx["chart_data"]   = []
 
     except Exception as exc:
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "reports/index.html", ctx

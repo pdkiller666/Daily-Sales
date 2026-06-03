@@ -86,7 +86,7 @@ def promocodes_page(request: Request, msg: str = ""):
     except Exception as exc:
         import logging
         logging.error(f"promocodes_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "promocodes/index.html", ctx

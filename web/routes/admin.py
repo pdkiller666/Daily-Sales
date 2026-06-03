@@ -123,7 +123,8 @@ async def admin_delete_org(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     try:
         tenant_manager.delete_organization(org_id)
         msg = "deleted"
@@ -168,7 +169,8 @@ async def admin_grant_sub(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     if plan_type not in ALL_PLANS:
         return RedirectResponse("/admin/subs?msg=invalid_plan", 303)
     db = _db()
@@ -186,7 +188,8 @@ async def admin_cancel_sub(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     db = _db()
     db.create_subscription(user_id, "Бесплатный")
     return RedirectResponse("/admin/subs?msg=cancelled", 303)
@@ -307,7 +310,8 @@ async def admin_toggle_tariff(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     db = _db()
     detail = db.get_subscription_plan_details(plan_id)
     if detail:
@@ -336,7 +340,8 @@ async def admin_update_tariff(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     db = _db()
     kwargs = {}
     if name.strip():
@@ -428,7 +433,8 @@ async def admin_pay_settings_save(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     db = _db()
     if card_number.strip():
         db.update_payment_setting("card_number", card_number.strip())
@@ -493,7 +499,8 @@ async def admin_create_backup(request: Request, csrf_token: str = Form("")):
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     bm = BackupManager()
     try:
         bm.create_backup()
@@ -514,7 +521,8 @@ async def admin_delete_backup(
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
-    verify_csrf_token(request, csrf_token)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
     bm = BackupManager()
     try:
         path = os.path.join(bm.backup_dir, filename)

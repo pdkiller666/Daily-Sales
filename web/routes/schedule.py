@@ -156,7 +156,7 @@ def schedule_page(
 
     except Exception as exc:
         logging.error(f"schedule_page error: {exc}")
-        ctx["error"] = str(exc)
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(
         request, "schedule/index.html", ctx
