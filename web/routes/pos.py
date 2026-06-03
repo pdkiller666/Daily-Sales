@@ -297,6 +297,11 @@ def pos_checkout(
         if not internal_uid:
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
 
+        from subscription_utils import check_sales_limit
+        _ok, _msg = check_sales_limit(telegram_id)
+        if not _ok:
+            return JSONResponse({"ok": False, "error": _msg or "Достигнут лимит продаж по тарифу"}, status_code=403)
+
         sold = []
         errors = []
         for item in items:

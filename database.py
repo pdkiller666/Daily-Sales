@@ -4072,7 +4072,7 @@ class Database:
                                 allowed_plans: str = None) -> list:
         """Пакетное создание уникальных одноразовых промокодов с общим префиксом.
         Возвращает список созданных кодов."""
-        import random
+        import secrets
         import string
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -4081,7 +4081,7 @@ class Database:
         max_attempts = count * 10
         while len(created) < count and attempts < max_attempts:
             attempts += 1
-            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            suffix = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
             code = f"{prefix}{suffix}" if prefix else suffix
             try:
                 cursor.execute('''
