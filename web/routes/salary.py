@@ -48,6 +48,9 @@ def _salary_user_earnings(request, user, year: int, month: int):
         "csrf_token": get_csrf_token(request),
         "earnings": [],
         "total_commission": 0.0,
+        "commission_before_coeff": 0.0,
+        "plan_coeff": None,
+        "plan_coeff_details": [],
         "total_base": 0.0,
         "total_adj": 0.0,
         "grand_total": 0.0,
@@ -119,6 +122,23 @@ def _salary_user_earnings(request, user, year: int, month: int):
         except Exception:
             joint_adj = 0.0
 
+        # Коэффициент выполнения недельных планов
+        plan_coeff = None
+        plan_coeff_details = []
+        commission_before_coeff = total_commission
+        try:
+            ns = db.get_notification_settings(user_db_id)
+            if ns.get('plan_coeff_enabled'):
+                raw_coeff, plan_coeff_details = db.get_plan_motivation_coefficient(user_db_id, year, month)
+                if ns.get('plan_coeff_cap', True):
+                    raw_coeff = min(raw_coeff, 1.0)
+                # Применяем только если есть планы (details не пустой)
+                if plan_coeff_details:
+                    plan_coeff = raw_coeff
+                    total_commission = round(total_commission * plan_coeff, 2)
+        except Exception:
+            pass
+
         # Base salary from schedule × rate (+ paid approved absences)
         worked = db.get_worked_days_count(user_db_id, year, month)
         paid_abs = db.get_paid_absence_days_count(user_db_id, year, month)
@@ -130,6 +150,9 @@ def _salary_user_earnings(request, user, year: int, month: int):
         ctx.update({
             "earnings": earnings,
             "total_commission": round(total_commission, 2),
+            "commission_before_coeff": round(commission_before_coeff, 2),
+            "plan_coeff": plan_coeff,
+            "plan_coeff_details": plan_coeff_details,
             "total_base": round(base_salary, 2),
             "total_adj": round(adj_sum, 2),
             "grand_total": round(base_salary + total_commission + adj_sum, 2),

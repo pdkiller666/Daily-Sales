@@ -64,6 +64,31 @@
     </div>
 </div>
 
+{% if plan_coeff is not none %}
+<div class="card p-4 mb-5 border-amber-100 bg-amber-50/60">
+    <div class="flex items-start gap-3">
+        <span class="text-xl">📊</span>
+        <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-amber-800">Коэффициент выполнения плана: ×{{ "%.2f"|format(plan_coeff) }} ({{ "%.1f"|format(plan_coeff * 100) }}%)</p>
+            <p class="text-xs text-amber-600 mt-0.5">Мотивация до применения: {{ commission_before_coeff|int|fmt_currency }} → после: {{ total_commission|int|fmt_currency }}</p>
+            {% if plan_coeff_details %}
+            <div class="mt-2 space-y-1">
+                {% for d in plan_coeff_details %}
+                <div class="flex items-center gap-2 text-xs text-amber-700">
+                    <span class="font-medium">{{ d.week }}</span>
+                    <span class="text-amber-500">план {{ d.plan|int|fmt_currency if d.plan > 100 else d.plan|int }} / факт {{ d.actual|int|fmt_currency if d.actual > 100 else d.actual|int }}</span>
+                    <span class="ml-auto font-semibold {% if d.pct >= 100 %}text-emerald-600{% elif d.pct >= 70 %}text-amber-600{% else %}text-red-500{% endif %}">
+                        {{ d.pct }}%
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Earnings breakdown -->
 {% if earnings %}
 <div class="card overflow-hidden mb-5">
@@ -165,7 +190,7 @@
             <span class="font-medium text-slate-700">{{ total_base|int|fmt_currency }}</span>
         </div>
         <div class="flex justify-between">
-            <span class="text-slate-500">Комиссии</span>
+            <span class="text-slate-500">Комиссии{% if plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(plan_coeff) }} план)</span>{% endif %}</span>
             <span class="font-medium text-blue-600">+{{ total_commission|int|fmt_currency }}</span>
         </div>
         {% if total_adj != 0 %}

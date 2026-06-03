@@ -1059,13 +1059,17 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
             s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id, adj_sum = row
             earn_dict = earn if isinstance(earn, dict) else {}
             motivation = float(earn_dict.get('total_earnings', 0.0) or 0.0)
+            plan_coeff = earn_dict.get('plan_coeff')  # None если не применялся
             name = he(f"{fn} {ln}".strip())
             shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
             total_salary = salary + adj_sum + motivation
             lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽"]
             if motivation > 0:
-                lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b>")
+                if plan_coeff is not None and plan_coeff < 1.0:
+                    lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b> (план ×{plan_coeff:.2f})")
+                else:
+                    lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b>")
             if adj_sum > 0:
                 lines.append(f"   ➕ Бонус: <b>+{format_price(adj_sum)}₽</b>")
             elif adj_sum < 0:

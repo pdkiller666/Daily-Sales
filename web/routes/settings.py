@@ -289,6 +289,8 @@ async def settings_save(
     payment_alerts: str = Form(default=""),
     admin_notifications: str = Form(default=""),
     shift_sale_alerts: str = Form(default=""),
+    plan_coeff_enabled: str = Form(default=""),
+    plan_coeff_cap: str = Form(default=""),
     stock_threshold: int = Form(default=5),
     notification_time: str = Form(default="09:00"),
 ):
@@ -316,6 +318,8 @@ async def settings_save(
                 payment_alerts=1 if payment_alerts == "on" else 0,
                 admin_notifications=1 if admin_notifications == "on" else 0,
                 shift_sale_alerts=1 if shift_sale_alerts == "on" else 0,
+                plan_coeff_enabled=1 if plan_coeff_enabled == "on" else 0,
+                plan_coeff_cap=1 if plan_coeff_cap == "on" else 0,
                 stock_threshold=max(0, stock_threshold),
                 notification_time=notification_time or "09:00",
             )

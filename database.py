@@ -524,6 +524,16 @@ class Database:
         except Exception:
             pass
 
+        # Миграция: зависимость мотивации от выполнения недельных планов
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN plan_coeff_enabled BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN plan_coeff_cap BOOLEAN DEFAULT TRUE")
+        except Exception:
+            pass
+
         # Расписание мотивации по месяцам
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS motivation_schedule (
@@ -2573,6 +2583,9 @@ class Database:
                 'notification_time': settings[8],
                 # shift_sale_alerts добавлен миграцией — индекс 11 (после created_at[9], updated_at[10])
                 'shift_sale_alerts': bool(settings[11]) if len(settings) > 11 else True,
+                # plan_coeff_enabled/cap — индексы 12/13, добавлены миграцией
+                'plan_coeff_enabled': bool(settings[12]) if len(settings) > 12 else False,
+                'plan_coeff_cap': bool(settings[13]) if len(settings) > 13 else True,
             }
         else:
             self.create_default_notification_settings(user_id)
@@ -2585,6 +2598,8 @@ class Database:
                 'stock_threshold': 5,
                 'notification_time': '09:00',
                 'shift_sale_alerts': True,
+                'plan_coeff_enabled': False,
+                'plan_coeff_cap': True,
             }
 
     def create_default_notification_settings(self, user_id):
@@ -5833,6 +5848,173 @@ class Database:
                 conn.close()
             return None
 
+    def get_plan_motivation_coefficient(self, user_id, year, month, admin_user_id=None):
+        """Рассчитать коэффициент мотивации на основе среднего выполнения недельных планов за месяц.
+
+        Алгоритм:
+        1. Берём все недели месяца (Пн–Вс), которые пересекаются с месяцем
+        2. Для каждой недели находим план: личный (target_type=seller) в приоритете,
+           иначе план магазина сотрудника (target_type=shop)
+        3. Считаем фактическое выполнение за каждую неделю → % от плана
+        4. Если cap=True — обрезаем % до 100
+        5. Среднее арифметическое по неделям → коэффициент (0.0–1.0 или выше при cap=False)
+
+        Возвращает (coefficient: float, details: list[dict]) где details — по одной записи на неделю.
+        Если планов нет ни на одну неделю — возвращает (1.0, []).
+        """
+        import calendar as _cal
+        from datetime import date as _date, timedelta as _td
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            # Настройки: cap и enabled проверяет вызывающий код
+            # Получаем user_id (internal) → shop_name
+            cursor.execute("SELECT id, shop_name FROM users WHERE id = ?", (user_id,))
+            urow = cursor.fetchone()
+            if not urow:
+                conn.close()
+                return 1.0, []
+            user_shop = urow[1]
+
+            # Все активные планы (seller на этого пользователя + shop его магазина)
+            cursor.execute("""
+                SELECT id, plan_type, metric_type, target_value, target_type,
+                       user_id, shop_name, filter_type, filter_value, is_active, created_by, created_at
+                FROM sales_plans
+                WHERE is_active = 1 AND plan_type = 'weekly'
+                  AND (
+                    (target_type = 'seller' AND user_id = ?)
+                    OR (target_type = 'shop' AND shop_name = ? AND ? IS NOT NULL)
+                  )
+            """, (user_id, user_shop, user_shop))
+            plans = cursor.fetchall()
+            conn.close()
+
+            if not plans:
+                return 1.0, []
+
+            # Разбиваем на личные и магазинные
+            seller_plans = [p for p in plans if p[4] == 'seller']
+            shop_plans   = [p for p in plans if p[4] == 'shop']
+
+            # Генерируем недели месяца (Пн–Вс), пересекающиеся с месяцем
+            import json as _json
+            first_day = _date(year, month, 1)
+            last_day  = _date(year, month, _cal.monthrange(year, month)[1])
+
+            # Первый понедельник недели, содержащей первый день месяца
+            week_start = first_day - _td(days=first_day.weekday())
+            weeks = []
+            while week_start <= last_day:
+                week_end = week_start + _td(days=6)
+                # Обрезаем по границам месяца для подсчёта факта
+                actual_start = max(week_start, first_day)
+                actual_end   = min(week_end, last_day)
+                weeks.append((week_start, week_end, actual_start, actual_end))
+                week_start += _td(days=7)
+
+            if not weeks:
+                return 1.0, []
+
+            def _calc_actual_for_plan(plan, start_str, end_str):
+                """Считает факт для плана за произвольный период."""
+                _, _, metric_type, target_value, target_type, p_user_id, p_shop, filter_type, filter_value, *_ = plan
+                metric_expr = 'COALESCE(SUM(s.sale_price * s.quantity_sold), 0)' if metric_type == 'turnover' else 'COALESCE(SUM(s.quantity_sold), 0)'
+                conditions = ["date(s.sale_date) BETWEEN date(?) AND date(?)"]
+                params = [start_str, end_str]
+                if target_type == 'seller':
+                    conditions.append("s.user_id = ?"); params.append(p_user_id)
+                elif target_type == 'shop' and p_shop:
+                    conditions.append("s.shop_name = ?"); params.append(p_shop)
+                join_clause = ""
+                if filter_type == 'category' and filter_value:
+                    join_clause = "JOIN products p ON s.product_id = p.id"
+                    try:
+                        cats = _json.loads(filter_value)
+                        if isinstance(cats, list) and cats:
+                            placeholders = ','.join('?' * len(cats))
+                            conditions.append(f"p.category IN ({placeholders})")
+                            params.extend(cats)
+                        else:
+                            conditions.append("p.category = ?"); params.append(filter_value)
+                    except Exception:
+                        conditions.append("p.category = ?"); params.append(filter_value)
+                elif filter_type == 'product' and filter_value:
+                    try:
+                        ids = _json.loads(filter_value)
+                        if ids:
+                            placeholders = ','.join('?' * len(ids))
+                            conditions.append(f"s.product_id IN ({placeholders})")
+                            params.extend(ids)
+                    except Exception:
+                        pass
+                where = ' AND '.join(conditions)
+                q = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
+                try:
+                    c2 = self.get_connection()
+                    cur2 = c2.cursor()
+                    cur2.execute(q, params)
+                    res = cur2.fetchone()[0] or 0.0
+                    c2.close()
+                    return float(res)
+                except Exception:
+                    return 0.0
+
+            details = []
+            pct_sum = 0.0
+            week_count = 0
+
+            for week_start, week_end, actual_start, actual_end in weeks:
+                start_str = actual_start.strftime('%Y-%m-%d')
+                end_str   = actual_end.strftime('%Y-%m-%d')
+
+                # Выбираем план: личный в приоритете
+                plan = seller_plans[0] if seller_plans else (shop_plans[0] if shop_plans else None)
+                if not plan:
+                    continue
+
+                target_value = float(plan[3])
+                if target_value <= 0:
+                    continue
+
+                actual = _calc_actual_for_plan(plan, start_str, end_str)
+                pct = (actual / target_value * 100) if target_value > 0 else 0.0
+
+                details.append({
+                    'week': f"{actual_start.strftime('%d.%m')}–{actual_end.strftime('%d.%m')}",
+                    'plan': target_value,
+                    'actual': actual,
+                    'pct': round(pct, 1),
+                    'plan_type': plan[4],  # seller/shop
+                })
+                pct_sum += pct
+                week_count += 1
+
+            if week_count == 0:
+                return 1.0, []
+
+            avg_pct = pct_sum / week_count
+            coefficient = round(avg_pct / 100, 4)
+            return coefficient, details
+
+        except Exception as e:
+            logger.error(f"Ошибка get_plan_motivation_coefficient: {e}")
+            return 1.0, []
+
+    def get_plan_motivation_coefficient_for_user(self, user_id, year, month):
+        """Обёртка: возвращает только коэффициент (float), учитывая настройку cap.
+        Читает plan_coeff_cap из notification_settings пользователя."""
+        try:
+            ns = self.get_notification_settings(user_id)
+            cap = ns.get('plan_coeff_cap', True)
+            coeff, _ = self.get_plan_motivation_coefficient(user_id, year, month)
+            if cap:
+                coeff = min(coeff, 1.0)
+            return coeff
+        except Exception:
+            return 1.0
+
     def get_joint_bonus_adjustment(self, user_id, start_date=None, end_date=None):
         """Расчёт корректировки заработка для совместного режима мотивации.
 
@@ -6460,10 +6642,34 @@ class Database:
 
             # Добавляем корректировку совместного режима мотивации
             joint_adj = self.get_joint_bonus_adjustment(user_id, start_date, end_date)
+            total = round(base_earnings + joint_adj, 2)
+
+            # Коэффициент выполнения недельных планов (если включён для пользователя)
+            plan_coeff = 1.0
+            plan_coeff_applied = False
+            try:
+                ns = self.get_notification_settings(user_id)
+                if ns.get('plan_coeff_enabled'):
+                    if start_date:
+                        import re as _re
+                        m = _re.match(r'(\d{4})-(\d{2})', start_date)
+                        if m:
+                            _y, _mo = int(m.group(1)), int(m.group(2))
+                            raw_coeff, _ = self.get_plan_motivation_coefficient(user_id, _y, _mo)
+                            if ns.get('plan_coeff_cap', True):
+                                raw_coeff = min(raw_coeff, 1.0)
+                            plan_coeff = raw_coeff
+                            plan_coeff_applied = True
+            except Exception:
+                pass
+
+            if plan_coeff_applied:
+                total = round(total * plan_coeff, 2)
 
             return {
-                'total_earnings': round(base_earnings + joint_adj, 2),
-                'total_sales': result[1] if result else 0
+                'total_earnings': total,
+                'total_sales': result[1] if result else 0,
+                'plan_coeff': plan_coeff if plan_coeff_applied else None,
             }
         except Exception as e:
             logger.error(f"Ошибка при получении общего заработка: {e}")

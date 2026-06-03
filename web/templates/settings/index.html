@@ -160,6 +160,30 @@
                                   'Важные события для администратора', notif_settings.admin_notifications) }}
                     </div>
                     {% endif %}
+
+                    <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('plan_coeff_enabled', 'Коэффициент выполнения плана',
+                                  'Итоговая мотивация умножается на среднее % выполнения недельных планов', notif_settings.plan_coeff_enabled) }}
+                    </div>
+
+                    <div x-data="{ open: {{ 'true' if notif_settings.plan_coeff_enabled else 'false' }} }"
+                         x-show="open" x-cloak class="pl-4 pt-2 space-y-2">
+                        <script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            var chk = document.querySelector('input[name="plan_coeff_enabled"]');
+                            var wrap = chk && chk.closest('form').querySelector('[data-plan-cap]');
+                            if (chk && wrap) {
+                                function toggle() { wrap.style.display = chk.checked ? '' : 'none'; }
+                                chk.addEventListener('change', toggle);
+                                toggle();
+                            }
+                        });
+                        </script>
+                        <div data-plan-cap style="{{ '' if notif_settings.plan_coeff_enabled else 'display:none' }}" class="pl-4 pt-1 space-y-2 border-l-2 border-blue-100">
+                            {{ toggle('plan_coeff_cap', 'Обрезать до 100%',
+                                      'Перевыполнение плана не увеличивает мотивацию сверх базы', notif_settings.plan_coeff_cap) }}
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-5 pt-4 border-t border-slate-100">
