@@ -996,11 +996,24 @@ function mainApp() {
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
 
-            /* 4. Guard against phantom touch events from Telegram in-app browser.
-               Telegram's WebView can pass the tap that opened the web page into the
-               page itself, accidentally opening a bottom sheet. Block all sheet opens
-               for 700 ms after page init. */
+            /* 4. Guard: block sheet opens for 700 ms after init to prevent
+               phantom touch events from Telegram WebView pass-through. */
             setTimeout(() => { this._initReady = true; }, 700);
+
+            /* 5. bfcache fix: Telegram WebView restores the JS state (including
+               open sheets) when the user reopens the app after backgrounding.
+               When pageshow fires with e.persisted=true we close all sheets. */
+            window.addEventListener('pageshow', (e) => {
+                if (e.persisted) {
+                    this.editNavOpen = false;
+                    this.moreOpen   = false;
+                    this.notifOpen  = false;
+                    this.notifDdOpen = false;
+                    this.open       = false;
+                    this._initReady = false;
+                    setTimeout(() => { this._initReady = true; }, 300);
+                }
+            });
         },
 
         get availableItems() {
