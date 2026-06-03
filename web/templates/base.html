@@ -1026,152 +1026,38 @@ function mainApp() {
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
         selectedSlot: null,
-        _initReady: false,
         userRole: '{{ user.role if user else "user" }}',
 
         init() {
-            dsLog('init() START', {path: location.pathname, role: this.userRole});
-
-            /* 0. SYNC RESET */
-            this.editNavOpen = false;
-            this.moreOpen    = false;
-            this.notifOpen   = false;
-            this.notifDdOpen = false;
-            this.open        = false;
-
-            /* 1. Read localStorage nav config */
+            /* 1. Read localStorage nav config (instant render, no flicker) */
             try {
                 const s = localStorage.getItem(DS_NAV_KEY);
                 if (s) {
                     const cfg = JSON.parse(s);
-                    if (Array.isArray(cfg) && cfg.length >= 1) {
-                        this.navCfg = cfg;
-                        dsLog('navCfg from localStorage', cfg);
-                    }
+                    if (Array.isArray(cfg) && cfg.length >= 1) this.navCfg = cfg;
                 }
             } catch(_) {}
 
-            /* 2. Background sync from server */
+            /* 2. Background sync from server — updates localStorage if different */
             fetch('/api/nav-config')
                 .then(r => r.json())
                 .then(data => {
                     if (data.nav && Array.isArray(data.nav) && data.nav.length >= 1) {
                         this.navCfg = data.nav;
                         localStorage.setItem(DS_NAV_KEY, JSON.stringify(data.nav));
-                        dsLog('navCfg from server', data.nav);
-                    } else {
-                        dsLog('navCfg server: no update', data);
                     }
                 })
-                .catch(e => dsLog('navCfg fetch error', String(e)));
+                .catch(() => {});
 
-            /* 3. Notification badge */
+            /* 3. Notification badge — initial poll + interval */
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
 
-            /* 4. Guard: block sheet opens for 700 ms */
-            setTimeout(() => {
-                this._initReady = true;
-                dsLog('_initReady=true (700ms guard lifted)');
-            }, 700);
-
-            /* $watch: log every editNavOpen / moreOpen change */
-            this.$watch('editNavOpen', (val, old) => {
-                const stack = (new Error().stack || '').split('\n').slice(1, 5).join(' ▸ ');
-                dsLog('editNavOpen ' + old + '→' + val + ' | rdy=' + this._initReady, stack);
-                if (val && !old) {
-                    /* Red banner for unexpected open */
-                    const b = document.createElement('div');
-                    b.id = '_ds_debug_nav_banner';
-                    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font-size:11px;padding:8px 10px;word-break:break-all;font-family:monospace;white-space:pre-wrap;pointer-events:none';
-                    b.textContent = '[DS] editNavOpen→true | rdy=' + this._initReady + '\n' + stack;
-                    document.body.appendChild(b);
-                    setTimeout(() => b.remove(), 60000);
-                }
-            });
-            this.$watch('moreOpen', (val, old) => {
-                const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' ▸ ');
-                dsLog('moreOpen ' + old + '→' + val + ' | rdy=' + this._initReady, stack);
-            });
-
-            /* 5. bfcache / WebView re-entry fix — two-layer approach:
-               LAYER A (Alpine state): handles bfcache where editNavOpen=true is
-               preserved in Alpine's reactive proxy → _closeAllSheets() resets it.
-               LAYER B (DOM direct): handles the harder case — bfcache or x-transition
-               interruption where editNavOpen is ALREADY false in Alpine's state but
-               the DOM element is still display:block (e.g. page was bfcache'd mid
-               leave-transition). In that case $watch never fires (value didn't change)
-               and buttons appear dead. Direct style.display='none' forces correct DOM. */
-            const _domHideSheets = () => {
-                const fixed = [];
-                ['ds-nav-bd', 'ds-nav-sh', 'ds-more-bd', 'ds-more-sh'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el && el.style.display !== 'none') {
-                        el.style.display = 'none';
-                        fixed.push(id);
-                    }
-                });
-                if (fixed.length) dsLog('_domHideSheets FIXED stuck elements', fixed);
-            };
-
-            const _maybeCloseSheets = (source) => {
-                const state = {
-                    src: source,
-                    editNavOpen: this.editNavOpen,
-                    moreOpen: this.moreOpen,
-                    notifOpen: this.notifOpen,
-                    navBdDisp: (document.getElementById('ds-nav-bd') || {}).style?.display,
-                    navShDisp: (document.getElementById('ds-nav-sh') || {}).style?.display,
-                    moreBdDisp: (document.getElementById('ds-more-bd') || {}).style?.display,
-                    moreShDisp: (document.getElementById('ds-more-sh') || {}).style?.display,
-                };
-                dsLog('_maybeCloseSheets', state);
-                /* Layer A: reset Alpine state */
-                if (this.moreOpen || this.editNavOpen || this.notifOpen || this.notifDdOpen) {
-                    dsLog('_closeAllSheets triggered by LayerA');
-                    this._closeAllSheets();
-                }
-                /* Layer B: DOM-level force-hide */
-                _domHideSheets();
-            };
-
+            /* 4. bfcache fix: if Telegram WebView restores a frozen page,
+               force a fresh reload so Alpine state is always clean. */
             window.addEventListener('pageshow', (e) => {
-                dsLog('pageshow', {persisted: e.persisted, editNavOpen: this.editNavOpen, moreOpen: this.moreOpen});
-                if (e.persisted) {
-                    /* bfcache restore detected — force a clean reload so Alpine state
-                       is never served from a frozen snapshot (Telegram WebView bfcache). */
-                    dsLog('pageshow persisted=true → reloading');
-                    window.location.reload();
-                    return;
-                }
-                _maybeCloseSheets('pageshow persisted=false');
+                if (e.persisted) window.location.reload();
             });
-
-            document.addEventListener('visibilitychange', () => {
-                dsLog('visibilitychange', {state: document.visibilityState, editNavOpen: this.editNavOpen});
-                if (document.visibilityState === 'visible') { _maybeCloseSheets('visibilitychange'); }
-            });
-
-            window.addEventListener('focus', () => {
-                dsLog('focus', {editNavOpen: this.editNavOpen, moreOpen: this.moreOpen});
-                _maybeCloseSheets('focus');
-            });
-
-            dsLog('init() END — listeners registered');
-        },
-
-        _closeAllSheets() {
-            dsLog('_closeAllSheets()', {editNavOpen: this.editNavOpen, moreOpen: this.moreOpen, _initReady: this._initReady});
-            this.editNavOpen  = false;
-            this.moreOpen     = false;
-            this.notifOpen    = false;
-            this.notifDdOpen  = false;
-            this.open         = false;
-            this._initReady   = false;
-            setTimeout(() => {
-                this._initReady = true;
-                dsLog('_initReady=true (post-closeAllSheets 300ms)');
-            }, 300);
         },
 
         get availableItems() {
@@ -1206,16 +1092,11 @@ function mainApp() {
 
         /* ── More sheet ── */
         openMore() {
-            dsLog('openMore() called', {_initReady: this._initReady, moreOpen: this.moreOpen});
-            if (!this._initReady) { dsLog('openMore() BLOCKED — _initReady=false'); return; }
             this.moreOpen = true;
         },
 
         /* ── Nav Editor ── */
         openEditNav() {
-            const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' ▸ ');
-            dsLog('openEditNav() called', {_initReady: this._initReady, editNavOpen: this.editNavOpen, stack});
-            if (!this._initReady) { dsLog('openEditNav() BLOCKED — _initReady=false'); return; }
             this.editSlots = this.navCfg.slice();
             this.selectedSlot = null;
             this.editNavOpen = true;
