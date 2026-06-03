@@ -42,7 +42,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals; `SecurityHeadersMiddleware` (5 security headers on every response); `/robots.txt` and `/sitemap.xml` routes; `_api_rate_ok()` rate limiter (60 req/min/IP)
 - `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
-- `web/routes/` — 22 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`
+- `web/routes/` — 23 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`
+- `web/routes/support.py` — `GET /support` (форма обратной связи), `POST /support/send` (отправка через Telegram Bot API с rate limit 3 req/hour/user; `urllib.request` stdlib)
 - `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; rate-limited 60 req/min/IP; returns sales by other users)
 - `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling
 - `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors); full SEO head: canonical, OG tags, Twitter card, JSON-LD SoftwareApplication schema, robots meta, keywords, favicon
@@ -75,8 +76,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Session cookie security**: `httponly=True`, `secure=True`, `samesite='lax'`, `max_age=7d`; secret derived from `SHA256(BOT_TOKEN)` — rotates automatically if BOT_TOKEN changes
 - **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`
 - **Telegram auth**: `verify_telegram_auth()` checks HMAC against BOT_TOKEN + rejects `auth_date` older than 24h
-- **Rate limiting**: auth routes — 5 req/60s/IP (`_check_rate_limit`); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`); both in-memory dicts, reset on restart
-- **robots.txt**: `/robots.txt` route in `web/app.py` — allows only `/$` and `/static/`; disallows all 20+ app routes (`/dashboard`, `/sales`, `/api/`, etc.) to prevent crawl budget waste and structure leakage; `Sitemap:` pointer included
+- **Rate limiting**: auth routes — 5 req/60s/IP (`_check_rate_limit`); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`); all in-memory dicts, reset on restart
+- **robots.txt**: `/robots.txt` route in `web/app.py` — allows only `/$` and `/static/`; disallows all 25 app routes (`/dashboard`, `/sales`, `/api/`, `/support`, `/absences`, etc.) to prevent crawl budget waste and structure leakage; `Sitemap:` pointer included; **when adding a new route — always add `Disallow:` to `_ROBOTS_TXT` in `web/app.py`**
 - **sitemap.xml**: `/sitemap.xml` route — single entry `https://dailysales.app/` with `priority=1.0`, `changefreq=weekly`; submit to Google Search Console + Яндекс.Вебмастер for fast indexing
 - **SEO meta (landing.html)**: canonical `https://dailysales.app/`; `og:image/url/locale(ru_RU)/site_name`; `twitter:card=summary_large_image`; JSON-LD `SoftwareApplication` with offers (0–4000₽), aggregateRating, featureList; `<link rel="icon">` for favicon in browser tab; `keywords` meta; `robots: index, follow`
 - **OG image**: `web/static/og-image.jpg` (118KB, 1408×768 → served as 1200×630 crop by social platforms); source PNG at `web/static/og-image.png` (824KB); both in git repo (not excluded)
@@ -103,6 +104,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Shift sale alerts: push-уведомление коллегам в магазине при каждой продаже (если стоит смена + включена настройка `shift_sale_alerts`)
 - Trial upsell: `send_trial_expired_upsell` (ежечасно :05) + reminders at 14/7/3/1d (`send_payment_alerts`); dedup via `subscription_reminder_log` (threshold -1 = expired)
 - Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
+- Web feedback form: `/support` — форма обратной связи в веб-кабинете; категория + тема + сообщение; отправляет супер-админу в Telegram через Bot API; rate limit 3/час/user; доступна всем авторизованным пользователям через шторку «Ещё»
 
 ## User Preferences
 

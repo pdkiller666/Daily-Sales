@@ -137,6 +137,8 @@ Disallow: /categories
 Disallow: /promocodes
 Disallow: /shops
 Disallow: /pos
+Disallow: /absences
+Disallow: /support
 Disallow: /api/
 Disallow: /login
 Disallow: /auth/

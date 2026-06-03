@@ -24,9 +24,17 @@ Web routes use **sync** `Database()` — not `AsyncDatabase`. Every call is dire
 
 ## CSRF token flow
 
-1. In route: `ctx["csrf_token"] = get_csrf_token(request)` (from `web/auth.py`)
+1. In GET route: `ctx["csrf_token"] = get_csrf_token(request)` (from `web/auth.py`)
 2. In template: `<input type="hidden" name="csrf_token" value="{{ csrf_token }}">`
-3. In POST handler: `form = await request.form(); verify_csrf_token(request, form.get("csrf_token", ""))`
+3. In POST handler (sync route — standard): use FastAPI `Form(...)` parameter injection:
+```python
+def my_post(request: Request, csrf_token: str = Form(default=""), ...):
+    from web.auth import get_session_user, verify_csrf_token
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/page?error=csrf", status_code=303)
+```
+
+**Why:** Web routes are sync (`def`, not `async def`). FastAPI injects `Form(...)` params automatically. Using `await request.form()` would require async route — avoid that pattern here.
 
 **Why:** Other templates pass `csrf_token` from context — not calling `get_csrf_token(request)` directly in Jinja2.
 
@@ -83,3 +91,38 @@ if user.get("role") != "super_admin":
 ```
 
 Set during login: `if env_manager.is_super_admin(telegram_id): role = 'super_admin'` in `auth_routes.py`.
+
+---
+
+## Telegram Bot API calls from web routes
+
+`httpx` **не установлен**. Для отправки сообщений через Bot API — использовать stdlib `urllib.request`:
+
+```python
+import json, urllib.request
+
+def _send_tg(bot_token: str, chat_id: int, text: str) -> bool:
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+```
+
+Токен: `env_manager.get_bot_token()`. Admin ID: `env_manager.get_main_admin_id()`.
+
+---
+
+## Rate limiting — support form (per-user, not per-IP)
+
+`/support/send` использует rate limit **по telegram_id**, а не по IP (в отличие от auth/api лимитов):
+
+```python
+_rate_store: dict[int, list[float]] = {}  # {telegram_id: [timestamps]}
+# 3 req / 3600s / telegram_id
+```
+
+**Why:** Пользователи могут быть за NAT (один IP на всю организацию). Лимит по IP заблокировал бы весь магазин после 3 обращений. Per-user — корректнее.

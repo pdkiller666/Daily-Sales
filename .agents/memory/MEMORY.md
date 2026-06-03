@@ -9,3 +9,5 @@
 - [absence_days_map struct](absence-days-map.md) — get_absence_days_map returns {user_id: {day_num: {...}}}; callers must .get(user_id, {}) to unwrap the outer key
 - [fsm_edit only for message handlers](fsm-edit-callback.md) — fsm_edit(msg, text, markup) accepts message not callback; in callback handlers use callback.answer() + callback.message.edit_text()
 - [SEO & Security setup](seo-security.md) — full OG/JSON-LD/robots/sitemap/security-headers stack; manual owner actions: Google Search Console + Яндекс.Вебмастер
+- [CSS transform breaks fixed children](css-transform-fixed.md) — transform на предке ломает position:fixed; ds-main использует ТОЛЬКО opacity-анимацию
+- [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример

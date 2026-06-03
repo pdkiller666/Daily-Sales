@@ -58,11 +58,13 @@ GET /robots.txt  → PlainTextResponse
 GET /sitemap.xml → Response(application/xml)
 ```
 
-**robots.txt** закрывает все 20+ внутренних маршрутов (`/dashboard`, `/sales`, `/api/`, `/login`, `/auth/`...) — только `/$` и `/static/` открыты. Цель: не тратить краулинг-бюджет и не сливать структуру приложения в индекс.
+**robots.txt** закрывает все 25 внутренних маршрутов (`/dashboard`, `/sales`, `/api/`, `/login`, `/auth/`, `/support`, `/absences`, ...) — только `/$` и `/static/` открыты. Цель: не тратить краулинг-бюджет и не сливать структуру приложения в индекс.
 
 **sitemap.xml** содержит единственный URL — `https://dailysales.app/` с `priority=1.0`.
 
-**Если добавится новая публичная страница** (например, `/pricing` или `/blog`) — добавить в `_SITEMAP_XML` в `web/app.py`.
+**Правило при добавлении нового маршрута:**
+- Если маршрут **приватный** (требует авторизации) — добавить `Disallow: /route` в `_ROBOTS_TXT` в `web/app.py`
+- Если маршрут **публичный** (например, `/pricing`, `/blog`) — добавить в `_SITEMAP_XML` в `web/app.py`
 
 ### Что нужно сделать вручную (owner action)
 1. **Google Search Console** → добавить сайт `https://dailysales.app/` → подтвердить через DNS TXT-запись или HTML-файл → отправить `https://dailysales.app/sitemap.xml` → ждать индексации 1–3 дня
