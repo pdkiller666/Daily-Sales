@@ -65,6 +65,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
         "notification_history": [],
         "chat_min_plan": None,
         "chat_plan_options": [],
+        "all_orgs": [],
         # invite block
         "org_id": None,
         "invite_code": "",
@@ -227,6 +228,22 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
                 ctx["chat_plan_options"] = ["Отключён", "Бесплатный", "Базовый", "Стандарт", "Премиум"]
         else:
             ctx["chat_min_plan"] = None
+
+        # All active orgs list for org switcher (super_admin only)
+        if user.get("role") == "super_admin":
+            try:
+                import sqlite3 as _sqlite3
+                _mc = _sqlite3.connect("data/main.db")
+                _orgs = _mc.execute(
+                    "SELECT id, name, db_path FROM organizations WHERE is_active=1 ORDER BY name"
+                ).fetchall()
+                _mc.close()
+                ctx["all_orgs"] = [
+                    {"id": r[0], "name": r[1] or f"Орг #{r[0]}", "db_path": r[2]}
+                    for r in _orgs if r[2]
+                ]
+            except Exception:
+                ctx["all_orgs"] = []
 
         # Beta mode flag (super_admin only)
         if user.get("role") == "super_admin":
