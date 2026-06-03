@@ -1023,6 +1023,21 @@ class Database:
         except Exception:
             pass
 
+        # ── Chat messages (internal org messenger) ───────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                message    TEXT    DEFAULT '',
+                file_path  TEXT    DEFAULT '',
+                file_name  TEXT    DEFAULT '',
+                file_type  TEXT    DEFAULT '',
+                file_size  INTEGER DEFAULT 0,
+                created_at TEXT    DEFAULT (datetime('now')),
+                is_deleted INTEGER DEFAULT 0
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -1050,6 +1065,8 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_plan_milestones     ON plan_milestone_alerts(user_id, plan_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer  ON referrals(referrer_telegram_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_addons_user         ON subscription_addons(user_telegram_id, is_active, expires_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_user  ON chat_messages(user_id, created_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id    ON chat_messages(id, is_deleted)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -8082,4 +8099,85 @@ class Database:
         return bool(self.add_salary_adjustment(
             user_id, year, month, -abs(amount), comment, admin_id
         ))
+
+    # ── Chat methods ─────────────────────────────────────────────────────────
+
+    def add_chat_message(self, user_id: int, message: str = '',
+                         file_path: str = '', file_name: str = '',
+                         file_type: str = '', file_size: int = 0) -> int:
+        """Добавить сообщение в чат. Возвращает id нового сообщения."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO chat_messages (user_id, message, file_path, file_name, file_type, file_size)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, message, file_path, file_name, file_type, file_size))
+        new_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return new_id
+
+    def get_chat_messages(self, limit: int = 50) -> list:
+        """Последние N сообщений чата с данными пользователя."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                   m.file_type, m.file_size, m.created_at,
+                   u.first_name, u.last_name, u.username
+            FROM chat_messages m
+            LEFT JOIN users u ON u.id = m.user_id
+            WHERE m.is_deleted = 0
+            ORDER BY m.id DESC
+            LIMIT ?
+        ''', (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return list(reversed(rows))
+
+    def get_chat_messages_since(self, since_id: int) -> list:
+        """Сообщения с id > since_id (для polling)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                   m.file_type, m.file_size, m.created_at,
+                   u.first_name, u.last_name, u.username
+            FROM chat_messages m
+            LEFT JOIN users u ON u.id = m.user_id
+            WHERE m.is_deleted = 0 AND m.id > ?
+            ORDER BY m.id ASC
+        ''', (since_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def get_chat_latest_id(self) -> int:
+        """Максимальный id сообщения (для бейджа и polling инициализации)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COALESCE(MAX(id), 0) FROM chat_messages WHERE is_deleted = 0')
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+
+    def soft_delete_chat_message(self, msg_id: int, user_id: int,
+                                  is_admin: bool = False) -> bool:
+        """Мягкое удаление: своё сообщение или admin/owner."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if is_admin:
+            cursor.execute(
+                'UPDATE chat_messages SET is_deleted = 1 WHERE id = ?',
+                (msg_id,)
+            )
+        else:
+            cursor.execute(
+                'UPDATE chat_messages SET is_deleted = 1 WHERE id = ? AND user_id = ?',
+                (msg_id, user_id)
+            )
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
 

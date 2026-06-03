@@ -480,6 +480,40 @@
 </div>
 {% endif %}
 
+{% if chat_min_plan is not none %}
+<!-- ══ SUPER ADMIN: Chat settings ══ -->
+<div class="card p-5 mt-6 scroll-mt-6 border-2 border-blue-200 dark:border-blue-500/30">
+    <div class="flex items-center gap-2 mb-4">
+        <span class="text-lg">💬</span>
+        <h2 class="font-semibold text-slate-800">Внутренний чат</h2>
+        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
+    </div>
+    <div class="flex items-start justify-between gap-4 py-3">
+        <div class="flex-1">
+            <p class="text-sm font-medium text-slate-800">Минимальный тариф для доступа к чату</p>
+            <p class="text-xs text-slate-500 mt-0.5">
+                Выберите с какого тарифа сотрудники получают доступ к внутреннему чату организации.
+                «Отключён» полностью скрывает чат для всех.
+            </p>
+            <p class="text-xs text-blue-600 mt-1 font-medium">Сейчас: <strong>{{ chat_min_plan }}</strong></p>
+        </div>
+        <form method="post" action="/settings/chat-plan" class="flex-shrink-0 flex items-center gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select name="plan"
+                    class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                {% for opt in chat_plan_options %}
+                <option value="{{ opt }}" {% if opt == chat_min_plan %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+                Сохранить
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {% if beta_mode_enabled is not none %}
 <!-- ══ SUPER ADMIN: System settings ══ -->
 <div id="system" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">

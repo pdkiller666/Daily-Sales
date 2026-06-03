@@ -350,6 +350,13 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/contests') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
         </a>
+        {% if chat_enabled() %}
+        <a href="/chat"
+           class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">💬</span>
+            <span class="flex-1">Чат</span>
+        </a>
+        {% endif %}
         {% if user and user.role in ('owner', 'admin', 'super_admin') %}
         <a href="/notifications"
            class="nav-link {% if request.url.path.startswith('/notifications') %}nav-active{% endif %}">
@@ -1652,6 +1659,153 @@ function mainApp() {
         </button>
     </div>
 </nav>
+
+{% if chat_enabled() %}
+<!-- ══ Chat FAB (mobile, draggable, edge-snap) ══ -->
+<div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none"
+     style="bottom:84px;right:16px{% if request.url.path.startswith('/chat') %};display:none{% endif %}">
+    <a id="chat-fab" href="/chat"
+       class="w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative"
+       draggable="false" aria-label="Открыть чат">
+        💬
+        <span id="chat-fab-badge"
+              class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full items-center justify-center hidden">
+        </span>
+    </a>
+</div>
+<script>
+(function () {
+    const wrap = document.getElementById('chat-fab-wrap');
+    const fab = document.getElementById('chat-fab');
+    const badge = document.getElementById('chat-fab-badge');
+    if (!wrap || !fab) return;
+
+    /* ── hide FAB on chat page ── */
+    if (window.location.pathname.startsWith('/chat')) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    /* ── restore saved position ── */
+    try {
+        const saved = JSON.parse(localStorage.getItem('ds_chat_fab_pos') || 'null');
+        if (saved) {
+            wrap.style.right = null;
+            wrap.style.left = null;
+            wrap.style.bottom = saved.bottom + 'px';
+            if (saved.side === 'left') wrap.style.left = saved.edge + 'px';
+            else wrap.style.right = saved.edge + 'px';
+        }
+    } catch (e) {}
+
+    /* ── drag ── */
+    let dragging = false, startX, startY, origLeft, origTop, moved = false;
+
+    function pointerDown(e) {
+        dragging = true; moved = false;
+        const touch = e.touches ? e.touches[0] : e;
+        startX = touch.clientX; startY = touch.clientY;
+        const r = wrap.getBoundingClientRect();
+        origLeft = r.left; origTop = r.top;
+        wrap.style.transition = 'none';
+        wrap.style.right = null; wrap.style.left = origLeft + 'px';
+        wrap.style.bottom = null; wrap.style.top = origTop + 'px';
+        e.preventDefault();
+    }
+
+    function pointerMove(e) {
+        if (!dragging) return;
+        const touch = e.touches ? e.touches[0] : e;
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+        wrap.style.left = (origLeft + dx) + 'px';
+        wrap.style.top = (origTop + dy) + 'px';
+    }
+
+    function pointerUp(e) {
+        if (!dragging) return;
+        dragging = false;
+        wrap.style.transition = 'left .2s, right .2s, top .2s, bottom .2s';
+        /* snap to nearest horizontal edge */
+        const r = wrap.getBoundingClientRect();
+        const mid = r.left + r.width / 2;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const edgeGap = 16;
+        const snapTop = Math.max(edgeGap, Math.min(r.top, vh - r.height - edgeGap));
+        wrap.style.top = null; wrap.style.left = null; wrap.style.right = null; wrap.style.bottom = null;
+        let side, edge;
+        if (mid < vw / 2) {
+            side = 'left'; edge = edgeGap;
+            wrap.style.left = edge + 'px';
+        } else {
+            side = 'right'; edge = edgeGap;
+            wrap.style.right = edge + 'px';
+        }
+        const btm = Math.max(edgeGap, vh - snapTop - r.height);
+        wrap.style.bottom = btm + 'px';
+        try { localStorage.setItem('ds_chat_fab_pos', JSON.stringify({ side, edge, bottom: btm })); } catch (e) {}
+        /* if not really dragged — let the link navigate */
+        if (!moved) {
+            window.location.href = '/chat';
+        }
+    }
+
+    wrap.addEventListener('mousedown', pointerDown, { passive: false });
+    window.addEventListener('mousemove', pointerMove);
+    window.addEventListener('mouseup', pointerUp);
+    wrap.addEventListener('touchstart', pointerDown, { passive: false });
+    window.addEventListener('touchmove', pointerMove, { passive: false });
+    window.addEventListener('touchend', pointerUp);
+
+    /* prevent default link click when drag happened */
+    fab.addEventListener('click', function (e) {
+        if (moved) e.preventDefault();
+    });
+
+    /* ── unread badge via /chat/poll ── */
+    const LS_KEY = 'ds_chat_last_id';
+    let lastId = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
+    let unread = 0;
+
+    function updateBadge() {
+        if (unread > 0) {
+            badge.textContent = unread > 9 ? '9+' : unread;
+            badge.classList.remove('hidden');
+            badge.classList.add('flex');
+        } else {
+            badge.classList.add('hidden');
+            badge.classList.remove('flex');
+        }
+    }
+
+    async function pollUnread() {
+        try {
+            const res = await fetch('/chat/poll?since_id=' + lastId);
+            const data = await res.json();
+            if (data.ok && data.messages && data.messages.length > 0) {
+                unread += data.messages.length;
+                lastId = data.latest_id;
+                try { localStorage.setItem(LS_KEY, lastId); } catch (e) {}
+                updateBadge();
+            }
+        } catch (e) {}
+    }
+
+    /* reset badge when user visits chat */
+    window.addEventListener('focus', function () {
+        if (window.location.pathname.startsWith('/chat')) {
+            unread = 0;
+            updateBadge();
+        }
+    });
+
+    setInterval(pollUnread, 10000);
+    pollUnread();
+})();
+</script>
+{% endif %}
 
 </body>
 </html>

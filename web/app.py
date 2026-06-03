@@ -139,6 +139,7 @@ Disallow: /shops
 Disallow: /pos
 Disallow: /absences
 Disallow: /support
+Disallow: /chat
 Disallow: /api/
 Disallow: /login
 Disallow: /auth/
@@ -254,6 +255,22 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['beta_mode'] = _is_beta_mode
 
+    def _is_chat_enabled() -> bool:
+        """Return True if chat is not disabled (chat_min_plan != 'Отключён')."""
+        try:
+            conn = sqlite3.connect(_SHOP_BOT_DB)
+            row = conn.execute(
+                "SELECT value FROM payment_settings WHERE key='chat_min_plan'"
+            ).fetchone()
+            conn.close()
+            if row is None:
+                return True  # key absent → chat enabled by default
+            return row[0] != "Отключён"
+        except Exception:
+            return True
+
+    templates.env.globals['chat_enabled'] = _is_chat_enabled
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -285,6 +302,7 @@ def create_web_app() -> FastAPI:
     from web.routes.api import router as api_router
     from web.routes.absences import router as absences_router
     from web.routes.support import router as support_router
+    from web.routes.chat import router as chat_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -311,6 +329,7 @@ def create_web_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(absences_router)
     app.include_router(support_router)
+    app.include_router(chat_router)
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():

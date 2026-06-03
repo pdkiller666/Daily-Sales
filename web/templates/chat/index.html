@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}Чат команды{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Чат команды</span>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.msg-bubble { max-width: 72%; word-break: break-word; }
+@media (max-width: 640px) { .msg-bubble { max-width: 88%; } }
+.msg-mine .msg-bubble { background: #2563eb; color: #fff; border-radius: 1rem 1rem 0.25rem 1rem; }
+.msg-other .msg-bubble { background: #f1f5f9; color: #1e293b; border-radius: 1rem 1rem 1rem 0.25rem; }
+html.dark .msg-other .msg-bubble { background: #1e293b; color: #e2e8f0; }
+.msg-mine .msg-meta { text-align: right; }
+#chat-scroll::-webkit-scrollbar { width: 4px; }
+#chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+.file-preview-img { max-height: 200px; border-radius: 0.5rem; cursor: pointer; }
+.attach-chip { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1px solid #bfdbfe;
+               border-radius: 8px; padding: 4px 10px; font-size: 0.75rem; color: #1d4ed8; max-width: 240px; overflow: hidden; }
+html.dark .attach-chip { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if error == 'disabled' %}
+<div class="flex flex-col items-center justify-center py-24 text-center">
+    <div class="text-5xl mb-4">🔒</div>
+    <h2 class="text-xl font-bold text-slate-700 mb-2">Чат отключён</h2>
+    <p class="text-slate-500 text-sm">Функция внутреннего чата отключена администратором системы.</p>
+</div>
+
+{% elif not chat_allowed %}
+<div class="flex flex-col items-center justify-center py-24 text-center">
+    <div class="text-5xl mb-4">💬</div>
+    <h2 class="text-xl font-bold text-slate-700 mb-2">Чат команды</h2>
+    <p class="text-slate-500 text-sm mb-5">
+        Внутренний чат доступен начиная с тарифа <strong>{{ min_plan }}</strong>.<br>
+        Ваш текущий тариф: <strong>{{ org_plan or '—' }}</strong>.
+    </p>
+    <a href="/subscription" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors">
+        💳 Улучшить тариф
+    </a>
+</div>
+
+{% else %}
+
+<div class="flex flex-col h-[calc(100vh-7rem)] max-h-[800px]"
+     x-data="chatApp({{ latest_id }}, '{{ csrf_token }}')" x-init="init()">
+
+    <!-- Header -->
+    <div class="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-700 mb-1 shrink-0">
+        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0">💬</div>
+        <div>
+            <h1 class="font-bold text-slate-800 text-base leading-none">Чат команды</h1>
+            <p class="text-xs text-slate-400 mt-0.5" x-text="onlineText"></p>
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="text-xs text-slate-400">онлайн</span>
+        </div>
+    </div>
+
+    <!-- Messages area -->
+    <div id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-1">
+
+        {% for msg in messages %}
+        <div class="flex gap-2.5 {% if msg.user_id == my_db_id %}msg-mine flex-row-reverse{% else %}msg-other{% endif %}"
+             id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}">
+            {% if msg.user_id != my_db_id %}
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto">{{ msg.initial }}</div>
+            {% endif %}
+            <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
+                {% if msg.user_id != my_db_id %}
+                <p class="text-[10px] font-semibold text-blue-600 mb-1">{{ msg.display_name }}</p>
+                {% endif %}
+                {% if msg.message %}
+                <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ msg.message }}</p>
+                {% endif %}
+                {% if msg.has_file %}
+                <div class="mt-1.5">
+                    {% if msg.is_image %}
+                    <a href="{{ msg.file_url }}" target="_blank">
+                        <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" class="file-preview-img">
+                    </a>
+                    {% else %}
+                    <a href="{{ msg.file_url }}" target="_blank" class="attach-chip">
+                        <span>📎</span>
+                        <span class="truncate">{{ msg.file_name }}</span>
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+                <div class="msg-meta mt-1">
+                    <span class="text-[10px] opacity-60">{{ msg.created_at }}</span>
+                    {% if user.role in ('owner', 'admin', 'super_admin') or msg.user_id == my_db_id %}
+                    <button onclick="deleteMsg({{ msg.id }}, '{{ csrf_token }}')"
+                            class="text-[10px] opacity-0 hover:opacity-60 transition-opacity ml-1.5 {% if msg.user_id == my_db_id %}text-white{% else %}text-slate-400{% endif %}"
+                            onmouseenter="this.style.opacity='0.6'" onmouseleave="this.style.opacity='0'"
+                            title="Удалить">✕</button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- Dynamic messages from polling -->
+        <template x-for="msg in dynamicMsgs" :key="msg.id">
+            <div class="flex gap-2.5" :class="msg.user_id == myUserId ? 'msg-mine flex-row-reverse' : 'msg-other'" :id="'msg-' + msg.id">
+                <template x-if="msg.user_id != myUserId">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto"
+                         x-text="msg.initial"></div>
+                </template>
+                <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
+                    <template x-if="msg.user_id != myUserId">
+                        <p class="text-[10px] font-semibold text-blue-600 mb-1" x-text="msg.display_name"></p>
+                    </template>
+                    <template x-if="msg.message">
+                        <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
+                    </template>
+                    <template x-if="msg.has_file && msg.is_image">
+                        <a :href="msg.file_url" target="_blank">
+                            <img :src="msg.file_url" :alt="msg.file_name" class="file-preview-img mt-1.5">
+                        </a>
+                    </template>
+                    <template x-if="msg.has_file && !msg.is_image">
+                        <a :href="msg.file_url" target="_blank" class="attach-chip mt-1.5">
+                            <span>📎</span>
+                            <span class="truncate" x-text="msg.file_name"></span>
+                        </a>
+                    </template>
+                    <div class="msg-meta mt-1 flex items-center" :class="msg.user_id == myUserId ? 'justify-end' : ''">
+                        <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
+                        <button @click="deleteMsgDyn(msg.id)"
+                                class="text-[10px] opacity-0 hover:opacity-60 transition-opacity ml-1.5"
+                                :class="msg.user_id == myUserId ? 'text-white' : 'text-slate-400'"
+                                title="Удалить">✕</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <div id="chat-bottom"></div>
+    </div>
+
+    <!-- Input area -->
+    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 mt-1">
+
+        <!-- File preview chip -->
+        <div x-show="attachedFile" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
+            <template x-if="attachedFile">
+                <div class="attach-chip">
+                    <span x-text="attachedFile.type.startsWith('image/') ? '🖼️' : '📎'"></span>
+                    <span class="truncate" x-text="attachedFile.name"></span>
+                    <button @click="clearFile()" class="ml-1 text-slate-400 hover:text-red-500 leading-none text-base">×</button>
+                </div>
+            </template>
+            <template x-if="imagePreview">
+                <img :src="imagePreview" class="h-12 rounded-lg border border-blue-200 object-cover">
+            </template>
+        </div>
+
+        <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
+            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файл">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+                <input type="file" class="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                       @change="onFileChange($event)">
+            </label>
+
+            <textarea
+                x-model="text"
+                @keydown.enter.exact.prevent="sendMessage()"
+                @keydown.enter.shift.exact="text += '\n'"
+                rows="1"
+                placeholder="Написать сообщение… (Enter — отправить, Shift+Enter — перенос)"
+                :disabled="sending"
+                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
+                style="min-height:42px;max-height:120px"
+                @input="autoResize($event.target)"
+            ></textarea>
+
+            <button type="submit"
+                    :disabled="sending || (!text.trim() && !attachedFile)"
+                    :class="(sending || (!text.trim() && !attachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700'"
+                    class="shrink-0 w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center transition-colors">
+                <template x-if="!sending">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
+                </template>
+                <template x-if="sending">
+                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                </template>
+            </button>
+        </form>
+        <p class="text-[10px] text-slate-400 mt-1.5 px-1">Макс. размер файла — 20 МБ · Изображения, PDF, Word, Excel, CSV, TXT</p>
+    </div>
+</div>
+
+<script>
+const _CHAT_MY_USER_ID = {{ my_db_id or 0 }};
+const _CHAT_CSRF = '{{ csrf_token }}';
+
+function chatApp(initialLatestId, csrfToken) {
+    return {
+        latestId: initialLatestId,
+        myUserId: _CHAT_MY_USER_ID,
+        dynamicMsgs: [],
+        text: '',
+        sending: false,
+        attachedFile: null,
+        imagePreview: null,
+        pollTimer: null,
+        onlineText: 'загрузка…',
+
+        init() {
+            this.scrollBottom();
+            this.startPolling();
+            this.onlineText = 'внутренний чат организации';
+        },
+
+        scrollBottom(force = false) {
+            this.$nextTick(() => {
+                const el = document.getElementById('chat-bottom');
+                if (el) el.scrollIntoView({ behavior: force ? 'auto' : 'smooth' });
+            });
+        },
+
+        startPolling() {
+            this.pollTimer = setInterval(() => this.poll(), 4000);
+        },
+
+        async poll() {
+            try {
+                const res = await fetch(`/chat/poll?since_id=${this.latestId}`);
+                const data = await res.json();
+                if (data.ok && data.messages.length > 0) {
+                    this.dynamicMsgs.push(...data.messages);
+                    this.latestId = data.latest_id;
+                    this.scrollBottom();
+                    if (document.hidden) {
+                        try {
+                            new Notification('💬 Новое сообщение', {
+                                body: data.messages[data.messages.length - 1].message || 'Файл',
+                                icon: '/static/icon.svg'
+                            });
+                        } catch (e) {}
+                    }
+                }
+            } catch (e) {}
+        },
+
+        onFileChange(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            this.attachedFile = file;
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (ev) => { this.imagePreview = ev.target.result; };
+                reader.readAsDataURL(file);
+            } else {
+                this.imagePreview = null;
+            }
+        },
+
+        clearFile() {
+            this.attachedFile = null;
+            this.imagePreview = null;
+        },
+
+        autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+        },
+
+        async sendMessage() {
+            if (this.sending) return;
+            const txt = this.text.trim();
+            if (!txt && !this.attachedFile) return;
+
+            this.sending = true;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', csrfToken);
+                fd.append('message', txt);
+                if (this.attachedFile) fd.append('file', this.attachedFile);
+
+                const res = await fetch('/chat/send', { method: 'POST', body: fd });
+                const data = await res.json();
+
+                if (data.ok) {
+                    this.text = '';
+                    this.clearFile();
+                    this.$nextTick(() => {
+                        const ta = document.querySelector('textarea');
+                        if (ta) { ta.style.height = 'auto'; }
+                    });
+                    if (data.messages) {
+                        const existingIds = new Set(
+                            this.dynamicMsgs.map(m => m.id)
+                        );
+                        const newOnes = data.messages.filter(m => !existingIds.has(m.id));
+                        this.dynamicMsgs.push(...newOnes);
+                        this.latestId = data.latest_id;
+                        this.scrollBottom(true);
+                    }
+                } else {
+                    alert(data.error || 'Ошибка отправки');
+                }
+            } catch (e) {
+                alert('Ошибка соединения');
+            } finally {
+                this.sending = false;
+            }
+        },
+
+        async deleteMsgDyn(msgId) {
+            if (!confirm('Удалить сообщение?')) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', csrfToken);
+                const res = await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    this.dynamicMsgs = this.dynamicMsgs.filter(m => m.id !== msgId);
+                }
+            } catch (e) {}
+        }
+    };
+}
+
+async function deleteMsg(msgId, csrf) {
+    if (!confirm('Удалить сообщение?')) return;
+    try {
+        const fd = new FormData();
+        fd.append('csrf_token', csrf);
+        const res = await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            const el = document.getElementById('msg-' + msgId);
+            if (el) el.remove();
+        }
+    } catch (e) {}
+}
+</script>
+{% endif %}
+
+{% endblock %}
