@@ -722,23 +722,26 @@ if ('serviceWorker' in navigator) {
    4. PWA «Add to Home Screen» install prompt
 ══════════════════════════════════════════════════ */
 (function () {
-    if (localStorage.getItem('ds_pwa_dismissed') === '1') return;
-
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
     const isInStandalone = window.matchMedia('(display-mode: standalone)').matches
                         || window.navigator.standalone === true;
-    if (isInStandalone) return;
 
-    let _deferredPrompt = null;
+    /* Expose globally so manual button can always access */
+    window._ds_pwa_deferred  = null;
+    window._ds_pwa_ios        = isIOS;
+    window._ds_pwa_standalone = isInStandalone;
 
     function _showPwaPrompt(iosMode) {
         const el = document.getElementById('ds-pwa-prompt');
         if (!el) return;
+        const txt = document.getElementById('ds-pwa-prompt-text');
+        const btn = document.getElementById('ds-pwa-install-btn');
         if (iosMode) {
-            const txt = document.getElementById('ds-pwa-prompt-text');
-            const btn = document.getElementById('ds-pwa-install-btn');
-            if (txt) txt.textContent = 'Добавьте на экран: Safari → Поделиться → На экран «Домой»';
+            if (txt) txt.textContent = 'Safari → кнопка «Поделиться» → «На экран «Домой»';
             if (btn) btn.style.display = 'none';
+        } else {
+            if (txt) txt.textContent = 'Добавить на экран смартфона — работает как приложение';
+            if (btn) btn.style.display = '';
         }
         el.classList.remove('hidden');
     }
@@ -746,15 +749,18 @@ if ('serviceWorker' in navigator) {
     /* Android / Desktop Chrome: intercept beforeinstallprompt */
     window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
-        _deferredPrompt = e;
-        setTimeout(() => _showPwaPrompt(false), 1200);
+        window._ds_pwa_deferred = e;
+        /* Auto-show only if user hasn't dismissed before */
+        if (localStorage.getItem('ds_pwa_dismissed') !== '1' && !isInStandalone) {
+            setTimeout(() => _showPwaPrompt(false), 1200);
+        }
     });
 
     window.dsPwaInstall = function () {
-        if (!_deferredPrompt) return;
-        _deferredPrompt.prompt();
-        _deferredPrompt.userChoice.then(function (result) {
-            _deferredPrompt = null;
+        if (!window._ds_pwa_deferred) return;
+        window._ds_pwa_deferred.prompt();
+        window._ds_pwa_deferred.userChoice.then(function (result) {
+            window._ds_pwa_deferred = null;
             const el = document.getElementById('ds-pwa-prompt');
             if (el) el.remove();
             if (result.outcome === 'accepted') {
@@ -769,8 +775,31 @@ if ('serviceWorker' in navigator) {
         localStorage.setItem('ds_pwa_dismissed', '1');
     };
 
-    /* iOS Safari: no beforeinstallprompt — show manual hint */
-    if (isIOS) {
+    /* Manual trigger — always works even after dismiss */
+    window.dsPwaAddToHomeScreen = function () {
+        if (isInStandalone) {
+            alert('Приложение уже установлено на рабочий стол.');
+            return;
+        }
+        localStorage.removeItem('ds_pwa_dismissed');
+        if (window._ds_pwa_deferred) {
+            dsPwaInstall();
+        } else {
+            /* iOS or deferred prompt not fired yet */
+            const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+            const el  = document.getElementById('ds-pwa-prompt');
+            const txt = document.getElementById('ds-pwa-prompt-text');
+            const btn = document.getElementById('ds-pwa-install-btn');
+            if (txt) txt.textContent = ios
+                ? 'Safari → кнопка «Поделиться» → «На экран «Домой»'
+                : 'Меню браузера ⋮ → «Установить приложение» или «Добавить на гл. экран»';
+            if (btn) btn.style.display = 'none';
+            if (el)  el.classList.remove('hidden');
+        }
+    };
+
+    /* iOS Safari: no beforeinstallprompt — show hint automatically */
+    if (isIOS && !isInStandalone && localStorage.getItem('ds_pwa_dismissed') !== '1') {
         setTimeout(() => _showPwaPrompt(true), 1200);
     }
 })();
@@ -1429,6 +1458,11 @@ function mainApp() {
                     <span class="sht-icon">⚙️</span>
                     <span class="sht-label">Настройки</span>
                 </a>
+                <button onclick="dsPwaAddToHomeScreen()" id="ds-pwa-sht-btn"
+                        class="sht-item">
+                    <span class="sht-icon">📲</span>
+                    <span class="sht-label">На экран</span>
+                </button>
             </div>
         </div>
 
