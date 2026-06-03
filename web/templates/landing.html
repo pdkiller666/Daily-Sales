@@ -6,7 +6,7 @@
 
     <!-- ══ Primary SEO ══ -->
     <title>DailySales — CRM для розничных магазинов: веб-кабинет, аналитика, команда</title>
-    <meta name="description" content="Профессиональный веб-кабинет для управления розничным магазином. Продажи, остатки, команда, аналитика — в браузере на любом устройстве. Работает и в Telegram. 14 дней Премиум бесплатно.">
+    <meta name="description" content="Профессиональный веб-кабинет для управления розничным магазином. Продажи, остатки, командный чат с темами, аналитика — в браузере на любом устройстве. Работает и в Telegram. 14 дней Премиум бесплатно.">
     <meta name="keywords" content="CRM для магазина, веб-кабинет магазина, учёт продаж онлайн, управление магазином, аналитика продаж, розничная торговля автоматизация, DailySales, Telegram бот магазин">
     <meta name="robots" content="index, follow">
     <meta name="author" content="DailySales">
@@ -70,7 +70,9 @@
         "Google Sheets интеграция",
         "Управление командой",
         "Уведомления о продажах",
-        "Мультиорг поддержка"
+        "Мультиорг поддержка",
+        "Внутренний чат команды с темами",
+        "Тематические треды и бейджи непрочитанных"
       ],
       "screenshot": "https://dailysales.app/static/og-image.jpg",
       "softwareVersion": "2.0",
@@ -470,7 +472,7 @@
         <!-- Sub -->
         <p class="text-xl sm:text-2xl text-slate-400 leading-relaxed max-w-2xl mx-auto mb-12"
            style="animation:slide-up .7s .2s ease both">
-            Дашборд, аналитика, команда&nbsp;— в веб-кабинете на любом устройстве.
+            Дашборд, аналитика, чат команды&nbsp;— в веб-кабинете на любом устройстве.
             И в Telegram, если нравится мессенджер.
         </p>
 
@@ -752,10 +754,236 @@
                 <p class="text-slate-500 text-sm leading-relaxed">Управляете сетью точек? Данные разделены, доступ разграничен по ролям. Все организации — из одного кабинета.</p>
             </div>
 
-            <div class="feat-card p-7 reveal d9">
+            <!-- Chat: featured 2-col card (mirrors the web-interface card at top) -->
+            <div class="feat-card p-7 lg:col-span-2 reveal d9"
+                 style="background:linear-gradient(135deg,#f0fdf4 0%,#ecfdf5 50%,#eff6ff 100%);border-color:#86efac">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+                    <!-- Left: description -->
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2 mb-3">
+                            <div class="feat-icon bg-white/80 w-12 h-12 text-2xl" style="margin-bottom:0">💬</div>
+                            <h3 class="text-lg font-bold text-slate-900">Чат команды</h3>
+                            <span class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full font-bold">Новинка</span>
+                        </div>
+                        <p class="text-slate-600 text-sm leading-relaxed mb-4">Внутренний мессенджер прямо в веб-кабинете. Никаких посторонних приложений — команда общается там же, где ведёт продажи.</p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-xs bg-white border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-lg font-medium">📌 Темы обсуждений</span>
+                            <span class="text-xs bg-white border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-lg font-medium">🔴 Бейджи непрочитанных</span>
+                            <span class="text-xs bg-white border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-lg font-medium">📎 Файлы и фото</span>
+                            <span class="text-xs bg-white border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-lg font-medium">⚡ Обновление в реальном времени</span>
+                        </div>
+                    </div>
+                    <!-- Right: mini chat mockup -->
+                    <div class="rounded-2xl overflow-hidden border border-emerald-100 bg-white shadow-sm">
+                        <!-- Topic tab bar -->
+                        <div class="flex items-center gap-1.5 px-3 pt-2.5 pb-2 bg-slate-50 border-b border-slate-100 overflow-hidden">
+                            <div class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-600 text-white whitespace-nowrap">Общий</div>
+                            <div class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 whitespace-nowrap">Продажи</div>
+                            <div class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 whitespace-nowrap flex items-center gap-1">
+                                Склад
+                                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold">3</span>
+                            </div>
+                            <div class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-blue-500 whitespace-nowrap">+ Тема</div>
+                        </div>
+                        <!-- Messages -->
+                        <div class="px-3 py-2.5 space-y-2.5 bg-white">
+                            <div class="flex gap-2">
+                                <div class="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold mt-0.5">А</div>
+                                <div>
+                                    <div class="text-[10px] text-blue-600 font-semibold mb-0.5">Анна</div>
+                                    <div class="bg-slate-100 rounded-xl rounded-tl-none px-2.5 py-1.5 text-[11px] text-slate-700 max-w-[180px]">Коллеги, план уже на 78%! 🎯</div>
+                                </div>
+                            </div>
+                            <div class="flex gap-2 flex-row-reverse">
+                                <div class="bg-blue-600 rounded-xl rounded-tr-none px-2.5 py-1.5 text-[11px] text-white max-w-[180px]">Отлично! Добавил товары со склада</div>
+                            </div>
+                            <div class="flex gap-2">
+                                <div class="w-6 h-6 rounded-full bg-gradient-to-br from-purple-400 to-pink-500 flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold mt-0.5">М</div>
+                                <div>
+                                    <div class="text-[10px] text-blue-600 font-semibold mb-0.5">Максим</div>
+                                    <div class="bg-slate-100 rounded-xl rounded-tl-none px-2.5 py-1.5 text-[11px] text-slate-700 max-w-[180px] flex items-center gap-1.5">
+                                        <span>📎</span><span class="truncate">накладная.pdf</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Input -->
+                        <div class="px-3 pb-3">
+                            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                                <span class="text-slate-300 text-[11px] flex-1 select-none">Написать в #Общий…</span>
+                                <div class="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="feat-card p-7 reveal d10">
                 <div class="feat-icon bg-amber-50 mb-5">💳</div>
                 <h3 class="text-lg font-bold text-slate-900 mb-2">Оплата и подписки</h3>
                 <p class="text-slate-500 text-sm leading-relaxed">СБП или онлайн — оплата за минуту. Квитанция сразу. Напоминание о продлении — заранее, не после.</p>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
+     CHAT SPOTLIGHT
+══════════════════════════════════════════════════════ -->
+<section class="bg-slate-950 py-28 px-4 relative overflow-hidden">
+
+    <!-- Dot grid -->
+    <div class="dot-grid absolute inset-0 pointer-events-none opacity-30"></div>
+
+    <!-- Orbs -->
+    <div class="absolute top-1/4 right-0 w-[600px] h-[600px] rounded-full pointer-events-none animate-orb1"
+         style="background:radial-gradient(ellipse,rgba(52,211,153,.12) 0%,transparent 70%);filter:blur(2px)"></div>
+    <div class="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full pointer-events-none animate-orb3"
+         style="background:radial-gradient(ellipse,rgba(59,130,246,.1) 0%,transparent 70%);filter:blur(2px)"></div>
+
+    <div class="max-w-6xl mx-auto relative z-10">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+
+            <!-- ── Left: Copy ── -->
+            <div class="reveal-left">
+
+                <div class="inline-flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-4 py-1.5 text-sm text-emerald-400 font-bold mb-8">
+                    <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow"></span>
+                    Новая функция
+                </div>
+
+                <h2 class="text-4xl sm:text-5xl font-extrabold text-white mb-6 tracking-tight leading-tight">
+                    Чат команды<br>
+                    <span class="gradient-text-green">с темами обсуждений</span>
+                </h2>
+
+                <p class="text-slate-400 text-lg leading-relaxed mb-10">
+                    Команда переписывается там же, где ведёт продажи. Создавайте отдельные треды — «Продажи», «Склад», «Вопросы» — и не теряйте важное в общем потоке.
+                </p>
+
+                <ul class="space-y-5 mb-10">
+                    <li class="flex items-start gap-4">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center flex-shrink-0 mt-0.5 text-lg">📌</div>
+                        <div>
+                            <span class="text-white font-semibold text-base block mb-0.5">Независимые темы</span>
+                            <span class="text-slate-400 text-sm leading-relaxed">Создайте любое количество тредов: «Общий», «Продажи», «Склад», «Конкурсы» — каждый хранит только своё.</span>
+                        </div>
+                    </li>
+                    <li class="flex items-start gap-4">
+                        <div class="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center flex-shrink-0 mt-0.5 text-lg">🔴</div>
+                        <div>
+                            <span class="text-white font-semibold text-base block mb-0.5">Бейджи непрочитанных</span>
+                            <span class="text-slate-400 text-sm leading-relaxed">На каждой вкладке — счётчик новых сообщений. Не пропустите ничего важного, даже если были в другой теме.</span>
+                        </div>
+                    </li>
+                    <li class="flex items-start gap-4">
+                        <div class="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/25 flex items-center justify-center flex-shrink-0 mt-0.5 text-lg">📎</div>
+                        <div>
+                            <span class="text-white font-semibold text-base block mb-0.5">Файлы, фото, документы</span>
+                            <span class="text-slate-400 text-sm leading-relaxed">Прикрепляйте накладные, фото товаров, прайсы прямо в чат — без сторонних облаков. До 20 МБ на файл.</span>
+                        </div>
+                    </li>
+                </ul>
+
+                <a href="/dashboard"
+                   class="btn-primary inline-flex items-center gap-2.5 text-white font-bold px-8 py-3.5 rounded-xl text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    Попробовать бесплатно
+                </a>
+            </div>
+
+            <!-- ── Right: Chat mockup ── -->
+            <div class="reveal-right">
+                <div class="float-card rounded-2xl overflow-hidden max-w-sm mx-auto lg:mx-0 lg:ml-auto">
+
+                    <!-- Titlebar -->
+                    <div class="flex items-center gap-2 px-4 py-3 bg-slate-950 border-b border-white/[0.06]">
+                        <div class="flex gap-1.5">
+                            <div class="w-2.5 h-2.5 rounded-full bg-red-500/70"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/70"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/70"></div>
+                        </div>
+                        <div class="flex-1 text-center text-xs text-slate-500">💬 Чат команды</div>
+                    </div>
+
+                    <!-- Topic tabs -->
+                    <div class="flex items-center gap-1.5 px-3 pt-3 pb-2.5 bg-slate-900 border-b border-white/[0.06] overflow-x-auto" style="scrollbar-width:none">
+                        <div class="px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-600 text-white whitespace-nowrap flex-shrink-0">Общий</div>
+                        <div class="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 whitespace-nowrap flex-shrink-0">Продажи</div>
+                        <div class="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 whitespace-nowrap flex-shrink-0 flex items-center gap-1.5">
+                            Склад
+                            <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold">3</span>
+                        </div>
+                        <div class="px-3 py-1.5 rounded-full text-xs font-medium bg-slate-800 text-blue-400 whitespace-nowrap flex-shrink-0">+ Тема</div>
+                    </div>
+
+                    <!-- Messages -->
+                    <div class="px-4 py-3 space-y-3.5 bg-slate-900 min-h-[220px]">
+
+                        <div class="flex gap-2.5">
+                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5">А</div>
+                            <div>
+                                <p class="text-[10px] text-blue-400 font-semibold mb-1">Анна</p>
+                                <div class="bg-slate-800 rounded-xl rounded-tl-none px-3 py-2 text-xs text-slate-300 max-w-[210px]">
+                                    Коллеги, план уже на 78%! 🎯 Ещё три часа до конца смены
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2.5 flex-row-reverse">
+                            <div class="bg-blue-600 rounded-xl rounded-tr-none px-3 py-2 text-xs text-white max-w-[210px]">
+                                Отлично! Уже добавил товары со склада 👍
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2.5">
+                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-purple-400 to-pink-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5">М</div>
+                            <div>
+                                <p class="text-[10px] text-blue-400 font-semibold mb-1">Максим</p>
+                                <div class="bg-slate-800 rounded-xl rounded-tl-none px-3 py-2 text-xs text-slate-300 max-w-[210px] flex items-center gap-2">
+                                    <span class="text-slate-400">📎</span>
+                                    <span class="truncate text-blue-400 underline underline-offset-2">накладная_янв.pdf</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2.5">
+                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5">С</div>
+                            <div>
+                                <p class="text-[10px] text-blue-400 font-semibold mb-1">Света</p>
+                                <div class="bg-slate-800 rounded-xl rounded-tl-none px-3 py-2 text-xs text-slate-300 max-w-[210px]">
+                                    Вижу! Принесу из подсобки 🏃
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Input -->
+                    <div class="px-4 pb-4 pt-2 bg-slate-900 border-t border-white/[0.04]">
+                        <div class="flex items-center gap-2 bg-slate-800 border border-white/[0.08] rounded-xl px-3 py-2.5">
+                            <svg class="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                            <span class="text-slate-600 text-xs flex-1">Написать в #Общий…</span>
+                            <div class="w-6 h-6 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-600 mt-1.5 text-center">Обновляется в реальном времени · без перезагрузки</p>
+                    </div>
+
+                </div>
+
+                <!-- Floating badge -->
+                <div class="mt-5 flex justify-center lg:justify-end">
+                    <div class="inline-flex items-center gap-3 bg-slate-900/80 border border-white/[0.08] backdrop-blur-sm rounded-2xl px-5 py-3 text-sm text-slate-300">
+                        <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow"></span>
+                        Доступен на тарифе Базовый и выше
+                    </div>
+                </div>
             </div>
 
         </div>
