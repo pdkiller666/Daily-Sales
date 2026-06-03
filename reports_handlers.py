@@ -48,6 +48,84 @@ def _translit_filename(text: str) -> str:
     result = re.sub(r'_+', '_', result).strip('_')
     return result or 'report'
 
+def _build_report_pages(text: str, max_len: int = 3800) -> list:
+    """Split report text into Telegram-safe pages at newline boundaries."""
+    if len(text) <= max_len:
+        return [text]
+    pages = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_len:
+            pages.append(remaining)
+            break
+        cut = remaining.rfind('\n', 0, max_len)
+        if cut <= 0:
+            cut = max_len
+        pages.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip('\n')
+    return pages or [text]
+
+
+def _report_page_markup(page_idx: int, total: int,
+                         extra_btns: list, back_cb: str = "reports") -> InlineKeyboardMarkup:
+    """Build markup with prev/next navigation + extra buttons + back."""
+    builder = InlineKeyboardBuilder()
+    if total > 1:
+        nav = []
+        if page_idx > 0:
+            nav.append(InlineKeyboardButton(text="◀️ Пред.", callback_data="rep_pg_prev"))
+        nav.append(InlineKeyboardButton(
+            text=f"📄 {page_idx + 1}/{total}", callback_data="rep_pg_noop"))
+        if page_idx < total - 1:
+            nav.append(InlineKeyboardButton(text="▶️ След.", callback_data="rep_pg_next"))
+        builder.row(*nav)
+    if len(extra_btns) == 2:
+        builder.row(*extra_btns)
+    else:
+        for btn in extra_btns:
+            builder.row(btn)
+    builder.row(back_button(back_cb))
+    return builder.as_markup()
+
+
+async def _show_report_page(message, state: FSMContext, page_idx: int) -> None:
+    """Display a specific report page using pages stored in FSM state."""
+    data = await state.get_data()
+    pages: list = data.get('rpt_pages', [])
+    extra_raw: list = data.get('rpt_extra_btns', [])
+    back_cb: str = data.get('rpt_back_cb', 'reports')
+    if not pages or not (0 <= page_idx < len(pages)):
+        return
+    await state.update_data(rpt_page=page_idx)
+    extra_btns = [
+        InlineKeyboardButton(text=b['text'], callback_data=b['cb']) for b in extra_raw
+    ]
+    markup = _report_page_markup(page_idx, len(pages), extra_btns, back_cb)
+    try:
+        await message.edit_text(pages[page_idx], reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@reports_router.callback_query(F.data == "rep_pg_next")
+async def rep_page_next(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    await _show_report_page(callback.message, state, data.get('rpt_page', 0) + 1)
+
+
+@reports_router.callback_query(F.data == "rep_pg_prev")
+async def rep_page_prev(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    await _show_report_page(callback.message, state, data.get('rpt_page', 0) - 1)
+
+
+@reports_router.callback_query(F.data == "rep_pg_noop")
+async def rep_page_noop(callback: CallbackQuery):
+    await callback.answer()
+
+
 @reports_router.callback_query(F.data == "analytics_hub")
 async def analytics_hub_handler(callback: CallbackQuery, state: FSMContext):
     """Хаб аналитики: отчёты + рейтинги"""
@@ -324,20 +402,12 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
     sorted_categories = sorted(categories.items(), key=lambda x: x[1]['total'], reverse=True)
     message_text += "📦 <b>По категориям:</b>\n"
     for i, (category, cat_data) in enumerate(sorted_categories, 1):
-        if len(message_text) > 3500:
-            remaining = len(sorted_categories) - i + 1
-            message_text += f"<i>···  ещё {remaining} кат. — скачайте Excel</i>\n"
-            break
         message_text += f"{i}. {he(category)}: {format_currency(cat_data['total'])}\n"
 
     # Все магазины
     sorted_shops = sorted(shops_data.items(), key=lambda x: x[1], reverse=True)
     message_text += "\n🏪 <b>По магазинам:</b>\n"
     for i, (shop, total) in enumerate(sorted_shops, 1):
-        if len(message_text) > 3500:
-            remaining = len(sorted_shops) - i + 1
-            message_text += f"<i>···  ещё {remaining} маг. — скачайте Excel</i>\n"
-            break
         message_text += f"{i}. {he(shop)}: {format_currency(total)}\n"
 
     # По продавцам
@@ -345,22 +415,19 @@ async def report_full(callback: CallbackQuery, state: FSMContext):
         message_text += "\n👤 <b>По продавцам:</b>\n"
         for i, (seller_name, sdata) in enumerate(
                 sorted(sellers_data_full.items(), key=lambda x: x[1]['total'], reverse=True), 1):
-            if len(message_text) > 3700:
-                message_text += "<i>···  остальные продавцы в Excel</i>\n"
-                break
             message_text += f"{i}. {he(seller_name)}: {sdata['quantity']} шт. — {format_currency(sdata['total'])}\n"
 
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_full"))
-    builder.add(InlineKeyboardButton(text="📄 Скачать PDF", callback_data="download_pdf_full"))
-    builder.add(back_button("reports"))
-    builder.adjust(2, 1)
-
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
+    extra_btns = [
+        InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_full"),
+        InlineKeyboardButton(text="📄 Скачать PDF", callback_data="download_pdf_full"),
+    ]
+    pages = _build_report_pages(message_text)
+    await state.update_data(
+        rpt_pages=pages, rpt_page=0,
+        rpt_extra_btns=[{"text": b.text, "cb": b.callback_data} for b in extra_btns],
+        rpt_back_cb="reports",
     )
+    await _show_report_page(callback.message, state, 0)
 
 MONTHS_RU = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
@@ -599,9 +666,6 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
     message_text += f"• Магазинов: {len(shops_data)}\n\n"
 
     for shop_name in sorted(shops_data.keys()):
-        if len(message_text) > 3600:
-            message_text += "<i>···  ещё магазины скрыты — скачайте Excel для полной детализации</i>\n"
-            break
         shop_data = shops_data[shop_name]
         message_text += f"🏪 <b>{he(shop_name)}</b>\n"
         message_text += f"• Продано: {shop_data['shop_quantity']} шт. — {format_currency(shop_data['shop_total'])}\n"
@@ -612,22 +676,17 @@ async def report_my_shop(callback: CallbackQuery, state: FSMContext):
                 sorted_products = sorted(cat_data['products'].items(),
                                          key=lambda x: x[1]['total'], reverse=True)
                 for product_name, product_data in sorted_products:
-                    if len(message_text) > 3700:
-                        message_text += "     <i>···  остальные товары в Excel</i>\n"
-                        break
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
 
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_user"))
-    builder.add(back_button("reports"))
-    builder.adjust(1)
-
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
+    extra_btns = [InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_user")]
+    pages = _build_report_pages(message_text)
+    await state.update_data(
+        rpt_pages=pages, rpt_page=0,
+        rpt_extra_btns=[{"text": b.text, "cb": b.callback_data} for b in extra_btns],
+        rpt_back_cb="reports",
     )
+    await _show_report_page(callback.message, state, 0)
 
 @reports_router.callback_query(F.data == "report_my_month")
 async def report_my_month(callback: CallbackQuery, state: FSMContext):
@@ -1035,9 +1094,6 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     message_text += "\n"
 
     for shop_name_key in sorted(shops_data.keys()):
-        if len(message_text) > 3600:
-            message_text += "<i>···  ещё магазины скрыты — скачайте Excel для полной детализации</i>\n"
-            break
         shop_data = shops_data[shop_name_key]
         message_text += f"🏪 <b>{he(shop_name_key)}</b>\n"
         message_text += f"• Продано: {shop_data['shop_quantity']} шт. — {format_currency(shop_data['shop_total'])}\n"
@@ -1048,9 +1104,6 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
                 sorted_products = sorted(cat_data['products'].items(),
                                          key=lambda x: x[1]['total'], reverse=True)
                 for product_name, product_data in sorted_products:
-                    if len(message_text) > 3700:
-                        message_text += "     <i>···  остальные товары в Excel</i>\n"
-                        break
                     message_text += f"     • {he(product_name)}: {product_data['quantity']} шт. — {format_currency(product_data['total'])}\n"
         message_text += "\n"
 
@@ -1058,26 +1111,23 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
     if sellers_data and (len(sellers_data) > 1 or is_admin):
         message_text += "👤 <b>По продавцам:</b>\n"
         for seller_name, sdata in sorted(sellers_data.items(), key=lambda x: x[1]['total'], reverse=True):
-            if len(message_text) > 3700:
-                message_text += "<i>···  остальные продавцы в Excel</i>\n"
-                break
             message_text += f"  • {he(seller_name)}: {sdata['quantity']} шт. — {format_currency(sdata['total'])}\n"
         message_text += "\n"
 
     await state.update_data(excel_start=start_date, excel_end=end_date, excel_shop=shop_name)
-
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_period"))
-    builder.add(back_button("reports"))
-    builder.adjust(1)
-
-    await callback.message.edit_text(
-        message_text,
-        reply_markup=builder.as_markup(),
-        parse_mode="HTML"
+    extra_btns = [InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_period")]
+    pages = _build_report_pages(message_text)
+    await state.update_data(
+        rpt_pages=pages, rpt_page=0,
+        rpt_extra_btns=[{"text": b.text, "cb": b.callback_data} for b in extra_btns],
+        rpt_back_cb="reports",
     )
+    await _show_report_page(callback.message, state, 0)
 
-    await clear_state_keep_org(state, extra_keys=['excel_start', 'excel_end', 'excel_shop'])
+    await clear_state_keep_org(state, extra_keys=[
+        'excel_start', 'excel_end', 'excel_shop',
+        'rpt_pages', 'rpt_page', 'rpt_extra_btns', 'rpt_back_cb',
+    ])
 
 @reports_router.callback_query(F.data == "period_report_all")
 async def period_report_all(callback: CallbackQuery, state: FSMContext):
