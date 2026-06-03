@@ -1071,15 +1071,6 @@ function mainApp() {
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
 
-            /* DIAGNOSTIC: catch exactly who sets editNavOpen to true */
-            this.$watch('editNavOpen', (val) => {
-                if (val) {
-                    const stack = new Error('editNavOpen→true').stack || 'no stack';
-                    dsLog('🔴 editNavOpen SET TRUE:\n' + stack);
-                    console.trace('🔴 editNavOpen SET TRUE');
-                }
-            });
-
                 /* 4. bfcache fallback: if the page IS restored from bfcache
                despite the unload guard below, force-close all sheets.
                We use Alpine.$data() so reactivity fires correctly even

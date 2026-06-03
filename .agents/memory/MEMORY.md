@@ -14,5 +14,6 @@
 - [Internal org chat module](chat-module.md) — shop_bot.db для плана, my_db_id (не user.db_id), rate limits, gating via chat_min_plan, topics planned next
 - [aiohttp/aiogram совместимость](aiohttp-aiogram-compat.md) — aiogram 3.20 требует aiohttp<3.12; 3.12.x ломает Amvera-сборку; фиксировать aiohttp==3.11.18
 - [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes
+- [Alpine CSP unsafe-eval](alpine-csp-unsafe-eval.md) — Alpine.js 3 needs 'unsafe-eval' in CSP script-src; without it every x-* eval is blocked → 30 "Script error. @?:0" → Alpine dead, x-cloak removed but x-show never applied
 - [PostgreSQL migration plan](postgres-migration.md) — поэтапный план SQLite→PG: schema-per-org, asyncpg, dual-write, 279 методов; начинать при ≥30 платящих оргов или реальном lock-contention
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
