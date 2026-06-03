@@ -968,6 +968,7 @@ function mainApp() {
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
         selectedSlot: null,
+        _initReady: false,
         userRole: '{{ user.role if user else "user" }}',
 
         init() {
@@ -994,6 +995,12 @@ function mainApp() {
             /* 3. Notification badge — initial poll + interval */
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
+
+            /* 4. Guard against phantom touch events from Telegram in-app browser.
+               Telegram's WebView can pass the tap that opened the web page into the
+               page itself, accidentally opening a bottom sheet. Block all sheet opens
+               for 700 ms after page init. */
+            setTimeout(() => { this._initReady = true; }, 700);
         },
 
         get availableItems() {
@@ -1018,8 +1025,15 @@ function mainApp() {
             return !this.navItems.some(item => this.isNavActive(item));
         },
 
+        /* ── More sheet ── */
+        openMore() {
+            if (!this._initReady) return;
+            this.moreOpen = true;
+        },
+
         /* ── Nav Editor ── */
         openEditNav() {
+            if (!this._initReady) return;
             this.editSlots = this.navCfg.slice();
             this.selectedSlot = null;
             this.editNavOpen = true;
@@ -1690,7 +1704,7 @@ function mainApp() {
                 <span class="bnav-label" x-text="item.label"></span>
             </a>
         </template>
-        <button @click="moreOpen=true"
+        <button @click="openMore()"
                 class="bnav-item"
                 :class="moreActive ? 'bn-active' : ''">
             <span class="bnav-icon" style="font-size:1.1rem">☰</span>
