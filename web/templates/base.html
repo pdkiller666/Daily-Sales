@@ -963,22 +963,25 @@ function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] 
     window.addEventListener('load', function() {
         const panel = document.createElement('div');
         panel.id = '_ds_debug_panel';
-        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#0f172a;color:#94a3b8;font-size:10px;font-family:monospace;max-height:45vh;overflow-y:auto;padding:8px;border-top:2px solid #2563eb';
+        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#0f172a;color:#94a3b8;font-size:11px;font-family:monospace;height:55vh;display:flex;flex-direction:column;border-top:3px solid #2563eb';
         const hdr = document.createElement('div');
-        hdr.style.cssText = 'color:#60a5fa;font-weight:bold;margin-bottom:4px;display:flex;justify-content:space-between';
-        hdr.innerHTML = '<span>🐛 DS Debug Log</span><span style="cursor:pointer" onclick="dsLogClear();document.getElementById(\'_ds_debug_panel\').remove()">✕ clear</span>';
+        hdr.style.cssText = 'color:#60a5fa;font-weight:bold;padding:6px 8px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #1e3a5f;flex-shrink:0';
+        hdr.innerHTML = '<span style="flex:1">🐛 DS Log</span>'
+            + '<button style="background:#1e40af;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(dsLogDump().join(\'\\n\')).then(()=>alert(\'Скопировано!\'))">📋 Копировать</button>'
+            + '<button style="background:#7f1d1d;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" onclick="dsLogClear()">🗑️ Очистить</button>'
+            + '<button style="background:#374151;color:#fff;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" onclick="document.getElementById(\'_ds_debug_panel\').remove()">✕</button>';
         panel.appendChild(hdr);
+        const pre = document.createElement('pre');
+        pre.id = '_ds_log_pre';
+        pre.style.cssText = 'margin:0;padding:6px 8px;white-space:pre-wrap;word-break:break-all;overflow-y:auto;flex:1;font-size:10px';
+        panel.appendChild(pre);
         function render() {
-            const pre = document.getElementById('_ds_log_pre') || document.createElement('pre');
-            pre.id = '_ds_log_pre';
-            pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-all';
             const arr = JSON.parse(localStorage.getItem(_DS_LOG_KEY) || '[]');
-            pre.textContent = arr.slice(-50).join('\n');
-            if (!pre.parentNode) panel.appendChild(pre);
+            pre.textContent = arr.join('\n');
             pre.scrollTop = pre.scrollHeight;
         }
         render();
-        setInterval(render, 1000);
+        setInterval(render, 800);
         document.body.appendChild(panel);
     });
 })();
