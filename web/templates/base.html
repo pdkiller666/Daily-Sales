@@ -528,7 +528,7 @@ function toastMgr() {
                                 <span class="text-base shrink-0 mt-0.5"
                                       x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
                                 <div class="flex-1 min-w-0">
-                                    <p class="text-xs text-slate-700 leading-snug" x-text="n.message"></p>
+                                    <p class="text-xs text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                                     <p class="text-[10px] text-slate-400 mt-0.5" x-text="n.created_at"></p>
                                 </div>
                             </div>
@@ -791,6 +791,11 @@ window.dsToggleDark = function () {
     localStorage.setItem('ds_dark', isDark ? '1' : '0');
     _dsApplyDark(isDark);
 };
+
+function stripHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/<[^>]*>/g, '');
+}
 
 /* Sync icon and toggle on load */
 _dsApplyDark(document.documentElement.classList.contains('dark'));
@@ -1508,7 +1513,7 @@ function mainApp() {
                 <span class="text-xl shrink-0 mt-0.5"
                       x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm text-slate-700 leading-snug" x-text="n.message"></p>
+                    <p class="text-sm text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                     <p class="text-xs text-slate-400 mt-1" x-text="n.created_at"></p>
                 </div>
             </div>
