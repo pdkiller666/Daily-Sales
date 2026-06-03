@@ -140,7 +140,7 @@
                     {% if c.spreadsheet_id %}
                     <p class="text-xs text-slate-400 mt-0.5 font-mono truncate">ID: {{ c.spreadsheet_id }}</p>
                     {% endif %}
-                    <p class="text-xs text-slate-400 whitespace-nowrap">Создано {{ c.created_at[:10] if c.created_at else '—' }} · {{ exports|length }} правил экспорта</p>
+                    <p class="text-xs text-slate-400 whitespace-nowrap">Создано {{ c.created_at|fmt_date if c.created_at else '—' }} · {{ exports|length }} правил экспорта</p>
                 </div>
             </div>
 
@@ -217,7 +217,7 @@
                                  {% elif l.status == 'error' %}bg-red-400
                                  {% else %}bg-slate-300{% endif %}">
                     </span>
-                    <span class="text-slate-400 shrink-0">{{ l.created_at }}</span>
+                    <span class="text-slate-400 shrink-0">{{ l.created_at|fmt_datetime }}</span>
                     <span class="{% if l.status == 'error' %}text-red-600{% else %}text-slate-600{% endif %}">
                         {{ l.message }}
                     </span>

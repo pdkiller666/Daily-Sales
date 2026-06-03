@@ -105,7 +105,7 @@
                     </span>
                 </td>
                 <td class="px-4 py-3 font-semibold text-slate-800 tabular-nums">{{ p.amount | fmt_currency }}</td>
-                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ p.created_at }}</td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ p.created_at|fmt_datetime }}</td>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
                         <!-- Confirm -->
@@ -183,8 +183,8 @@
                     </span>
                     {% endif %}
                 </td>
-                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.created_at }}</td>
-                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.processed_at }}</td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.created_at|fmt_datetime }}</td>
+                <td class="px-4 py-3 text-slate-500 tabular-nums">{{ h.processed_at|fmt_datetime }}</td>
                 <td class="px-4 py-3 text-slate-500">{{ h.admin_name }}</td>
             </tr>
             {% endfor %}

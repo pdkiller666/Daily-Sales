@@ -98,7 +98,7 @@
                                 </svg>
                             </button>
                         </div>
-                        <p class="text-xs text-slate-400 mt-0.5">создан {{ p.created_at }}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">создан {{ p.created_at|fmt_datetime }}</p>
                     </td>
                     <td class="px-4 py-3 text-right hidden sm:table-cell">
                         <span class="font-semibold {% if p.discount_type == 'percent' %}text-blue-600{% else %}text-indigo-600{% endif %}">

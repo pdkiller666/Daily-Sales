@@ -149,7 +149,13 @@ def _fmt_msg(row) -> dict:
     initial = (display[0] if display else "?").upper()
     has_file = bool(file_path)
     is_image = file_type.startswith("image/") if file_type else False
-    ts = str(created_at or "")[:16].replace("T", " ")
+    raw = str(created_at or "")[:16].replace("T", " ")
+    try:
+        d, t = raw.split(" ")
+        y, mo, day = d.split("-")
+        ts = f"{day}.{mo}.{y} {t}"
+    except Exception:
+        ts = raw
     return {
         "id": mid,
         "user_id": user_id,

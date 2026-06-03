@@ -68,6 +68,19 @@ def _fmt_date(s: str) -> str:
         return str(s)
 
 
+def _fmt_datetime(s: str) -> str:
+    """2026-06-03 11:10:45  →  03.06.2026 11:10"""
+    if not s:
+        return ""
+    try:
+        raw = str(s)[:16].replace("T", " ")
+        parts = raw.split(" ")
+        d = _fmt_date(parts[0])
+        return f"{d} {parts[1]}" if len(parts) > 1 else d
+    except Exception:
+        return str(s)
+
+
 def _fmt_currency(amount) -> str:
     try:
         v = int(float(amount or 0))
@@ -177,6 +190,7 @@ def create_web_app() -> FastAPI:
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     templates.env.filters['fmt_date'] = _fmt_date
+    templates.env.filters['fmt_datetime'] = _fmt_datetime
     templates.env.filters['fmt_currency'] = _fmt_currency
 
     import bot_holder

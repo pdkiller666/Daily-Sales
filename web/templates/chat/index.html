@@ -223,9 +223,7 @@ const _chatTopics = {{ topics | tojson }};
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto">{{ msg.initial }}</div>
                 {% endif %}
                 <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
-                    {% if msg.user_id != my_db_id %}
-                    <p class="text-[10px] font-semibold text-blue-600 mb-1">{{ msg.display_name }}</p>
-                    {% endif %}
+                    <p class="text-[10px] font-semibold mb-1 {% if msg.user_id == my_db_id %}text-white/70{% else %}text-blue-600{% endif %}">{{ msg.display_name }}</p>
                     {% if msg.message %}
                     <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ msg.message }}</p>
                     {% endif %}
@@ -267,9 +265,9 @@ const _chatTopics = {{ topics | tojson }};
                          x-text="msg.initial"></div>
                 </template>
                 <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
-                    <template x-if="msg.user_id !== myUserId">
-                        <p class="text-[10px] font-semibold text-blue-600 mb-1" x-text="msg.display_name"></p>
-                    </template>
+                    <p class="text-[10px] font-semibold mb-1"
+                       :class="msg.user_id === myUserId ? 'text-white/70' : 'text-blue-600'"
+                       x-text="msg.display_name"></p>
                     <template x-if="msg.message">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
                     </template>

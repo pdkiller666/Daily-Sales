@@ -65,7 +65,7 @@
                             <td class="px-5 py-3">
                                 <p class="font-medium text-slate-800">{{ m.product_name }}</p>
                                 {% if m.set_by != '—' %}
-                                <p class="text-xs text-slate-400">{{ m.set_by }} · {{ m.created_at }}</p>
+                                <p class="text-xs text-slate-400">{{ m.set_by }} · {{ m.created_at|fmt_datetime }}</p>
                                 {% endif %}
                             </td>
                             <td class="px-3 py-3 text-center">

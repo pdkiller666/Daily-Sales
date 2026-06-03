@@ -449,7 +449,7 @@
                 <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">{{ h.type }}</span>
                 {% endif %}
                 <p class="text-sm text-slate-700 leading-snug mt-0.5">{{ h.message|safe }}</p>
-                <p class="text-xs text-slate-400 mt-1">{{ h.created_at }}</p>
+                <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_datetime }}</p>
             </div>
         </div>
         {% endfor %}

@@ -289,7 +289,7 @@
             <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
                 <div class="flex-1 min-w-0">
                     <p class="text-sm text-slate-700 truncate">{{ adj[2] or 'Без комментария' }}</p>
-                    <p class="text-xs text-slate-400">{{ (adj[4] or '')[:10] }} · {{ adj[5] or '' }}</p>
+                    <p class="text-xs text-slate-400">{{ adj[4]|fmt_date }} · {{ adj[5] or '' }}</p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0 ml-3">
                     <span class="font-semibold text-sm {% if adj[1] >= 0 %}text-emerald-600{% else %}text-red-500{% endif %}">

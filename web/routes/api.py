@@ -52,7 +52,7 @@ def sales_feed(request: Request, since: str = ""):
                 "id": r[0],
                 "product": r[1] or "Товар",
                 "total": int(r[2] or 0),
-                "created_at": r[3],
+                "created_at": (lambda s: (lambda p: f"{p[2]}.{p[1]}.{p[0]}")(s[:10].split("-")) if s and len(s) >= 10 else (s or ""))(str(r[3] or "")),
                 "seller": r[4] or "",
                 "shop": r[5] or "",
             }
@@ -111,7 +111,7 @@ def my_notifications(request: Request, limit: int = 20):
                 "type": r[1] or "admin",
                 "message": r[2] or "",
                 "is_read": bool(r[3]),
-                "created_at": str(r[4] or "")[:16],
+                "created_at": (lambda s: f"{s[8:10]}.{s[5:7]}.{s[:4]} {s[11:16]}" if s and len(s) >= 16 else s)(str(r[4] or "").replace("T"," ")),
             }
             for r in rows
         ]
