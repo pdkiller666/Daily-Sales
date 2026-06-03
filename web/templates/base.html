@@ -1941,12 +1941,6 @@ function mainApp() {
 </script>
 {% endif %}
 
-<script>
-/* Opt-out of bfcache so Alpine state is never restored from a frozen snapshot.
-   An empty unload listener is the standard Chrome/Android mechanism to ensure
-   the page is always freshly loaded (and init() always runs) on every visit. */
-window.addEventListener('unload', function () {});
-</script>
 
 </body>
 </html>
