@@ -100,7 +100,7 @@
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden lg:table-cell">Выручка/мес.</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50" id="stf-tbody">
                 {% for s in staff %}
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
                     onclick="window.location='/staff/{{ s.id }}'">
@@ -142,6 +142,20 @@
             </tbody>
         </table>
     </div>
+    <!-- Staff pagination -->
+    <div id="stf-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+        <span id="stf-pager-info"></span>
+        <div class="flex items-center gap-1">
+            <button id="stf-pager-prev" onclick="stfPaginate(-1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                ← Пред.
+            </button>
+            <button id="stf-pager-next" onclick="stfPaginate(1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                След. →
+            </button>
+        </div>
+    </div>
     {% else %}
     <div class="py-16 text-center text-slate-400">
         <p class="text-5xl mb-3">👥</p>
@@ -157,3 +171,28 @@
 {% endblock %}
 
 {% block footer_info %}{{ total_count }} сотрудников{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const PAGE = 10;
+    const rows = Array.from(document.querySelectorAll('#stf-tbody tr'));
+    if (rows.length <= PAGE) return;
+    let cur = 0;
+    const total = Math.ceil(rows.length / PAGE);
+    const pager = document.getElementById('stf-pager');
+    const info  = document.getElementById('stf-pager-info');
+    const prev  = document.getElementById('stf-pager-prev');
+    const next  = document.getElementById('stf-pager-next');
+    pager.classList.remove('hidden');
+    function render() {
+        rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + rows.length + ' записей';
+        prev.disabled = cur === 0;
+        next.disabled = cur === total - 1;
+    }
+    window.stfPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
+    render();
+})();
+</script>
+{% endblock %}

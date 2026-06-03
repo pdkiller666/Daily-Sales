@@ -172,7 +172,7 @@
                     {% endif %}
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50" id="shp-tbody">
                 {% for shop in shops %}
                 {# shop: (name[0], user_count[1], inventory_items[2], out_of_stock[3], low_stock[4]) #}
                 <tr class="hover:bg-slate-50/70 transition-colors">
@@ -244,6 +244,20 @@
             </tbody>
         </table>
     </div>
+    <!-- Shops pagination -->
+    <div id="shp-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+        <span id="shp-pager-info"></span>
+        <div class="flex items-center gap-1">
+            <button id="shp-pager-prev" onclick="shpPaginate(-1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                ← Пред.
+            </button>
+            <button id="shp-pager-next" onclick="shpPaginate(1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                След. →
+            </button>
+        </div>
+    </div>
 
     {% else %}
     <div class="py-16 text-center text-slate-400">
@@ -309,3 +323,28 @@ document.addEventListener('keydown', function(e) {
 {% endblock %}
 
 {% block footer_info %}{{ shops|length }} маг.{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const PAGE = 10;
+    const rows = Array.from(document.querySelectorAll('#shp-tbody tr'));
+    if (rows.length <= PAGE) return;
+    let cur = 0;
+    const total = Math.ceil(rows.length / PAGE);
+    const pager = document.getElementById('shp-pager');
+    const info  = document.getElementById('shp-pager-info');
+    const prev  = document.getElementById('shp-pager-prev');
+    const next  = document.getElementById('shp-pager-next');
+    pager.classList.remove('hidden');
+    function render() {
+        rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + rows.length + ' магазинов';
+        prev.disabled = cur === 0;
+        next.disabled = cur === total - 1;
+    }
+    window.shpPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
+    render();
+})();
+</script>
+{% endblock %}

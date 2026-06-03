@@ -62,7 +62,7 @@
                 <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Действия</th>
             </tr>
         </thead>
-        <tbody class="divide-y divide-slate-50">
+        <tbody class="divide-y divide-slate-50" id="cat-tbody">
             {% for cat in categories %}
             <tr class="hover:bg-slate-50/60 transition-colors">
                 <td class="px-5 py-3">
@@ -93,6 +93,20 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
+    <!-- Categories pagination -->
+    <div id="cat-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+        <span id="cat-pager-info"></span>
+        <div class="flex items-center gap-1">
+            <button id="cat-pager-prev" onclick="catPaginate(-1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                ← Пред.
+            </button>
+            <button id="cat-pager-next" onclick="catPaginate(1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                След. →
+            </button>
+        </div>
     </div>
 
     <!-- Rename modal -->
@@ -214,6 +228,27 @@
 
 {% block extra_js %}
 <script>
+(function () {
+    const PAGE = 10;
+    const rows = Array.from(document.querySelectorAll('#cat-tbody tr'));
+    if (rows.length <= PAGE) return;
+    let cur = 0;
+    const total = Math.ceil(rows.length / PAGE);
+    const pager = document.getElementById('cat-pager');
+    const info  = document.getElementById('cat-pager-info');
+    const prev  = document.getElementById('cat-pager-prev');
+    const next  = document.getElementById('cat-pager-next');
+    pager.classList.remove('hidden');
+    function render() {
+        rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + rows.length + ' категорий';
+        prev.disabled = cur === 0;
+        next.disabled = cur === total - 1;
+    }
+    window.catPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
+    render();
+})();
+
 function catManager() {
     return {
         renameOpen: false,

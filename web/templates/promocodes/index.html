@@ -85,7 +85,7 @@
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Действия</th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50" id="promo-tbody">
                 {% for p in promocodes %}
                 <tr class="hover:bg-slate-50/60 transition-colors {% if not p.is_active %}opacity-60{% endif %}">
                     <td class="px-5 py-3">
@@ -149,6 +149,20 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+    <!-- Promocodes pagination -->
+    <div id="promo-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+        <span id="promo-pager-info"></span>
+        <div class="flex items-center gap-1">
+            <button id="promo-pager-prev" onclick="promoPaginate(-1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                ← Пред.
+            </button>
+            <button id="promo-pager-next" onclick="promoPaginate(1)"
+                    class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                След. →
+            </button>
+        </div>
     </div>
 </div>
 {% else %}
@@ -278,3 +292,28 @@
 
 {% endblock %}
 {% block footer_info %}Промокоды: {{ promocodes|length }}{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const PAGE = 10;
+    const rows = Array.from(document.querySelectorAll('#promo-tbody tr'));
+    if (rows.length <= PAGE) return;
+    let cur = 0;
+    const total = Math.ceil(rows.length / PAGE);
+    const pager = document.getElementById('promo-pager');
+    const info  = document.getElementById('promo-pager-info');
+    const prev  = document.getElementById('promo-pager-prev');
+    const next  = document.getElementById('promo-pager-next');
+    pager.classList.remove('hidden');
+    function render() {
+        rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + rows.length + ' промокодов';
+        prev.disabled = cur === 0;
+        next.disabled = cur === total - 1;
+    }
+    window.promoPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
+    render();
+})();
+</script>
+{% endblock %}

@@ -68,7 +68,7 @@
 </div>
 
 {% if contests %}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="cst-grid">
     {% for c in contests %}
     <div class="card p-5 {% if selected_contest and selected_contest.id == c.id %}ring-2 ring-blue-500{% endif %}">
 
@@ -174,6 +174,20 @@
         {% endif %}
     </div>
     {% endfor %}
+</div>
+<!-- Contests pagination -->
+<div id="cst-pager" class="mt-3 px-1 py-3 flex items-center justify-between text-sm text-slate-500 hidden">
+    <span id="cst-pager-info"></span>
+    <div class="flex items-center gap-1">
+        <button id="cst-pager-prev" onclick="cstPaginate(-1)"
+                class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors bg-white">
+            ← Пред.
+        </button>
+        <button id="cst-pager-next" onclick="cstPaginate(1)"
+                class="px-3 py-1 rounded-lg border border-slate-200 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors bg-white">
+            След. →
+        </button>
+    </div>
 </div>
 
 <!-- Leaderboard panel -->
@@ -294,3 +308,28 @@
 {% endblock %}
 
 {% block footer_info %}{{ contests|length }} конкурсов{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const PAGE = 10;
+    const items = Array.from(document.querySelectorAll('#cst-grid > div'));
+    if (items.length <= PAGE) return;
+    let cur = 0;
+    const total = Math.ceil(items.length / PAGE);
+    const pager = document.getElementById('cst-pager');
+    const info  = document.getElementById('cst-pager-info');
+    const prev  = document.getElementById('cst-pager-prev');
+    const next  = document.getElementById('cst-pager-next');
+    pager.classList.remove('hidden');
+    function render() {
+        items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + items.length + ' конкурсов';
+        prev.disabled = cur === 0;
+        next.disabled = cur === total - 1;
+    }
+    window.cstPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
+    render();
+})();
+</script>
+{% endblock %}
