@@ -1000,6 +1000,32 @@ function mainApp() {
                phantom touch events from Telegram WebView pass-through. */
             setTimeout(() => { this._initReady = true; }, 700);
 
+            /* DEBUG — remove after root cause found */
+            this.$watch('editNavOpen', (val, old) => {
+                if (val && !old) {
+                    const ts = new Date().toISOString();
+                    const rdy = this._initReady;
+                    const stack = (new Error().stack || '').split('\n').slice(1, 5).join(' ▸ ');
+                    const msg = '[DS] editNavOpen→true | rdy=' + rdy + ' | ' + ts + '\n' + stack;
+                    try { localStorage.setItem('_ds_debug_nav', msg); } catch(_) {}
+                    const b = document.createElement('div');
+                    b.id = '_ds_debug_nav_banner';
+                    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font-size:11px;padding:8px 10px;word-break:break-all;font-family:monospace;white-space:pre-wrap;pointer-events:none';
+                    b.textContent = msg;
+                    document.body.appendChild(b);
+                    setTimeout(() => b.remove(), 60000);
+                }
+            });
+            this.$watch('moreOpen', (val, old) => {
+                if (val && !old) {
+                    const ts = new Date().toISOString();
+                    const rdy = this._initReady;
+                    const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' ▸ ');
+                    const msg = '[DS] moreOpen→true | rdy=' + rdy + ' | ' + ts + '\n' + stack;
+                    try { localStorage.setItem('_ds_debug_more', msg); } catch(_) {}
+                }
+            });
+
             /* 5. bfcache fix: Telegram WebView restores the JS state (including
                open sheets) when the user reopens the app after backgrounding.
                When pageshow fires with e.persisted=true we close all sheets. */
