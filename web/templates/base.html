@@ -1180,9 +1180,17 @@ function mainApp() {
         },
 
         get navItems() {
-            return this.navCfg
+            const items = this.navCfg
                 .map(key => DS_NAV_ALL.find(i => i.key === key))
                 .filter(Boolean);
+            /* Fallback: if no valid items found (e.g. stale/invalid keys in DB),
+               show default nav so the bottom bar is never empty. */
+            if (!items.length) {
+                return DS_NAV_DEFAULTS
+                    .map(key => DS_NAV_ALL.find(i => i.key === key))
+                    .filter(Boolean);
+            }
+            return items;
         },
 
         isNavActive(item) {
