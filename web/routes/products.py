@@ -55,8 +55,19 @@ PREVIEW_PAGE_SIZE = 20  # rows per preview page
 PRODUCTS_PAGE_SIZE = 50  # rows per products list page
 
 # In-memory import session store — bound to user:
-# {session_id: {"telegram_id": int, "items": [...], "skipped": int}}
+# {session_id: {"telegram_id": int, "items": [...], "skipped": int, "_ts": float}}
 _import_sessions: dict[str, dict] = {}
+_IMPORT_SESSION_TTL = 3600  # 1 hour
+
+
+def _cleanup_import_sessions() -> None:
+    """Evict import sessions older than TTL to prevent unbounded memory growth."""
+    import time as _time
+    now = _time.time()
+    stale = [k for k, v in _import_sessions.items()
+             if now - v.get("_ts", 0) > _IMPORT_SESSION_TTL]
+    for k in stale:
+        _import_sessions.pop(k, None)
 
 
 @router.get("/products")
@@ -268,12 +279,15 @@ async def products_import_upload(
             "Убедитесь, что столбцы: A=Название, B=Категория, C=Цена (число > 0)."
         )
 
+    _cleanup_import_sessions()  # evict stale sessions before creating a new one
+    import time as _time
     session_id = str(_uuid.uuid4())
     # Bind session to the authenticated user's telegram_id
     _import_sessions[session_id] = {
         "telegram_id": telegram_id,
         "items": valid,
         "skipped": skipped,
+        "_ts": _time.time(),
     }
 
     return RedirectResponse(

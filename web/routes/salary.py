@@ -488,6 +488,9 @@ def salary_adj_add(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
+    amount = max(-1_000_000.0, min(amount, 1_000_000.0))
     try:
         db = get_web_db(telegram_id, org_db)
         creator_uid = _get_internal_uid(db, telegram_id)

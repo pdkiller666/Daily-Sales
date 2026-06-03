@@ -146,6 +146,8 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
     today = date.today()
     if not year:  year = today.year
     if not month: month = today.month
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
 
     prev_y, prev_m = _adjacent_month(year, month, -1)
     next_y, next_m = _adjacent_month(year, month, 1)
@@ -286,6 +288,15 @@ def absences_add(
     today = date.today()
     if not year:  year = today.year
     if not month: month = today.month
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
+
+    import re as _re
+    if not _re.match(r'^[a-z_]{1,50}$', atype):
+        return RedirectResponse(
+            url=f"/absences?year={year}&month={month}&msg=invalid_type",
+            status_code=302,
+        )
 
     try:
         db = get_web_db(telegram_id, org_db)
