@@ -428,6 +428,15 @@ async def products_create(
             "error": err, "is_edit": False,
         })
 
+    # Subscription limit: enforce product cap in web layer (mirrors bot check_product_limit)
+    try:
+        from subscription_utils import check_product_limit
+        _ok, _msg = check_product_limit(telegram_id)
+        if not _ok:
+            return _re_render(_msg or "Достигнут лимит товаров по вашему тарифу.")
+    except Exception:
+        pass
+
     name_clean = name.strip()
     if not name_clean:
         return _re_render("Введите название товара.")

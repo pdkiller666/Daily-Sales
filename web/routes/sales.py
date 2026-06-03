@@ -407,6 +407,16 @@ def sales_create(
         if quantity < 1:
             return RedirectResponse(url="/sales?error=Неверное+количество", status_code=302)
 
+        # Subscription limit: enforce monthly sale cap in web layer (mirrors bot check_sales_limit)
+        try:
+            from subscription_utils import check_sales_limit
+            _ok, _msg = check_sales_limit(telegram_id)
+            if not _ok:
+                from urllib.parse import quote as _q
+                return RedirectResponse(url=f"/sales?error={_q(_msg or 'Достигнут лимит продаж по тарифу')}", status_code=302)
+        except Exception:
+            pass
+
         result = db.add_sale(
             product_id=product_id,
             shop_name=shop_name,

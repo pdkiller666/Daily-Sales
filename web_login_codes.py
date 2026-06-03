@@ -13,7 +13,7 @@ import string
 from datetime import datetime, timedelta
 
 _DB = 'data/main.db'
-_CODE_LEN = 6
+_CODE_LEN = 8
 _TTL_MINUTES = 5
 
 

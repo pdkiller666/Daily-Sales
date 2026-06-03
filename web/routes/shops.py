@@ -79,6 +79,17 @@ def shops_create(
         telegram_id = int(user["sub"])
         org_db = user.get("org_db")
         db = get_web_db(telegram_id, org_db)
+
+        # Subscription limit: enforce shop cap in web layer (mirrors bot check_shop_limit)
+        try:
+            from subscription_utils import check_shop_limit
+            _ok, _msg = check_shop_limit(telegram_id)
+            if not _ok:
+                from urllib.parse import quote as _q
+                return RedirectResponse(url=f"/shops?error={_q(_msg or 'Достигнут лимит магазинов по тарифу')}", status_code=302)
+        except Exception:
+            pass
+
         ok = db.add_shop(name_clean)
         if not ok:
             return RedirectResponse(

@@ -3047,12 +3047,12 @@ class Database:
 
                 sale_id = cursor.lastrowid
 
-                # Обновляем остатки с информацией о пользователе
+                # Атомарное обновление остатков — AND quantity >= ? предотвращает TOCTOU race condition
                 cursor.execute('''
                     UPDATE inventory 
                     SET quantity = quantity - ?, last_updated = ?
-                    WHERE shop_name = ? AND product_id = ?
-                ''', (quantity_sold, sale_date, shop_name, product_id))
+                    WHERE shop_name = ? AND product_id = ? AND quantity >= ?
+                ''', (quantity_sold, sale_date, shop_name, product_id, quantity_sold))
 
                 affected_rows = cursor.rowcount
 

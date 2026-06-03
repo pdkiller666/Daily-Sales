@@ -963,12 +963,12 @@ async def create_promocode_start(callback: CallbackQuery, state: FSMContext):
 @payment_system_router.callback_query(F.data == "gen_promo_code")
 async def gen_promo_code(callback: CallbackQuery, state: FSMContext):
     """Генерировать случайный код и перейти к шагу 2."""
-    import random, string
+    import secrets, string
     if not env_manager.is_super_admin(callback.from_user.id):
         await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
         return
     await callback.answer()
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
     await state.update_data(promocode=code)
     await _ask_discount_type(callback.message, code)
     await state.set_state(PaymentSystemStates.waiting_discount_type)
