@@ -1,7 +1,11 @@
+import logging
+import traceback
+
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_user_db_id(db, telegram_id: int) -> int | None:
@@ -45,13 +49,12 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
-
-    from timezone_utils import get_common_timezones
-    tz_choices = get_common_timezones()  # {label: zone}
+    is_super = user.get("role") == "super_admin"
 
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": is_admin,
+        "is_super": is_super,
         "csrf_token": get_csrf_token(request),
         "notif_settings": None,
         "user_db_id": None,
@@ -69,8 +72,12 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
         "invite_preset_role": None,
         "invite_preset_shop": None,
         "invite_shops": [],
+        # org info (always pre-initialised so template never sees Undefined)
+        "org_name": "—",
+        "org_plan": "—",
+        "org_plan_end": "",
         # timezone
-        "tz_choices": tz_choices,
+        "tz_choices": {},
         "current_tz": "Europe/Moscow",
         # profile
         "profile": {},
@@ -266,9 +273,17 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
     except Exception as exc:
         ctx["error"] = str(exc)
 
-    return request.app.state.templates.TemplateResponse(
-        request, "settings/index.html", ctx
-    )
+    try:
+        return request.app.state.templates.TemplateResponse(
+            request, "settings/index.html", ctx
+        )
+    except Exception as tmpl_exc:
+        logger.error("settings template error: %s\n%s", tmpl_exc, traceback.format_exc())
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(
+            f"<h1>Ошибка шаблона</h1><pre>{tmpl_exc}</pre>",
+            status_code=500
+        )
 
 
 @router.post("/settings")

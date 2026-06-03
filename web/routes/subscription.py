@@ -160,6 +160,35 @@ def subscription_page(request: Request, msg: str = ""):
         return RedirectResponse(url="/dashboard", status_code=302)
 
     telegram_id = int(user["sub"])
+
+    # Super-admin has unconditional Премиум access — no real subscription record
+    if user.get("role") == "super_admin":
+        plans = _get_all_plans()
+        for p in plans:
+            p["is_current"] = p["name"] == "Премиум"
+            p["is_upgrade"] = False
+            p["is_downgrade"] = PLAN_ORDER.index(p["name"]) < PLAN_ORDER.index("Премиум") if p["name"] in PLAN_ORDER else False
+        return request.app.state.templates.TemplateResponse(
+            request,
+            "subscription/index.html",
+            {
+                "request": request,
+                "user": user,
+                "subscription": {
+                    "plan_type": "Премиум",
+                    "start_date": "—",
+                    "end_date": "—",
+                    "is_trial": False,
+                },
+                "current_plan": "Премиум",
+                "plans": plans,
+                "history": [],
+                "has_pending": False,
+                "csrf_token": get_csrf_token(request),
+                "msg": msg,
+            },
+        )
+
     user_id = _get_user_id_in_shop_bot(telegram_id)
 
     subscription = _get_user_subscription(user_id) if user_id else None

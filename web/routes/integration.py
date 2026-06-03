@@ -23,6 +23,12 @@ def _purge_expired_device_flow() -> None:
 def _check_plan(telegram_id: int) -> tuple[bool, str]:
     """Returns (can_use_integrations, plan_name)."""
     try:
+        from env_manager import env_manager
+        if env_manager.is_super_admin(telegram_id):
+            return (True, "Премиум")
+    except Exception:
+        pass
+    try:
         conn = sqlite3.connect("data/main.db")
         cur = conn.cursor()
         cur.execute(

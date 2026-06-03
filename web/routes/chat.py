@@ -79,6 +79,12 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
 
 def _get_org_active_plan(telegram_id: int) -> str:
     try:
+        from env_manager import env_manager
+        if env_manager.is_super_admin(telegram_id):
+            return "Премиум"
+    except Exception:
+        pass
+    try:
         import sqlite3
         conn = sqlite3.connect(_SHOP_BOT_DB)
         row = conn.execute(
