@@ -125,6 +125,35 @@
 </div>
 {% endif %}
 
+<!-- Adjustments detail -->
+{% if adj_rows %}
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+            <h2 class="font-semibold text-slate-800">⚖️ Корректировки</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Бонусы и штрафы за период</p>
+        </div>
+        <span class="text-sm font-bold {{ 'text-emerald-600' if total_adj > 0 else 'text-red-500' }}">
+            {{ '+' if total_adj > 0 else '' }}{{ total_adj|int|fmt_currency }}
+        </span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% for adj in adj_rows %}
+        {# adj: id[0] amount[1] comment[2] created_by[3] created_at[4] creator_name[5] #}
+        <div class="flex items-center justify-between px-5 py-3">
+            <div class="flex-1 min-w-0">
+                <p class="text-sm text-slate-700">{{ adj[2] or 'Без комментария' }}</p>
+                <p class="text-xs text-slate-400">{{ (adj[4] or '')[:10] }}</p>
+            </div>
+            <span class="font-semibold text-sm ml-4 shrink-0 {% if adj[1] >= 0 %}text-emerald-600{% else %}text-red-500{% endif %}">
+                {% if adj[1] >= 0 %}+{% endif %}{{ adj[1]|int|fmt_currency }}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Earnings summary bar -->
 <div class="card p-4">
     <div class="flex items-center justify-between mb-3">

@@ -3,6 +3,7 @@
 Поддерживает шаблоны смен по дням недели + ручную корректировку времени на конкретный день.
 v2 — rebuild trigger
 """
+import asyncio
 import calendar as _cal
 from datetime import datetime
 from aiogram import Router, F
@@ -1035,30 +1036,42 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
     current_db = await get_db(uid, state)
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = f"{year}-{month:02d}-01"
+    month_end = f"{year}-{month:02d}-{last_day}"
     raw_summary = await current_db.get_team_salary_summary(year, month)
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
+    if summary:
+        motivation_results = await asyncio.gather(
+            *[current_db.get_seller_total_earnings(row[0], start_date=month_start, end_date=month_end)
+              for row in summary],
+            return_exceptions=True
+        )
+    else:
+        motivation_results = []
     text = f"📊 <b>Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}</b>\n\n"
     total_fot = 0
     if not summary:
         text += "❌ Нет данных"
     else:
-        for row in summary:
+        for row, earn in zip(summary, motivation_results):
             s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id, adj_sum = row
+            earn_dict = earn if isinstance(earn, dict) else {}
+            motivation = float(earn_dict.get('total_earnings', 0.0) or 0.0)
             name = he(f"{fn} {ln}".strip())
             shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
-            total_salary = salary + adj_sum
-            adj_str = ""
+            total_salary = salary + adj_sum + motivation
+            lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽"]
+            if motivation > 0:
+                lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b>")
             if adj_sum > 0:
-                adj_str = f" + бонус {format_price(adj_sum)}₽"
+                lines.append(f"   ➕ Бонус: <b>+{format_price(adj_sum)}₽</b>")
             elif adj_sum < 0:
-                adj_str = f" − штраф {format_price(abs(adj_sum))}₽"
-            text += (
-                f"👤 <b>{name}</b>{shop_str}\n"
-                f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽{adj_str}\n"
-                f"   💰 <b>Итого: {format_price(total_salary)}₽</b>\n\n"
-            )
+                lines.append(f"   ➖ Штраф: <b>−{format_price(abs(adj_sum))}₽</b>")
+            lines.append(f"   💰 <b>Итого: {format_price(total_salary)}₽</b>")
+            text += f"👤 <b>{name}</b>{shop_str}\n" + "\n".join(lines) + "\n\n"
             total_fot += total_salary
         text += f"━━━━━━━━━━━━━━━━━━\n💰 <b>Итого ФОТ: {format_price(total_fot)}₽</b>"
     prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)

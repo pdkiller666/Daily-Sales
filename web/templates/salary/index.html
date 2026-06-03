@@ -82,6 +82,7 @@
                     <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Ставка/день</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Смен</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Оклад</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Мотивация</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Корр.</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Итого</th>
                 </tr>
@@ -124,6 +125,13 @@
                     </td>
                     <td class="px-3 py-3 text-right text-slate-600 hidden md:table-cell">
                         {{ s.base_salary|int|fmt_currency }}
+                    </td>
+                    <td class="px-3 py-3 text-right hidden md:table-cell">
+                        {% if s.motivation > 0 %}
+                        <span class="text-blue-600">+{{ s.motivation|int|fmt_currency }}</span>
+                        {% else %}
+                        <span class="text-slate-300">—</span>
+                        {% endif %}
                     </td>
                     <td class="px-3 py-3 text-right hidden md:table-cell">
                         {% if s.adj_sum > 0 %}
@@ -188,6 +196,45 @@
         </div>
         <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена</p>
     </div>
+
+    <!-- Motivation detail -->
+    {% if detail_earnings %}
+    <div class="mb-5">
+        <div class="flex items-center justify-between mb-3">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Мотивация (комиссии)</p>
+            <span class="text-xs font-semibold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</span>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-slate-100">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100">
+                        <th class="text-left px-3 py-2 text-slate-500 font-semibold">Дата / Товар</th>
+                        <th class="text-right px-3 py-2 text-slate-500 font-semibold hidden sm:table-cell">Кол-во × Цена</th>
+                        <th class="text-right px-3 py-2 text-slate-500 font-semibold hidden sm:table-cell">Ставка</th>
+                        <th class="text-right px-3 py-2 text-slate-500 font-semibold">Комиссия</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                    {% for e in detail_earnings %}
+                    <tr class="hover:bg-slate-50/70">
+                        <td class="px-3 py-2">
+                            <p class="font-medium text-slate-700">{{ e.product }}</p>
+                            <p class="text-slate-400">{{ e.date }} · {{ e.shop }}</p>
+                        </td>
+                        <td class="px-3 py-2 text-right text-slate-600 hidden sm:table-cell">{{ e.qty }} × {{ e.price|int|fmt_currency }}</td>
+                        <td class="px-3 py-2 text-right hidden sm:table-cell">
+                            <span class="px-1.5 py-0.5 rounded font-medium {% if e.mtype == 'percentage' %}bg-blue-50 text-blue-600{% else %}bg-emerald-50 text-emerald-600{% endif %}">
+                                {{ e.rate_display }}
+                            </span>
+                        </td>
+                        <td class="px-3 py-2 text-right font-semibold text-blue-600">+{{ e.commission|int|fmt_currency }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Adjustments -->
     <div x-data="{addOpen: false}">
@@ -275,10 +322,33 @@
         {% endif %}
     </div>
 
-    <!-- Final total -->
-    <div class="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
-        <span class="text-sm text-slate-600 font-medium">Итого к выплате:</span>
-        <span class="text-xl font-bold text-emerald-600">{{ detail_user.total|int|fmt_currency }}</span>
+    <!-- Final total breakdown -->
+    <div class="mt-4 pt-4 border-t border-slate-100 space-y-2 text-sm">
+        <div class="flex justify-between">
+            <span class="text-slate-500">Оклад ({{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} × {{ detail_user.daily_rate|int|fmt_currency }})</span>
+            <span class="font-medium text-slate-700">{{ detail_user.base_salary|int|fmt_currency }}</span>
+        </div>
+        {% if detail_user.motivation > 0 %}
+        <div class="flex justify-between">
+            <span class="text-slate-500">Мотивация</span>
+            <span class="font-medium text-blue-600">+{{ detail_user.motivation|int|fmt_currency }}</span>
+        </div>
+        {% endif %}
+        {% if detail_user.adj_sum > 0 %}
+        <div class="flex justify-between">
+            <span class="text-slate-500">Бонусы / корректировки</span>
+            <span class="font-medium text-emerald-600">+{{ detail_user.adj_sum|int|fmt_currency }}</span>
+        </div>
+        {% elif detail_user.adj_sum < 0 %}
+        <div class="flex justify-between">
+            <span class="text-slate-500">Штрафы / корректировки</span>
+            <span class="font-medium text-red-500">{{ detail_user.adj_sum|int|fmt_currency }}</span>
+        </div>
+        {% endif %}
+        <div class="flex justify-between pt-2 border-t border-slate-100">
+            <span class="font-semibold text-slate-700">К выплате</span>
+            <span class="text-xl font-bold text-emerald-600">{{ detail_user.total|int|fmt_currency }}</span>
+        </div>
     </div>
 </div>
 {% else %}

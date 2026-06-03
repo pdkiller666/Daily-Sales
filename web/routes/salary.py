@@ -52,7 +52,9 @@ def _salary_user_earnings(request, user, year: int, month: int):
         "total_adj": 0.0,
         "grand_total": 0.0,
         "worked_days": 0,
+        "paid_absence_days": 0,
         "daily_rate": 0.0,
+        "adj_rows": [],
         "error": None,
     }
 
@@ -116,6 +118,7 @@ def _salary_user_earnings(request, user, year: int, month: int):
         rate = db.get_salary_rate(user_db_id)
         base_salary = (worked + paid_abs) * rate
         adj_sum = db.get_salary_adjustments_sum(user_db_id, year, month)
+        adj_rows = db.get_salary_adjustments(user_db_id, year, month) or []
 
         ctx.update({
             "earnings": earnings,
@@ -126,6 +129,7 @@ def _salary_user_earnings(request, user, year: int, month: int):
             "worked_days": worked,
             "paid_absence_days": paid_abs,
             "daily_rate": rate,
+            "adj_rows": adj_rows,
         })
 
     except Exception as exc:
@@ -180,14 +184,21 @@ def salary_page(
         "staff_salary": [], "selected_user_id": user_id,
         "detail_user": None, "work_days_set": set(),
         "adjustments": [], "adj_sum": 0.0,
+        "detail_earnings": [], "detail_motivation_total": 0.0,
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
     }
 
     try:
+        from env_manager import env_manager
+        import calendar as _cal
+        last_day = _cal.monthrange(year, month)[1]
+        start_date = f"{year}-{month:02d}-01"
+        end_date = f"{year}-{month:02d}-{last_day}"
+
         db = get_web_db(telegram_id, org_db)
 
-        # All employees with their rates
+        # All employees with their rates (super_admin excluded)
         all_rates = db.get_all_salary_rates() or []
         # (user_id[0], first_name[1], last_name[2], daily_rate[3], telegram_id[4])
 
@@ -195,13 +206,17 @@ def salary_page(
         total_fund = 0.0
 
         for row in all_rates:
+            if env_manager.is_super_admin(row[4]):
+                continue
             uid = row[0]
             rate = float(row[3] or 0)
             worked = db.get_worked_days_count(uid, year, month)
             paid_abs = db.get_paid_absence_days_count(uid, year, month)
             adj_sum = db.get_salary_adjustments_sum(uid, year, month)
             base = rate * (worked + paid_abs)
-            total = base + adj_sum
+            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
+            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            total = base + adj_sum + motivation
             total_fund += total
 
             staff_salary.append({
@@ -214,6 +229,7 @@ def salary_page(
                 "paid_absence_days": paid_abs,
                 "base_salary": base,
                 "adj_sum": adj_sum,
+                "motivation": motivation,
                 "total": total,
                 "shop": "",
             })
@@ -223,9 +239,8 @@ def salary_page(
         ctx["staff_salary"] = staff_salary
         ctx["total_salary_fund"] = total_fund
 
-        # If a specific user is selected, show their calendar + adjustments
+        # If a specific user is selected, show their calendar + adjustments + motivation
         if user_id:
-            import calendar as _cal
             work_days = db.get_work_schedule(user_id, year, month)
             adj_rows = db.get_salary_adjustments(user_id, year, month) or []
             adj_sum_val = db.get_salary_adjustments_sum(user_id, year, month)
@@ -233,7 +248,6 @@ def salary_page(
 
             # Build calendar grid: list of weeks, each week = list of (day_num | 0)
             first_weekday, days_in_month = _cal.monthrange(year, month)
-            # first_weekday: 0=Mon..6=Sun
             cal_grid: list[list[int]] = []
             week: list[int] = [0] * first_weekday
             for d in range(1, days_in_month + 1):
@@ -245,11 +259,34 @@ def salary_page(
                 week += [0] * (7 - len(week))
                 cal_grid.append(week)
 
+            # Detail motivation earnings (individual commissions for selected user)
+            detail_earnings_raw = db.get_seller_earnings(user_id, start_date, end_date) or []
+            detail_earnings = []
+            detail_motivation_total = 0.0
+            for erow in detail_earnings_raw:
+                comm = float(erow[0] or 0)
+                detail_motivation_total += comm
+                mtype = erow[1] or "percentage"
+                mval = float(erow[2] or 0)
+                detail_earnings.append({
+                    "date": str(erow[6] or "")[:10],
+                    "product": erow[3] or "—",
+                    "qty": int(erow[4] or 0),
+                    "price": float(erow[5] or 0),
+                    "mtype": mtype,
+                    "mval": mval,
+                    "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
+                    "commission": comm,
+                    "shop": erow[7] or "—",
+                })
+
             ctx["detail_user"] = rate_row
-            ctx["work_days_set"] = {int(d[8:10]) for d in work_days}  # day numbers as ints
+            ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
             ctx["adjustments"] = adj_rows
             ctx["adj_sum"] = adj_sum_val
             ctx["cal_grid"] = cal_grid
+            ctx["detail_earnings"] = detail_earnings
+            ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
 
     except Exception as exc:
         ctx["error"] = str(exc)
@@ -283,6 +320,11 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
+        from env_manager import env_manager
+        import calendar as _cal
+        last_day = _cal.monthrange(year, month)[1]
+        start_date = f"{year}-{month:02d}-01"
+        end_date = f"{year}-{month:02d}-{last_day}"
 
         db = get_web_db(telegram_id, org_db)
 
@@ -292,19 +334,24 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         rows: list = []
         total_fund = 0.0
         for row in all_rates:
+            if env_manager.is_super_admin(row[4]):
+                continue
             uid = row[0]
             rate = float(row[3] or 0)
             worked = db.get_worked_days_count(uid, year, month)
+            paid_abs = db.get_paid_absence_days_count(uid, year, month)
             adj = db.get_salary_adjustments_sum(uid, year, month)
-            base = rate * worked
-            total = base + adj
+            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
+            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            base = rate * (worked + paid_abs)
+            total = base + adj + motivation
             total_fund += total
             rows.append((
                 f"{row[1] or ''} {row[2] or ''}".strip(),
-                rate, worked, base, adj, total
+                rate, worked, base, motivation, adj, total
             ))
 
-        rows.sort(key=lambda r: -r[5])
+        rows.sort(key=lambda r: -r[6])
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -318,8 +365,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         even_fill = PatternFill("solid", fgColor="F0F8FF")
         tot_fill = PatternFill("solid", fgColor="DCFCE7")
 
-        headers = ["Сотрудник", "Ставка/день", "Смен", "Оклад", "Корр.", "Итого"]
-        col_widths = [28, 14, 9, 16, 14, 16]
+        headers = ["Сотрудник", "Ставка/день", "Смен", "Оклад", "Мотивация", "Корр.", "Итого"]
+        col_widths = [28, 14, 9, 16, 14, 14, 16]
 
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
             cell = ws.cell(row=1, column=i, value=h)
@@ -338,22 +385,22 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx in (2, 4, 5, 6):
+                if col_idx in (2, 4, 5, 6, 7):
                     cell.number_format = '#,##0.00 ₽'
                     cell.alignment = Alignment(horizontal="right")
                 elif col_idx == 3:
                     cell.alignment = Alignment(horizontal="center")
-                if col_idx == 6:
+                if col_idx == 7:
                     cell.font = Font(bold=True, color="166534")
 
         # Total row
         tr = len(rows) + 2
-        for col in range(1, 7):
+        for col in range(1, 8):
             ws.cell(row=tr, column=col).border = border
             ws.cell(row=tr, column=col).fill = tot_fill
         ws.cell(row=tr, column=1, value="ИТОГО").font = Font(bold=True)
         ws.cell(row=tr, column=3, value=sum(r[2] for r in rows)).font = Font(bold=True)
-        tot = ws.cell(row=tr, column=6, value=total_fund)
+        tot = ws.cell(row=tr, column=7, value=total_fund)
         tot.font = Font(bold=True)
         tot.number_format = '#,##0.00 ₽'
         tot.alignment = Alignment(horizontal="right")
