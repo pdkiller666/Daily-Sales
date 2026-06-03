@@ -211,7 +211,8 @@ async def products_import_upload(
     try:
         raw = await file.read(MAX_UPLOAD_BYTES + 1)
     except Exception as e:
-        return _err(f"Ошибка чтения файла: {e}")
+        logging.error(f"products_import_upload read error: {e}")
+        return _err("Не удалось прочитать файл. Убедитесь, что файл не повреждён.")
 
     if len(raw) > MAX_UPLOAD_BYTES:
         return _err("Файл слишком большой (максимум 5 МБ).")
@@ -246,7 +247,7 @@ async def products_import_upload(
         wb.close()
     except Exception as e:
         logging.error(f"products_import_upload parse error: {e}")
-        return _err(f"Ошибка разбора файла: {e}")
+        return _err("Не удалось разобрать файл. Убедитесь, что это корректный .xlsx файл Excel 2007+.")
 
     if not valid:
         return _err(
