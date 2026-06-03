@@ -6,8 +6,11 @@ POST /absences/update     — одобрить / отклонить / отмен
 GET  /absences/settings   — настройки типов (admin)
 POST /absences/settings/update — сохранить настройку типа
 """
+import json
 import logging
 import calendar as _cal
+import os
+import urllib.request
 from datetime import date, timedelta
 from typing import Annotated
 
@@ -47,6 +50,60 @@ TYPE_CSS = {
     'absence':      'bg-red-100 text-red-600 border border-red-300',
     'other':        'bg-purple-100 text-purple-600 border border-purple-300',
 }
+
+
+def _send_tg_absence_notify(
+    employee_tg_id: int,
+    new_status: str,
+    atype: str,
+    sd: str,
+    ed: str,
+    admin_comment: str | None,
+    days: int,
+) -> None:
+    """Отправить сотруднику уведомление об изменении статуса заявки (fire-and-forget)."""
+    token = os.environ.get("BOT_TOKEN", "")
+    if not token or not employee_tg_id:
+        return
+    type_label = TYPE_LABELS.get(atype, atype)
+    sd_fmt = sd[:10]
+    ed_fmt = ed[:10]
+    try:
+        from datetime import date as _date
+        sd_fmt = _date.fromisoformat(sd[:10]).strftime('%d.%m.%Y')
+        ed_fmt = _date.fromisoformat(ed[:10]).strftime('%d.%m.%Y')
+    except Exception:
+        pass
+    if new_status == "approved":
+        text = (f'✅ <b>Заявка одобрена!</b>\n\n'
+                f'{type_label}\n'
+                f'📅 {sd_fmt}–{ed_fmt} ({days} дн.)')
+    elif new_status == "rejected":
+        text = (f'❌ <b>Заявка отклонена</b>\n\n'
+                f'{type_label}\n'
+                f'📅 {sd_fmt}–{ed_fmt} ({days} дн.)')
+        if admin_comment:
+            text += f'\nПричина: {admin_comment}'
+    else:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = json.dumps({
+            "chat_id": employee_tg_id,
+            "text": text,
+            "parse_mode": "HTML",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        import threading
+        threading.Thread(
+            target=lambda: urllib.request.urlopen(req, timeout=10),
+            daemon=True,
+        ).start()
+    except Exception as e:
+        logging.error("absence web notify: %s", e)
 
 
 def _adjacent_month(year: int, month: int, delta: int):
@@ -399,6 +456,26 @@ def absences_update(
                         )
                 except Exception as e:
                     logging.error(f"absences_update penalty: {e}")
+
+        # Уведомить сотрудника в Telegram при одобрении / отклонении
+        if new_status in ("approved", "rejected") and action != "cancel":
+            try:
+                conn3 = db.get_connection()
+                tg_row = conn3.execute(
+                    "SELECT telegram_id FROM users WHERE id=?", (uid,)
+                ).fetchone()
+                conn3.close()
+                employee_tg_id = tg_row[0] if tg_row else None
+                if employee_tg_id:
+                    abs_days = (
+                        date.fromisoformat(ed[:10]) - date.fromisoformat(sd[:10])
+                    ).days + 1
+                    _send_tg_absence_notify(
+                        employee_tg_id, new_status, atype, sd, ed,
+                        admin_comment or None, abs_days,
+                    )
+            except Exception as e:
+                logging.error(f"absences_update notify: {e}")
 
         return RedirectResponse(
             url=f"/absences?year={year}&month={month}&msg={new_status}",

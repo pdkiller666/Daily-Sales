@@ -15,6 +15,7 @@ from keyboards import InlineKeyboardBuilder, back_button, home_button
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from utils import he
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+from message_utils import fsm_edit, delete_message_safe
 
 absence_router = Router()
 logger = logging.getLogger(__name__)
@@ -60,15 +61,18 @@ class AbsenceStates(StatesGroup):
 # ── Утилиты ──────────────────────────────────────────────────────────────────
 
 def _parse_date(s: str):
-    """Принимает DD.MM.YYYY или DD.MM (текущий год). Возвращает date или None."""
+    """Принимает DD.MM.YYYY, DD.MM.YY или DD.MM (текущий год). Возвращает date или None."""
     s = s.strip()
     try:
-        if len(s) in (8, 10) and '.' in s:
+        if '.' in s:
             parts = s.split('.')
-            if len(parts) == 2:
+            if len(parts) == 2:  # DD.MM — текущий год
                 return date(date.today().year, int(parts[1]), int(parts[0]))
-            if len(parts) == 3:
-                return date(int(parts[2]), int(parts[1]), int(parts[0]))
+            if len(parts) == 3:  # DD.MM.YYYY или DD.MM.YY
+                year = int(parts[2])
+                if year < 100:
+                    year += 2000
+                return date(year, int(parts[1]), int(parts[0]))
     except Exception:
         pass
     return None
@@ -225,7 +229,7 @@ async def abs_new_type(callback: CallbackQuery, state: FSMContext):
                 )
                 return
 
-    await state.update_data(abs_type=atype)
+    await state.update_data(abs_type=atype, anchor_msg_id=callback.message.message_id)
     label = _TYPE_LABELS[atype]
     text = (f'<b>{label}</b>\n\n'
             f'Введи дату начала отсутствия в формате <code>DD.MM.YYYY</code>:')
@@ -238,50 +242,64 @@ async def abs_new_type(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.message(AbsenceStates.new_start_date)
 async def abs_enter_start(message: Message, state: FSMContext):
-    d = _parse_date(message.text or '')
-    if not d:
-        await message.answer('Неверный формат. Введи дату: <code>DD.MM.YYYY</code>',
-                              parse_mode='HTML')
-        return
-    if d < date.today() - timedelta(days=30):
-        await message.answer('Дата слишком далеко в прошлом (>30 дней). Введи другую:',
-                              parse_mode='HTML')
-        return
-    await state.update_data(abs_start=d.isoformat())
     data = await state.get_data()
     label = _TYPE_LABELS.get(data.get('abs_type', ''), '')
+    kb = InlineKeyboardBuilder()
+    kb.row(back_button('abs_new'), home_button())
+    d = _parse_date(message.text or '')
+    if not d:
+        await fsm_edit(state, message,
+                       f'<b>{label}</b>\n\n'
+                       f'❌ Неверный формат. Введи дату: <code>DD.MM.YYYY</code>',
+                       reply_markup=kb.as_markup())
+        return
+    if d < date.today() - timedelta(days=30):
+        await fsm_edit(state, message,
+                       f'<b>{label}</b>\n\n'
+                       f'❌ Дата слишком далеко в прошлом (>30 дней). Введи другую:',
+                       reply_markup=kb.as_markup())
+        return
+    await state.update_data(abs_start=d.isoformat())
     text = (f'<b>{label}</b>\n'
             f'Начало: {_fmt_date(d)}\n\n'
             f'Введи дату окончания (<code>DD.MM.YYYY</code>):\n'
             f'<i>Для одного дня — ту же дату.</i>')
-    await message.answer(text, parse_mode='HTML')
+    await fsm_edit(state, message, text, reply_markup=kb.as_markup())
     await state.set_state(AbsenceStates.new_end_date)
 
 
 @absence_router.message(AbsenceStates.new_end_date)
 async def abs_enter_end(message: Message, state: FSMContext):
+    data = await state.get_data()
+    label = _TYPE_LABELS.get(data.get('abs_type', ''), '')
+    start_d = date.fromisoformat(data['abs_start'])
+    kb = InlineKeyboardBuilder()
+    kb.row(back_button('abs_new'), home_button())
     d = _parse_date(message.text or '')
     if not d:
-        await message.answer('Неверный формат. Введи дату: <code>DD.MM.YYYY</code>',
-                              parse_mode='HTML')
+        await fsm_edit(state, message,
+                       f'<b>{label}</b>\nНачало: {_fmt_date(start_d)}\n\n'
+                       f'❌ Неверный формат. Введи дату: <code>DD.MM.YYYY</code>',
+                       reply_markup=kb.as_markup())
         return
-    data = await state.get_data()
-    start_d = date.fromisoformat(data['abs_start'])
     if d < start_d:
-        await message.answer('Дата окончания не может быть раньше начала. Введи снова:',
-                              parse_mode='HTML')
+        await fsm_edit(state, message,
+                       f'<b>{label}</b>\nНачало: {_fmt_date(start_d)}\n\n'
+                       f'❌ Дата окончания не может быть раньше начала. Введи снова:',
+                       reply_markup=kb.as_markup())
         return
     if (d - start_d).days > 365:
-        await message.answer('Слишком большой диапазон (>365 дней). Введи снова:',
-                              parse_mode='HTML')
+        await fsm_edit(state, message,
+                       f'<b>{label}</b>\nНачало: {_fmt_date(start_d)}\n\n'
+                       f'❌ Слишком большой диапазон (>365 дней). Введи снова:',
+                       reply_markup=kb.as_markup())
         return
     await state.update_data(abs_end=d.isoformat())
-    label = _TYPE_LABELS.get(data.get('abs_type', ''), '')
     days = (d - start_d).days + 1
     text = (f'<b>{label}</b>\n'
             f'📅 {_fmt_date(start_d)}–{_fmt_date(d)} ({days} дн.)\n\n'
             f'Добавь комментарий (или /skip для отправки без комментария):')
-    await message.answer(text, parse_mode='HTML')
+    await fsm_edit(state, message, text, reply_markup=kb.as_markup())
     await state.set_state(AbsenceStates.new_comment)
 
 
@@ -289,6 +307,7 @@ async def abs_enter_end(message: Message, state: FSMContext):
 async def abs_enter_comment(message: Message, state: FSMContext):
     comment = None if (message.text or '').strip().lower() in ('/skip', 'skip') \
         else (message.text or '').strip()
+    await delete_message_safe(message)
     await _abs_submit(message, state, comment)
 
 
@@ -526,7 +545,7 @@ async def abs_reject_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer('Нет доступа', show_alert=True)
         return
     ab_id = int(callback.data[7:])
-    await state.update_data(abs_reject_id=ab_id)
+    await state.update_data(abs_reject_id=ab_id, anchor_msg_id=callback.message.message_id)
     text = f'❌ Заявка #{ab_id}\n\nВведи причину отказа (или /skip для отказа без комментария):'
     kb = InlineKeyboardBuilder()
     kb.row(back_button(f'abs_rv_{ab_id}'), home_button())
@@ -561,6 +580,7 @@ async def abs_reject_do(message: Message, state: FSMContext):
                 f'{_TYPE_LABELS.get(atype, atype)}\n'
                 f'📅 {_fmt_date(sd)}–{_fmt_date(ed)} ({days} дн.)\n'
                 + (f'Причина: {he(comment)}' if comment else ''))
+    await delete_message_safe(message)
     await message.answer('❌ Заявка отклонена.' if ok else 'Ошибка.')
     await clear_state_keep_org(state)
 
@@ -620,7 +640,7 @@ async def abs_prg_user(callback: CallbackQuery, state: FSMContext):
         await callback.answer('Нет доступа', show_alert=True)
         return
     uid = int(callback.data[10:])
-    await state.update_data(abs_prg_uid=uid)
+    await state.update_data(abs_prg_uid=uid, anchor_msg_id=callback.message.message_id)
     text = ('🔴 <b>Прогул</b>\n\n'
             'Введи дату прогула (<code>DD.MM.YYYY</code>) '
             'или диапазон через дефис: <code>01.06.2025-03.06.2025</code>')
@@ -642,8 +662,13 @@ async def abs_prg_date(message: Message, state: FSMContext):
         sd = _parse_date(text)
         ed = sd
     if not sd or not ed:
-        await message.answer('Неверный формат. Пример: <code>05.06.2025</code>',
-                              parse_mode='HTML')
+        kb_err = InlineKeyboardBuilder()
+        kb_err.row(back_button('abs_prg_list'), home_button())
+        await fsm_edit(state, message,
+                       '🔴 <b>Прогул</b>\n\n'
+                       '❌ Неверный формат. Пример: <code>05.06.2025</code>\n'
+                       'Диапазон: <code>01.06.2025-03.06.2025</code>',
+                       reply_markup=kb_err.as_markup())
         return
     if ed < sd:
         sd, ed = ed, sd
