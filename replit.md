@@ -25,7 +25,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
 - `dashboard_handlers.py` — `build_admin_dashboard(..., period)`, `build_user_dashboard(...)`, `_plan_summary_line()`
-- `salary_handlers.py` — smeny calendar, shift templates (`slr_tmpl_`, `tmpl_*`), hour pickers (`slr_te/tw`, `tmpl_te/tw`)
+- `salary_handlers.py` — smeny calendar, shift templates (`slr_tmpl_`, `tmpl_*`), hour pickers (`slr_te/tw`, `tmpl_te/tw`); `salary_summary` — ФОТ-сводка (Оклад + Мотивация + Корр. на сотрудника, `asyncio.gather` для параллельного fetch мотивации)
 - `pagination_utils.py` — `paginate()`, `page_nav_row()`, `PAGE_SIZE_*`
 - `reports_handlers.py` — reports + rankings; `_ranking_period()`, `_period_kb()`
 - `sales_plans_handlers.py` — plan wizard + edit; `_plan_summary_line()`
@@ -67,6 +67,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Multi-scope**: `scope_value` stores JSON array; `get_user_org_scope()` → `(scope_type, list[str])`
 - **Custom role titles**: `custom_title` in `user_org_mapping`; `get_role_display_label(..., custom_title)` uses it over computed label
 - **Shift templates**: `shift_templates` table UNIQUE(user_id, weekday 0=Пн..6=Вс); `work_schedule` has `start_time`/`end_time`; slr_tog auto-applies template
+- **Salary unified formula**: `Итого = Оклад (смены+оплач.отсутствия × ставка) + Мотивация (get_seller_total_earnings) + Корректировки (get_salary_adjustments_sum)`; применяется одинаково в боте `salary_summary`, веб admin `GET /salary`, Excel-экспорте; super_admin всегда исключается из всех зарплатных списков; detail-панель admin показывает построчные комиссии (`get_seller_earnings`); страница сотрудника `/salary/earnings` показывает построчные корректировки (`get_salary_adjustments`)
 - **PWA**: `web/static/manifest.json` + SW at `/sw.js` (served via FastAPI route with `Service-Worker-Allowed: /`); SW caches `/static/` assets cache-first, authenticated routes network-only
 - **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
 - **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
@@ -92,6 +93,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Dashboard: period toggle (Сегодня/Неделя/Месяц); admin sees staff + earnings + plans; user sees salary + period sales + plans
 - Contests: create, auto-finish, winner calculation via APScheduler; archive clear with confirmation
 - Work schedule: admin marks days, hour-level time pickers, shift templates (⏰ Расписание смен) per weekday
+- Salary transparency: все три вида — бот ФОТ-сводка, веб admin `/salary`, веб user `/salary/earnings` — показывают Оклад + Мотивация + Корр. = Итого; admin detail-панель раскрывает комиссии по каждой продаже; пользователь видит каждую корректировку с комментарием; Excel-экспорт содержит колонку Мотивация (7 колонок итого)
 - Subscriptions/payments: tariff plans (Бесплатный/Базовый/Стандарт/Премиум), promocodes, Excel export; SBP (manual screenshot) + YooKassa (auto); trial 14d = Премиум-level access via `_has_active_trial()` → `_UNLIMITED`
 - Rankings: sellers / shops / cities; period toggle (7д / месяц / прошлый); user's own position if outside top-10
 - Favorites & Recent: ⭐ Избранное + 🔄 Недавние in product selection
