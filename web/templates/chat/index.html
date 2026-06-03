@@ -9,6 +9,16 @@
 
 {% block extra_css %}
 <style>
+/* ── Full-screen chat: убираем отступы main, чтобы чат занял весь экран между шапкой и нижним меню ── */
+main.ds-main { padding:0 !important; overflow:hidden; }
+footer { display:none !important; }
+
+/* ── Wrapper: от нижнего края шапки (3.5rem = h-14) до нижнего края экрана ── */
+#chat-wrapper {
+    height: calc(100vh - 3.5rem);
+    height: calc(100dvh - 3.5rem); /* dvh учитывает chrome мобильного браузера */
+}
+
 /* ── Bubble styles ── */
 .msg-bubble { max-width: 72%; word-break: break-word; }
 @media (max-width: 640px) { .msg-bubble { max-width: 88%; } }
@@ -84,14 +94,14 @@ html.dark .topic-menu-item:hover { background:#374151; }
 /* topics JSON извлечён из HTML-атрибута во избежание обрыва кавычками */
 const _chatTopics = {{ topics | tojson }};
 </script>
-<div class="flex flex-col h-[calc(100vh-7rem)] max-h-[860px]"
+<div id="chat-wrapper" class="flex flex-col bg-white dark:bg-slate-900"
      x-data="chatApp({{ current_topic_id }}, {{ latest_id }}, '{{ csrf_token }}',
                      _chatTopics, {{ my_db_id }},
                      {{ 'true' if user.role in ('owner', 'admin', 'super_admin') else 'false' }})"
      x-init="init()">
 
     <!-- ══ Header ══ -->
-    <div class="flex items-center gap-3 pb-2 border-b border-slate-200 dark:border-slate-700 mb-1 shrink-0">
+    <div class="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
         <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0">💬</div>
         <div class="flex-1 min-w-0">
             <h1 class="font-bold text-slate-800 dark:text-slate-100 text-base leading-none">Чат команды</h1>
@@ -103,10 +113,10 @@ const _chatTopics = {{ topics | tojson }};
         </div>
     </div>
 
-    <!-- ══ Topic tabs ══ -->
-    <div class="shrink-0 -mx-1 px-1 mb-2">
-        <div class="flex items-center gap-2 overflow-x-auto pb-1 scroll-smooth"
-             style="scrollbar-width:none;-ms-overflow-style:none"
+    <!-- ══ Topic tabs (прикреплена под шапкой) ══ -->
+    <div class="shrink-0 px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div class="flex items-center gap-2 overflow-x-auto scroll-smooth"
+             style="scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px"
              id="topics-bar">
 
             <!-- Existing topics -->
@@ -189,7 +199,7 @@ const _chatTopics = {{ topics | tojson }};
     </div>
 
     <!-- ══ Messages area ══ -->
-    <div id="chat-scroll" class="flex-1 overflow-y-auto py-2 space-y-3 px-1 relative">
+    <div id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-4 sm:px-6 relative">
 
         <!-- Loading overlay when switching topics -->
         <div x-show="loadingTopic" x-cloak
@@ -296,8 +306,8 @@ const _chatTopics = {{ topics | tojson }};
         <div id="chat-bottom"></div>
     </div>
 
-    <!-- ══ Input area ══ -->
-    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 mt-1">
+    <!-- ══ Input area (прикреплена над нижним меню) ══ -->
+    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
 
         <!-- File preview -->
         <div x-show="attachedFile" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
