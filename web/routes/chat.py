@@ -18,6 +18,40 @@ PLAN_ORDER = ["Бесплатный", "Базовый", "Стандарт", "П�
 
 _SHOP_BOT_DB = "data/shop_bot.db"
 
+# Rate limiting: /chat/send — 30 msg/min per telegram_id
+_SEND_RATE_STORE: dict[int, list[float]] = {}
+_SEND_RATE_LIMIT = 30
+_SEND_RATE_WINDOW = 60.0
+
+# Rate limiting: /chat/poll — 60 req/min per IP
+_POLL_RATE_STORE: dict[str, list[float]] = {}
+_POLL_RATE_LIMIT = 60
+_POLL_RATE_WINDOW = 60.0
+
+
+def _send_rate_ok(telegram_id: int) -> bool:
+    import time
+    now = time.monotonic()
+    times = [t for t in _SEND_RATE_STORE.get(telegram_id, []) if now - t < _SEND_RATE_WINDOW]
+    if len(times) >= _SEND_RATE_LIMIT:
+        _SEND_RATE_STORE[telegram_id] = times
+        return False
+    times.append(now)
+    _SEND_RATE_STORE[telegram_id] = times
+    return True
+
+
+def _poll_rate_ok(ip: str) -> bool:
+    import time
+    now = time.monotonic()
+    times = [t for t in _POLL_RATE_STORE.get(ip, []) if now - t < _POLL_RATE_WINDOW]
+    if len(times) >= _POLL_RATE_LIMIT:
+        _POLL_RATE_STORE[ip] = times
+        return False
+    times.append(now)
+    _POLL_RATE_STORE[ip] = times
+    return True
+
 
 def _get_chat_min_plan() -> str:
     """Читает минимальный тариф для чата из shop_bot.db. Дефолт — Базовый."""
@@ -184,6 +218,9 @@ async def chat_send(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
 
+    if not _send_rate_ok(telegram_id):
+        return JSONResponse({"ok": False, "error": "Слишком много сообщений, подождите немного"}, status_code=429)
+
     min_plan = _get_chat_min_plan()
     if min_plan == "Отключён":
         return JSONResponse({"ok": False, "error": "Чат отключён"}, status_code=403)
@@ -264,6 +301,10 @@ def chat_poll(request: Request, since_id: int = 0):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+    ip = request.client.host if request.client else "unknown"
+
+    if not _poll_rate_ok(ip):
+        return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
     try:
         min_plan = _get_chat_min_plan()
