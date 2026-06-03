@@ -1005,15 +1005,34 @@ function mainApp() {
                When pageshow fires with e.persisted=true we close all sheets. */
             window.addEventListener('pageshow', (e) => {
                 if (e.persisted) {
-                    this.editNavOpen = false;
-                    this.moreOpen   = false;
-                    this.notifOpen  = false;
-                    this.notifDdOpen = false;
-                    this.open       = false;
-                    this._initReady = false;
-                    setTimeout(() => { this._initReady = true; }, 300);
+                    this._closeAllSheets();
                 }
             });
+
+            /* 6. visibilitychange fix: Telegram in-app browser can show the
+               SAME WebView without any navigation event (no pageshow, no reload).
+               When the page becomes visible after being hidden ≥5 s we close
+               all sheets so the user always sees a clean state on re-entry. */
+            let _hiddenSince = 0;
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') {
+                    _hiddenSince = Date.now();
+                } else if (document.visibilityState === 'visible') {
+                    if (_hiddenSince && Date.now() - _hiddenSince >= 5000) {
+                        this._closeAllSheets();
+                    }
+                }
+            });
+        },
+
+        _closeAllSheets() {
+            this.editNavOpen  = false;
+            this.moreOpen     = false;
+            this.notifOpen    = false;
+            this.notifDdOpen  = false;
+            this.open         = false;
+            this._initReady   = false;
+            setTimeout(() => { this._initReady = true; }, 300);
         },
 
         get availableItems() {
