@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Бэкапы — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Резервные копии</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">💾 Резервные копии</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ backups|length }} файлов в хранилище</p>
+    </div>
+    <form method="post" action="/admin/backups/create">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+            ➕ Создать бэкап
+        </button>
+    </form>
+</div>
+
+{% if msg == 'created' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Резервная копия создана.</div>
+{% elif msg == 'deleted' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-slate-50 text-slate-700 border border-slate-200">🗑 Файл удалён.</div>
+{% elif msg == 'error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Ошибка операции.</div>
+{% endif %}
+
+<!-- Delete confirm modal -->
+<div id="del-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl">
+        <p class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Удалить резервную копию?</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4 font-mono text-xs break-all" id="del-filename"></p>
+        <form id="del-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="flex gap-2">
+                <button type="submit" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl">Удалить</button>
+                <button type="button" onclick="document.getElementById('del-modal').classList.add('hidden')"
+                        class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card p-4 mb-4 text-xs text-slate-500 dark:text-slate-400 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-xl">
+    ⚠️ Восстановление из резервной копии доступно только через Telegram-бот (системная панель → Бэкапы → Восстановить). Здесь можно только создавать и удалять.
+</div>
+
+{% if backups %}
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                <th class="text-left px-4 py-3 font-semibold">Файл</th>
+                <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">Размер</th>
+                <th class="text-right px-4 py-3 font-semibold hidden md:table-cell">Возраст</th>
+                <th class="text-right px-4 py-3 font-semibold">Создан</th>
+                <th class="text-right px-4 py-3 font-semibold">Действие</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+            {% for b in backups %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                <td class="px-4 py-3">
+                    <p class="font-mono text-xs text-slate-700 dark:text-slate-300 break-all">{{ b.filename }}</p>
+                </td>
+                <td class="px-4 py-3 text-right hidden sm:table-cell text-slate-500 text-xs">{{ b.size_mb }} МБ</td>
+                <td class="px-4 py-3 text-right hidden md:table-cell text-slate-400 text-xs">
+                    {% if b.age_days == 0 %}Сегодня
+                    {% elif b.age_days == 1 %}Вчера
+                    {% else %}{{ b.age_days }} дн. назад{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right text-xs text-slate-500">
+                    {{ b.created.strftime('%d.%m.%Y %H:%M') }}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <button type="button"
+                            onclick="confirmDel('{{ b.filename|e }}')"
+                            class="text-xs px-3 py-1.5 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg font-medium transition-colors">
+                        🗑
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card p-10 text-center text-slate-400">
+    <p class="text-4xl mb-3">💾</p>
+    <p class="font-medium">Резервных копий нет</p>
+    <p class="text-xs mt-1">Нажмите «Создать бэкап» для первого бэкапа</p>
+</div>
+{% endif %}
+
+<script>
+function confirmDel(filename) {
+    document.getElementById('del-filename').textContent = filename;
+    const enc = encodeURIComponent(filename);
+    document.getElementById('del-form').action = '/admin/backups/' + enc + '/delete';
+    document.getElementById('del-modal').classList.remove('hidden');
+}
+</script>
+{% endblock %}

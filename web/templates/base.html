@@ -1442,6 +1442,11 @@ function mainApp() {
                 </a>
                 {% endif %}
                 {% if user and user.role == 'super_admin' %}
+                <a href="/admin" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/admin') %}sht-active{% endif %}">
+                    <span class="sht-icon">🛡️</span>
+                    <span class="sht-label">Супер-Каб</span>
+                </a>
                 <a href="/payments" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/payments') %}sht-active{% endif %}">
                     <span class="sht-icon">💳</span>

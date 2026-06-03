@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Реквизиты — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Реквизиты и настройки</span>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">⚙️ Реквизиты и настройки платежей</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Карта, провайдер, триал, URL веб-интерфейса</p>
+</div>
+
+{% if msg == 'saved' %}
+<div class="mb-5 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Настройки сохранены.</div>
+{% endif %}
+
+<form method="post" action="/admin/settings" class="space-y-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- Payment requisites -->
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">💳 Платёжные реквизиты (СБП)</h2>
+        <div class="space-y-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Номер карты / СБП</label>
+                <input name="card_number" value="{{ settings.get('card_number', '') }}"
+                       placeholder="0000 0000 0000 0000"
+                       class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Получатель</label>
+                    <input name="recipient_name" value="{{ settings.get('recipient_name', '') }}"
+                           placeholder="Иван Иванов"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Банк</label>
+                    <input name="bank_name" value="{{ settings.get('bank_name', '') }}"
+                           placeholder="Сбербанк"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Инструкция для оплаты</label>
+                <textarea name="payment_instruction" rows="3"
+                          placeholder="Инструкция которую увидит пользователь при оплате..."
+                          class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none">{{ payment_instruction }}</textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payment provider -->
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">🔌 Провайдер платежей</h2>
+        <div class="flex gap-3">
+            <label class="flex-1 flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-colors
+                {% if provider == 'sbp' %}border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20{% else %}border-slate-200 dark:border-slate-600{% endif %}">
+                <input type="radio" name="provider" value="sbp" {% if provider == 'sbp' %}checked{% endif %}
+                       class="accent-indigo-600">
+                <div>
+                    <p class="font-semibold text-slate-800 dark:text-slate-100 text-sm">СБП / Ручной</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Перевод на карту, ручное подтверждение</p>
+                </div>
+            </label>
+            <label class="flex-1 flex items-center gap-3 p-3 border-2 rounded-xl cursor-pointer transition-colors
+                {% if provider == 'yookassa' %}border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20{% else %}border-slate-200 dark:border-slate-600{% endif %}">
+                <input type="radio" name="provider" value="yookassa" {% if provider == 'yookassa' %}checked{% endif %}
+                       class="accent-indigo-600">
+                <div>
+                    <p class="font-semibold text-slate-800 dark:text-slate-100 text-sm">ЮKassa</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Автоматический эквайринг</p>
+                </div>
+            </label>
+        </div>
+    </div>
+
+    <!-- Trial settings -->
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">🎁 Настройки пробного периода</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Длительность триала (дней)</label>
+                <input name="trial_days" value="{{ trial_days }}" type="number" min="1" max="365"
+                       class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Тариф триала</label>
+                <select name="trial_plan"
+                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    {% for p in plans %}
+                    <option value="{{ p }}" {% if p == trial_plan %}selected{% endif %}>{{ p }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">Новые организации получают пробный доступ на указанное кол-во дней с указанным тарифом.</p>
+    </div>
+
+    <!-- Web interface URL -->
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">🌐 URL веб-интерфейса</h2>
+        <input name="web_url" value="{{ web_url }}" type="url"
+               placeholder="https://dailysales.app"
+               class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-2">
+        <p class="text-xs text-slate-400">Эта ссылка показывается пользователям в боте как кнопка «🌐 Веб-интерфейс». Оставьте пустым, чтобы скрыть кнопку.</p>
+    </div>
+
+    <button type="submit"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors text-sm">
+        💾 Сохранить все настройки
+    </button>
+</form>
+{% endblock %}

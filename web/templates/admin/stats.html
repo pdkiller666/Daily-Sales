@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Статистика — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Статистика платежей</span>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">📊 Статистика платежей</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Выручка, конверсия, история платежей</p>
+</div>
+
+<!-- Top metrics -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Общая выручка</p>
+        <p class="text-xl font-bold text-emerald-600">{{ "{:,.0f}".format(stats.total_revenue or 0) }}₽</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">За 30 дней</p>
+        <p class="text-xl font-bold text-blue-600">{{ "{:,.0f}".format(stats.monthly_revenue or 0) }}₽</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Платежей всего</p>
+        <p class="text-xl font-bold text-indigo-600">{{ stats.total_payments or 0 }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Конверсия</p>
+        <p class="text-xl font-bold text-amber-600">{{ "%.1f"|format(stats.conversion_rate or 0) }}%</p>
+    </div>
+</div>
+
+<!-- Revenue chart -->
+{% if chart %}
+<div class="card p-5 mb-6">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">📈 Выручка по месяцам</h2>
+    <div class="relative h-40">
+        <canvas id="revenueChart"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- By plans -->
+{% if stats.by_plans %}
+<div class="card p-5 mb-6">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">По тарифам</h2>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {% for plan, data in stats.by_plans.items() %}
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-700/50">
+            <p class="text-xs font-semibold
+                {% if plan == 'Премиум' %}text-purple-600
+                {% elif plan == 'Стандарт' %}text-blue-600
+                {% elif plan == 'Базовый' %}text-cyan-600
+                {% else %}text-slate-500{% endif %} mb-1">{{ plan }}</p>
+            <p class="text-lg font-bold text-slate-800 dark:text-slate-100">{{ data.count }} шт.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ "{:,.0f}".format(data.revenue or 0) }}₽</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent payments -->
+<div class="card overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Последние платежи</h2>
+    </div>
+    {% if recent_payments %}
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                <th class="text-left px-4 py-3 font-semibold">#</th>
+                <th class="text-left px-4 py-3 font-semibold">Пользователь</th>
+                <th class="text-left px-4 py-3 font-semibold hidden sm:table-cell">Тариф</th>
+                <th class="text-right px-4 py-3 font-semibold">Сумма</th>
+                <th class="text-right px-4 py-3 font-semibold hidden md:table-cell">Дата</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+            {% for p in recent_payments %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                <td class="px-4 py-3 text-xs text-slate-400">#{{ p.id }}</td>
+                <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{ p.name }}</td>
+                <td class="px-4 py-3 hidden sm:table-cell">
+                    <span class="text-xs px-2 py-0.5 rounded-full font-semibold
+                        {% if p.plan == 'Премиум' %}bg-purple-100 text-purple-700
+                        {% elif p.plan == 'Стандарт' %}bg-blue-100 text-blue-700
+                        {% elif p.plan == 'Базовый' %}bg-cyan-100 text-cyan-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ p.plan }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-right font-semibold text-emerald-600">+{{ "{:,.0f}".format(p.amount or 0) }}₽</td>
+                <td class="px-4 py-3 text-right hidden md:table-cell text-slate-400 text-xs">{{ p.date }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-center text-slate-400 py-10">Платежей пока нет</p>
+    {% endif %}
+</div>
+
+{% if chart %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const chartData = {{ chart | tojson }};
+const isDark = document.documentElement.classList.contains('dark');
+const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+const textColor = isDark ? '#94a3b8' : '#64748b';
+new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+        labels: chartData.map(d => d.month),
+        datasets: [{
+            label: 'Выручка ₽',
+            data: chartData.map(d => d.revenue),
+            backgroundColor: 'rgba(99,102,241,0.7)',
+            borderRadius: 6,
+            borderSkipped: false,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11 } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11 } } }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

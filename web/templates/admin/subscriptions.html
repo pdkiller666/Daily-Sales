@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Подписки — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Подписки</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">💳 Управление подписками</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ active_subs|length }} активных подписок</p>
+    </div>
+</div>
+
+{% if msg.startswith('granted_') %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Подписка выдана пользователю ID {{ msg.split('_')[1] }}.</div>
+{% elif msg == 'cancelled' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-slate-50 text-slate-700 border border-slate-200">↩️ Подписка сброшена до «Бесплатный».</div>
+{% elif msg == 'invalid_plan' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Неверный тарифный план.</div>
+{% endif %}
+
+<!-- Grant subscription form -->
+<div class="card p-5 mb-6">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">🎁 Выдать / продлить подписку</h2>
+    <form method="post" action="/admin/subs/grant" class="flex flex-col sm:flex-row gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <select name="user_id" required
+                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="">— Выбрать пользователя —</option>
+            {% for u in users_for_grant %}
+            <option value="{{ u.id }}">{{ u.name }}{% if u.shop %} · {{ u.shop }}{% endif %}</option>
+            {% endfor %}
+        </select>
+        <select name="plan_type" required
+                class="sm:w-40 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            {% for p in plans %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit"
+                class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+            🎁 Выдать
+        </button>
+    </form>
+    <p class="text-xs text-slate-400 mt-2">Бесплатный — бессрочно; Базовый 30 дн; Стандарт 90 дн; Премиум 365 дн. Если подписка уже есть — перезапишет.</p>
+</div>
+
+<!-- Search -->
+<form method="get" class="flex gap-2 mb-4">
+    <input name="q" value="{{ q }}" placeholder="Поиск по имени или магазину…"
+           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <button type="submit" class="px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-sm hover:bg-slate-200 transition-colors">🔍</button>
+    {% if q %}<a href="/admin/subs" class="px-4 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-500 rounded-xl text-sm hover:bg-slate-200 transition-colors">✕</a>{% endif %}
+</form>
+
+<!-- Cancel confirmation modal -->
+<div id="cancel-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl">
+        <p class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Сбросить подписку?</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4" id="cancel-name">Пользователь перейдёт на план «Бесплатный».</p>
+        <form id="cancel-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="flex gap-2">
+                <button type="submit" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl">Сбросить</button>
+                <button type="button" onclick="document.getElementById('cancel-modal').classList.add('hidden')"
+                        class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if active_subs %}
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                <th class="text-left px-4 py-3 font-semibold">Пользователь</th>
+                <th class="text-left px-4 py-3 font-semibold">Тариф</th>
+                <th class="text-left px-4 py-3 font-semibold hidden sm:table-cell">До</th>
+                <th class="text-right px-4 py-3 font-semibold">Действие</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+            {% for s in active_subs %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                <td class="px-4 py-3">
+                    <p class="font-medium text-slate-800 dark:text-slate-100">{{ s.name }}</p>
+                    <p class="text-xs text-slate-400">{{ s.shop }}{% if s.telegram_id %} · tg:{{ s.telegram_id }}{% endif %}</p>
+                </td>
+                <td class="px-4 py-3">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold
+                        {% if s.plan == 'Премиум' %}bg-purple-100 text-purple-700
+                        {% elif s.plan == 'Стандарт' %}bg-blue-100 text-blue-700
+                        {% elif s.plan == 'Базовый' %}bg-cyan-100 text-cyan-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ s.plan }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 hidden sm:table-cell text-slate-600 dark:text-slate-300 text-xs">
+                    {% if s.end_date == '9999-12-31' %}∞ бессрочно
+                    {% else %}{{ s.end_date }}{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <button type="button"
+                            onclick="confirmCancel({{ s.user_id }}, '{{ s.name|replace("'","\\'")|e }}')"
+                            class="text-xs px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors font-medium">
+                        Сбросить
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card p-10 text-center text-slate-400">
+    <p class="text-4xl mb-3">💳</p>
+    <p class="font-medium">{% if q %}Ничего не найдено по «{{ q }}»{% else %}Нет активных подписок{% endif %}</p>
+</div>
+{% endif %}
+
+<script>
+function confirmCancel(userId, userName) {
+    document.getElementById('cancel-name').textContent = userName + ' перейдёт на план «Бесплатный».';
+    document.getElementById('cancel-form').action = '/admin/subs/' + userId + '/cancel';
+    document.getElementById('cancel-modal').classList.remove('hidden');
+}
+</script>
+{% endblock %}

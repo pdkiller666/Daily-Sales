@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<span class="text-slate-400">Система</span>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Супер-Кабинет</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🛡️ Супер-Кабинет</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Системное управление — только для super_admin</p>
+    </div>
+    <span class="ml-2 text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">super_admin</span>
+</div>
+
+<!-- Metric cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Активных подписок</p>
+        <p class="text-2xl font-bold text-emerald-600">{{ active_subs_count }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Выручка за 30 дней</p>
+        <p class="text-2xl font-bold text-blue-600">{{ "{:,.0f}".format(stats.monthly_revenue or 0) }}₽</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Организаций</p>
+        <p class="text-2xl font-bold text-indigo-600">{{ orgs_count }}</p>
+    </div>
+    <div class="card p-4 relative">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Ожидают оплаты</p>
+        <p class="text-2xl font-bold {% if pending_count > 0 %}text-red-600{% else %}text-slate-400{% endif %}">{{ pending_count }}</p>
+        {% if pending_count > 0 %}
+        <span class="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Navigation grid -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+
+    <a href="/admin/orgs" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">🏢</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Организации</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Список, удаление, переключение</p>
+    </a>
+
+    <a href="/admin/subs" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">💳</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Подписки</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Выдать, продлить, отменить</p>
+    </a>
+
+    <a href="/admin/stats" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">📊</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Статистика</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Выручка, конверсия, платежи</p>
+    </a>
+
+    <a href="/admin/tariffs" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">📋</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Тарифы</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Цены, лимиты, возможности</p>
+    </a>
+
+    <a href="/admin/settings" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">⚙️</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Реквизиты</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Карта, банк, инструкция, триал</p>
+    </a>
+
+    <a href="/admin/users" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">🔍</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Поиск юзеров</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Глобальный поиск по всем орг</p>
+    </a>
+
+    <a href="/admin/backups" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">💾</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Бэкапы</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Создать, скачать, удалить</p>
+        <p class="text-[10px] text-slate-400 mt-0.5">Последний: {{ last_backup }}</p>
+    </a>
+
+    <a href="/payments" class="card p-5 hover:shadow-md transition-shadow group relative">
+        <div class="text-3xl mb-2">🧾</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Платежи</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Подтверждение СБП-заявок</p>
+        {% if pending_count > 0 %}
+        <span class="absolute top-3 right-3 inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold">{{ pending_count }}</span>
+        {% endif %}
+    </a>
+
+</div>
+
+<!-- Quick links row -->
+<div class="mt-6 card p-4">
+    <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Быстрые ссылки</p>
+    <div class="flex flex-wrap gap-2">
+        <a href="/promocodes" class="px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">🎟️ Промокоды</a>
+        <a href="/settings" class="px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">⚙️ Настройки орг</a>
+        <a href="/staff" class="px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">👥 Сотрудники</a>
+        <a href="/reports" class="px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📈 Отчёты</a>
+        <a href="/dashboard" class="px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">🏠 Дашборд</a>
+    </div>
+</div>
+{% endblock %}

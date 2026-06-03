@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Поиск пользователей — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Глобальный поиск</span>
+{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🔍 Глобальный поиск пользователей</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Поиск по всем организациям и центральной БД</p>
+</div>
+
+<form method="get" class="flex gap-2 mb-6">
+    <input name="q" value="{{ q }}" autofocus
+           placeholder="Имя, фамилия, username, Telegram ID, телефон…"
+           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <button type="submit" class="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors">
+        🔍 Найти
+    </button>
+    {% if q %}
+    <a href="/admin/users" class="px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-500 rounded-xl text-sm hover:bg-slate-200 transition-colors">✕</a>
+    {% endif %}
+</form>
+
+{% if q and q|length < 2 %}
+<div class="card p-5 text-center text-slate-500 dark:text-slate-400">
+    <p>Введите не менее 2 символов для поиска.</p>
+</div>
+{% elif results %}
+<div class="mb-3 text-xs text-slate-500 dark:text-slate-400">Найдено: {{ results|length }} записей по запросу «{{ q }}»</div>
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                <th class="text-left px-4 py-3 font-semibold">Пользователь</th>
+                <th class="text-left px-4 py-3 font-semibold hidden sm:table-cell">Источник</th>
+                <th class="text-left px-4 py-3 font-semibold hidden md:table-cell">Тариф</th>
+                <th class="text-left px-4 py-3 font-semibold hidden lg:table-cell">До</th>
+                <th class="text-right px-4 py-3 font-semibold hidden sm:table-cell">Telegram ID</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+            {% for r in results %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                <td class="px-4 py-3">
+                    <p class="font-medium text-slate-800 dark:text-slate-100">{{ r.name or '—' }}</p>
+                    <p class="text-xs text-slate-400">{{ r.shop }}</p>
+                </td>
+                <td class="px-4 py-3 hidden sm:table-cell">
+                    <span class="inline-block px-2 py-0.5 rounded text-xs font-medium
+                        {% if r.source_type == 'central' %}bg-indigo-50 text-indigo-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ r.source }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 hidden md:table-cell">
+                    {% if r.plan != '—' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full font-semibold
+                        {% if r.plan == 'Премиум' %}bg-purple-100 text-purple-700
+                        {% elif r.plan == 'Стандарт' %}bg-blue-100 text-blue-700
+                        {% elif r.plan == 'Базовый' %}bg-cyan-100 text-cyan-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ r.plan }}
+                    </span>
+                    {% else %}<span class="text-slate-300">—</span>{% endif %}
+                </td>
+                <td class="px-4 py-3 hidden lg:table-cell text-xs text-slate-500">{{ r.sub_end }}</td>
+                <td class="px-4 py-3 text-right hidden sm:table-cell">
+                    {% if r.telegram_id and r.telegram_id != '—' %}
+                    <a href="tg://user?id={{ r.telegram_id }}"
+                       class="text-xs text-blue-500 hover:text-blue-700 font-mono">{{ r.telegram_id }}</a>
+                    {% else %}<span class="text-slate-300 text-xs">—</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif q %}
+<div class="card p-10 text-center text-slate-400">
+    <p class="text-4xl mb-3">🔍</p>
+    <p class="font-medium">Ничего не найдено по «{{ q }}»</p>
+    <p class="text-xs mt-1">Попробуйте другое имя, Telegram ID или телефон</p>
+</div>
+{% else %}
+<div class="card p-10 text-center text-slate-300 dark:text-slate-600">
+    <p class="text-5xl mb-4">👥</p>
+    <p class="font-medium text-slate-400">Введите имя пользователя, Telegram ID или телефон</p>
+    <p class="text-xs mt-1 text-slate-300">Поиск выполняется по центральной БД и всем организациям</p>
+</div>
+{% endif %}
+{% endblock %}

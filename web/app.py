@@ -156,6 +156,7 @@ Disallow: /chat
 Disallow: /api/
 Disallow: /login
 Disallow: /auth/
+Disallow: /admin
 
 Sitemap: https://dailysales.app/sitemap.xml
 """
@@ -317,6 +318,7 @@ def create_web_app() -> FastAPI:
     from web.routes.absences import router as absences_router
     from web.routes.support import router as support_router
     from web.routes.chat import router as chat_router
+    from web.routes.admin import router as admin_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -344,6 +346,7 @@ def create_web_app() -> FastAPI:
     app.include_router(absences_router)
     app.include_router(support_router)
     app.include_router(chat_router)
+    app.include_router(admin_router)
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():

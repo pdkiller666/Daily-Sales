@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Организации — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Организации</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🏢 Все организации</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ orgs|length }} зарегистрировано</p>
+    </div>
+</div>
+
+{% if msg == 'deleted' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Организация удалена.</div>
+{% elif msg == 'error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Ошибка при удалении.</div>
+{% endif %}
+
+<!-- Delete confirmation modal -->
+<div id="del-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl">
+        <p class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Удалить организацию?</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4" id="del-modal-name">Это действие необратимо — удалится БД и все данные.</p>
+        <form id="del-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="flex gap-2">
+                <button type="submit" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">Удалить</button>
+                <button type="button" onclick="document.getElementById('del-modal').classList.add('hidden')"
+                        class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if orgs %}
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                <th class="text-left px-4 py-3 font-semibold">Организация</th>
+                <th class="text-left px-4 py-3 font-semibold hidden sm:table-cell">Тариф</th>
+                <th class="text-center px-4 py-3 font-semibold hidden md:table-cell">Юзеры</th>
+                <th class="text-left px-4 py-3 font-semibold hidden lg:table-cell">Код приглашения</th>
+                <th class="text-left px-4 py-3 font-semibold hidden lg:table-cell">Создана</th>
+                <th class="text-right px-4 py-3 font-semibold">Действия</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+            {% for org in orgs %}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full shrink-0 {% if org.is_active %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
+                        <span class="font-medium text-slate-800 dark:text-slate-100">{{ org.name }}</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-0.5 pl-4">ID: {{ org.id }}</p>
+                </td>
+                <td class="px-4 py-3 hidden sm:table-cell">
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold
+                        {% if org.plan == 'Премиум' %}bg-purple-100 text-purple-700
+                        {% elif org.plan == 'Стандарт' %}bg-blue-100 text-blue-700
+                        {% elif org.plan == 'Базовый' %}bg-cyan-100 text-cyan-700
+                        {% else %}bg-slate-100 text-slate-600{% endif %}">
+                        {{ org.plan }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-center hidden md:table-cell text-slate-700 dark:text-slate-300">{{ org.users_count }}</td>
+                <td class="px-4 py-3 hidden lg:table-cell">
+                    <code class="text-xs bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded font-mono">{{ org.invite_code }}</code>
+                </td>
+                <td class="px-4 py-3 hidden lg:table-cell text-slate-500 dark:text-slate-400 text-xs">{{ org.created }}</td>
+                <td class="px-4 py-3 text-right">
+                    <div class="flex items-center justify-end gap-2">
+                        <form method="post" action="/switch_org">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="org_db" value="{{ org.db_path }}">
+                            <button type="submit" title="Переключиться"
+                                    class="p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors">
+                                🔄
+                            </button>
+                        </form>
+                        <button type="button" title="Удалить"
+                                onclick="confirmDelete({{ org.id }}, '{{ org.name|replace("'","\\'")|e }}')"
+                                class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                            🗑
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card p-10 text-center text-slate-400">
+    <p class="text-4xl mb-3">🏢</p>
+    <p class="font-medium">Организаций не найдено</p>
+</div>
+{% endif %}
+
+<script>
+function confirmDelete(orgId, orgName) {
+    document.getElementById('del-modal-name').textContent = '«' + orgName + '» — удалится БД и все данные. Необратимо.';
+    document.getElementById('del-form').action = '/admin/orgs/' + orgId + '/delete';
+    document.getElementById('del-modal').classList.remove('hidden');
+}
+</script>
+{% endblock %}
