@@ -996,6 +996,15 @@ function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] 
 ══════════════════════════════════════════════════ */
 window.addEventListener('unload', function() {});
 
+/* Global error diagnostic — catches Alpine crashes + any JS error */
+window.onerror = function(msg, src, line, col, err) {
+    try { dsLog('❌ JS ERROR: ' + msg + ' @ ' + (src||'?') + ':' + line + '\n' + (err && err.stack || '')); } catch(_) {}
+    return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+    try { dsLog('❌ PROMISE ERR: ' + (e.reason && (e.reason.stack || e.reason) || e)); } catch(_) {}
+});
+
 /* ══════════════════════════════════════════════════
    mainApp() — Alpine root state
    Handles: sidebar, bottom nav, more-sheet, nav editor
@@ -1061,6 +1070,15 @@ function mainApp() {
             /* 3. Notification badge — initial poll + interval */
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
+
+            /* DIAGNOSTIC: catch exactly who sets editNavOpen to true */
+            this.$watch('editNavOpen', (val) => {
+                if (val) {
+                    const stack = new Error('editNavOpen→true').stack || 'no stack';
+                    dsLog('🔴 editNavOpen SET TRUE:\n' + stack);
+                    console.trace('🔴 editNavOpen SET TRUE');
+                }
+            });
 
                 /* 4. bfcache fallback: if the page IS restored from bfcache
                despite the unload guard below, force-close all sheets.
