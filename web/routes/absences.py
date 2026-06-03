@@ -326,7 +326,7 @@ def absences_add(
 
         ab_id = db.add_absence(
             target_uid, atype, start_date, end_date,
-            comment or None, target_uid, final_status
+            (comment or "").strip()[:500] or None, target_uid, final_status
         )
 
         # Штраф за прогул (если admin добавляет approved absence)
@@ -428,7 +428,7 @@ def absences_update(
         finally:
             conn2.close()
         db.update_absence_status(absence_id, new_status,
-                                  admin_comment or None, reviewer_id)
+                                  (admin_comment or "").strip()[:500] or None, reviewer_id)
 
         # Реверс штрафа при отмене/отклонении ранее одобренного прогула
         if new_status in ("cancelled", "rejected") and old_status == "approved" and atype == "absence":

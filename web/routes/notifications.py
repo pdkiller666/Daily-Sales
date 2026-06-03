@@ -169,7 +169,7 @@ def notifications_send(
     if not verify_csrf_token(request, csrf_token):
         return Response(content="Недействительный CSRF-токен.", status_code=403)
 
-    text = notification_text.strip()
+    text = notification_text.strip()[:1000]
     if not text:
         return RedirectResponse(url="/notifications?error=empty", status_code=303)
 

@@ -200,7 +200,7 @@
                 <input type="hidden" name="action" value="reject">
                 <input type="hidden" name="year" value="{{ year }}">
                 <input type="hidden" name="month" value="{{ month }}">
-                <input type="text" name="admin_comment" placeholder="Причина отказа"
+                <input type="text" name="admin_comment" placeholder="Причина отказа" maxlength="500"
                        class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 w-28 focus:outline-none focus:border-red-400 dark:bg-slate-800 dark:text-slate-200">
                 <button type="submit" class="text-xs px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors">❌</button>
               </form>
@@ -296,7 +296,7 @@
 
         <div>
           <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Комментарий <span class="text-slate-300">(необязательно)</span></label>
-          <input type="text" name="comment" placeholder="Причина, пояснение..."
+          <input type="text" name="comment" placeholder="Причина, пояснение..." maxlength="500"
                  class="w-full text-sm border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 dark:bg-slate-800 dark:text-slate-200">
         </div>
 

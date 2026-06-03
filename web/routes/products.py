@@ -11,6 +11,19 @@ _PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
+def _is_valid_image(raw: bytes) -> bool:
+    """Validate image by magic bytes — prevents disguised file uploads."""
+    if len(raw) < 12:
+        return False
+    if raw[:3] == b'\xff\xd8\xff':
+        return True  # JPEG
+    if raw[:8] == b'\x89PNG\r\n\x1a\n':
+        return True  # PNG
+    if raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
+        return True  # WebP
+    return False
+
+
 def _save_product_photo(upload: UploadFile, raw: bytes) -> str:
     """Save uploaded photo bytes to static dir, return web path like /static/product_photos/xxx.jpg."""
     ext = Path(upload.filename or "photo.jpg").suffix.lower()
@@ -458,6 +471,8 @@ async def products_create(
             raw = await photo.read(_PHOTO_MAX_BYTES + 1)
             if len(raw) > _PHOTO_MAX_BYTES:
                 return _re_render("Фото слишком большое (максимум 5 МБ).")
+            if not _is_valid_image(raw):
+                return _re_render("Файл не является изображением. Загрузите JPG, PNG или WebP.")
             photo_url = _save_product_photo(photo, raw)
         except Exception as exc:
             logging.error(f"products_create photo save: {exc}")
@@ -587,6 +602,8 @@ async def products_update(
             raw = await photo.read(_PHOTO_MAX_BYTES + 1)
             if len(raw) > _PHOTO_MAX_BYTES:
                 return _re_render("Фото слишком большое (максимум 5 МБ).")
+            if not _is_valid_image(raw):
+                return _re_render("Файл не является изображением. Загрузите JPG, PNG или WebP.")
             new_photo_url = _save_product_photo(photo, raw)
             _delete_product_photo(cur_photo_url)  # remove old if it was web-uploaded
         except Exception as exc:

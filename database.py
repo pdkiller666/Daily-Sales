@@ -1110,6 +1110,10 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id      ON chat_messages(id, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_topic   ON chat_messages(topic_id, id, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_topics_archived  ON chat_topics(is_archived, sort_order)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_salary_adj_user_ym   ON salary_adjustments(user_id, year, month)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_user  ON seller_earnings(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_absence_rec_user_dt   ON absence_records(user_id, status, start_date, end_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_sched_user_date  ON work_schedule(user_id, work_date)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -7755,6 +7759,48 @@ class Database:
         except Exception as e:
             logger.error(f"get_salary_adjustments: {e}")
             return []
+
+    def get_salary_bulk_stats(self, year: int, month: int,
+                               start_date: str, end_date: str) -> dict:
+        """Return {user_id: {'worked': int, 'adj_sum': float, 'motivation': float}}
+        for ALL users using 3 GROUP BY queries instead of 3 queries per user (avoids N+1).
+        paid_abs is not included — computed per-user due to calendar intersection logic.
+        """
+        result: dict = {}
+        month_start = f"{year}-{month:02d}-01"
+        month_end = f"{year}-{month:02d}-31"
+        try:
+            conn = self.get_connection()
+            # 1. worked days per user
+            for uid, cnt in conn.execute(
+                'SELECT user_id, COUNT(*) FROM work_schedule '
+                'WHERE work_date >= ? AND work_date <= ? GROUP BY user_id',
+                (month_start, month_end),
+            ).fetchall():
+                result.setdefault(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
+                result[uid]['worked'] = int(cnt)
+            # 2. salary adjustments sum per user
+            for uid, s in conn.execute(
+                'SELECT user_id, COALESCE(SUM(amount), 0) FROM salary_adjustments '
+                'WHERE year = ? AND month = ? GROUP BY user_id',
+                (year, month),
+            ).fetchall():
+                result.setdefault(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
+                result[uid]['adj_sum'] = float(s)
+            # 3. motivation (seller_earnings commissions) per user
+            rows = conn.execute(
+                'SELECT se.user_id, COALESCE(SUM(se.commission_amount), 0) '
+                'FROM seller_earnings se JOIN sales s ON se.sale_id = s.id '
+                'WHERE s.sale_date >= ? AND s.sale_date <= ? GROUP BY se.user_id',
+                (start_date, end_date),
+            ).fetchall()
+            for uid, earn in rows:
+                result.setdefault(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
+                result[uid]['motivation'] = round(float(earn), 2)
+            conn.close()
+        except Exception as e:
+            logger.error(f"get_salary_bulk_stats: {e}")
+        return result
 
     def delete_salary_adjustment(self, adjustment_id, user_id=None):
         """Удалить корректировку по id.

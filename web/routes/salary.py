@@ -235,17 +235,20 @@ def salary_page(
         staff_salary = []
         total_fund = 0.0
 
+        # Bulk-fetch worked/adj_sum/motivation in 3 GROUP BY queries → avoids N+1
+        bulk = db.get_salary_bulk_stats(year, month, start_date, end_date)
+
         for row in all_rates:
             if env_manager.is_super_admin(row[4]):
                 continue
             uid = row[0]
             rate = float(row[3] or 0)
-            worked = db.get_worked_days_count(uid, year, month)
+            bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
+            worked = bk['worked']
+            adj_sum = bk['adj_sum']
+            motivation = bk['motivation']
             paid_abs = db.get_paid_absence_days_count(uid, year, month)
-            adj_sum = db.get_salary_adjustments_sum(uid, year, month)
             base = rate * (worked + paid_abs)
-            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
-            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
             total = base + adj_sum + motivation
             total_fund += total
 
@@ -493,7 +496,7 @@ def salary_adj_add(
             year=year,
             month=month,
             amount=amount,
-            comment=comment or None,
+            comment=(comment or "").strip()[:500] or None,
             created_by=creator_uid,
         )
     except Exception as e:
