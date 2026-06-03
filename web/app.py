@@ -130,8 +130,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
             )
-        # Prevent bfcache for HTML pages so Telegram WebView never restores
-        # a frozen Alpine snapshot with sheets open.
+        # Disable HTTP caching for HTML responses (security + freshness).
         # Static assets keep their own caching headers unchanged.
         ct = response.headers.get("content-type", "")
         path = request.url.path

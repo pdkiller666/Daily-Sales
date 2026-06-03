@@ -996,15 +996,6 @@ function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] 
 ══════════════════════════════════════════════════ */
 window.addEventListener('unload', function() {});
 
-/* Global error diagnostic — catches Alpine crashes + any JS error */
-window.onerror = function(msg, src, line, col, err) {
-    try { dsLog('❌ JS ERROR: ' + msg + ' @ ' + (src||'?') + ':' + line + '\n' + (err && err.stack || '')); } catch(_) {}
-    return false;
-};
-window.addEventListener('unhandledrejection', function(e) {
-    try { dsLog('❌ PROMISE ERR: ' + (e.reason && (e.reason.stack || e.reason) || e)); } catch(_) {}
-});
-
 /* ══════════════════════════════════════════════════
    mainApp() — Alpine root state
    Handles: sidebar, bottom nav, more-sheet, nav editor
@@ -1071,14 +1062,12 @@ function mainApp() {
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
 
-                /* 4. bfcache fallback: if the page IS restored from bfcache
-               despite the unload guard below, force-close all sheets.
-               We use Alpine.$data() so reactivity fires correctly even
-               if 'this' proxy was frozen; setProperty 'important' beats
-               x-transition inline style that could re-show the element. */
+            /* 4. bfcache fallback: if the page IS restored from bfcache
+               despite the unload guard, force-close all sheets.
+               Uses Alpine.$data() for direct proxy access + !important
+               to beat any mid-flight x-transition inline style. */
             window.addEventListener('pageshow', (e) => {
                 if (!e.persisted) return;
-                dsLog('pageshow persisted — resetting sheets');
                 const root = document.querySelector('[x-data]');
                 const comp = (root && window.Alpine) ? Alpine.$data(root) : null;
                 if (comp) {
@@ -1122,11 +1111,6 @@ function mainApp() {
 
         get moreActive() {
             return !this.navItems.some(item => this.isNavActive(item));
-        },
-
-        /* ── More sheet ── */
-        openMore() {
-            this.moreOpen = true;
         },
 
         /* ── Nav Editor ── */
