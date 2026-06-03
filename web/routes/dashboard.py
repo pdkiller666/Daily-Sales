@@ -5,6 +5,22 @@ from fastapi.responses import RedirectResponse
 router = APIRouter()
 
 
+def _group_plans_dash(plans_dash: list, limit: int = 6) -> list:
+    """Group flat plan list by label (shop/seller) — one dict per entity."""
+    groups: dict = {}
+    for p in plans_dash:
+        key = p["label"]
+        if key not in groups:
+            groups[key] = {"key": key, "plans": [], "target_type": p["plan_type"]}
+        groups[key]["plans"].append(p)
+    result = []
+    for g in groups.values():
+        g["avg_pct"] = sum(p["pct"] for p in g["plans"]) // len(g["plans"])
+        result.append(g)
+    result.sort(key=lambda g: g["avg_pct"])
+    return result[:limit]
+
+
 def _fmt(amount) -> str:
     try:
         v = int(float(amount or 0))
@@ -140,9 +156,10 @@ def dashboard(request: Request):
                         "pct": min(100, int(pct or 0)),
                         "shop_name": plan[6] or "",
                     })
-                # Sort: least complete first (most urgent); cap at 6
+                # Sort: least complete first (most urgent)
                 plans_dash.sort(key=lambda x: x["pct"])
-                ctx["plans_dash"] = plans_dash[:6]
+                # Group by label (shop or seller) — one group per entity
+                ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
                 ctx["plans_dash"] = []
         else:
@@ -167,7 +184,7 @@ def dashboard(request: Request):
                         "shop_name": plan[6] or "",
                     })
                 plans_dash.sort(key=lambda x: x["pct"])
-                ctx["plans_dash"] = plans_dash[:6]
+                ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
                 ctx["plans_dash"] = []
 

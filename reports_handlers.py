@@ -194,12 +194,12 @@ async def reports_menu(callback: CallbackQuery, state: FSMContext):
     now_str = _now_user.strftime("%d.%m.%Y · %H:%M")
     try:
         if is_admin:
-            dashboard_text = await build_admin_dashboard(
+            dashboard_text, _ = await build_admin_dashboard(
                 current_db, today, now_str, user[0], callback.from_user.id,
                 scope_type=scope_type, scope_values=scope_values
             )
         else:
-            dashboard_text = await build_user_dashboard(
+            dashboard_text, _ = await build_user_dashboard(
                 current_db, user[0], callback.from_user.id, today, now_str
             )
     except Exception as _dash_err:

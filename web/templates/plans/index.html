@@ -45,7 +45,7 @@
 </div>
 {% endif %}
 
-{% if plans_data %}
+{% if grouped_plans %}
 <!-- Summary strip -->
 {% set done_count = plans_data | selectattr('pct_raw', 'ge', 100) | list | length %}
 {% set in_progress = plans_data | selectattr('pct_raw', 'lt', 100) | selectattr('pct_raw', 'gt', 0) | list | length %}
@@ -64,34 +64,48 @@
     </div>
 </div>
 
-<!-- Plans cards -->
-<div class="space-y-3" id="pln-list">
-    {% for p in plans_data %}
-    <div class="card p-5 cursor-pointer hover:shadow-md transition-shadow {% if not p.is_active %}opacity-60{% endif %}"
-         onclick="window.location='/plans/{{ p.id }}'"
-         title="Открыть детальный просмотр плана">
-        <div class="flex items-start justify-between gap-4 mb-3">
+<!-- Grouped cards: one card per shop/seller -->
+<div class="space-y-4" id="pln-list">
+{% for group in grouped_plans %}
+<div class="card p-5 {% if not group.is_active %}opacity-60{% endif %}">
+
+    <!-- Group header -->
+    <div class="flex items-center gap-2 flex-wrap mb-4">
+        <span class="font-bold text-slate-800 text-base">{{ group.key }}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+            {{ target_labels.get(group.target_type, group.target_type) }}
+        </span>
+        {% if group.count > 1 %}
+        <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500">
+            {{ group.count }} плана
+        </span>
+        {% endif %}
+        {% if not group.is_active %}
+        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">завершены</span>
+        {% endif %}
+    </div>
+
+    <!-- Plans inside this group -->
+    <div class="space-y-4">
+    {% for p in group.plans %}
+
+    <!-- Divider between plans (not before first) -->
+    {% if not loop.first %}
+    <div class="border-t border-slate-100"></div>
+    {% endif %}
+
+    <!-- Single plan row — clickable -->
+    <a href="/plans/{{ p.id }}" class="block group" title="Открыть детальный просмотр плана">
+        <div class="flex items-start justify-between gap-3 mb-2">
             <div class="flex-1 min-w-0">
-                <!-- Header row -->
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-semibold text-slate-800">{{ p.target_who }}</span>
-                    <!-- Plan type badge -->
+                <!-- Badges row -->
+                <div class="flex items-center gap-1.5 flex-wrap">
                     <span class="text-xs px-2 py-0.5 rounded-full font-medium
                                  {{ 'bg-indigo-50 text-indigo-600' if p.plan_type == 'weekly' else 'bg-purple-50 text-purple-600' }}">
                         {{ plan_type_labels.get(p.plan_type, p.plan_type) }}
                     </span>
-                    <!-- Target type -->
-                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                        {{ target_labels.get(p.target_type, p.target_type) }}
-                    </span>
-                    {% if not p.is_active %}
-                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">завершён</span>
-                    {% endif %}
-                </div>
-                <!-- Metric and filter -->
-                <div class="flex items-center gap-2 mt-1 flex-wrap">
-                    <span class="text-xs text-slate-500">
-                        Метрика: <span class="font-medium">{{ metric_labels.get(p.metric_type, p.metric_type) }}</span>
+                    <span class="text-xs text-slate-400">
+                        {{ metric_labels.get(p.metric_type, p.metric_type) }}
                     </span>
                     {% if p.filter_desc %}
                     <span class="text-xs text-slate-300">·</span>
@@ -101,22 +115,22 @@
             </div>
 
             <!-- Percent bubble -->
-            <div class="shrink-0 w-16 h-16 rounded-full flex items-center justify-center border-4
+            <div class="shrink-0 w-14 h-14 rounded-full flex items-center justify-center border-4
                         {% if p.pct_raw >= 100 %}border-emerald-400 bg-emerald-50
                         {% elif p.pct_raw >= 70 %}border-blue-400 bg-blue-50
                         {% elif p.pct_raw >= 40 %}border-amber-400 bg-amber-50
                         {% else %}border-red-300 bg-red-50{% endif %}">
-                <span class="text-sm font-bold {{ p.pct_cls }}">{{ p.pct_raw|int }}%</span>
+                <span class="text-xs font-bold {{ p.pct_cls }}">{{ p.pct_raw|int }}%</span>
             </div>
         </div>
 
         <!-- Progress bar -->
-        <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden mb-3">
+        <div class="h-2 bg-slate-100 rounded-full overflow-hidden mb-2">
             <div class="h-full rounded-full transition-all {{ p.bar_cls }}"
                  style="width: {{ p.pct }}%"></div>
         </div>
 
-        <!-- Numbers -->
+        <!-- Numbers row -->
         <div class="flex flex-wrap items-center justify-between gap-y-1">
             <div class="flex flex-wrap items-center gap-3">
                 <div>
@@ -125,7 +139,7 @@
                         {% if p.is_metric_revenue %}{{ p.actual|int|fmt_currency }}{% else %}{{ p.actual|int }}&thinsp;шт.{% endif %}
                     </p>
                 </div>
-                <div class="text-slate-200 text-lg">→</div>
+                <div class="text-slate-200 text-base">→</div>
                 <div>
                     <p class="text-xs text-slate-400">План</p>
                     <p class="text-sm font-bold text-slate-500">
@@ -148,10 +162,16 @@
             </div>
             <span class="text-xs text-slate-400">{{ p.created_at|fmt_date }}</span>
         </div>
-    </div>
+    </a>
+
     {% endfor %}
-</div>
-<!-- Plans pagination -->
+    </div><!-- /space-y-4 plans -->
+
+</div><!-- /card -->
+{% endfor %}
+</div><!-- /pln-list -->
+
+<!-- Pagination (groups) -->
 <div id="pln-pager" class="mt-3 px-1 py-3 flex items-center justify-between text-sm text-slate-500 hidden">
     <span id="pln-pager-info"></span>
     <div class="flex items-center gap-1">
@@ -185,7 +205,7 @@
 {% block extra_js %}
 <script>
 (function () {
-    const PAGE = 10;
+    const PAGE = 8;
     const items = Array.from(document.querySelectorAll('#pln-list > .card'));
     if (items.length <= PAGE) return;
     let cur = 0;
@@ -197,7 +217,7 @@
     pager.classList.remove('hidden');
     function render() {
         items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
-        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + items.length + ' планов';
+        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + items.length + ' магазинов';
         prev.disabled = cur === 0;
         next.disabled = cur === total - 1;
     }

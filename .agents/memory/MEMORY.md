@@ -13,3 +13,5 @@
 - [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример
 - [Internal org chat module](chat-module.md) — shop_bot.db для плана, my_db_id (не user.db_id), rate limits, gating via chat_min_plan, topics planned next
 - [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes
+- [PostgreSQL migration plan](postgres-migration.md) — поэтапный план SQLite→PG: schema-per-org, asyncpg, dual-write, 279 методов; начинать при ≥30 платящих оргов или реальном lock-contention
+- [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок

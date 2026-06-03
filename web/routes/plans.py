@@ -327,6 +327,31 @@ def plans_page(request: Request, active_only: str = "1"):
         plans_data.sort(key=lambda p: (0 if p["is_active"] else 1, -p["pct_raw"]))
         ctx["plans_data"] = plans_data
 
+        # Group by target (shop or seller) — one card per entity
+        groups: dict = {}
+        for p in plans_data:
+            key = p["target_who"]
+            if key not in groups:
+                groups[key] = {
+                    "key": key,
+                    "plans": [],
+                    "target_type": p["target_type"],
+                    "is_active": False,
+                }
+            groups[key]["plans"].append(p)
+            if p["is_active"]:
+                groups[key]["is_active"] = True
+
+        grouped_plans = []
+        for g in groups.values():
+            g["avg_pct"] = round(
+                sum(p["pct_raw"] for p in g["plans"]) / len(g["plans"]), 1
+            )
+            g["count"] = len(g["plans"])
+            grouped_plans.append(g)
+        grouped_plans.sort(key=lambda g: (0 if g["is_active"] else 1, g["avg_pct"]))
+        ctx["grouped_plans"] = grouped_plans
+
     except Exception as exc:
         logger.error(f"plans_page error: {exc}")
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

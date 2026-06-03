@@ -40,6 +40,8 @@ MONTH_NAMES_RU = {
     9: 'сентябрь', 10: 'октябрь', 11: 'ноябрь', 12: 'декабрь',
 }
 
+_PLANS_PER_PAGE = 4  # планов на одну страницу пагинации дашборда
+
 _SCOPE_ICONS = {
     'shop':    '🏪',
     'city':    '🏙️',
@@ -544,7 +546,8 @@ def _today_total_earnings(db_file: str, today: str,
 async def build_admin_dashboard(current_db, today: str, now_str: str,
                                 user_id: int = 0, telegram_id: int = 0,
                                 scope_type: str = None, scope_values: list = None,
-                                scope_value: str = None, period: str = 'today') -> str:
+                                scope_value: str = None, period: str = 'today',
+                                plans_page: int = 0) -> tuple:
     """Дашборд администратора с фильтрацией по зоне ответственности.
 
     scope_type: None/'all' — весь орг; 'shop'/'city'/'network' — конкретная зона.
@@ -719,17 +722,19 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
 
     # ── Планы продаж ─────────────────────────────────────────────────────────
     text += "📋 <b>Планы продаж</b>\n\n"
+    total_plan_pages = 1
     if plans_progress:
-        MAX_BARS = 8 if scale == 'single' else 6
-        for plan_row, actual, pct in plans_progress[:MAX_BARS]:
+        total_plan_pages = max(1, (len(plans_progress) + _PLANS_PER_PAGE - 1) // _PLANS_PER_PAGE)
+        plans_page = max(0, min(plans_page, total_plan_pages - 1))
+        page_start = plans_page * _PLANS_PER_PAGE
+        page_end   = page_start + _PLANS_PER_PAGE
+        for plan_row, actual, pct in plans_progress[page_start:page_end]:
             try:
                 text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
             except Exception:
                 pass
-        if len(plans_progress) > MAX_BARS:
-            rest = plans_progress[MAX_BARS:]
-            on_track = sum(1 for _, _, p in rest if p >= 75)
-            text += f"  ···  ещё {len(rest)} планов · ✅ {on_track} в графике\n\n"
+        if total_plan_pages > 1:
+            text += f"<i>Стр. {plans_page + 1} из {total_plan_pages} · всего {len(plans_progress)} планов</i>\n\n"
     else:
         text += "• Активных планов нет\n\n"
 
@@ -782,11 +787,12 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
         else:
             text += "• Никто ещё не отмечен\n"
 
-    return text
+    return text, total_plan_pages
 
 
 async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
-                               today: str, now_str: str, period: str = 'today') -> str:
+                               today: str, now_str: str, period: str = 'today',
+                               plans_page: int = 0) -> tuple:
     today_dt  = datetime.strptime(today, '%Y-%m-%d')
     year      = today_dt.year
     month     = today_dt.month
@@ -857,10 +863,17 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         text += f"• Мотивация: <b>+{period_motivations:,.0f} ₽</b>\n"
     text += "\n"
 
+    total_plan_pages = 1
     if plans_progress:
+        total_plan_pages = max(1, (len(plans_progress) + _PLANS_PER_PAGE - 1) // _PLANS_PER_PAGE)
+        plans_page = max(0, min(plans_page, total_plan_pages - 1))
+        page_start = plans_page * _PLANS_PER_PAGE
+        page_end   = page_start + _PLANS_PER_PAGE
         text += "📋 <b>Мои планы</b>\n\n"
-        for plan_row, actual, pct in plans_progress:
+        for plan_row, actual, pct in plans_progress[page_start:page_end]:
             text += _plan_summary_line(plan_row, actual, pct) + "\n\n"
+        if total_plan_pages > 1:
+            text += f"<i>Стр. {plans_page + 1} из {total_plan_pages} · всего {len(plans_progress)} планов</i>\n\n"
 
     if user_contests:
         try:
@@ -869,7 +882,7 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         except Exception:
             pass
 
-    return text
+    return text, total_plan_pages
 
 
 async def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
@@ -932,7 +945,8 @@ async def build_user_daily_text(current_db, user_id: int,
     return msg
 
 
-def _dashboard_period_kb(period: str) -> InlineKeyboardMarkup:
+def _dashboard_period_kb(period: str, plans_page: int = 0,
+                         plans_total: int = 1) -> InlineKeyboardMarkup:
     """Клавиатура переключения периода дашборда."""
     periods = [
         ('today', '📅 Сегодня'),
@@ -943,12 +957,22 @@ def _dashboard_period_kb(period: str) -> InlineKeyboardMarkup:
     for p, label in periods:
         text_label = f"• {label}" if p == period else label
         buttons.append(InlineKeyboardButton(text=text_label, callback_data=f"dash_p_{p}"))
-    return InlineKeyboardMarkup(inline_keyboard=[buttons, [
-        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dash_p_{period}")
-    ]])
+    rows = [buttons]
+    if plans_total > 1:
+        nav = []
+        if plans_page > 0:
+            nav.append(InlineKeyboardButton(text="◀️", callback_data="dash_pp_p"))
+        nav.append(InlineKeyboardButton(
+            text=f"📋 {plans_page + 1}/{plans_total}", callback_data="dash_pp_i"))
+        if plans_page < plans_total - 1:
+            nav.append(InlineKeyboardButton(text="▶️", callback_data="dash_pp_n"))
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dash_p_{period}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: str = 'today'):
+async def _render_dashboard(callback: CallbackQuery, state: FSMContext,
+                             period: str = 'today', plans_page: int | None = None):
     from env_manager import env_manager as _env
     is_super_admin = _env.is_super_admin(callback.from_user.id)
     # Отвечаем немедленно — кнопка разблокируется, пока строится дашборд
@@ -965,18 +989,31 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext, period: 
     today   = _now_local.date().isoformat()
     now_str = _now_local.strftime("%d.%m.%Y · %H:%M")
 
+    # Читаем сохранённую страницу планов из FSM (если не передана явно)
+    if plans_page is None:
+        _data = await state.get_data()
+        plans_page = _data.get('dash_plans_pg', 0)
+
     if is_any_admin(callback.from_user.id) or is_super_admin:
         scope_type, scope_values = get_user_org_scope(callback.from_user.id)
-        text = await build_admin_dashboard(
+        text, total_plan_pages = await build_admin_dashboard(
             current_db, today, now_str, user[0], callback.from_user.id,
-            scope_type=scope_type, scope_values=scope_values, period=period
+            scope_type=scope_type, scope_values=scope_values, period=period,
+            plans_page=plans_page
         )
     else:
-        text = await build_user_dashboard(current_db, user[0], callback.from_user.id, today, now_str, period=period)
+        text, total_plan_pages = await build_user_dashboard(
+            current_db, user[0], callback.from_user.id, today, now_str,
+            period=period, plans_page=plans_page
+        )
+
+    # Нормализуем страницу и сохраняем в FSM
+    plans_page = max(0, min(plans_page, total_plan_pages - 1))
+    await state.update_data(dash_plans_pg=plans_page, dash_period=period)
 
     text += hint_suffix(current_db, user[0], 'first_dashboard')
     await safe_edit_message(callback.message, text, parse_mode="HTML",
-                            reply_markup=_dashboard_period_kb(period))
+                            reply_markup=_dashboard_period_kb(period, plans_page, total_plan_pages))
 
 
 @router.callback_query(lambda c: c.data == "dashboard")
@@ -990,4 +1027,31 @@ async def show_dashboard_period(callback: CallbackQuery, state: FSMContext):
     period = callback.data.replace("dash_p_", "")
     if period not in ('today', 'week', 'month'):
         period = 'today'
-    await _render_dashboard(callback, state, period=period)
+    # Смена периода — сбрасываем страницу планов на первую
+    await _render_dashboard(callback, state, period=period, plans_page=0)
+
+
+@router.callback_query(F.data == "dash_pp_n")
+async def dash_plans_next(callback: CallbackQuery, state: FSMContext):
+    """Следующая страница планов в дашборде."""
+    await callback.answer()
+    _data = await state.get_data()
+    period = _data.get('dash_period', 'today')
+    plans_page = _data.get('dash_plans_pg', 0) + 1
+    await _render_dashboard(callback, state, period=period, plans_page=plans_page)
+
+
+@router.callback_query(F.data == "dash_pp_p")
+async def dash_plans_prev(callback: CallbackQuery, state: FSMContext):
+    """Предыдущая страница планов в дашборде."""
+    await callback.answer()
+    _data = await state.get_data()
+    period = _data.get('dash_period', 'today')
+    plans_page = max(0, _data.get('dash_plans_pg', 0) - 1)
+    await _render_dashboard(callback, state, period=period, plans_page=plans_page)
+
+
+@router.callback_query(F.data == "dash_pp_i")
+async def dash_plans_indicator(callback: CallbackQuery):
+    """Индикатор страницы планов — noop."""
+    await callback.answer()

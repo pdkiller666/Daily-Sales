@@ -6038,16 +6038,22 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            # Активные joint-условия: shop_name, min_sellers, coefficient
+            # Извлекаем год/месяц из start_date для поиска месячных условий
+            _period_year = None
+            _period_month = None
+            if start_date:
+                import re as _re
+                _m = _re.match(r'(\d{4})-(\d{2})', start_date)
+                if _m:
+                    _period_year, _period_month = int(_m.group(1)), int(_m.group(2))
+
+            # Активные joint-условия из глобальной таблицы
             cursor.execute("""
                 SELECT shop_name, min_sellers, coefficient
                 FROM motivation_extra_conditions
                 WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint' AND is_active = 1
             """)
             joint_conditions = cursor.fetchall()
-            if not joint_conditions:
-                conn.close()
-                return 0.0
 
             # Строим словарь shop_name → (min_sellers, coefficient)
             # None = условие применяется ко всем магазинам
@@ -6058,6 +6064,26 @@ class Database:
                     global_cond = (min_s, coeff)
                 else:
                     shop_to_cond[sn] = (min_s, coeff)
+
+            # Перекрываем глобальные условия месячными (extra_conditions_schedule),
+            # если период известен — месячные имеют приоритет над глобальными
+            if _period_year is not None and _period_month is not None:
+                cursor.execute("""
+                    SELECT shop_name, min_sellers, coefficient
+                    FROM extra_conditions_schedule
+                    WHERE condition_type = 'multi_seller_coeff' AND calc_mode = 'joint'
+                      AND is_active = 1 AND year = ? AND month = ?
+                """, (_period_year, _period_month))
+                monthly_conditions = cursor.fetchall()
+                for sn, min_s, coeff in monthly_conditions:
+                    if sn is None:
+                        global_cond = (min_s, coeff)
+                    else:
+                        shop_to_cond[sn] = (min_s, coeff)
+
+            if not shop_to_cond and global_cond is None:
+                conn.close()
+                return 0.0
 
             # Магазины, где этот пользователь продавал за период
             date_filter = ""
