@@ -263,13 +263,6 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
         except Exception:
             ctx["referral"] = {"total_referred": 0, "bonus_granted": 0, "bonus_days": 0}
 
-        # Bot username for referral deep link
-        try:
-            _bu = request.app.state.templates.env.globals.get("bot_username", "")
-            ctx["bot_username"] = _bu() if callable(_bu) else str(_bu)
-        except Exception:
-            ctx["bot_username"] = ""
-
     except Exception as exc:
         ctx["error"] = str(exc)
 

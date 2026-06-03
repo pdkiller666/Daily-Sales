@@ -354,7 +354,7 @@
         <div class="card p-5 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100">
             <h2 class="font-semibold text-slate-800 mb-2">🤖 Telegram-бот</h2>
             <p class="text-xs text-slate-500 mb-3">Полное управление магазином в боте</p>
-            <a href="https://t.me/{{ bot_username }}" target="_blank"
+            <a href="https://t.me/{{ bot_username() }}" target="_blank"
                class="flex items-center justify-center gap-2 w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
                 Открыть бота ↗
             </a>
@@ -374,11 +374,11 @@
                     <span class="font-medium text-emerald-600">{{ referral.bonus_days }}</span>
                 </div>
             </div>
-            {% if bot_username %}
+            {% if bot_username() %}
             <div class="mb-2">
                 <p class="text-xs text-slate-500 mb-1">Ваша реферальная ссылка</p>
                 <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
-                    <code id="refLink" class="text-xs font-mono text-slate-600 flex-1 select-all truncate">https://t.me/{{ bot_username }}?start=ref_{{ user.sub }}</code>
+                    <code id="refLink" class="text-xs font-mono text-slate-600 flex-1 select-all truncate">https://t.me/{{ bot_username() }}?start=ref_{{ user.sub }}</code>
                     <button type="button" onclick="copyText('refLink', this)"
                             class="text-xs text-blue-500 hover:text-blue-700 shrink-0 transition-colors">Копировать</button>
                 </div>
