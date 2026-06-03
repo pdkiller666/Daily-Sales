@@ -78,6 +78,13 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
 
 
 def _get_org_active_plan(telegram_id: int) -> str:
+    """Return active plan name for this user's org.
+
+    Priority:
+    1. super_admin → Премиум always
+    2. shop_bot.db subscriptions by user_id (org owner's own record)
+    3. main.db organizations.subscription_plan (covers non-owner members)
+    """
     try:
         from env_manager import env_manager
         if env_manager.is_super_admin(telegram_id):
@@ -86,24 +93,41 @@ def _get_org_active_plan(telegram_id: int) -> str:
         pass
     try:
         import sqlite3
+        # Owner path: correct columns are user_id + plan_type
         conn = sqlite3.connect(_SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT plan_name FROM subscriptions WHERE telegram_id = ? AND end_date >= date('now') ORDER BY end_date DESC LIMIT 1",
-            (telegram_id,)
+        user_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
-        if row:
-            conn.close()
-            return row[0]
-        row2 = conn.execute(
-            "SELECT trial_plan, trial_end FROM users WHERE telegram_id = ?",
+        if user_row:
+            sub_row = conn.execute(
+                "SELECT plan_type FROM subscriptions WHERE user_id = ? AND datetime(end_date) > datetime('now') ORDER BY end_date DESC LIMIT 1",
+                (user_row[0],)
+            ).fetchone()
+            if sub_row and sub_row[0]:
+                conn.close()
+                return sub_row[0]
+        conn.close()
+    except Exception:
+        pass
+    try:
+        import sqlite3
+        # Non-owner member path: org-level subscription stored in main.db
+        conn = sqlite3.connect("data/main.db")
+        org_row = conn.execute(
+            """SELECT o.subscription_plan, o.subscription_end
+               FROM organizations o
+               JOIN user_org_mapping m ON m.org_id = o.id
+               WHERE m.telegram_id = ? AND m.is_active = 1
+               ORDER BY o.subscription_end DESC LIMIT 1""",
             (telegram_id,)
         ).fetchone()
         conn.close()
-        if row2 and row2[1] and row2[1] >= datetime.now().strftime("%Y-%m-%d"):
-            return row2[0] or "Премиум"
-        return "Бесплатный"
+        if (org_row and org_row[0] and org_row[0] in PLAN_ORDER
+                and org_row[1] and org_row[1] >= datetime.now().strftime("%Y-%m-%d")):
+            return org_row[0]
     except Exception:
-        return "Бесплатный"
+        pass
+    return "Бесплатный"
 
 
 def _uploads_dir(org_db: str) -> str:
