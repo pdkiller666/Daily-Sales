@@ -152,7 +152,7 @@ async def abs_my(callback: CallbackQuery, state: FSMContext):
     kb.button(text='➕ Подать заявку', callback_data='abs_new')
     kb.button(text='📂 История за год', callback_data=f'abs_hist_{today.year}')
     kb.adjust(1)
-    kb.row(back_button('slr_my_schedule'), home_button())
+    kb.row(back_button('my_schedule'), home_button())
     await callback.answer()
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
@@ -572,6 +572,9 @@ async def abs_delete(callback: CallbackQuery, state: FSMContext):
         return
     ab_id = int(callback.data[8:])
     db = await get_db(callback.from_user.id, state)
+    rec = await db.get_absence_by_id(ab_id)
+    if rec and rec[2] == 'absence' and rec[5] == 'approved':
+        await db.delete_absence_penalty(ab_id)
     ok = await db.update_absence_status(ab_id, 'cancelled', 'Удалено администратором',
                                          callback.from_user.id)
     await callback.answer('🗑 Отменено' if ok else 'Ошибка')

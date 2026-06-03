@@ -8333,11 +8333,27 @@ class Database:
     def apply_absence_penalty(self, user_id: int, absence_id: int,
                                year: int, month: int,
                                amount: float, admin_id: int) -> bool:
-        """Добавить штраф за прогул в salary_adjustments."""
+        """Добавить штраф за прогул в salary_adjustments (с дедупликацией)."""
+        self.delete_absence_penalty(absence_id)
         comment = f"Штраф (прогул, запись #{absence_id})"
         return bool(self.add_salary_adjustment(
             user_id, year, month, -abs(amount), comment, admin_id
         ))
+
+    def delete_absence_penalty(self, absence_id: int) -> bool:
+        """Удалить штраф за прогул из salary_adjustments (при отмене/отклонении)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "DELETE FROM salary_adjustments WHERE comment = ?",
+                (f"Штраф (прогул, запись #{absence_id})",)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"delete_absence_penalty: {e}")
+            return False
 
     def mark_contest_salary_paid(self, contest_id: int) -> bool:
         """Отметить конкурс как выплаченный в зарплату.

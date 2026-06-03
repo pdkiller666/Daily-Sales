@@ -279,13 +279,19 @@ def absences_add(
             pamt = s.get('penalty_amount', 0.0)
             if pmode in ('fine', 'both') and pamt:
                 try:
-                    sd = date.fromisoformat(start_date[:10])
-                    ed = date.fromisoformat(end_date[:10])
-                    days = (ed - sd).days + 1
+                    sd_d = date.fromisoformat(start_date[:10])
+                    ed_d = date.fromisoformat(end_date[:10])
+                    days = (ed_d - sd_d).days + 1
+                    conn_adm = db.get_connection()
+                    adm_row = conn_adm.execute(
+                        "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                    ).fetchone()
+                    conn_adm.close()
+                    admin_org_id = adm_row[0] if adm_row else target_uid
                     db.apply_absence_penalty(
                         target_uid, ab_id,
-                        sd.year, sd.month,
-                        pamt * days, target_uid
+                        sd_d.year, sd_d.month,
+                        pamt * days, admin_org_id
                     )
                 except Exception as e:
                     logging.error(f"absences_add penalty: {e}")
@@ -367,7 +373,14 @@ def absences_update(
         db.update_absence_status(absence_id, new_status,
                                   admin_comment or None, reviewer_id)
 
-        # Штраф при одобрении прогула
+        # Реверс штрафа при отмене/отклонении ранее одобренного прогула
+        if new_status in ("cancelled", "rejected") and old_status == "approved" and atype == "absence":
+            try:
+                db.delete_absence_penalty(absence_id)
+            except Exception as e:
+                logging.error(f"absences_update penalty reversal: {e}")
+
+        # Штраф при одобрении прогула (apply_absence_penalty сам удаляет дубли)
         if new_status == "approved" and atype == "absence":
             settings = db.get_absence_type_settings()
             s = settings.get('absence', {})
