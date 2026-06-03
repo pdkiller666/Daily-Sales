@@ -1035,32 +1035,43 @@ function mainApp() {
                 }
             });
 
-            /* 5. bfcache / WebView re-entry fix.
-               Android Telegram WebView restores the page from bfcache WITHOUT
-               firing pageshow(persisted=true) — Alpine state (including open
-               sheets) is preserved as-is, and $watch never fires because the
-               value doesn't "change".
-               Strategy: close sheets only when they are actually open, so we
-               never disturb _initReady on a clean fresh page load. */
+            /* 5. bfcache / WebView re-entry fix — two-layer approach:
+               LAYER A (Alpine state): handles bfcache where editNavOpen=true is
+               preserved in Alpine's reactive proxy → _closeAllSheets() resets it.
+               LAYER B (DOM direct): handles the harder case — bfcache or x-transition
+               interruption where editNavOpen is ALREADY false in Alpine's state but
+               the DOM element is still display:block (e.g. page was bfcache'd mid
+               leave-transition at translateY~0). In that case $watch never fires
+               (value didn't change) and buttons appear dead. Direct style.display='none'
+               bypasses Alpine and forces the correct DOM state. */
+            const _domHideSheets = () => {
+                /* Force-hide nav editor and more sheet at DOM level regardless of
+                   Alpine's reactive state. Alpine will override this to display:''
+                   when editNavOpen/moreOpen legitimately become true via openEditNav(). */
+                ['ds-nav-bd', 'ds-nav-sh', 'ds-more-bd', 'ds-more-sh'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el.style.display !== 'none') el.style.display = 'none';
+                });
+            };
+
             const _maybeCloseSheets = () => {
+                /* Layer A: reset Alpine state */
                 if (this.moreOpen || this.editNavOpen || this.notifOpen || this.notifDdOpen) {
                     this._closeAllSheets();
                 }
+                /* Layer B: DOM-level force-hide (catches transition-interrupted bfcache) */
+                _domHideSheets();
             };
 
-            /* pageshow covers standard bfcache (persisted=true) in browsers
-               that honour it; we also handle persisted=false to be safe. */
+            /* pageshow covers standard bfcache (persisted=true) and fresh loads */
             window.addEventListener('pageshow', () => _maybeCloseSheets());
 
-            /* visibilitychange covers the case where the WebView is simply
-               brought to the foreground without any navigation event. */
+            /* visibilitychange: WebView brought to foreground without navigation */
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') {
-                    _maybeCloseSheets();
-                }
+                if (document.visibilityState === 'visible') { _maybeCloseSheets(); }
             });
 
-            /* focus covers remaining edge-cases (e.g. app switcher return). */
+            /* focus: remaining edge-cases (app switcher return, etc.) */
             window.addEventListener('focus', () => _maybeCloseSheets());
         },
 
@@ -1371,7 +1382,7 @@ function mainApp() {
 {% set _bn_more = not (_p == '/dashboard' or _p.startswith('/pos') or _p.startswith('/sales') or _p.startswith('/products')) %}
 
 <!-- More-sheet backdrop -->
-<div x-show="moreOpen" x-cloak @click="moreOpen=false"
+<div id="ds-more-bd" x-show="moreOpen" x-cloak @click="moreOpen=false"
      x-transition:enter="transition duration-200 ease-out"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -1380,7 +1391,7 @@ function mainApp() {
      class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
 
 <!-- More sheet -->
-<div x-show="moreOpen" x-cloak
+<div id="ds-more-sh" x-show="moreOpen" x-cloak
      x-transition:enter="transition duration-300 ease-out"
      x-transition:enter-start="sheet-from"
      x-transition:enter-end="sheet-to"
@@ -1653,7 +1664,7 @@ function mainApp() {
 </div>
 
 <!-- ═══ NAV EDITOR SHEET ═══ -->
-<div x-show="editNavOpen" x-cloak @click="editNavOpen=false"
+<div id="ds-nav-bd" x-show="editNavOpen" x-cloak @click="editNavOpen=false"
      x-transition:enter="transition duration-200 ease-out"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -1661,7 +1672,7 @@ function mainApp() {
      x-transition:leave-end="opacity-0"
      class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
 
-<div x-show="editNavOpen" x-cloak
+<div id="ds-nav-sh" x-show="editNavOpen" x-cloak
      x-transition:enter="transition duration-300 ease-out"
      x-transition:enter-start="sheet-from"
      x-transition:enter-end="sheet-to"
