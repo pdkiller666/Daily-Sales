@@ -91,7 +91,11 @@ def _fmt_currency(amount) -> str:
 
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' "
+    # 'unsafe-eval' is required by Alpine.js 3 which uses new Function() to
+    # evaluate x-* expressions.  Without it the browser blocks every directive
+    # evaluation, Alpine crashes silently, x-cloak is removed but x-show is
+    # never applied, and all event handlers are dead.
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
     "https://unpkg.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com "
     "https://telegram.org; "
     "style-src 'self' 'unsafe-inline' "
