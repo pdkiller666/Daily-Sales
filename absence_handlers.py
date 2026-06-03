@@ -13,7 +13,6 @@ from aiogram.fsm.state import State, StatesGroup
 
 from keyboards import InlineKeyboardBuilder, back_button, home_button
 from db_utils import get_db, clear_state_keep_org, is_any_admin
-from message_utils import fsm_edit
 from utils import he
 from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 
@@ -232,7 +231,8 @@ async def abs_new_type(callback: CallbackQuery, state: FSMContext):
             f'Введи дату начала отсутствия в формате <code>DD.MM.YYYY</code>:')
     kb = InlineKeyboardBuilder()
     kb.row(back_button('abs_new'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.new_start_date)
 
 
@@ -381,7 +381,8 @@ async def abs_admin(callback: CallbackQuery, state: FSMContext):
     kb.button(text='⚙️ Настройки типов', callback_data='abs_cfg')
     kb.adjust(2)
     kb.row(home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data == 'abs_pnd')
@@ -395,7 +396,8 @@ async def abs_pending_list(callback: CallbackQuery, state: FSMContext):
         text = '✅ Нет ожидающих заявок.'
         kb = InlineKeyboardBuilder()
         kb.row(back_button('abs_admin'), home_button())
-        await fsm_edit(callback, text, kb.as_markup())
+        await callback.answer()
+        await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
         return
     text = f'<b>❓ Заявки на рассмотрении</b> ({len(rows)}):\n\n'
     for r in rows[:10]:
@@ -413,7 +415,8 @@ async def abs_pending_list(callback: CallbackQuery, state: FSMContext):
         kb.button(text=f'#{ab_id} {name}', callback_data=f'abs_rv_{ab_id}')
     kb.adjust(2)
     kb.row(back_button('abs_admin'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data.startswith('abs_rv_'))
@@ -456,7 +459,8 @@ async def abs_review(callback: CallbackQuery, state: FSMContext):
         kb.adjust(2)
     kb.button(text='🗑 Удалить', callback_data=f'abs_del_{ab_id}')
     kb.row(back_button('abs_pnd'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data.startswith('abs_ok_'))
@@ -526,7 +530,8 @@ async def abs_reject_start(callback: CallbackQuery, state: FSMContext):
     text = f'❌ Заявка #{ab_id}\n\nВведи причину отказа (или /skip для отказа без комментария):'
     kb = InlineKeyboardBuilder()
     kb.row(back_button(f'abs_rv_{ab_id}'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.reject_comment)
 
 
@@ -602,7 +607,8 @@ async def abs_prg_list(callback: CallbackQuery, state: FSMContext):
         kb.button(text=label[:35], callback_data=f'abs_prg_u_{uid}')
     kb.adjust(1)
     kb.row(back_button('abs_admin'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data.startswith('abs_prg_u_'))
@@ -617,7 +623,8 @@ async def abs_prg_user(callback: CallbackQuery, state: FSMContext):
             'или диапазон через дефис: <code>01.06.2025-03.06.2025</code>')
     kb = InlineKeyboardBuilder()
     kb.row(back_button('abs_prg_list'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.prg_date)
 
 
@@ -703,7 +710,8 @@ async def abs_all_month(callback: CallbackQuery, state: FSMContext):
         text += 'Нет отсутствий за этот месяц.\n'
     kb = InlineKeyboardBuilder()
     kb.row(back_button('abs_admin'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -734,7 +742,8 @@ async def abs_cfg_list(callback: CallbackQuery, state: FSMContext):
         kb.button(text=_TYPE_LABELS[t], callback_data=f'abs_cfg_t_{t}')
     kb.adjust(2)
     kb.row(back_button('abs_admin'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_t_'))
@@ -765,7 +774,8 @@ async def abs_cfg_type(callback: CallbackQuery, state: FSMContext):
     kb.button(text='✏️ Штраф/день ₽', callback_data=f'abs_cfg_pen_{atype}')
     kb.adjust(1)
     kb.row(back_button('abs_cfg'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
 
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_pay_'))
@@ -815,7 +825,8 @@ async def abs_cfg_limit_start(callback: CallbackQuery, state: FSMContext):
             'Введи число (0 = без лимита):')
     kb = InlineKeyboardBuilder()
     kb.row(back_button(f'abs_cfg_t_{atype}'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.settings_limit)
 
 
@@ -852,7 +863,8 @@ async def abs_cfg_penalty_start(callback: CallbackQuery, state: FSMContext):
             'Введи сумму в ₽ (0 = без штрафа):')
     kb = InlineKeyboardBuilder()
     kb.row(back_button(f'abs_cfg_t_{atype}'), home_button())
-    await fsm_edit(callback, text, kb.as_markup())
+    await callback.answer()
+    await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.settings_penalty)
 
 
