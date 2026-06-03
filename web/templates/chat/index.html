@@ -284,10 +284,11 @@ const _chatTopics = {{ topics | tojson }};
                     <div class="msg-meta mt-1 flex items-center"
                          :class="msg.user_id === myUserId ? 'justify-end' : ''">
                         <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
-                        <button @click="deleteMsgDyn(msg.id)"
-                                class="text-[10px] ml-1.5 opacity-0 hover:opacity-60 transition-opacity"
-                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400'"
-                                title="Удалить">✕</button>
+                        <button x-show="msg.can_delete"
+                                @click="deleteMsgDyn(msg.id)"
+                                class="text-[10px] ml-1.5 opacity-0 hover:opacity-60 active:opacity-80 transition-opacity touch-manipulation"
+                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
+                                title="Удалить сообщение">✕</button>
                     </div>
                 </div>
             </div>
@@ -613,9 +614,16 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             try {
                 const fd = new FormData();
                 fd.append('csrf_token', this.csrfToken);
-                await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
-                this.dynamicMsgs = this.dynamicMsgs.filter(m => m.id !== msgId);
-            } catch(e) {}
+                const res = await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    this.dynamicMsgs = this.dynamicMsgs.filter(m => m.id !== msgId);
+                } else {
+                    alert(data.error || 'Не удалось удалить сообщение');
+                }
+            } catch(e) {
+                alert('Ошибка соединения');
+            }
         }
     };
 }

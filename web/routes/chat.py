@@ -143,7 +143,7 @@ def _safe_filename(original: str) -> str:
     return name[:120] or "file"
 
 
-def _fmt_msg(row) -> dict:
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False) -> dict:
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname = row
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{user_id}"
     initial = (display[0] if display else "?").upper()
@@ -169,6 +169,7 @@ def _fmt_msg(row) -> dict:
         "display_name": display,
         "initial": initial,
         "created_at": ts,
+        "can_delete": is_admin or (my_db_id > 0 and user_id == my_db_id),
     }
 
 
@@ -252,8 +253,9 @@ def chat_page(request: Request, topic: int = 1):
                 (t["name"] for t in topics if t["id"] == topic), "Общий"
             )
 
+            is_admin = user.get("role") in ("owner", "admin", "super_admin")
             rows = db.get_chat_messages(limit=50, topic_id=topic)
-            ctx["messages"] = [_fmt_msg(r) for r in rows]
+            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
 
     except Exception as exc:
@@ -349,8 +351,9 @@ async def chat_send(
             topic_id=topic_id,
         )
 
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         new_msgs = db.get_chat_messages_since(new_id - 1, topic_id=topic_id)
-        result = [_fmt_msg(r) for r in new_msgs]
+        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in new_msgs]
         return JSONResponse({"ok": True, "messages": result, "latest_id": new_id})
 
     except Exception as exc:
@@ -384,8 +387,10 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
         if not _plan_allowed(org_plan, min_plan):
             return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         rows = db.get_chat_messages_since(since_id, topic_id=topic_id)
-        msgs = [_fmt_msg(r) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
         return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
 
@@ -420,8 +425,10 @@ def chat_topic_messages(request: Request, topic_id: int):
         if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
             return JSONResponse({"ok": False, "messages": [], "latest_id": 0})
 
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
         rows = db.get_chat_messages(limit=50, topic_id=topic_id)
-        msgs = [_fmt_msg(r) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
 
@@ -495,8 +502,29 @@ def chat_delete_message(
     try:
         db = get_web_db(telegram_id, org_db)
         user_db_id = _get_user_db_id(db, telegram_id)
+
+        # Получаем file_path до удаления, чтобы потом удалить файл с диска
+        conn = db.get_connection()
+        msg_row = conn.execute(
+            "SELECT file_path FROM chat_messages WHERE id = ? AND is_deleted = 0",
+            (msg_id,)
+        ).fetchone()
+        conn.close()
+
         ok = db.soft_delete_chat_message(msg_id, user_db_id or 0, is_admin)
-        return JSONResponse({"ok": ok})
+
+        # Физически удаляем файл если сообщение успешно удалено
+        if ok and msg_row and msg_row[0]:
+            fpath = msg_row[0]
+            exp_uploads = os.path.abspath(_uploads_dir(org_db))
+            real_fpath = os.path.abspath(fpath)
+            if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                try:
+                    os.remove(real_fpath)
+                except OSError as e:
+                    logger.warning(f"chat_delete: не удалось удалить файл {real_fpath}: {e}")
+
+        return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
         logger.error(f"chat_delete error: {exc}")
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
