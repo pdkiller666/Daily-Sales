@@ -7756,11 +7756,22 @@ class Database:
             logger.error(f"get_salary_adjustments: {e}")
             return []
 
-    def delete_salary_adjustment(self, adjustment_id):
-        """Удалить корректировку по id."""
+    def delete_salary_adjustment(self, adjustment_id, user_id=None):
+        """Удалить корректировку по id.
+        Если передан user_id — удаляет только если запись принадлежит этому пользователю.
+        """
         try:
             conn = self.get_connection()
-            conn.execute('DELETE FROM salary_adjustments WHERE id = ?', (adjustment_id,))
+            if user_id is not None:
+                conn.execute(
+                    'DELETE FROM salary_adjustments WHERE id = ? AND user_id = ?',
+                    (adjustment_id, user_id),
+                )
+            else:
+                conn.execute(
+                    'DELETE FROM salary_adjustments WHERE id = ?',
+                    (adjustment_id,),
+                )
             conn.commit()
             conn.close()
             return True

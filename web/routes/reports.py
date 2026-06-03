@@ -207,6 +207,13 @@ def reports_export_xlsx(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    from subscription_utils import check_export_permission
+    if not check_export_permission(telegram_id):
+        return RedirectResponse(
+            url="/reports?error=Экспорт+отчётов+недоступен+на+вашем+тарифе",
+            status_code=302,
+        )
+
     try:
         db = get_web_db(telegram_id, org_db)
         from timezone_utils import get_current_user_time

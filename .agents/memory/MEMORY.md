@@ -12,3 +12,4 @@
 - [CSS transform breaks fixed children](css-transform-fixed.md) — transform на предке ломает position:fixed; ds-main использует ТОЛЬКО opacity-анимацию
 - [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример
 - [Internal org chat module](chat-module.md) — shop_bot.db для плана, my_db_id (не user.db_id), rate limits, gating via chat_min_plan, topics planned next
+- [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes

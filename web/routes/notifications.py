@@ -176,6 +176,13 @@ def notifications_send(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    from subscription_utils import check_notifications_permission
+    if not check_notifications_permission(telegram_id) and user.get("role") != "super_admin":
+        return RedirectResponse(
+            url="/notifications?error=Рассылка+уведомлений+недоступна+на+вашем+тарифе",
+            status_code=303,
+        )
+
     try:
         db = get_web_db(telegram_id, org_db)
         tz_name = db.get_user_timezone(telegram_id) or "Europe/Moscow"

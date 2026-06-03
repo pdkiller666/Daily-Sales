@@ -408,4 +408,24 @@ def create_web_app() -> FastAPI:
             status_code=404,
         )
 
+    @app.exception_handler(500)
+    async def internal_error(request: Request, exc):
+        import logging as _logging
+        _logging.error(f"500 error on {request.url}: {exc}")
+        return templates.TemplateResponse(
+            request, "errors/500.html",
+            {"user": None},
+            status_code=500,
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception(request: Request, exc):
+        import logging as _logging
+        _logging.error(f"Unhandled exception on {request.url}: {exc}", exc_info=True)
+        return templates.TemplateResponse(
+            request, "errors/500.html",
+            {"user": None},
+            status_code=500,
+        )
+
     return app

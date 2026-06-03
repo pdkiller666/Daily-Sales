@@ -529,7 +529,7 @@ def salary_adj_delete(
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
-        db.delete_salary_adjustment(adj_id)
+        db.delete_salary_adjustment(adj_id, user_id=target_user_id)
     except Exception as e:
         logging.error(f"salary_adj_delete error: {e}")
 
