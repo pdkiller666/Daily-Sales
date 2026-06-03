@@ -314,19 +314,20 @@
 (function () {
     const PAGE = 10;
     const items = Array.from(document.querySelectorAll('#cst-grid > div'));
-    if (items.length <= PAGE) return;
+    if (!items.length) return;
     let cur = 0;
     const total = Math.ceil(items.length / PAGE);
     const pager = document.getElementById('cst-pager');
     const info  = document.getElementById('cst-pager-info');
     const prev  = document.getElementById('cst-pager-prev');
     const next  = document.getElementById('cst-pager-next');
-    pager.classList.remove('hidden');
+    if (pager) pager.classList.remove('hidden');
+    if (total <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
-        items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
-        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + items.length + ' конкурсов';
-        prev.disabled = cur === 0;
-        next.disabled = cur === total - 1;
+        if (total > 1) items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        if (info) info.textContent = (total > 1 ? 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' : '') + items.length + ' конкурсов';
+        if (prev) prev.disabled = cur === 0;
+        if (next) next.disabled = cur === total - 1;
     }
     window.cstPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
     render();

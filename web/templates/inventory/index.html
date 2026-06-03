@@ -334,19 +334,21 @@ function invAdj1(shop, pid, mode, value, csrf) {
     const tbody = document.getElementById('inv-tbody');
     if (!tbody) return;
     const rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length <= PAGE) return;
+    if (!rows.length) return;
     const pager = document.getElementById('inv-pager');
     const info  = document.getElementById('inv-pager-info');
     const prev  = document.getElementById('inv-pager-prev');
     const next  = document.getElementById('inv-pager-next');
     if (pager) pager.classList.remove('hidden');
+    const _invTotalPages = Math.ceil(rows.length / PAGE);
+    if (_invTotalPages <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
         const total = rows.length;
         const pages = Math.ceil(total / PAGE);
-        rows.forEach(function(r, i) {
+        if (pages > 1) rows.forEach(function(r, i) {
             r.style.display = (i >= (_invPage-1)*PAGE && i < _invPage*PAGE) ? '' : 'none';
         });
-        if (info) info.textContent = 'Стр. ' + _invPage + ' / ' + pages + ' · ' + total + ' позиций';
+        if (info) info.textContent = (pages > 1 ? 'Стр. ' + _invPage + ' / ' + pages + ' · ' : '') + total + ' позиций';
         if (prev) prev.disabled = _invPage <= 1;
         if (next) next.disabled = _invPage >= pages;
     }

@@ -207,19 +207,20 @@
 (function () {
     const PAGE = 8;
     const items = Array.from(document.querySelectorAll('#pln-list > .card'));
-    if (items.length <= PAGE) return;
+    if (!items.length) return;
     let cur = 0;
     const total = Math.ceil(items.length / PAGE);
     const pager = document.getElementById('pln-pager');
     const info  = document.getElementById('pln-pager-info');
     const prev  = document.getElementById('pln-pager-prev');
     const next  = document.getElementById('pln-pager-next');
-    pager.classList.remove('hidden');
+    if (pager) pager.classList.remove('hidden');
+    if (total <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
-        items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
-        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + items.length + ' магазинов';
-        prev.disabled = cur === 0;
-        next.disabled = cur === total - 1;
+        if (total > 1) items.forEach((el, i) => el.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        if (info) info.textContent = (total > 1 ? 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' : '') + items.length + ' групп';
+        if (prev) prev.disabled = cur === 0;
+        if (next) next.disabled = cur === total - 1;
     }
     window.plnPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
     render();

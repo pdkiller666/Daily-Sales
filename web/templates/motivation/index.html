@@ -494,19 +494,20 @@ async function removeMotiv(productId, productName, csrfToken) {
     const tbody = document.getElementById('motiv-table');
     if (!tbody) return;
     const rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length <= PAGE) return;
+    if (!rows.length) return;
     const pager = document.getElementById('motiv-pager');
     const info  = document.getElementById('motiv-pager-info');
     const prev  = document.getElementById('motiv-pager-prev');
     const next  = document.getElementById('motiv-pager-next');
     if (pager) pager.classList.remove('hidden');
+    const _motivTotalPages = Math.ceil(rows.length / PAGE);
+    if (_motivTotalPages <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
-        const total = rows.length;
-        const pages = Math.ceil(total / PAGE);
-        rows.forEach(function(r, i) {
+        const pages = Math.ceil(rows.length / PAGE);
+        if (pages > 1) rows.forEach(function(r, i) {
             r.style.display = (i >= (_motivPage-1)*PAGE && i < _motivPage*PAGE) ? '' : 'none';
         });
-        if (info) info.textContent = 'Стр. ' + _motivPage + ' / ' + pages + ' · ' + total + ' ставок';
+        if (info) info.textContent = (pages > 1 ? 'Стр. ' + _motivPage + ' / ' + pages + ' · ' : '') + rows.length + ' ставок';
         if (prev) prev.disabled = _motivPage <= 1;
         if (next) next.disabled = _motivPage >= pages;
     }

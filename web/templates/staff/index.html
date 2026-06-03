@@ -177,19 +177,20 @@
 (function () {
     const PAGE = 10;
     const rows = Array.from(document.querySelectorAll('#stf-tbody tr'));
-    if (rows.length <= PAGE) return;
+    if (!rows.length) return;
     let cur = 0;
     const total = Math.ceil(rows.length / PAGE);
     const pager = document.getElementById('stf-pager');
     const info  = document.getElementById('stf-pager-info');
     const prev  = document.getElementById('stf-pager-prev');
     const next  = document.getElementById('stf-pager-next');
-    pager.classList.remove('hidden');
+    if (pager) pager.classList.remove('hidden');
+    if (total <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
-        rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
-        info.textContent = 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' + rows.length + ' записей';
-        prev.disabled = cur === 0;
-        next.disabled = cur === total - 1;
+        if (total > 1) rows.forEach((r, i) => r.style.display = (i >= cur * PAGE && i < (cur + 1) * PAGE) ? '' : 'none');
+        if (info) info.textContent = (total > 1 ? 'Стр. ' + (cur + 1) + ' / ' + total + ' · ' : '') + rows.length + ' сотрудников';
+        if (prev) prev.disabled = cur === 0;
+        if (next) next.disabled = cur === total - 1;
     }
     window.stfPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
     render();

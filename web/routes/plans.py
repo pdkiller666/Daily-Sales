@@ -255,7 +255,7 @@ def plans_page(request: Request, active_only: str = "1"):
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "plans_data": [], "active_only": active_only,
+        "plans_data": [], "grouped_plans": [], "active_only": active_only,
         "plan_type_labels": PLAN_TYPE_LABELS,
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
