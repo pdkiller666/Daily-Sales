@@ -930,61 +930,6 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
 
 <script>
 /* ══════════════════════════════════════════════════
-   DS DEBUG LOG — ring buffer (100 entries) in localStorage
-   View: add ?debug=1 to any URL, or run dsLogDump() in console.
-   Clear: dsLogClear() in console.
-══════════════════════════════════════════════════ */
-const _DS_LOG_KEY = '_ds_log';
-const _DS_LOG_MAX = 100;
-function dsLog(msg, data) {
-    const ts = new Date().toISOString().slice(11, 23); /* HH:MM:SS.mmm */
-    const line = '[' + ts + '] ' + msg + (data !== undefined ? ' | ' + JSON.stringify(data) : '');
-    try {
-        const arr = JSON.parse(localStorage.getItem(_DS_LOG_KEY) || '[]');
-        arr.push(line);
-        if (arr.length > _DS_LOG_MAX) arr.splice(0, arr.length - _DS_LOG_MAX);
-        localStorage.setItem(_DS_LOG_KEY, JSON.stringify(arr));
-    } catch(_) {}
-    console.log('[DS]', line);
-}
-function dsLogDump() {
-    try {
-        const arr = JSON.parse(localStorage.getItem(_DS_LOG_KEY) || '[]');
-        console.log('=== DS LOG DUMP (' + arr.length + ' entries) ===');
-        arr.forEach(l => console.log(l));
-        return arr;
-    } catch(_) { return []; }
-}
-function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] log cleared'); }
-
-/* Debug panel: add ?debug=1 to any URL to show log on screen */
-(function() {
-    if (!new URLSearchParams(window.location.search).has('debug')) return;
-    window.addEventListener('load', function() {
-        const panel = document.createElement('div');
-        panel.id = '_ds_debug_panel';
-        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:999999;background:#0f172a;color:#94a3b8;font-size:10px;font-family:monospace;max-height:45vh;overflow-y:auto;padding:8px;border-top:2px solid #2563eb';
-        const hdr = document.createElement('div');
-        hdr.style.cssText = 'color:#60a5fa;font-weight:bold;margin-bottom:4px;display:flex;justify-content:space-between';
-        hdr.innerHTML = '<span>🐛 DS Debug Log</span><span style="cursor:pointer" onclick="dsLogClear();document.getElementById(\'_ds_debug_panel\').remove()">✕ clear</span>';
-        panel.appendChild(hdr);
-        function render() {
-            const pre = document.getElementById('_ds_log_pre') || document.createElement('pre');
-            pre.id = '_ds_log_pre';
-            pre.style.cssText = 'margin:0;white-space:pre-wrap;word-break:break-all';
-            const arr = JSON.parse(localStorage.getItem(_DS_LOG_KEY) || '[]');
-            pre.textContent = arr.slice(-50).join('\n');
-            if (!pre.parentNode) panel.appendChild(pre);
-            pre.scrollTop = pre.scrollHeight;
-        }
-        render();
-        setInterval(render, 1000);
-        document.body.appendChild(panel);
-    });
-})();
-</script>
-<script>
-/* ══════════════════════════════════════════════════
    mainApp() — Alpine root state
    Handles: sidebar, bottom nav, more-sheet, nav editor
 ══════════════════════════════════════════════════ */
@@ -1023,145 +968,32 @@ function mainApp() {
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
         selectedSlot: null,
-        _initReady: false,
         userRole: '{{ user.role if user else "user" }}',
 
         init() {
-            dsLog('init() START', {path: location.pathname, role: this.userRole});
-
-            /* 0. SYNC RESET */
-            this.editNavOpen = false;
-            this.moreOpen    = false;
-            this.notifOpen   = false;
-            this.notifDdOpen = false;
-            this.open        = false;
-
-            /* 1. Read localStorage nav config */
+            /* 1. Read localStorage immediately (instant render, no flicker) */
             try {
                 const s = localStorage.getItem(DS_NAV_KEY);
                 if (s) {
                     const cfg = JSON.parse(s);
-                    if (Array.isArray(cfg) && cfg.length >= 1) {
-                        this.navCfg = cfg;
-                        dsLog('navCfg from localStorage', cfg);
-                    }
+                    if (Array.isArray(cfg) && cfg.length >= 1) this.navCfg = cfg;
                 }
             } catch(_) {}
 
-            /* 2. Background sync from server */
+            /* 2. Background sync from server — updates localStorage if different */
             fetch('/api/nav-config')
                 .then(r => r.json())
                 .then(data => {
                     if (data.nav && Array.isArray(data.nav) && data.nav.length >= 1) {
                         this.navCfg = data.nav;
                         localStorage.setItem(DS_NAV_KEY, JSON.stringify(data.nav));
-                        dsLog('navCfg from server', data.nav);
-                    } else {
-                        dsLog('navCfg server: no update', data);
                     }
                 })
-                .catch(e => dsLog('navCfg fetch error', String(e)));
+                .catch(() => {});
 
-            /* 3. Notification badge */
+            /* 3. Notification badge — initial poll + interval */
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
-
-            /* 4. Guard: block sheet opens for 700 ms */
-            setTimeout(() => {
-                this._initReady = true;
-                dsLog('_initReady=true (700ms guard lifted)');
-            }, 700);
-
-            /* $watch: log every editNavOpen / moreOpen change */
-            this.$watch('editNavOpen', (val, old) => {
-                const stack = (new Error().stack || '').split('\n').slice(1, 5).join(' ▸ ');
-                dsLog('editNavOpen ' + old + '→' + val + ' | rdy=' + this._initReady, stack);
-                if (val && !old) {
-                    /* Red banner for unexpected open */
-                    const b = document.createElement('div');
-                    b.id = '_ds_debug_nav_banner';
-                    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font-size:11px;padding:8px 10px;word-break:break-all;font-family:monospace;white-space:pre-wrap;pointer-events:none';
-                    b.textContent = '[DS] editNavOpen→true | rdy=' + this._initReady + '\n' + stack;
-                    document.body.appendChild(b);
-                    setTimeout(() => b.remove(), 60000);
-                }
-            });
-            this.$watch('moreOpen', (val, old) => {
-                const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' ▸ ');
-                dsLog('moreOpen ' + old + '→' + val + ' | rdy=' + this._initReady, stack);
-            });
-
-            /* 5. bfcache / WebView re-entry fix — two-layer approach:
-               LAYER A (Alpine state): handles bfcache where editNavOpen=true is
-               preserved in Alpine's reactive proxy → _closeAllSheets() resets it.
-               LAYER B (DOM direct): handles the harder case — bfcache or x-transition
-               interruption where editNavOpen is ALREADY false in Alpine's state but
-               the DOM element is still display:block (e.g. page was bfcache'd mid
-               leave-transition). In that case $watch never fires (value didn't change)
-               and buttons appear dead. Direct style.display='none' forces correct DOM. */
-            const _domHideSheets = () => {
-                const fixed = [];
-                ['ds-nav-bd', 'ds-nav-sh', 'ds-more-bd', 'ds-more-sh'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el && el.style.display !== 'none') {
-                        el.style.display = 'none';
-                        fixed.push(id);
-                    }
-                });
-                if (fixed.length) dsLog('_domHideSheets FIXED stuck elements', fixed);
-            };
-
-            const _maybeCloseSheets = (source) => {
-                const state = {
-                    src: source,
-                    editNavOpen: this.editNavOpen,
-                    moreOpen: this.moreOpen,
-                    notifOpen: this.notifOpen,
-                    navBdDisp: (document.getElementById('ds-nav-bd') || {}).style?.display,
-                    navShDisp: (document.getElementById('ds-nav-sh') || {}).style?.display,
-                    moreBdDisp: (document.getElementById('ds-more-bd') || {}).style?.display,
-                    moreShDisp: (document.getElementById('ds-more-sh') || {}).style?.display,
-                };
-                dsLog('_maybeCloseSheets', state);
-                /* Layer A: reset Alpine state */
-                if (this.moreOpen || this.editNavOpen || this.notifOpen || this.notifDdOpen) {
-                    dsLog('_closeAllSheets triggered by LayerA');
-                    this._closeAllSheets();
-                }
-                /* Layer B: DOM-level force-hide */
-                _domHideSheets();
-            };
-
-            window.addEventListener('pageshow', (e) => {
-                dsLog('pageshow', {persisted: e.persisted, editNavOpen: this.editNavOpen, moreOpen: this.moreOpen});
-                _maybeCloseSheets('pageshow persisted=' + e.persisted);
-            });
-
-            document.addEventListener('visibilitychange', () => {
-                dsLog('visibilitychange', {state: document.visibilityState, editNavOpen: this.editNavOpen});
-                if (document.visibilityState === 'visible') { _maybeCloseSheets('visibilitychange'); }
-            });
-
-            window.addEventListener('focus', () => {
-                dsLog('focus', {editNavOpen: this.editNavOpen, moreOpen: this.moreOpen});
-                _maybeCloseSheets('focus');
-            });
-
-            dsLog('init() END — listeners registered');
-        },
-
-        _closeAllSheets() {
-            dsLog('_closeAllSheets()', {editNavOpen: this.editNavOpen, moreOpen: this.moreOpen, _initReady: this._initReady});
-            this.editNavOpen  = false;
-            this.moreOpen     = false;
-            this.notifOpen    = false;
-            this.notifDdOpen  = false;
-            this.open         = false;
-            this._initReady   = false;
-            setTimeout(() => {
-                this._initReady = true;
-                dsLog('_initReady=true (post-closeAllSheets 300ms)');
-            }, 300);
         },
 
         get availableItems() {
@@ -1186,18 +1018,8 @@ function mainApp() {
             return !this.navItems.some(item => this.isNavActive(item));
         },
 
-        /* ── More sheet ── */
-        openMore() {
-            dsLog('openMore() called', {_initReady: this._initReady, moreOpen: this.moreOpen});
-            if (!this._initReady) { dsLog('openMore() BLOCKED — _initReady=false'); return; }
-            this.moreOpen = true;
-        },
-
         /* ── Nav Editor ── */
         openEditNav() {
-            const stack = (new Error().stack || '').split('\n').slice(1, 4).join(' ▸ ');
-            dsLog('openEditNav() called', {_initReady: this._initReady, editNavOpen: this.editNavOpen, stack});
-            if (!this._initReady) { dsLog('openEditNav() BLOCKED — _initReady=false'); return; }
             this.editSlots = this.navCfg.slice();
             this.selectedSlot = null;
             this.editNavOpen = true;
@@ -1464,7 +1286,7 @@ function mainApp() {
 {% set _bn_more = not (_p == '/dashboard' or _p.startswith('/pos') or _p.startswith('/sales') or _p.startswith('/products')) %}
 
 <!-- More-sheet backdrop -->
-<div id="ds-more-bd" x-show="moreOpen" x-cloak @click="moreOpen=false"
+<div x-show="moreOpen" x-cloak @click="moreOpen=false"
      x-transition:enter="transition duration-200 ease-out"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -1473,7 +1295,7 @@ function mainApp() {
      class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
 
 <!-- More sheet -->
-<div id="ds-more-sh" x-show="moreOpen" x-cloak
+<div x-show="moreOpen" x-cloak
      x-transition:enter="transition duration-300 ease-out"
      x-transition:enter-start="sheet-from"
      x-transition:enter-end="sheet-to"
@@ -1746,7 +1568,7 @@ function mainApp() {
 </div>
 
 <!-- ═══ NAV EDITOR SHEET ═══ -->
-<div id="ds-nav-bd" x-show="editNavOpen" x-cloak @click="editNavOpen=false"
+<div x-show="editNavOpen" x-cloak @click="editNavOpen=false"
      x-transition:enter="transition duration-200 ease-out"
      x-transition:enter-start="opacity-0"
      x-transition:enter-end="opacity-100"
@@ -1754,7 +1576,7 @@ function mainApp() {
      x-transition:leave-end="opacity-0"
      class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"></div>
 
-<div id="ds-nav-sh" x-show="editNavOpen" x-cloak
+<div x-show="editNavOpen" x-cloak
      x-transition:enter="transition duration-300 ease-out"
      x-transition:enter-start="sheet-from"
      x-transition:enter-end="sheet-to"
@@ -1868,7 +1690,7 @@ function mainApp() {
                 <span class="bnav-label" x-text="item.label"></span>
             </a>
         </template>
-        <button @click="openMore()"
+        <button @click="moreOpen=true"
                 class="bnav-item"
                 :class="moreActive ? 'bn-active' : ''">
             <span class="bnav-icon" style="font-size:1.1rem">☰</span>
@@ -2023,13 +1845,6 @@ function mainApp() {
 })();
 </script>
 {% endif %}
-
-<script>
-/* Opt-out of bfcache so Alpine state is never restored from a frozen snapshot.
-   An empty unload listener is the standard Chrome/Android mechanism to ensure
-   the page is always freshly loaded (and init() always runs) on every visit. */
-window.addEventListener('unload', function () {});
-</script>
 
 </body>
 </html>

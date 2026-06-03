@@ -1,6 +1,6 @@
 aiofiles==24.1.0
 aiogram==3.20.0.post0
-aiohttp==3.11.18
+aiohttp==3.12.15
 APScheduler==3.11.0
 fastapi==0.136.3
 google-auth==2.53.0
