@@ -11,3 +11,4 @@
 - [SEO & Security setup](seo-security.md) — full OG/JSON-LD/robots/sitemap/security-headers stack; manual owner actions: Google Search Console + Яндекс.Вебмастер
 - [CSS transform breaks fixed children](css-transform-fixed.md) — transform на предке ломает position:fixed; ds-main использует ТОЛЬКО opacity-анимацию
 - [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример
+- [Internal org chat module](chat-module.md) — shop_bot.db для плана, my_db_id (не user.db_id), rate limits, gating via chat_min_plan, topics planned next

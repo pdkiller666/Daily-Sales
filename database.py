@@ -1023,11 +1023,29 @@ class Database:
         except Exception:
             pass
 
+        # ── Chat topics ───────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_topics (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL DEFAULT 'Общий',
+                created_by INTEGER,
+                created_at TEXT    DEFAULT (datetime('now')),
+                is_archived INTEGER DEFAULT 0,
+                sort_order  INTEGER DEFAULT 0
+            )
+        ''')
+        # Тема «Общий» — создаётся один раз при инициализации
+        cursor.execute('''
+            INSERT OR IGNORE INTO chat_topics (id, name, sort_order)
+            VALUES (1, 'Общий', 0)
+        ''')
+
         # ── Chat messages (internal org messenger) ───────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id    INTEGER NOT NULL,
+                topic_id   INTEGER DEFAULT 1,
                 message    TEXT    DEFAULT '',
                 file_path  TEXT    DEFAULT '',
                 file_name  TEXT    DEFAULT '',
@@ -1037,6 +1055,12 @@ class Database:
                 is_deleted INTEGER DEFAULT 0
             )
         ''')
+        # Миграция: добавляем topic_id если колонки ещё нет (старые БД)
+        try:
+            cursor.execute('ALTER TABLE chat_messages ADD COLUMN topic_id INTEGER DEFAULT 1')
+            conn.commit()
+        except Exception:
+            pass
 
         conn.commit()
 
@@ -1065,8 +1089,10 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_plan_milestones     ON plan_milestone_alerts(user_id, plan_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer  ON referrals(referrer_telegram_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_addons_user         ON subscription_addons(user_telegram_id, is_active, expires_at)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_user  ON chat_messages(user_id, created_at)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id    ON chat_messages(id, is_deleted)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_user    ON chat_messages(user_id, created_at)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id      ON chat_messages(id, is_deleted)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_topic   ON chat_messages(topic_id, id, is_deleted)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_topics_archived  ON chat_topics(is_archived, sort_order)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -8104,21 +8130,22 @@ class Database:
 
     def add_chat_message(self, user_id: int, message: str = '',
                          file_path: str = '', file_name: str = '',
-                         file_type: str = '', file_size: int = 0) -> int:
+                         file_type: str = '', file_size: int = 0,
+                         topic_id: int = 1) -> int:
         """Добавить сообщение в чат. Возвращает id нового сообщения."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO chat_messages (user_id, message, file_path, file_name, file_type, file_size)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, message, file_path, file_name, file_type, file_size))
+            INSERT INTO chat_messages (user_id, topic_id, message, file_path, file_name, file_type, file_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, topic_id, message, file_path, file_name, file_type, file_size))
         new_id = cursor.lastrowid
         conn.commit()
         conn.close()
         return new_id
 
-    def get_chat_messages(self, limit: int = 50) -> list:
-        """Последние N сообщений чата с данными пользователя."""
+    def get_chat_messages(self, limit: int = 50, topic_id: int = 1) -> list:
+        """Последние N сообщений темы чата с данными пользователя."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
@@ -8127,16 +8154,16 @@ class Database:
                    u.first_name, u.last_name, u.username
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
-            WHERE m.is_deleted = 0
+            WHERE m.is_deleted = 0 AND m.topic_id = ?
             ORDER BY m.id DESC
             LIMIT ?
-        ''', (limit,))
+        ''', (topic_id, limit))
         rows = cursor.fetchall()
         conn.close()
         return list(reversed(rows))
 
-    def get_chat_messages_since(self, since_id: int) -> list:
-        """Сообщения с id > since_id (для polling)."""
+    def get_chat_messages_since(self, since_id: int, topic_id: int = 1) -> list:
+        """Сообщения с id > since_id в теме (для polling)."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
@@ -8145,18 +8172,24 @@ class Database:
                    u.first_name, u.last_name, u.username
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
-            WHERE m.is_deleted = 0 AND m.id > ?
+            WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
             ORDER BY m.id ASC
-        ''', (since_id,))
+        ''', (topic_id, since_id))
         rows = cursor.fetchall()
         conn.close()
         return rows
 
-    def get_chat_latest_id(self) -> int:
-        """Максимальный id сообщения (для бейджа и polling инициализации)."""
+    def get_chat_latest_id(self, topic_id: int = 0) -> int:
+        """Максимальный id сообщения. topic_id=0 — по всем темам (для FAB-бейджа)."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT COALESCE(MAX(id), 0) FROM chat_messages WHERE is_deleted = 0')
+        if topic_id:
+            cursor.execute(
+                'SELECT COALESCE(MAX(id), 0) FROM chat_messages WHERE is_deleted = 0 AND topic_id = ?',
+                (topic_id,)
+            )
+        else:
+            cursor.execute('SELECT COALESCE(MAX(id), 0) FROM chat_messages WHERE is_deleted = 0')
         row = cursor.fetchone()
         conn.close()
         return row[0] if row else 0
@@ -8176,6 +8209,77 @@ class Database:
                 'UPDATE chat_messages SET is_deleted = 1 WHERE id = ? AND user_id = ?',
                 (msg_id, user_id)
             )
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def get_chat_topics(self) -> list:
+        """Все не-архивные темы чата, отсортированные по sort_order."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT t.id, t.name, t.created_by, t.created_at, t.sort_order,
+                   COUNT(m.id) AS msg_count
+            FROM chat_topics t
+            LEFT JOIN chat_messages m ON m.topic_id = t.id AND m.is_deleted = 0
+            WHERE t.is_archived = 0
+            GROUP BY t.id
+            ORDER BY t.sort_order ASC, t.id ASC
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def add_chat_topic(self, name: str, created_by: int) -> int:
+        """Создать новую тему. Возвращает id."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT COALESCE(MAX(sort_order), 0) + 1 FROM chat_topics WHERE is_archived = 0'
+        )
+        order = cursor.fetchone()[0]
+        cursor.execute(
+            'INSERT INTO chat_topics (name, created_by, sort_order) VALUES (?, ?, ?)',
+            (name[:64], created_by, order)
+        )
+        new_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return new_id
+
+    def rename_chat_topic(self, topic_id: int, name: str,
+                           user_id: int, is_admin: bool = False) -> bool:
+        """Переименовать тему. Разрешено admin или создателю. Тему «Общий» (id=1) нельзя переименовать."""
+        if topic_id == 1:
+            return False
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if is_admin:
+            cursor.execute(
+                'UPDATE chat_topics SET name = ? WHERE id = ? AND is_archived = 0',
+                (name[:64], topic_id)
+            )
+        else:
+            cursor.execute(
+                'UPDATE chat_topics SET name = ? WHERE id = ? AND created_by = ? AND is_archived = 0',
+                (name[:64], topic_id, user_id)
+            )
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def archive_chat_topic(self, topic_id: int) -> bool:
+        """Архивировать тему (только admin). Тему «Общий» (id=1) нельзя архивировать."""
+        if topic_id == 1:
+            return False
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE chat_topics SET is_archived = 1 WHERE id = ?',
+            (topic_id,)
+        )
         affected = cursor.rowcount
         conn.commit()
         conn.close()
