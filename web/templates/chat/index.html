@@ -80,9 +80,13 @@ html.dark .topic-menu-item:hover { background:#374151; }
 <!-- ═══════════════════════════════════════════════════════════════════════════
      MAIN CHAT APP
      ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+/* topics JSON извлечён из HTML-атрибута во избежание обрыва кавычками */
+const _chatTopics = {{ topics | tojson }};
+</script>
 <div class="flex flex-col h-[calc(100vh-7rem)] max-h-[860px]"
      x-data="chatApp({{ current_topic_id }}, {{ latest_id }}, '{{ csrf_token }}',
-                     {{ topics | tojson }}, {{ my_db_id }},
+                     _chatTopics, {{ my_db_id }},
                      {{ 'true' if user.role in ('owner', 'admin', 'super_admin') else 'false' }})"
      x-init="init()">
 
@@ -335,19 +339,17 @@ html.dark .topic-menu-item:hover { background:#374151; }
 
             <button type="submit"
                     :disabled="sending || (!text.trim() && !attachedFile)"
-                    :class="(sending || (!text.trim() && !attachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700'"
-                    class="shrink-0 w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center transition-colors">
-                <template x-if="!sending">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                    </svg>
-                </template>
-                <template x-if="sending">
-                    <svg class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                    </svg>
-                </template>
+                    :class="(sending || (!text.trim() && !attachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
+                    class="shrink-0 w-11 h-11 bg-blue-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-sm">
+                <!-- Иконка отправки — видна по умолчанию, скрывается Alpine только во время отправки -->
+                <svg x-show="!sending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
+                </svg>
+                <!-- Спиннер — скрыт по умолчанию (style), Alpine показывает при отправке -->
+                <svg x-show="sending" style="display:none" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
             </button>
         </form>
         <p class="text-[10px] text-slate-400 mt-1.5 px-1">Макс. 20 МБ · Изображения, PDF, Word, Excel, CSV, TXT · Shift+Enter — перенос</p>
