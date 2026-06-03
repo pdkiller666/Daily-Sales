@@ -428,6 +428,29 @@ function toastMgr() {
 <!-- ═══ MAIN ═══ -->
 <div class="flex flex-col min-h-screen lg:ml-64">
 
+    <!-- Beta banner -->
+    {% if beta_mode() %}
+    <div id="ds-beta-bar" class="w-full bg-amber-500/10 border-b border-amber-400/20 px-4 py-1.5 flex items-center justify-center gap-2 relative" style="display:none">
+        <span class="flex items-center gap-1 bg-amber-400/10 border border-amber-400/25 rounded-full px-2 py-0.5">
+            <span class="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse flex-shrink-0"></span>
+            <span class="text-[10px] font-bold text-amber-400 uppercase tracking-widest leading-none">Бета</span>
+        </span>
+        <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-none sm:hidden">Тестирование · Касса не подключена</span>
+        <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-none hidden sm:inline">Продукт в стадии тестирования · Касса и юрлицо пока не подключены</span>
+        <button onclick="document.getElementById('ds-beta-bar').style.display='none';sessionStorage.setItem('ds_beta_dismissed','1')"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1"
+                title="Закрыть">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    </div>
+    <script>
+    (function(){
+        var bar = document.getElementById('ds-beta-bar');
+        if(bar && sessionStorage.getItem('ds_beta_dismissed') !== '1') bar.style.display = '';
+    })();
+    </script>
+    {% endif %}
+
     <!-- Topbar -->
     <header class="ds-topbar sticky top-0 z-10 flex items-center justify-between h-14 px-4 sm:px-6 border-b border-slate-200 shadow-sm">
         <div class="flex items-center gap-3">
