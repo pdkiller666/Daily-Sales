@@ -972,6 +972,15 @@ function mainApp() {
         userRole: '{{ user.role if user else "user" }}',
 
         init() {
+            /* 0. SYNC RESET: force-close all sheets at the very start of every
+               init() call. This handles any scenario where Alpine state could
+               be non-default (e.g. bfcache restore with editNavOpen=true). */
+            this.editNavOpen = false;
+            this.moreOpen    = false;
+            this.notifOpen   = false;
+            this.notifDdOpen = false;
+            this.open        = false;
+
             /* 1. Read localStorage immediately (instant render, no flicker) */
             try {
                 const s = localStorage.getItem(DS_NAV_KEY);
@@ -1921,6 +1930,13 @@ function mainApp() {
 })();
 </script>
 {% endif %}
+
+<script>
+/* Opt-out of bfcache so Alpine state is never restored from a frozen snapshot.
+   An empty unload listener is the standard Chrome/Android mechanism to ensure
+   the page is always freshly loaded (and init() always runs) on every visit. */
+window.addEventListener('unload', function () {});
+</script>
 
 </body>
 </html>
