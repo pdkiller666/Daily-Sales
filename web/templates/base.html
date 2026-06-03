@@ -1054,9 +1054,21 @@ function mainApp() {
             setInterval(() => this._pollNotif(), 60000);
 
             /* 4. bfcache fix: if Telegram WebView restores a frozen page,
-               force a fresh reload so Alpine state is always clean. */
+               reset all sheet state immediately (no reload — avoids flicker
+               and unreliable Telegram WebView reload behaviour). */
             window.addEventListener('pageshow', (e) => {
-                if (e.persisted) window.location.reload();
+                if (!e.persisted) return;
+                /* Layer A: reset Alpine reactive state */
+                this.editNavOpen = false;
+                this.moreOpen    = false;
+                this.notifOpen   = false;
+                this.notifDdOpen = false;
+                /* Layer B: force-hide DOM in case transition was mid-flight
+                   when the page was bfcached (x-show style not yet applied) */
+                ['ds-nav-bd', 'ds-nav-sh', 'ds-more-bd', 'ds-more-sh'].forEach(function(id) {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = 'none';
+                });
             });
         },
 
@@ -1767,7 +1779,7 @@ function mainApp() {
                 <span class="bnav-label" x-text="item.label"></span>
             </a>
         </template>
-        <button @click="openMore()"
+        <button @click="moreOpen=true"
                 class="bnav-item"
                 :class="moreActive ? 'bn-active' : ''">
             <span class="bnav-icon" style="font-size:1.1rem">☰</span>
