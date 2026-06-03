@@ -127,7 +127,7 @@ async def _notify_user(state, telegram_id: int, text: str):
 @absence_router.callback_query(F.data == 'abs_my')
 async def abs_my(callback: CallbackQuery, state: FSMContext):
     """Мои отсутствия (сотрудник)."""
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
     telegram_id = callback.from_user.id
     conn = db._db.get_connection()
@@ -161,7 +161,7 @@ async def abs_my(callback: CallbackQuery, state: FSMContext):
 @absence_router.callback_query(F.data.startswith('abs_hist_'))
 async def abs_hist(callback: CallbackQuery, state: FSMContext):
     year = int(callback.data.split('_')[-1])
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     telegram_id = callback.from_user.id
     conn = db._db.get_connection()
     try:
@@ -207,7 +207,7 @@ async def abs_new_type(callback: CallbackQuery, state: FSMContext):
         return
 
     # Проверить лимит
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     settings = await db.get_absence_type_settings()
     if settings.get(atype, {}).get('annual_limit', 0) > 0:
         telegram_id = callback.from_user.id
@@ -294,7 +294,7 @@ async def abs_enter_comment(message: Message, state: FSMContext):
 
 async def _abs_submit(message: Message, state: FSMContext, comment):
     data = await state.get_data()
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     telegram_id = message.from_user.id
     conn = db._db.get_connection()
     try:
@@ -366,10 +366,10 @@ async def _abs_submit(message: Message, state: FSMContext, comment):
 
 @absence_router.callback_query(F.data == 'abs_admin')
 async def abs_admin(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     pending = await db.get_pending_absences()
     cnt = len(pending)
     badge = f' 🔴 {cnt}' if cnt else ''
@@ -386,10 +386,10 @@ async def abs_admin(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data == 'abs_pnd')
 async def abs_pending_list(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     rows = await db.get_pending_absences()
     if not rows:
         text = '✅ Нет ожидающих заявок.'
@@ -418,11 +418,11 @@ async def abs_pending_list(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_rv_'))
 async def abs_review(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     ab_id = int(callback.data[7:])
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     rec = await db.get_absence_by_id(ab_id)
     if not rec:
         await callback.answer('Запись не найдена', show_alert=True)
@@ -461,11 +461,11 @@ async def abs_review(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_ok_'))
 async def abs_approve(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     ab_id = int(callback.data[7:])
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     rec = await db.get_absence_by_id(ab_id)
     if not rec:
         await callback.answer('Не найдено', show_alert=True)
@@ -518,7 +518,7 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_rj_'))
 async def abs_reject_start(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     ab_id = int(callback.data[7:])
@@ -539,7 +539,7 @@ async def abs_reject_do(message: Message, state: FSMContext):
         return
     comment = None if (message.text or '').strip().lower() in ('/skip', 'skip') \
         else (message.text or '').strip()
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     rec = await db.get_absence_by_id(ab_id)
     ok = await db.update_absence_status(ab_id, 'rejected', comment, message.from_user.id)
     if ok and rec:
@@ -562,11 +562,11 @@ async def abs_reject_do(message: Message, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_del_'))
 async def abs_delete(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     ab_id = int(callback.data[8:])
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     ok = await db.update_absence_status(ab_id, 'cancelled', 'Удалено администратором',
                                          callback.from_user.id)
     await callback.answer('🗑 Отменено' if ok else 'Ошибка')
@@ -577,10 +577,10 @@ async def abs_delete(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data == 'abs_prg_list')
 async def abs_prg_list(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     conn = db._db.get_connection()
     try:
         users = conn.execute(
@@ -607,7 +607,7 @@ async def abs_prg_list(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_prg_u_'))
 async def abs_prg_user(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     uid = int(callback.data[10:])
@@ -642,7 +642,7 @@ async def abs_prg_date(message: Message, state: FSMContext):
     if not uid:
         await clear_state_keep_org(state)
         return
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     settings = await db.get_absence_type_settings()
     ab_id = await db.add_absence(uid, 'absence', sd.isoformat(), ed.isoformat(),
                                   None, message.from_user.id, 'approved')
@@ -683,11 +683,11 @@ async def abs_prg_date(message: Message, state: FSMContext):
 
 @absence_router.callback_query(F.data == 'abs_all_month')
 async def abs_all_month(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     today = date.today()
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     rows = await db.get_all_absences_admin(today.year, today.month)
     text = f'<b>📅 Отсутствия: {_MONTH_NAMES[today.month - 1]} {today.year}</b>\n\n'
     if rows:
@@ -712,10 +712,10 @@ async def abs_all_month(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data == 'abs_cfg')
 async def abs_cfg_list(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     settings = await db.get_absence_type_settings()
     lines = ['<b>⚙️ Настройки типов отсутствий</b>\n']
     all_types = ['vacation', 'sick', 'compensatory', 'absence', 'other']
@@ -739,11 +739,11 @@ async def abs_cfg_list(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_t_'))
 async def abs_cfg_type(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     atype = callback.data[10:]
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     settings = await db.get_absence_type_settings()
     s = settings.get(atype, {})
     label = _TYPE_LABELS.get(atype, atype)
@@ -770,11 +770,11 @@ async def abs_cfg_type(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_pay_'))
 async def abs_cfg_toggle_pay(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     _, _, _, _, atype, val = callback.data.split('_')
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     settings = await db.get_absence_type_settings()
     s = settings.get(atype, {})
     await db.set_absence_type_setting(
@@ -787,13 +787,13 @@ async def abs_cfg_toggle_pay(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_pm_'))
 async def abs_cfg_penalty_mode(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     parts = callback.data.split('_')
     atype = parts[3]
     pmode = parts[4]
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     settings = await db.get_absence_type_settings()
     s = settings.get(atype, {})
     await db.set_absence_type_setting(
@@ -806,7 +806,7 @@ async def abs_cfg_penalty_mode(callback: CallbackQuery, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_lim_'))
 async def abs_cfg_limit_start(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     atype = callback.data[12:]
@@ -830,7 +830,7 @@ async def abs_cfg_limit_save(message: Message, state: FSMContext):
         return
     data = await state.get_data()
     atype = data.get('abs_cfg_type')
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     settings = await db.get_absence_type_settings()
     s = settings.get(atype, {})
     await db.set_absence_type_setting(
@@ -843,7 +843,7 @@ async def abs_cfg_limit_save(message: Message, state: FSMContext):
 
 @absence_router.callback_query(F.data.startswith('abs_cfg_pen_'))
 async def abs_cfg_penalty_start(callback: CallbackQuery, state: FSMContext):
-    if not await is_any_admin(callback.from_user.id, state):
+    if not is_any_admin(callback.from_user.id):
         await callback.answer('Нет доступа', show_alert=True)
         return
     atype = callback.data[12:]
@@ -867,7 +867,7 @@ async def abs_cfg_penalty_save(message: Message, state: FSMContext):
         return
     data = await state.get_data()
     atype = data.get('abs_cfg_type')
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     settings = await db.get_absence_type_settings()
     s = settings.get(atype, {})
     await db.set_absence_type_setting(
