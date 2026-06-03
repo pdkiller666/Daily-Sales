@@ -1134,7 +1134,14 @@ function mainApp() {
 
             window.addEventListener('pageshow', (e) => {
                 dsLog('pageshow', {persisted: e.persisted, editNavOpen: this.editNavOpen, moreOpen: this.moreOpen});
-                _maybeCloseSheets('pageshow persisted=' + e.persisted);
+                if (e.persisted) {
+                    /* bfcache restore detected — force a clean reload so Alpine state
+                       is never served from a frozen snapshot (Telegram WebView bfcache). */
+                    dsLog('pageshow persisted=true → reloading');
+                    window.location.reload();
+                    return;
+                }
+                _maybeCloseSheets('pageshow persisted=false');
             });
 
             document.addEventListener('visibilitychange', () => {
