@@ -183,7 +183,7 @@
                     {% endif %}
                     <select name="product_id_select" id="product-select"
                         x-model="selectedProductId"
-                        @change="if (!editProductId) { $el.form.elements['product_id'].value = $el.value }"
+                        @change="if (!editProductId) { $el.form.elements['product_id'].value = $el.value; onProductSelect($el.value); }"
                         class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                         <option value="">— выберите товар —</option>
                         {% for p in products %}
@@ -286,11 +286,27 @@
                 {% if extra_saved %}
                 <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">✅ Доп. условия сохранены</div>
                 {% endif %}
+                {% if extra_conditions_global %}
+                <div class="mb-3 space-y-1">
+                    <p class="text-xs font-semibold text-slate-500 uppercase mb-1.5">🌐 Глобальные условия (все периоды)</p>
+                    {% for ec in extra_conditions_global %}
+                    {% if ec[1] == 'multi_seller_coeff' %}
+                    <div class="flex items-center flex-wrap gap-2 text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                        <span class="font-medium text-amber-700">Коэф. смены</span>
+                        {% if ec[3] %}<span class="text-blue-600 font-medium">📍 {{ ec[3] }}</span>{% else %}<span class="text-slate-500">все магазины</span>{% endif %}
+                        {% if ec[4] %}<span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">Мин. {{ ec[4] }} прод.</span>{% endif %}
+                        {% if ec[5] %}<span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-semibold">×{{ ec[5] }}</span>{% endif %}
+                        {% if ec[12] == 'joint' %}<span class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">совместный</span>{% else %}<span class="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">раздельный</span>{% endif %}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
                 {% if extra_conditions %}
                 <div class="mb-3 space-y-1">
-                    <p class="text-xs font-semibold text-slate-500 uppercase mb-1.5">Активные условия</p>
+                    <p class="text-xs font-semibold text-slate-500 uppercase mb-1.5">📅 Условия текущего месяца</p>
                     {% for ec in extra_conditions %}
-                    <div class="flex items-center gap-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                    <div class="flex items-center flex-wrap gap-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                         <span class="text-slate-500">{{ ec[2] or 'Глобальное' }}</span>
                         {% if ec[3] %}<span class="text-blue-600 font-medium">📍 {{ ec[3] }}</span>{% endif %}
                         {% if ec[4] %}<span class="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium">Мин. {{ ec[4] }} прод.</span>{% endif %}
@@ -298,6 +314,9 @@
                     </div>
                     {% endfor %}
                 </div>
+                {% endif %}
+                {% if not extra_conditions and not extra_conditions_global %}
+                <p class="text-xs text-slate-400 mb-3">Нет активных условий</p>
                 {% endif %}
                 <form method="post" action="/motivation/set_extra" class="space-y-3">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -388,6 +407,13 @@
 </div>
 
 <script>
+// Карта установленных мотиваций: product_id → {type, value}
+const _motivMap = {
+    {% for m in motivations %}
+    {{ m.product_id }}: { type: '{{ m.type }}', value: {{ m.value }} },
+    {% endfor %}
+};
+
 function motivForm() {
     return {
         mtype: 'percentage',
@@ -398,6 +424,16 @@ function motivForm() {
         selectedProductId: '',
         filterCategory: '{{ selected_category }}',
         monthOffset: 0,
+        onProductSelect(productId) {
+            if (!productId) return;
+            const existing = _motivMap[parseInt(productId)];
+            if (existing) {
+                this.mtype = existing.type;
+                this.mval = existing.value;
+            } else {
+                this.mval = '';
+            }
+        },
     };
 }
 

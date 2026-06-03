@@ -125,6 +125,12 @@ def motivation_page(request: Request, category: str = ""):
         except Exception:
             ctx["extra_conditions"] = []
 
+        try:
+            raw_global = db.get_extra_conditions(active_only=True) or []
+            ctx["extra_conditions_global"] = raw_global
+        except Exception:
+            ctx["extra_conditions_global"] = []
+
     except Exception as exc:
         logger.error(f"motivation_page error: {exc}")
         ctx["error"] = str(exc)

@@ -5213,7 +5213,7 @@ class Database:
             has_fixed_salary = cursor.fetchone() is not None
 
             final_commission = base_commission
-            if coeff_conditions and not has_fixed_salary:
+            if coeff_conditions:
                 if year is not None and month is not None:
                     import calendar as _cal
                     _, last_day = _cal.monthrange(year, month)

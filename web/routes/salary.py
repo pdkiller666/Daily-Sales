@@ -112,6 +112,13 @@ def _salary_user_earnings(request, user, year: int, month: int):
                 "shop": row[7] or "—",
             })
 
+        # Учитываем joint-бонус (совместный режим мотивации, если настроен)
+        try:
+            joint_adj = db.get_joint_bonus_adjustment(user_db_id, start_date, end_date)
+            total_commission = round(total_commission + joint_adj, 2)
+        except Exception:
+            joint_adj = 0.0
+
         # Base salary from schedule × rate (+ paid approved absences)
         worked = db.get_worked_days_count(user_db_id, year, month)
         paid_abs = db.get_paid_absence_days_count(user_db_id, year, month)
