@@ -55,22 +55,23 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
         return None
 
 
-def _get_org_active_plan(db, telegram_id: int) -> str:
-    """Возвращает название активного тарифа (с учётом триала)."""
+def _get_org_active_plan(telegram_id: int) -> str:
+    """Возвращает название активного тарифа из shop_bot.db (с учётом триала)."""
     try:
-        from db_utils import get_db
-        conn = db.get_connection()
+        import sqlite3
+        conn = sqlite3.connect(_SHOP_BOT_DB)
         row = conn.execute(
             "SELECT plan_name FROM subscriptions WHERE telegram_id = ? AND end_date >= date('now') ORDER BY end_date DESC LIMIT 1",
             (telegram_id,)
         ).fetchone()
-        conn.close()
         if row:
+            conn.close()
             return row[0]
-        row2 = db.get_connection().execute(
+        row2 = conn.execute(
             "SELECT trial_plan, trial_end FROM users WHERE telegram_id = ?",
             (telegram_id,)
         ).fetchone()
+        conn.close()
         if row2 and row2[1] and row2[1] >= datetime.now().strftime("%Y-%m-%d"):
             return row2[0] or "Премиум"
         return "Бесплатный"
@@ -146,7 +147,7 @@ def chat_page(request: Request):
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(db, telegram_id)
+        org_plan = _get_org_active_plan(telegram_id)
         allowed = _plan_allowed(org_plan, min_plan)
         ctx["chat_allowed"] = allowed
         ctx["org_plan"] = org_plan
@@ -189,7 +190,7 @@ async def chat_send(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(db, telegram_id)
+        org_plan = _get_org_active_plan(telegram_id)
         if not _plan_allowed(org_plan, min_plan):
             return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
 
@@ -270,7 +271,7 @@ def chat_poll(request: Request, since_id: int = 0):
             return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(db, telegram_id)
+        org_plan = _get_org_active_plan(telegram_id)
         if not _plan_allowed(org_plan, min_plan):
             return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
