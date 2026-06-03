@@ -895,6 +895,13 @@ class Database:
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS contest_salary_payouts (
+                contest_id INTEGER PRIMARY KEY,
+                paid_at    TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS scheduled_subscriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -8125,6 +8132,41 @@ class Database:
         return bool(self.add_salary_adjustment(
             user_id, year, month, -abs(amount), comment, admin_id
         ))
+
+    def mark_contest_salary_paid(self, contest_id: int) -> bool:
+        """Отметить конкурс как выплаченный в зарплату.
+        Возвращает True если запись создана впервые, False если уже существовала.
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT OR IGNORE INTO contest_salary_payouts (contest_id) VALUES (?)',
+                (contest_id,)
+            )
+            inserted = cursor.rowcount > 0
+            conn.commit()
+            return inserted
+        except Exception as e:
+            logger.error(f"mark_contest_salary_paid: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def is_contest_salary_paid(self, contest_id: int) -> bool:
+        """True если призы конкурса уже были записаны в salary_adjustments."""
+        conn = self.get_connection()
+        try:
+            row = conn.execute(
+                'SELECT 1 FROM contest_salary_payouts WHERE contest_id=?',
+                (contest_id,)
+            ).fetchone()
+            return row is not None
+        except Exception as e:
+            logger.error(f"is_contest_salary_paid: {e}")
+            return False
+        finally:
+            conn.close()
 
     # ── Chat methods ─────────────────────────────────────────────────────────
 

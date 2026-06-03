@@ -2038,6 +2038,42 @@ async def contest_notify_winners(callback: CallbackQuery, state: FSMContext):
 
 # ── Завершение / отмена конкурса ───────────────────────────────────────────────
 
+async def _apply_contest_salary_payouts(db, contest_id: int, winners: list) -> None:
+    """Записать призы победителей конкурса в salary_adjustments (идемпотентно)."""
+    try:
+        winners_with_reward = [w for w in winners if w.get('reward', 0) > 0]
+        if not winners_with_reward:
+            return
+        first_time = await db.mark_contest_salary_paid(contest_id)
+        if not first_time:
+            return
+        contest = await db.get_contest(contest_id)
+        if not contest:
+            return
+        title = contest[1] or f"#{contest_id}"
+        end_date = contest[9] or ''
+        try:
+            year = int(end_date[:4])
+            month = int(end_date[5:7])
+        except Exception:
+            from datetime import date as _d
+            year, month = _d.today().year, _d.today().month
+        for w in winners_with_reward:
+            uid = w.get('user_id')
+            reward = w.get('reward', 0)
+            if not uid or not reward:
+                continue
+            await db.add_salary_adjustment(
+                uid, year, month, reward,
+                f"🏆 Приз конкурса «{title}»", None
+            )
+        import logging as _log
+        _log.info(f"Конкурс #{contest_id}: записано {len(winners_with_reward)} призов в зарплату")
+    except Exception as e:
+        import logging as _log
+        _log.error(f"_apply_contest_salary_payouts #{contest_id}: {e}")
+
+
 @contests_router.callback_query(F.data.startswith("ct_finish_ok_"))
 async def contest_finish_execute(callback: CallbackQuery, state: FSMContext):
     contest_id = int(callback.data[len("ct_finish_ok_"):])
@@ -2047,6 +2083,7 @@ async def contest_finish_execute(callback: CallbackQuery, state: FSMContext):
     if success:
         results = await current_db.compute_contest_results(contest_id)
         winners = [r for r in results if r['is_winner']]
+        await _apply_contest_salary_payouts(current_db, contest_id, winners)
         builder = InlineKeyboardBuilder()
         builder.button(text="📊 Результаты", callback_data=f"ct_results_{contest_id}")
         builder.button(text="⬅️ Архив", callback_data="contest_list_archive")

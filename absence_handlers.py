@@ -475,6 +475,7 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
                                          None, callback.from_user.id)
     if ok:
         await callback.answer('✅ Одобрено')
+        days = _days_count(sd, ed)
         # Уведомить сотрудника
         conn = db._db.get_connection()
         try:
@@ -482,11 +483,34 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
         finally:
             conn.close()
         if u and u[0]:
-            days = _days_count(sd, ed)
             await _notify_user(state, u[0],
                 f'✅ <b>Заявка одобрена!</b>\n\n'
                 f'{_TYPE_LABELS.get(atype, atype)}\n'
                 f'📅 {_fmt_date(sd)}–{_fmt_date(ed)} ({days} дн.)')
+        # Штраф за прогул — автозапись в salary_adjustments
+        if atype == 'absence':
+            try:
+                settings = await db.get_absence_type_settings()
+                s = settings.get('absence', {})
+                pmode = s.get('penalty_mode', 'no_pay')
+                pamt = float(s.get('penalty_amount') or 0)
+                if pmode in ('fine', 'both') and pamt > 0:
+                    adm_conn = db._db.get_connection()
+                    try:
+                        adm_row = adm_conn.execute(
+                            'SELECT id FROM users WHERE telegram_id=?',
+                            (callback.from_user.id,)
+                        ).fetchone()
+                    finally:
+                        adm_conn.close()
+                    reviewer_db_id = adm_row[0] if adm_row else None
+                    d_start = date.fromisoformat(sd[:10])
+                    await db.apply_absence_penalty(
+                        uid, ab_id, d_start.year, d_start.month,
+                        pamt * days, reviewer_db_id
+                    )
+            except Exception as _pe:
+                logger.error(f"abs_approve penalty: {_pe}")
     else:
         await callback.answer('Ошибка', show_alert=True)
     await abs_pending_list(callback, state)

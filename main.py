@@ -667,13 +667,40 @@ async def auto_finish_contests(bot: Bot):
                         f"(end_date={end_date}), БД: {path}"
                     )
 
-                    if not notify_on_end:
-                        continue
-
                     try:
                         reward_mode = contest[22] if len(contest) > 22 else 'total'
                         results = current_db.compute_contest_results(contest_id)
                         winners = [r for r in results if r.get('is_winner')]
+
+                        # Записать призы победителей в salary_adjustments (всегда, идемпотентно)
+                        winners_with_reward = [w for w in winners if w.get('reward', 0) > 0]
+                        if winners_with_reward and current_db.mark_contest_salary_paid(contest_id):
+                            _end_date = contest[9] or ''
+                            try:
+                                _sal_year = int(_end_date[:4])
+                                _sal_month = int(_end_date[5:7])
+                            except Exception:
+                                from datetime import date as _ddate
+                                _sal_year, _sal_month = _ddate.today().year, _ddate.today().month
+                            for _w in winners_with_reward:
+                                try:
+                                    current_db.add_salary_adjustment(
+                                        _w['user_id'], _sal_year, _sal_month, _w['reward'],
+                                        f"🏆 Приз конкурса «{title}»", None
+                                    )
+                                except Exception as _we:
+                                    logging.error(
+                                        f"auto_finish_contests salary_adj "
+                                        f"winner {_w.get('user_id')} contest #{contest_id}: {_we}"
+                                    )
+                            logging.info(
+                                f"Конкурс #{contest_id}: записано {len(winners_with_reward)} "
+                                f"призов в зарплату ({path})"
+                            )
+
+                        if not notify_on_end:
+                            continue
+
                         notified = 0
                         for winner in winners:
                             tg_id = winner.get('telegram_id')
