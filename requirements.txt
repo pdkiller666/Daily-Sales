@@ -1,6 +1,6 @@
 aiofiles==24.1.0
 aiogram==3.20.0.post0
-aiohttp==3.11.18
+aiohttp==3.12.15
 APScheduler==3.11.0
 fastapi==0.136.3
 google-auth
@@ -9,7 +9,7 @@ gspread-asyncio
 jinja2==3.1.6
 openpyxl==3.1.5
 pydantic==2.11.5
-python-dotenv==1.1.0
+python-dotenv==1.1.1
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.30
 pytz==2024.1

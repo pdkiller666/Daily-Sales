@@ -1303,8 +1303,15 @@ async def start_profile_edit(callback: CallbackQuery, state: FSMContext):
 
 # ── Выбор магазина из списка (собственный профиль, admin) ─────────────────────
 
+_ALLOWED_USER_FIELDS = frozenset({
+    "first_name", "last_name", "middle_name", "phone", "email",
+    "trade_network", "shop_name", "city", "timezone", "username",
+})
+
 async def _apply_user_field(telegram_id: int, db_file: str, field: str, value: str) -> None:
     """Обновляет поле пользователя в org/personal БД (через asyncio.to_thread — не блокирует event loop)."""
+    if field not in _ALLOWED_USER_FIELDS:
+        raise ValueError(f"_apply_user_field: недопустимое поле '{field}'")
     def _do():
         conn = sqlite3.connect(db_file)
         conn.execute(f"UPDATE users SET {field} = ? WHERE telegram_id = ?", (value, telegram_id))
