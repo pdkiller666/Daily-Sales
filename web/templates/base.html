@@ -1026,29 +1026,33 @@ function mainApp() {
                 }
             });
 
-            /* 5. bfcache fix: Telegram WebView restores the JS state (including
-               open sheets) when the user reopens the app after backgrounding.
-               When pageshow fires with e.persisted=true we close all sheets. */
-            window.addEventListener('pageshow', (e) => {
-                if (e.persisted) {
+            /* 5. bfcache / WebView re-entry fix.
+               Android Telegram WebView restores the page from bfcache WITHOUT
+               firing pageshow(persisted=true) — Alpine state (including open
+               sheets) is preserved as-is, and $watch never fires because the
+               value doesn't "change".
+               Strategy: close sheets only when they are actually open, so we
+               never disturb _initReady on a clean fresh page load. */
+            const _maybeCloseSheets = () => {
+                if (this.moreOpen || this.editNavOpen || this.notifOpen || this.notifDdOpen) {
                     this._closeAllSheets();
+                }
+            };
+
+            /* pageshow covers standard bfcache (persisted=true) in browsers
+               that honour it; we also handle persisted=false to be safe. */
+            window.addEventListener('pageshow', () => _maybeCloseSheets());
+
+            /* visibilitychange covers the case where the WebView is simply
+               brought to the foreground without any navigation event. */
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    _maybeCloseSheets();
                 }
             });
 
-            /* 6. visibilitychange fix: Telegram in-app browser can show the
-               SAME WebView without any navigation event (no pageshow, no reload).
-               When the page becomes visible after being hidden ≥5 s we close
-               all sheets so the user always sees a clean state on re-entry. */
-            let _hiddenSince = 0;
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'hidden') {
-                    _hiddenSince = Date.now();
-                } else if (document.visibilityState === 'visible') {
-                    if (_hiddenSince && Date.now() - _hiddenSince >= 5000) {
-                        this._closeAllSheets();
-                    }
-                }
-            });
+            /* focus covers remaining edge-cases (e.g. app switcher return). */
+            window.addEventListener('focus', () => _maybeCloseSheets());
         },
 
         _closeAllSheets() {
