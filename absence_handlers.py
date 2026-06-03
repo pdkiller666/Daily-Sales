@@ -590,7 +590,7 @@ async def abs_prg_list(callback: CallbackQuery, state: FSMContext):
     try:
         users = conn.execute(
             "SELECT id, first_name, last_name, shop_name FROM users "
-            "WHERE role != 'fired' ORDER BY first_name"
+            "ORDER BY first_name"
         ).fetchall() or []
     finally:
         conn.close()
