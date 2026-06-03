@@ -403,6 +403,7 @@
     <!-- ─── Submit ─── -->
     <div class="flex items-center gap-3">
         <button type="submit"
+                onclick="this.disabled=true;this.innerHTML='⏳ Сохранение…'"
                 class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors">
             {% if is_edit %}Сохранить изменения{% else %}Создать конкурс{% endif %}
         </button>

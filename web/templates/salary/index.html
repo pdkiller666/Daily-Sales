@@ -26,6 +26,12 @@
 {% if request.query_params.get('rate_saved') == '1' %}
 <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">✅ Ставка сохранена</div>
 {% endif %}
+{% set _smsg = request.query_params.get('msg', '') %}
+{% if _smsg == 'adj_added' %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">✅ Корректировка добавлена</div>
+{% elif _smsg == 'adj_deleted' %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium">🗑 Корректировка удалена</div>
+{% endif %}
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
     <span>⚠️</span><span>{{ error }}</span>

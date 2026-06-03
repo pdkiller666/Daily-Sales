@@ -43,7 +43,7 @@ def main_menu(chat_id: int, user_shop: str = None):
 
     buttons = [
         [
-            InlineKeyboardButton(text="💰 ПРОДАЖА", callback_data="new_sale"),
+            InlineKeyboardButton(text="💰 Продажа", callback_data="new_sale"),
         ],
     ]
 
@@ -55,7 +55,7 @@ def main_menu(chat_id: int, user_shop: str = None):
         buttons.append([InlineKeyboardButton(text="🔧 Системная панель", callback_data="system_admin_panel")])
 
     if not is_main_admin:
-        buttons.append([InlineKeyboardButton(text="📦 ОСТАТКИ", callback_data="user_inventory_menu")])
+        buttons.append([InlineKeyboardButton(text="📦 Остатки", callback_data="user_inventory_menu")])
         buttons.append([InlineKeyboardButton(text="📝 Мои продажи", callback_data="edit_sales_start")])
 
     web_url = _get_web_interface_url()
@@ -192,7 +192,7 @@ def usage_mode_keyboard():
         [InlineKeyboardButton(text="👤 Личное использование", callback_data="mode_personal")],
         [InlineKeyboardButton(text="🏢 Создать организацию", callback_data="mode_corporate")],
         [InlineKeyboardButton(text="🔗 Войти по приглашению", callback_data="mode_join")],
-        [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_registration")]
+        [InlineKeyboardButton(text="❌ Отменить регистрацию", callback_data="cancel_registration")]
     ])
 
 def cancel_registration_keyboard():
@@ -295,5 +295,5 @@ def timezone_keyboard():
     from timezone_utils import get_common_timezones
     timezones = get_common_timezones()
     buttons = [[InlineKeyboardButton(text=name, callback_data=f"set_timezone_{zone}")] for name, zone in timezones.items()]
-    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="user_profile")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="user_profile")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

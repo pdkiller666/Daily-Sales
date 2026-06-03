@@ -50,3 +50,25 @@ Known acceptable risk — tokens are server-side only, in SQLite files with no p
 - `payment_system_admin.py` promo code gen: use `secrets.choice`, not `random.choices`
 - `tenant_manager.py` already uses secrets ✅
 - `web_login_codes.py` uses secrets ✅ (now 8 digits, was 6)
+
+### 10. Input validation checklist for new web routes (POST)
+1. CSRF: `if not verify_csrf_token(...)` → redirect
+2. Subscription gate: `check_*_permission()` before creating resources
+3. Enum fields: `re.match(r'^[a-z_]{1,50}$', atype)` or explicit `in {set}` check
+4. Year/month: `year = max(2015, min(year, 2040))`, `month = max(1, min(month, 12))`
+5. Float amounts: `amount = max(-1_000_000.0, min(amount, 1_000_000.0))`
+6. String fields: `.strip()[:500]` before DB write; `maxlength="500"` on HTML input
+7. Image uploads: `_is_valid_image(raw)` magic bytes check (JPEG/PNG/WebP)
+8. Error disclosure: `logging.error(e)` + generic user message, never `str(e)` to user
+
+### 11. N+1 DB query fix pattern for salary/stats pages
+Use `get_salary_bulk_stats(year, month, start, end)` → returns `{user_id: {worked, adj_sum, motivation}}` via 3 GROUP BY queries for ALL users. paid_abs still per-user (calendar intersection logic). Pattern: prefetch bulk dict, then loop and `.get(uid, defaults)`.
+
+### 12. _import_sessions memory management
+`_import_sessions` dict in `web/routes/products.py`: every session gets `"_ts": time.time()`. Call `_cleanup_import_sessions()` before creating a new session to evict entries older than 1h (`_IMPORT_SESSION_TTL = 3600`). Same pattern should apply to any future in-memory session store.
+
+### 13. DB indexes added in create_tables()
+`idx_salary_adj_user_ym`, `idx_seller_earnings_user`, `idx_absence_rec_user_dt`, `idx_work_sched_user_date` — all `CREATE INDEX IF NOT EXISTS`. Always add indexes this way so they auto-apply on Amvera when DB is first accessed.
+
+### 14. Dependency pinning
+requirements.txt: `google-auth==2.53.0`, `gspread-asyncio==2.0.0`, `tenacity==9.1.4` — previously unpinned. `reportlab>=4.0` kept loose intentionally (no breaking changes expected). Pin all new deps on addition.

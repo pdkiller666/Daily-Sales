@@ -506,7 +506,7 @@ def salary_adj_add(
         logging.error(f"salary_adj_add error: {e}")
 
     return RedirectResponse(
-        url=f"/salary?year={year}&month={month}&user_id={target_user_id}",
+        url=f"/salary?year={year}&month={month}&user_id={target_user_id}&msg=adj_added",
         status_code=302,
     )
 
@@ -540,7 +540,7 @@ def salary_adj_delete(
         logging.error(f"salary_adj_delete error: {e}")
 
     return RedirectResponse(
-        url=f"/salary?year={year}&month={month}&user_id={target_user_id}",
+        url=f"/salary?year={year}&month={month}&user_id={target_user_id}&msg=adj_deleted",
         status_code=302,
     )
 

@@ -58,7 +58,7 @@ async def pending_payments_menu(callback: CallbackQuery):
         text += "📭 Нет ожидающих заявок"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Админ меню", callback_data="system_admin_panel")]
+            [InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")]
         ])
     else:
         text += f"📋 <b>Ожидающих заявок:</b> {len(pending_requests)}\n\n"
@@ -93,7 +93,7 @@ async def pending_payments_menu(callback: CallbackQuery):
             ])
 
         keyboard_buttons.append([
-            InlineKeyboardButton(text="🔙 Админ меню", callback_data="system_admin_panel")
+            InlineKeyboardButton(text="⬅️ Админ меню", callback_data="system_admin_panel")
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
@@ -142,7 +142,7 @@ async def view_payment_request(callback: CallbackQuery):
             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
         ],
         [InlineKeyboardButton(text="📎 Показать чек", callback_data=f"show_payment_proof_{req_id}")],
-        [InlineKeyboardButton(text="🔙 К заявкам", callback_data="pending_payments")]
+        [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")]
     ])
 
     await safe_edit_message(callback, text, keyboard)
@@ -184,7 +184,7 @@ async def show_payment_proof(callback: CallbackQuery):
             InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_payment_{req_id}"),
             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_payment_{req_id}")
         ],
-        [InlineKeyboardButton(text="🔙 К заявке", callback_data=f"view_payment_{req_id}")]
+        [InlineKeyboardButton(text="⬅️ К заявке", callback_data=f"view_payment_{req_id}")]
     ])
 
     # Удаляем текущее текстовое сообщение перед отправкой фото,
@@ -205,7 +205,7 @@ async def show_payment_proof(callback: CallbackQuery):
         await callback.message.answer(
             "❌ Не удалось загрузить чек. Файл недоступен.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 К заявке", callback_data=f"view_payment_{req_id}")]
+                [InlineKeyboardButton(text="⬅️ К заявке", callback_data=f"view_payment_{req_id}")]
             ])
         )
 
@@ -358,7 +358,7 @@ async def confirm_payment_request(callback: CallbackQuery):
         text = f"✅ <b>Заявка #{request_id} подтверждена</b>\n\nПодписка успешно активирована!"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 К заявкам", callback_data="pending_payments")],
+            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")],
             [InlineKeyboardButton(text="🔧 Админ меню", callback_data="system_admin_panel")]
         ])
 
@@ -429,7 +429,7 @@ async def reject_payment_request(callback: CallbackQuery):
         text = f"❌ <b>Заявка #{request_id} отклонена</b>\n\nПользователь уведомлен об отклонении."
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 К заявкам", callback_data="pending_payments")],
+            [InlineKeyboardButton(text="⬅️ К заявкам", callback_data="pending_payments")],
             [InlineKeyboardButton(text="🔧 Админ меню", callback_data="system_admin_panel")]
         ])
 

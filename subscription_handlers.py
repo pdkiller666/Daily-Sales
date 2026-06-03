@@ -105,7 +105,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         text += "<i>✨ Вы супер-администратор — доступ ко всем функциям без ограничений.</i>"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Мой статус", callback_data="subscription_limits")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
         ])
     else:
         # Определяем: org-пользователь или личный
@@ -170,7 +170,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                 org_buttons.append([InlineKeyboardButton(text="💳 Купить подписку для организации", callback_data="subscription_plans")])
                 org_buttons.append([InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")])
             org_buttons.append([InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")])
-            org_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
+            org_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")])
             keyboard = InlineKeyboardMarkup(inline_keyboard=org_buttons)
         else:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -178,7 +178,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")],
                 [InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")],
                 [InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")],
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
             ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -194,7 +194,7 @@ async def subscription_plans(callback: CallbackQuery):
     
     if not plans:
         text += "❌ Нет доступных тарифных планов"
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")])
+        keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_menu")])
     else:
         for plan_id, plan_info in plans.items():
             price_per_month = plan_info['price'] / (plan_info['duration'] / 30)
@@ -247,7 +247,7 @@ async def subscription_plans(callback: CallbackQuery):
                     text += f"🔔 Уведомления: {'✅' if plan_details['can_use_notifications'] else '❌'}\n"
                     text += "\n"
         
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")])
+        keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_menu")])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -292,7 +292,7 @@ async def start_subscription_purchase(callback: CallbackQuery, state: FSMContext
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⏰ Отложенная активация", callback_data=f"schedule_{plan_key}")],
             [InlineKeyboardButton(text="⚡ Немедленная замена", callback_data=f"immediate_{plan_key}")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]
         ])
         
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -334,7 +334,7 @@ async def proceed_with_purchase(callback: CallbackQuery, state: FSMContext, plan
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Ввести промокод", callback_data=f"enter_promocode_{plan_key}")],
         [InlineKeyboardButton(text="💳 Продолжить без промокода", callback_data=f"proceed_payment_{plan_key}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
     
@@ -345,7 +345,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
     db = _get_db()
     if not message.photo:
         await fsm_edit(state, message, "❌ Пожалуйста, отправьте скриншот перевода (фото).",
-                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]]))
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]]))
         return
     
     data = await state.get_data()
@@ -379,7 +379,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
 
     if not user_id:
         await fsm_edit(state, message, "❌ Ошибка: профиль не найден. Обратитесь в поддержку.",
-                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]]))
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]]))
         return
 
     # Дедупликация: не создавать вторую заявку если уже есть активная
@@ -389,7 +389,7 @@ async def process_payment_proof(message: Message, state: FSMContext):
                        "Дождитесь рассмотрения текущей заявки администратором.\n"
                        "Как правило, это занимает до 24 часов.",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                           [InlineKeyboardButton(text="🔙 К подписке", callback_data="subscription_menu")]
+                           [InlineKeyboardButton(text="⬅️ К подписке", callback_data="subscription_menu")]
                        ]))
         await clear_state_keep_org(state)
         return
@@ -570,7 +570,7 @@ async def subscription_limits(callback: CallbackQuery):
             text += "\n💡 <b>Совет:</b> Обновите план для получения больших лимитов и дополнительных функций."
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_menu")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_menu")]
     ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -646,7 +646,7 @@ async def process_promocode(message: Message, state: FSMContext):
     promo_attempts = data.get('promo_attempts', 0)
 
     _promo_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]
     ])
     if not plan_key:
         await fsm_edit(state, message, "❌ Ошибка: данные о плане потеряны. Начните заново.", reply_markup=_promo_kb)
@@ -681,7 +681,7 @@ async def process_promocode(message: Message, state: FSMContext):
                        + (f" (осталось попыток: {remaining})" if remaining <= 2 else ""),
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                            [InlineKeyboardButton(text="💳 Продолжить без промокода", callback_data=f"proceed_payment_{plan_key}")],
-                           [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+                           [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]
                        ]))
         return
 
@@ -729,7 +729,7 @@ async def process_promocode(message: Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Продолжить к оплате", callback_data=f"proceed_payment_{plan_key}")],
         [InlineKeyboardButton(text="🎁 Ввести другой промокод", callback_data=f"enter_promocode_{plan_key}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
     
@@ -806,7 +806,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
                 "Обратитесь к администратору или попробуйте позже."
             )
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]
             ])
             await state.update_data(
                 plan_type=plan_info['name'],
@@ -849,7 +849,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
             [InlineKeyboardButton(text="✅ Я оплатил — проверить", callback_data=f"yk_check_{yk_payment_id}")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")],
         ])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         return
@@ -873,7 +873,7 @@ async def proceed_to_payment(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SubscriptionStates.waiting_payment_proof)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1034,7 +1034,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
             "Подождите 1–2 минуты и нажмите «Проверить» ещё раз.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Проверить снова", callback_data=f"yk_check_{yk_payment_id}")],
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")],
             ]),
             parse_mode="HTML",
         )
@@ -1060,7 +1060,7 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
             "Если проблема сохраняется — обратитесь к администратору.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data=f"yk_check_{yk_payment_id}")],
-                [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_plans")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_plans")],
             ]),
             parse_mode="HTML",
         )
