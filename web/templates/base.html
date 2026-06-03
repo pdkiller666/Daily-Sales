@@ -988,6 +988,15 @@ function dsLogClear() { localStorage.removeItem(_DS_LOG_KEY); console.log('[DS] 
 </script>
 <script>
 /* ══════════════════════════════════════════════════
+   bfcache prevention — MUST run before Alpine.
+   An 'unload' listener makes browsers (Chrome, Yandex,
+   Firefox, Telegram WebView) ineligible for bfcache,
+   so pages are always fetched/recreated fresh on back.
+   The pageshow handler below is the second safety net.
+══════════════════════════════════════════════════ */
+window.addEventListener('unload', function() {});
+
+/* ══════════════════════════════════════════════════
    mainApp() — Alpine root state
    Handles: sidebar, bottom nav, more-sheet, nav editor
 ══════════════════════════════════════════════════ */
@@ -1053,21 +1062,25 @@ function mainApp() {
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
 
-            /* 4. bfcache fix: if Telegram WebView restores a frozen page,
-               reset all sheet state immediately (no reload — avoids flicker
-               and unreliable Telegram WebView reload behaviour). */
+                /* 4. bfcache fallback: if the page IS restored from bfcache
+               despite the unload guard below, force-close all sheets.
+               We use Alpine.$data() so reactivity fires correctly even
+               if 'this' proxy was frozen; setProperty 'important' beats
+               x-transition inline style that could re-show the element. */
             window.addEventListener('pageshow', (e) => {
                 if (!e.persisted) return;
-                /* Layer A: reset Alpine reactive state */
-                this.editNavOpen = false;
-                this.moreOpen    = false;
-                this.notifOpen   = false;
-                this.notifDdOpen = false;
-                /* Layer B: force-hide DOM in case transition was mid-flight
-                   when the page was bfcached (x-show style not yet applied) */
-                ['ds-nav-bd', 'ds-nav-sh', 'ds-more-bd', 'ds-more-sh'].forEach(function(id) {
+                dsLog('pageshow persisted — resetting sheets');
+                const root = document.querySelector('[x-data]');
+                const comp = (root && window.Alpine) ? Alpine.$data(root) : null;
+                if (comp) {
+                    comp.editNavOpen = false;
+                    comp.moreOpen    = false;
+                    comp.notifOpen   = false;
+                    comp.notifDdOpen = false;
+                }
+                ['ds-nav-bd','ds-nav-sh','ds-more-bd','ds-more-sh'].forEach(function(id){
                     const el = document.getElementById(id);
-                    if (el) el.style.display = 'none';
+                    if (el) el.style.setProperty('display','none','important');
                 });
             });
         },
