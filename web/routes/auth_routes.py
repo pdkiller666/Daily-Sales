@@ -133,10 +133,16 @@ async def switch_org(
 @router.get("/auth/code/auto")
 async def code_auto_login(request: Request, c: str = ""):
     """Magic-link auto-login: validate code from URL param and issue JWT immediately."""
-    from web.auth import create_session_token, COOKIE_NAME
+    from web.auth import get_session_user, create_session_token, COOKIE_NAME
     from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
     from env_manager import env_manager
     from web_login_codes import validate_code
+
+    # If user already has a valid session, skip code validation entirely.
+    # This handles bfcache / Telegram WebView replaying the same magic-link URL
+    # after the one-time code was already consumed on the first load.
+    if get_session_user(request):
+        return RedirectResponse(url="/dashboard", status_code=302)
 
     _ip = (request.client.host if request.client else "unknown")
     if not _check_rate_limit(_ip):
