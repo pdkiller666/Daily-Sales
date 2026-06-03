@@ -572,7 +572,7 @@ class IntegrationManager:
             admins = db.get_all_admins_telegram_ids()
             for tg_id in admins:
                 try:
-                    await bot.send_message(int(tg_id), text)
+                    await bot.send_message(int(tg_id), text, parse_mode="HTML")
                 except Exception:
                     pass
         except Exception as e:

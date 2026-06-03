@@ -45,6 +45,29 @@ SCHEDULE_LABELS = {
 
 def _back(cb): return back_button(cb)
 
+
+def _friendly_gs_error(e: Exception) -> str:
+    """
+    Normalize Google OAuth / gspread errors to a user-readable string.
+    google.auth.exceptions.RefreshError is initialized with two args, so str(e)
+    looks like a raw tuple: ('invalid_grant: ...', {...}). We catch that and
+    return a clean Russian message instead of exposing the raw exception repr.
+    """
+    s = str(e)
+    sl = s.lower()
+    if 'invalid_grant' in sl or 'token has been expired' in sl or 'token has been revoked' in sl:
+        return ("Авторизация Google отозвана или истекла. "
+                "Переподключите аккаунт: Интеграции → выберите подключение → "
+                "🔄 Переподключить OAuth.")
+    if 'unauthorized' in sl or '401' in s:
+        return "Ошибка авторизации Google (401). Проверьте токен или переподключите аккаунт."
+    if 'quota' in sl or '429' in s:
+        return "Превышен лимит запросов Google Sheets. Повторите позже."
+    if 'not found' in sl or '404' in s:
+        return "Таблица не найдена. Проверьте spreadsheet_id и доступ."
+    return s
+
+
 # ═══════════════════════════════════════════════════════════
 #  MAIN MENU
 # ═══════════════════════════════════════════════════════════
@@ -723,7 +746,7 @@ async def _start_device_flow(message: Message, state: FSMContext):
         try:
             await message.bot.edit_message_text(
                 chat_id=chat_id, message_id=anchor_id,
-                text=f"❌ <b>Ошибка запуска OAuth:</b> {e}",
+                text=f"❌ <b>Ошибка запуска OAuth:</b> {_friendly_gs_error(e)}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back("gs_auth_oauth")]]),
                 parse_mode="HTML",
             )
@@ -793,7 +816,7 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
         except ValueError as e:
             await _edit_anchor(
                 bot, chat_id, anchor_id,
-                f"❌ <b>Ошибка авторизации:</b> {e}\n\nПопробуйте подключить снова.",
+                f"❌ <b>Ошибка авторизации:</b> {_friendly_gs_error(e)}\n\nПопробуйте подключить снова.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔄 Попробовать снова",
                                          callback_data="gs_add_conn")],
@@ -869,7 +892,7 @@ async def _poll_oauth_token(chat_id: int, anchor_id: int,
             logger.error(f"OAuth save connection error: {e}")
             await _edit_anchor(
                 bot, chat_id, anchor_id,
-                f"❌ Авторизация прошла, но не удалось сохранить подключение:\n{e}",
+                f"❌ Авторизация прошла, но не удалось сохранить подключение:\n{_friendly_gs_error(e)}",
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[[_back("integration_menu")]]
                 ),
