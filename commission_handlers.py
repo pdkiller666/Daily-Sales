@@ -15,6 +15,7 @@ from utils import format_price, he
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from states import SearchStates, MotivationScheduleStates
+from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 
 commission_router = Router()
 
@@ -512,6 +513,34 @@ async def motiv_ym_selected(callback: CallbackQuery, state: FSMContext):
     year, month = int(parts[2]), int(parts[3])
     await _apply_product_motivation_month(callback, state, year, month)
 
+def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int):
+    """Строит текст + разметку для страницы просмотра мотиваций."""
+    cat_names = sorted(cat_comms.keys())
+    page_cats, has_prev, has_next, total_pages, page = paginate(cat_names, page, PAGE_SIZE_BTN)
+
+    text = f"📊 <b>Установленные мотивации</b> · {total} тов."
+    if total_pages > 1:
+        text += f" · стр. {page + 1}/{total_pages}"
+    text += "\n\n"
+
+    for cat_name in page_cats:
+        text += f"📂 <b>{he(cat_name)}</b>\n"
+        for product_name, comm_type, comm_value, admin_first, admin_last in cat_comms[cat_name]:
+            comm_text = f"{comm_value}%" if comm_type == 'percentage' else f"{format_price(comm_value)}/шт"
+            admin_name = f"{admin_first} {admin_last}".strip() if admin_first and admin_first != 'None' else "—"
+            text += f"  🔹 {he(product_name)} · 💰 {comm_text} · 👤 {he(admin_name)}\n"
+        text += "\n"
+
+    builder = InlineKeyboardBuilder()
+    nav = page_nav_row("view_all_motiv_p", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
+    builder.button(text="⬅️ Назад", callback_data="admin_motivation")
+    builder.adjust(1)
+    return text, builder.as_markup()
+
+
 @commission_router.callback_query(F.data == "view_all_motivations")
 async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
     """Просмотр всех установленных комиссий"""
@@ -537,7 +566,6 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Группируем по категориям
     prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
     cat_comms: dict = {}
     for commission in products_with_comm:
@@ -545,22 +573,39 @@ async def view_all_motivations(callback: CallbackQuery, state: FSMContext):
         cat = prod_cat_map.get(product_id, "Без категории")
         cat_comms.setdefault(cat, []).append((product_name, comm_type, comm_value, admin_first, admin_last))
 
-    total = len(products_with_comm)
-    text = f"📊 <b>Установленные мотивации</b> · {total} тов.\n\n"
-    for cat_name in sorted(cat_comms.keys()):
-        text += f"📂 <b>{he(cat_name)}</b>\n"
-        for product_name, comm_type, comm_value, admin_first, admin_last in cat_comms[cat_name]:
-            comm_text = f"{comm_value}%" if comm_type == 'percentage' else f"{format_price(comm_value)}/шт"
-            admin_name = f"{admin_first} {admin_last}".strip() if admin_first and admin_first != 'None' else "—"
-            text += f"  🔹 {he(product_name)} · 💰 {comm_text} · 👤 {he(admin_name)}\n"
-        text += "\n"
+    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), 0)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await callback.answer()
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
-    builder.button(text="⬅️ Назад", callback_data="admin_motivation")
-    builder.adjust(1)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+@commission_router.callback_query(F.data.startswith("view_all_motiv_p"))
+async def view_all_motivations_page(callback: CallbackQuery, state: FSMContext):
+    """Пагинация списка мотиваций"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    try:
+        page = int(callback.data.replace("view_all_motiv_p", ""))
+    except ValueError:
+        page = 0
+
+    current_db = await get_db(callback.from_user.id, state)
+    commissions, all_products = await asyncio.gather(
+        current_db.get_all_product_motivations(),
+        current_db.get_all_products()
+    )
+    products_with_comm = [c for c in commissions if c[2] is not None]
+
+    prod_cat_map = {p[0]: (p[2] or "Без категории") for p in all_products}
+    cat_comms: dict = {}
+    for commission in products_with_comm:
+        product_id, product_name, comm_type, comm_value, admin_first, admin_last, created_at = commission
+        cat = prod_cat_map.get(product_id, "Без категории")
+        cat_comms.setdefault(cat, []).append((product_name, comm_type, comm_value, admin_first, admin_last))
+
+    text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), page)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 
 @commission_router.callback_query(F.data == "remove_motivation")
