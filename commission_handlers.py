@@ -162,29 +162,36 @@ async def set_motivation_category_selected(callback: CallbackQuery, state: FSMCo
     await callback.answer()
 
 
-async def _render_motiv_products(callback, state, category, products, motivations_map, search_query=""):
-    """Отрисовка списка товаров категории для установки мотивации (с поиском)"""
+async def _render_motiv_products(callback, state, category, products, motivations_map, search_query="", page=0):
+    """Отрисовка списка товаров категории для установки мотивации (с поиском и пагинацией)"""
     from utils import format_price as fp
     filtered = products
     if search_query:
         q = search_query.lower()
         filtered = [p for p in products if q in p[1].lower()]
 
+    page_prods, has_prev, has_next, total_pages, page = paginate(filtered, page, 10)
+
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔍 Найти товар", callback_data="motiv_prod_search")
-    for p in filtered[:30]:
+    if not search_query:
+        builder.button(text="🔍 Найти товар", callback_data="motiv_prod_search")
+    for p in page_prods:
         info = motivations_map.get(p[0])
         suffix = ""
         if info and info['motivation_type']:
             suffix = f" ({info['motivation_value']}%)" if info['motivation_type'] == 'percentage' \
                 else f" ({fp(info['motivation_value'])})"
         builder.button(text=f"{p[1]}{suffix}", callback_data=f"set_motiv_product_{p[0]}")
+    nav = page_nav_row("motiv_prod_page_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
     builder.button(text="⬅️ Назад к категориям", callback_data="set_motivation")
     builder.adjust(1)
 
+    page_info = f" · стр. {page + 1}/{total_pages}" if total_pages > 1 else ""
     extra = (f"\n🔍 Результаты для: «{search_query}» — {len(filtered)} шт." if filtered else f"\n🔍 По запросу «{search_query}» ничего не найдено, попробуйте другой запрос") if search_query else ""
     await callback.message.edit_text(
-        f"📝 <b>Установка мотивации — шаг 2/3</b>\n\n"
+        f"📝 <b>Установка мотивации — шаг 2/3</b>{page_info}\n\n"
         f"📂 Категория: <b>{he(category)}</b>{extra}\n\n"
         "Выберите товар:",
         reply_markup=builder.as_markup(), parse_mode="HTML",
@@ -221,6 +228,27 @@ async def motiv_cat_back(callback: CallbackQuery, state: FSMContext):
     motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
                        for row in all_motivations if row[2]}
     await _render_motiv_products(callback, state, category, products, motivations_map)
+
+
+@commission_router.callback_query(F.data.startswith("motiv_prod_page_"))
+async def motiv_prod_page(callback: CallbackQuery, state: FSMContext):
+    """Пагинация списка товаров при выборе мотивации (шаг 2/3)"""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        page = int(callback.data.replace("motiv_prod_page_", ""))
+    except ValueError:
+        page = 0
+    data = await state.get_data()
+    category = data.get('motiv_category', '')
+    current_db = await get_db(callback.from_user.id, state)
+    products = await current_db.get_products_by_category(category)
+    all_motivations = await current_db.get_all_product_motivations()
+    motivations_map = {row[0]: {'motivation_type': row[2], 'motivation_value': row[3]}
+                       for row in all_motivations if row[2]}
+    await _render_motiv_products(callback, state, category, products, motivations_map, page=page)
+    await callback.answer()
 
 
 @commission_router.message(MotivationStates.searching_product)
@@ -514,22 +542,30 @@ async def motiv_ym_selected(callback: CallbackQuery, state: FSMContext):
     await _apply_product_motivation_month(callback, state, year, month)
 
 def _build_motiv_view_text_markup(cat_comms: dict, total: int, page: int):
-    """Строит текст + разметку для страницы просмотра мотиваций."""
-    cat_names = sorted(cat_comms.keys())
-    page_cats, has_prev, has_next, total_pages, page = paginate(cat_names, page, PAGE_SIZE_BTN)
+    """Строит текст + разметку для страницы просмотра мотиваций (плоская пагинация по товарам)."""
+    flat = []
+    for cat_name in sorted(cat_comms.keys()):
+        for item in cat_comms[cat_name]:
+            flat.append((cat_name, *item))
+
+    page_items, has_prev, has_next, total_pages, page = paginate(flat, page, 10)
 
     text = f"📊 <b>Установленные мотивации</b> · {total} тов."
     if total_pages > 1:
         text += f" · стр. {page + 1}/{total_pages}"
     text += "\n\n"
 
-    for cat_name in page_cats:
-        text += f"📂 <b>{he(cat_name)}</b>\n"
-        for product_name, comm_type, comm_value, admin_first, admin_last in cat_comms[cat_name]:
-            comm_text = f"{comm_value}%" if comm_type == 'percentage' else f"{format_price(comm_value)}/шт"
-            admin_name = f"{admin_first} {admin_last}".strip() if admin_first and admin_first != 'None' else "—"
-            text += f"  🔹 {he(product_name)} · 💰 {comm_text} · 👤 {he(admin_name)}\n"
-        text += "\n"
+    cur_cat = None
+    for item in page_items:
+        cat_name, product_name, comm_type, comm_value, admin_first, admin_last = item
+        if cat_name != cur_cat:
+            if cur_cat is not None:
+                text += "\n"
+            text += f"📂 <b>{he(cat_name)}</b>\n"
+            cur_cat = cat_name
+        comm_text = f"{comm_value}%" if comm_type == 'percentage' else f"{format_price(comm_value)}/шт"
+        admin_name = f"{admin_first} {admin_last}".strip() if admin_first and admin_first != 'None' else "—"
+        text += f"  🔹 {he(product_name)} · 💰 {comm_text} · 👤 {he(admin_name)}\n"
 
     builder = InlineKeyboardBuilder()
     nav = page_nav_row("view_all_motiv_p", page, has_prev, has_next, total_pages)
