@@ -351,7 +351,7 @@ async def products_import_text(
         return RedirectResponse(url=f"/products?imported={added}", status_code=302)
     except Exception as e:
         logging.error(f"products_import_text: {e}")
-        return RedirectResponse(url=f"/products/import?error={quote(str(e))}", status_code=302)
+        return RedirectResponse(url="/products/import?error=Ошибка+импорта.+Попробуйте+ещё+раз.", status_code=302)
 
 
 @router.post("/products/import/confirm")
@@ -388,7 +388,7 @@ def products_import_confirm(
     except Exception as e:
         logging.error(f"products_import_confirm bulk insert: {e}")
         return RedirectResponse(
-            url=f"/products/import?error={quote(str(e))}",
+            url="/products/import?error=Ошибка+сохранения+товаров.+Попробуйте+ещё+раз.",
             status_code=302,
         )
 
@@ -490,7 +490,7 @@ async def products_create(
             photo_url = _save_product_photo(photo, raw)
         except Exception as exc:
             logging.error(f"products_create photo save: {exc}")
-            return _re_render(f"Ошибка сохранения фото: {exc}")
+            return _re_render("Не удалось сохранить фото. Попробуйте ещё раз.")
 
     try:
         new_id = db.add_product(
@@ -508,7 +508,8 @@ async def products_create(
     except Exception as exc:
         if photo_url:
             _delete_product_photo(photo_url)
-        return _re_render(f"Ошибка: {exc}")
+        logger.error(f"products_create db error: {exc}")
+        return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
 
 
 @router.get("/products/{product_id}/edit")
@@ -622,7 +623,7 @@ async def products_update(
             _delete_product_photo(cur_photo_url)  # remove old if it was web-uploaded
         except Exception as exc:
             logging.error(f"products_update photo save: {exc}")
-            return _re_render(f"Ошибка сохранения фото: {exc}")
+            return _re_render("Не удалось сохранить фото. Попробуйте ещё раз.")
     elif remove_photo == "1" and cur_photo_url:
         _delete_product_photo(cur_photo_url)
         new_photo_url = ""
@@ -641,7 +642,8 @@ async def products_update(
     except Exception as exc:
         if new_photo_url and new_photo_url.startswith("/static/"):
             _delete_product_photo(new_photo_url)
-        return _re_render(f"Ошибка: {exc}")
+        logger.error(f"products_update db error: {exc}")
+        return _re_render("Не удалось сохранить товар. Попробуйте ещё раз.")
 
 
 @router.post("/products/{product_id}/delete")

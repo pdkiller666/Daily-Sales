@@ -213,10 +213,10 @@ def plans_create(
         return RedirectResponse(url="/plans", status_code=303)
 
     except ValueError as e:
-        error = str(e)
+        error = str(e)   # controlled validation message — safe to show
     except Exception as e:
         logger.error(f"plans_create error: {e}")
-        error = f"Ошибка при создании плана: {e}"
+        error = "Ошибка при создании плана. Попробуйте ещё раз."
 
     ctx = {
         "request": request, "user": user,
@@ -504,10 +504,10 @@ def plans_update(
         return RedirectResponse(url=f"/plans/{plan_id}", status_code=303)
 
     except ValueError as e:
-        error = str(e)
+        error = str(e)   # controlled validation message — safe to show
     except Exception as e:
         logger.error(f"plans_update {plan_id} error: {e}")
-        error = f"Ошибка при обновлении плана: {e}"
+        error = "Ошибка при обновлении плана. Попробуйте ещё раз."
 
     all_plans = db.get_sales_plans(active_only=False) or []
     plan_row = next((p for p in all_plans if p[0] == plan_id), None)

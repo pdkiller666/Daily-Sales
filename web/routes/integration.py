@@ -217,7 +217,7 @@ def integration_create(
         db.add_integration_connection(name.strip(), cfg, provider="google_sheets")
     except Exception as e:
         logging.error(f"integration_create: {e}")
-        return RedirectResponse(url=f"/integration?error={e}", status_code=302)
+        return RedirectResponse(url="/integration?error=Ошибка+подключения.+Попробуйте+позже.", status_code=302)
 
     return RedirectResponse(url="/integration?msg=Подключение+создано", status_code=302)
 
@@ -264,9 +264,8 @@ async def integration_auth_start(
         }
     except Exception as e:
         logging.error(f"integration_auth_start: {e}")
-        from urllib.parse import quote
         return RedirectResponse(
-            url=f"/integration?error={quote(str(e))}",
+            url="/integration?error=Ошибка+авторизации.+Попробуйте+позже.",
             status_code=302,
         )
 
@@ -319,7 +318,7 @@ async def integration_auth_poll(
     except Exception as e:
         logging.error(f"integration_auth_poll error: {e}")
         return RedirectResponse(
-            url=f"/integration?error={quote(str(e))}",
+            url="/integration?error=Ошибка+проверки+авторизации.+Попробуйте+позже.",
             status_code=302,
         )
 
@@ -349,7 +348,7 @@ async def integration_auth_poll(
     except Exception as e:
         logging.error(f"integration_auth_poll save: {e}")
         return RedirectResponse(
-            url=f"/integration?error={quote(str(e))}",
+            url="/integration?error=Ошибка+сохранения+токена.+Попробуйте+позже.",
             status_code=302,
         )
 

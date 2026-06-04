@@ -167,7 +167,8 @@ def motivation_set(
         if motivation_type == "percentage" and val > 100:
             raise ValueError("Процент не может превышать 100")
     except (ValueError, AttributeError) as exc:
-        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+        from urllib.parse import quote as _q
+        return RedirectResponse(url=f"/motivation?error={_q(str(exc))}", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -186,7 +187,7 @@ def motivation_set(
         logger.info(f"Motivation set: product={product_id} type={motivation_type} val={val} offset={month_offset} by={telegram_id}")
     except Exception as exc:
         logger.error(f"motivation_set error: {exc}")
-        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+        return RedirectResponse(url="/motivation?error=Ошибка+сохранения.+Попробуйте+позже.", status_code=303)
 
     return RedirectResponse(url="/motivation?saved=1", status_code=303)
 
@@ -234,7 +235,7 @@ def motivation_set_extra(
         )
     except Exception as exc:
         logger.error(f"motivation_set_extra error: {exc}")
-        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+        return RedirectResponse(url="/motivation?error=Ошибка+сохранения.+Попробуйте+позже.", status_code=303)
 
     return RedirectResponse(url="/motivation?extra_saved=1", status_code=303)
 
@@ -265,7 +266,8 @@ def motivation_set_category(
         if motivation_type == "percentage" and val > 100:
             raise ValueError("Процент не может превышать 100")
     except (ValueError, AttributeError) as exc:
-        return RedirectResponse(url=f"/motivation?error={exc}&category={category_name}", status_code=303)
+        from urllib.parse import quote as _q
+        return RedirectResponse(url=f"/motivation?error={_q(str(exc))}&category={_q(category_name)}", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -280,7 +282,7 @@ def motivation_set_category(
         logger.info(f"Category motivation set: category={category_name} type={motivation_type} val={val} products={count} by={telegram_id}")
     except Exception as exc:
         logger.error(f"motivation_set_category error: {exc}")
-        return RedirectResponse(url=f"/motivation?error={exc}", status_code=303)
+        return RedirectResponse(url="/motivation?error=Ошибка+сохранения.+Попробуйте+позже.", status_code=303)
 
     from urllib.parse import quote
     return RedirectResponse(url=f"/motivation?saved_category={count}&category={quote(category_name)}", status_code=303)

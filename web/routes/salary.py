@@ -212,6 +212,8 @@ def salary_page(
         year = today.year
     if not month:
         month = today.month
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
 
     prev_y, prev_m = _adjacent_month(year, month, -1)
     next_y, next_m = _adjacent_month(year, month, 1)
@@ -407,6 +409,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         year = today.year
     if not month:
         month = today.month
+    year  = max(2015, min(year,  2040))
+    month = max(1,    min(month, 12))
 
     try:
         import openpyxl
@@ -517,7 +521,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         )
 
     except Exception as exc:
-        return RedirectResponse(url=f"/salary?year={year}&month={month}&error={exc}", status_code=302)
+        logger.error(f"salary_export error: {exc}")
+        return RedirectResponse(url=f"/salary?year={year}&month={month}&error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)
 
 
 def _get_internal_uid(db, telegram_id: int):
@@ -635,7 +640,8 @@ def salary_rate_set(
         if rate < 0:
             raise ValueError("Ставка не может быть отрицательной")
     except (ValueError, AttributeError) as exc:
-        return RedirectResponse(url=f"/salary?error={exc}", status_code=303)
+        from urllib.parse import quote as _q
+        return RedirectResponse(url=f"/salary?error={_q(str(exc))}", status_code=303)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -645,6 +651,6 @@ def salary_rate_set(
         logging.info(f"Salary rate set: user={target_user_id} rate={rate} by={telegram_id}")
     except Exception as exc:
         logging.error(f"salary_rate_set error: {exc}")
-        return RedirectResponse(url=f"/salary?error={exc}", status_code=303)
+        return RedirectResponse(url="/salary?error=Ошибка+сохранения+ставки.+Попробуйте+позже.", status_code=303)
 
     return RedirectResponse(url=f"/salary?rate_saved=1&user_id={target_user_id}", status_code=303)

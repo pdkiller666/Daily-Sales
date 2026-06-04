@@ -424,7 +424,7 @@ def contests_create(
 
     except Exception as exc:
         logger.error(f"contests_create error: {exc}")
-        return _re_render(f"Ошибка при создании конкурса: {exc}")
+        return _re_render("Ошибка при создании конкурса. Попробуйте ещё раз.")
 
 
 @router.get("/contests/{contest_id}/edit")
@@ -614,7 +614,7 @@ def contests_update(
 
     except Exception as exc:
         logger.error(f"contests_update error: {exc}")
-        return _re_render(f"Ошибка при сохранении: {exc}")
+        return _re_render("Ошибка при сохранении. Попробуйте ещё раз.")
 
 
 @router.post("/contests/{contest_id}/finish")

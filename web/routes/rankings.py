@@ -263,4 +263,5 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as exc:
-        return RedirectResponse(url=f"/rankings?tab={tab}&period={period}&error={exc}", status_code=302)
+        logger.error(f"rankings_export error: {exc}")
+        return RedirectResponse(url=f"/rankings?tab={tab}&period={period}&error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)

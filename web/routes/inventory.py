@@ -189,7 +189,8 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         )
 
     except Exception as exc:
-        return RedirectResponse(url=f"/inventory?error={exc}", status_code=302)
+        logger.error(f"inventory_export error: {exc}")
+        return RedirectResponse(url="/inventory?error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)
 
 
 @router.post("/inventory/adjust")
@@ -314,7 +315,8 @@ def inventory_history(request: Request, shop: str = "", product_id: int = 0):
                 "username": r[9] or "",
             })
     except Exception as e:
-        error = str(e)
+        logger.error(f"inventory_history error: {e}")
+        error = "Внутренняя ошибка. Попробуйте позже."
 
     ctx = {
         "request": request,
