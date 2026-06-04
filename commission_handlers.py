@@ -884,7 +884,6 @@ async def motiv_toggle_plan_coeff(callback: CallbackQuery, state: FSMContext):
     else:
         new_val = not bool(ns.get('plan_coeff_cap', True))
         await current_db.update_notification_settings(user_id, plan_coeff_cap=new_val)
-    await callback.answer("✅ Настройка изменена")
     await motivation_extra(callback, state)
 
 
