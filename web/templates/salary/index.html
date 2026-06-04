@@ -90,6 +90,7 @@
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Оклад</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Мотивация</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Корр.</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden lg:table-cell">Конкурсы</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Итого</th>
                 </tr>
             </thead>
@@ -144,6 +145,13 @@
                         <span class="text-emerald-600">+{{ s.adj_sum|int|fmt_currency }}</span>
                         {% elif s.adj_sum < 0 %}
                         <span class="text-red-500">{{ s.adj_sum|int|fmt_currency }}</span>
+                        {% else %}
+                        <span class="text-slate-300">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-3 text-right hidden lg:table-cell">
+                        {% if s.contest_rewards > 0 %}
+                        <span class="text-violet-600">+{{ s.contest_rewards|int|fmt_currency }}</span>
                         {% else %}
                         <span class="text-slate-300">—</span>
                         {% endif %}
@@ -206,10 +214,23 @@
     <!-- Motivation detail -->
     {% if detail_earnings %}
     <div class="mb-5">
-        <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Мотивация (комиссии)</p>
-            <span class="text-xs font-semibold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</span>
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Мотивация (комиссии по продажам)</p>
+            <div class="text-right">
+                {% if detail_plan_coeff is not none %}
+                <p class="text-xs text-amber-500">×{{ "%.2f"|format(detail_plan_coeff) }} план</p>
+                {% endif %}
+                <span class="text-xs font-semibold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</span>
+            </div>
         </div>
+        {% if detail_plan_coeff is not none %}
+        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-700">
+            <span class="font-semibold">Коэффициент планов ×{{ "%.2f"|format(detail_plan_coeff) }}</span> применён к мотивации
+            {% if detail_plan_coeff_details %}
+            — {% for d in detail_plan_coeff_details %}{{ d.week }}: {{ d.pct }}%{% if not loop.last %}, {% endif %}{% endfor %}
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="overflow-x-auto rounded-xl border border-slate-100">
             <table class="w-full text-xs">
                 <thead>
@@ -238,6 +259,24 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Contest rewards detail -->
+    {% if detail_contest_details %}
+    <div class="mb-5">
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Призы конкурсов</p>
+            <span class="text-xs font-semibold text-violet-600">+{{ detail_contest_rewards|int|fmt_currency }}</span>
+        </div>
+        <div class="space-y-1">
+            {% for c in detail_contest_details %}
+            <div class="flex items-center justify-between bg-violet-50 rounded-lg px-3 py-2">
+                <p class="text-xs text-slate-700">🏆 {{ c.title }}</p>
+                <span class="text-xs font-semibold text-violet-600 ml-3">+{{ c.reward|int|fmt_currency }}</span>
+            </div>
+            {% endfor %}
         </div>
     </div>
     {% endif %}
@@ -336,7 +375,7 @@
         </div>
         {% if detail_user.motivation > 0 %}
         <div class="flex justify-between">
-            <span class="text-slate-500">Мотивация</span>
+            <span class="text-slate-500">Мотивация{% if detail_plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(detail_plan_coeff) }} план)</span>{% endif %}</span>
             <span class="font-medium text-blue-600">+{{ detail_user.motivation|int|fmt_currency }}</span>
         </div>
         {% endif %}
@@ -349,6 +388,12 @@
         <div class="flex justify-between">
             <span class="text-slate-500">Штрафы / корректировки</span>
             <span class="font-medium text-red-500">{{ detail_user.adj_sum|int|fmt_currency }}</span>
+        </div>
+        {% endif %}
+        {% if detail_contest_rewards > 0 %}
+        <div class="flex justify-between">
+            <span class="text-slate-500">Призы конкурсов</span>
+            <span class="font-medium text-violet-600">+{{ detail_contest_rewards|int|fmt_currency }}</span>
         </div>
         {% endif %}
         <div class="flex justify-between pt-2 border-t border-slate-100">

@@ -6443,6 +6443,66 @@ class Database:
             logger.error(f"Ошибка get_user_contest_rewards: {e}")
             return 0.0
 
+    def get_user_contest_rewards_detail(self, telegram_id: int,
+                                        month_start: str, month_end: str) -> tuple:
+        """Призы конкурсов для пользователя за период с детализацией по конкурсам.
+        Возвращает (total: float, details: list[dict{title, reward, contest_id}])."""
+        try:
+            contests = self.get_contests_for_period(month_start, month_end)
+            total = 0.0
+            details = []
+            for c in contests:
+                reward_mode = c[22] if len(c) > 22 else 'total'
+                results = self.compute_contest_results(c[0])
+                for r in results:
+                    if r.get('telegram_id') != telegram_id:
+                        continue
+                    if reward_mode == 'per_sale':
+                        reward = float(r.get('bonus_earned', 0.0) or 0)
+                    elif r.get('is_winner'):
+                        reward = float(r.get('reward', 0.0) or 0)
+                    else:
+                        reward = 0.0
+                    if reward > 0:
+                        total += reward
+                        details.append({
+                            'contest_id': c[0],
+                            'title': c[1] or '—',
+                            'reward': round(reward, 2),
+                        })
+                    break
+            return round(total, 2), details
+        except Exception as e:
+            logger.error(f"get_user_contest_rewards_detail: {e}")
+            return 0.0, []
+
+    def get_bulk_contest_rewards_by_telegram(self, month_start: str, month_end: str) -> dict:
+        """Призы конкурсов за период для ВСЕХ пользователей разом.
+        Результаты каждого конкурса вычисляются один раз, затем разбиваются по telegram_id.
+        Возвращает {telegram_id: total_reward: float}."""
+        try:
+            contests = self.get_contests_for_period(month_start, month_end)
+            result: dict = {}
+            for c in contests:
+                reward_mode = c[22] if len(c) > 22 else 'total'
+                results = self.compute_contest_results(c[0])
+                for r in results:
+                    tid = r.get('telegram_id')
+                    if not tid:
+                        continue
+                    if reward_mode == 'per_sale':
+                        reward = float(r.get('bonus_earned', 0.0) or 0)
+                    elif r.get('is_winner'):
+                        reward = float(r.get('reward', 0.0) or 0)
+                    else:
+                        reward = 0.0
+                    if reward > 0:
+                        result[tid] = round(result.get(tid, 0.0) + reward, 2)
+            return result
+        except Exception as e:
+            logger.error(f"get_bulk_contest_rewards_by_telegram: {e}")
+            return {}
+
     def calculate_seller_commission(self, sale_id, product_id, sale_price, quantity_sold,
                                     user_id=None, shop_name=None,
                                     sale_year=None, sale_month=None):

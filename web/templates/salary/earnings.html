@@ -45,9 +45,9 @@
         <p class="text-xs text-slate-400 mt-0.5">{{ worked_days }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач.{% endif %} смен × {{ daily_rate|int|fmt_currency }}</p>
     </div>
     <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Комиссии</p>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Мотивация</p>
         <p class="text-xl font-bold text-blue-600">{{ total_commission|int|fmt_currency }}</p>
-        <p class="text-xs text-slate-400 mt-0.5">{{ earnings|length }} продаж с мотивацией</p>
+        <p class="text-xs text-slate-400 mt-0.5">{{ earnings|length }} продаж с мотивацией{% if plan_coeff is not none %} · ×{{ "%.2f"|format(plan_coeff) }} план{% endif %}</p>
     </div>
     {% if total_adj != 0 %}
     <div class="card p-4">
@@ -55,6 +55,13 @@
         <p class="text-xl font-bold {{ 'text-emerald-600' if total_adj > 0 else 'text-red-500' }}">
             {{ '+' if total_adj > 0 else '' }}{{ total_adj|int|fmt_currency }}
         </p>
+    </div>
+    {% endif %}
+    {% if contest_rewards > 0 %}
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Конкурсы</p>
+        <p class="text-xl font-bold text-violet-600">+{{ contest_rewards|int|fmt_currency }}</p>
+        <p class="text-xs text-slate-400 mt-0.5">{{ contest_details|length }} конкурс{{ 'а' if contest_details|length in [2,3,4] else '' if contest_details|length == 1 else 'ов' }}</p>
     </div>
     {% endif %}
     <div class="card p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-100">
@@ -94,7 +101,7 @@
 <div class="card overflow-hidden mb-5">
     <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div>
-            <h2 class="font-semibold text-slate-800">🎯 Детализация комиссий</h2>
+            <h2 class="font-semibold text-slate-800">🎯 Детализация мотивации</h2>
             <p class="text-xs text-slate-400 mt-0.5">Начислено за каждую продажу с мотивацией</p>
         </div>
         <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{{ earnings|length }}</span>
@@ -145,8 +152,29 @@
 {% else %}
 <div class="card p-8 text-center text-slate-400 mb-5">
     <p class="text-3xl mb-3">🎯</p>
-    <p class="text-sm font-medium text-slate-500">Нет комиссий за этот период</p>
-    <p class="text-xs mt-1">Комиссии начисляются при наличии мотивации на товар</p>
+    <p class="text-sm font-medium text-slate-500">Нет мотивации за этот период</p>
+    <p class="text-xs mt-1">Мотивация начисляется при наличии ставки на товар</p>
+</div>
+{% endif %}
+
+<!-- Contest rewards detail -->
+{% if contest_details %}
+<div class="card overflow-hidden mb-5">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+            <h2 class="font-semibold text-slate-800">🏆 Призы конкурсов</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Выплаты за победу в конкурсах периода</p>
+        </div>
+        <span class="text-sm font-bold text-violet-600">+{{ contest_rewards|int|fmt_currency }}</span>
+    </div>
+    <div class="divide-y divide-slate-50">
+        {% for c in contest_details %}
+        <div class="flex items-center justify-between px-5 py-3">
+            <p class="text-sm text-slate-700">🏆 {{ c.title }}</p>
+            <span class="font-semibold text-sm text-violet-600 ml-4 shrink-0">+{{ c.reward|int|fmt_currency }}</span>
+        </div>
+        {% endfor %}
+    </div>
 </div>
 {% endif %}
 
@@ -179,7 +207,7 @@
 </div>
 {% endif %}
 
-<!-- Earnings summary bar -->
+<!-- Итоговый расчёт -->
 <div class="card p-4">
     <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-slate-700 text-sm">Итоговый расчёт</h3>
@@ -190,7 +218,7 @@
             <span class="font-medium text-slate-700">{{ total_base|int|fmt_currency }}</span>
         </div>
         <div class="flex justify-between">
-            <span class="text-slate-500">Комиссии{% if plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(plan_coeff) }} план)</span>{% endif %}</span>
+            <span class="text-slate-500">Мотивация{% if plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(plan_coeff) }} план)</span>{% endif %}</span>
             <span class="font-medium text-blue-600">+{{ total_commission|int|fmt_currency }}</span>
         </div>
         {% if total_adj != 0 %}
@@ -199,6 +227,12 @@
             <span class="font-medium {{ 'text-emerald-600' if total_adj > 0 else 'text-red-500' }}">
                 {{ '+' if total_adj > 0 else '' }}{{ total_adj|int|fmt_currency }}
             </span>
+        </div>
+        {% endif %}
+        {% if contest_rewards > 0 %}
+        <div class="flex justify-between">
+            <span class="text-slate-500">Призы конкурсов</span>
+            <span class="font-medium text-violet-600">+{{ contest_rewards|int|fmt_currency }}</span>
         </div>
         {% endif %}
         <div class="flex justify-between pt-2 border-t border-slate-100">

@@ -53,6 +53,8 @@ def _salary_user_earnings(request, user, year: int, month: int):
         "plan_coeff_details": [],
         "total_base": 0.0,
         "total_adj": 0.0,
+        "contest_rewards": 0.0,
+        "contest_details": [],
         "grand_total": 0.0,
         "worked_days": 0,
         "paid_absence_days": 0,
@@ -147,6 +149,16 @@ def _salary_user_earnings(request, user, year: int, month: int):
         adj_sum = db.get_salary_adjustments_sum(user_db_id, year, month)
         adj_rows = db.get_salary_adjustments(user_db_id, year, month) or []
 
+        # Contest prizes for this user in the period
+        contest_rewards = 0.0
+        contest_details = []
+        try:
+            contest_rewards, contest_details = db.get_user_contest_rewards_detail(
+                telegram_id, start_date, end_date
+            )
+        except Exception:
+            pass
+
         ctx.update({
             "earnings": earnings,
             "total_commission": round(total_commission, 2),
@@ -155,7 +167,9 @@ def _salary_user_earnings(request, user, year: int, month: int):
             "plan_coeff_details": plan_coeff_details,
             "total_base": round(base_salary, 2),
             "total_adj": round(adj_sum, 2),
-            "grand_total": round(base_salary + total_commission + adj_sum, 2),
+            "contest_rewards": round(contest_rewards, 2),
+            "contest_details": contest_details,
+            "grand_total": round(base_salary + total_commission + adj_sum + contest_rewards, 2),
             "worked_days": worked,
             "paid_absence_days": paid_abs,
             "daily_rate": rate,
@@ -215,6 +229,8 @@ def salary_page(
         "detail_user": None, "work_days_set": set(),
         "adjustments": [], "adj_sum": 0.0,
         "detail_earnings": [], "detail_motivation_total": 0.0,
+        "detail_plan_coeff": None, "detail_plan_coeff_details": [],
+        "detail_contest_rewards": 0.0, "detail_contest_details": [],
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
     }
@@ -235,8 +251,15 @@ def salary_page(
         staff_salary = []
         total_fund = 0.0
 
-        # Bulk-fetch worked/adj_sum/motivation in 3 GROUP BY queries → avoids N+1
+        # Bulk-fetch worked/adj_sum in 2 GROUP BY queries → avoids N+1 for these fields
         bulk = db.get_salary_bulk_stats(year, month, start_date, end_date)
+
+        # Contest rewards for all users (computed once per contest)
+        contest_bulk: dict = {}
+        try:
+            contest_bulk = db.get_bulk_contest_rewards_by_telegram(start_date, end_date)
+        except Exception:
+            pass
 
         for row in all_rates:
             if env_manager.is_super_admin(row[4]):
@@ -246,10 +269,14 @@ def salary_page(
             bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
             worked = bk['worked']
             adj_sum = bk['adj_sum']
-            motivation = bk['motivation']
             paid_abs = db.get_paid_absence_days_count(uid, year, month)
             base = rate * (worked + paid_abs)
-            total = base + adj_sum + motivation
+            # Correct motivation: includes joint_bonus + plan_coeff
+            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
+            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            # Contest prizes
+            contest_rewards = round(contest_bulk.get(row[4], 0.0), 2)
+            total = base + adj_sum + motivation + contest_rewards
             total_fund += total
 
             staff_salary.append({
@@ -263,6 +290,7 @@ def salary_page(
                 "base_salary": base,
                 "adj_sum": adj_sum,
                 "motivation": motivation,
+                "contest_rewards": contest_rewards,
                 "total": total,
                 "shop": "",
             })
@@ -292,13 +320,13 @@ def salary_page(
                 week += [0] * (7 - len(week))
                 cal_grid.append(week)
 
-            # Detail motivation earnings (individual commissions for selected user)
+            # Detail motivation earnings (individual raw commissions, for line-by-line breakdown)
             detail_earnings_raw = db.get_seller_earnings(user_id, start_date, end_date) or []
             detail_earnings = []
-            detail_motivation_total = 0.0
+            detail_raw_commission = 0.0
             for erow in detail_earnings_raw:
                 comm = float(erow[0] or 0)
-                detail_motivation_total += comm
+                detail_raw_commission += comm
                 mtype = erow[1] or "percentage"
                 mval = float(erow[2] or 0)
                 detail_earnings.append({
@@ -313,13 +341,44 @@ def salary_page(
                     "shop": erow[7] or "—",
                 })
 
+            # Adjusted motivation total (with joint_bonus + plan_coeff) for summary line
+            detail_motivation_total = rate_row["motivation"] if rate_row else round(detail_raw_commission, 2)
+            # Plan coefficient details for selected user
+            detail_plan_coeff = None
+            detail_plan_coeff_details = []
+            try:
+                ns = db.get_notification_settings(user_id)
+                if ns.get('plan_coeff_enabled'):
+                    raw_c, detail_plan_coeff_details = db.get_plan_motivation_coefficient(user_id, year, month)
+                    if ns.get('plan_coeff_cap', True):
+                        raw_c = min(raw_c, 1.0)
+                    if detail_plan_coeff_details:
+                        detail_plan_coeff = raw_c
+            except Exception:
+                pass
+
+            # Contest rewards for selected user
+            detail_contest_rewards = 0.0
+            detail_contest_details = []
+            try:
+                if rate_row:
+                    detail_contest_rewards, detail_contest_details = \
+                        db.get_user_contest_rewards_detail(rate_row["telegram_id"], start_date, end_date)
+            except Exception:
+                pass
+
             ctx["detail_user"] = rate_row
             ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
             ctx["adjustments"] = adj_rows
             ctx["adj_sum"] = adj_sum_val
             ctx["cal_grid"] = cal_grid
             ctx["detail_earnings"] = detail_earnings
+            ctx["detail_raw_commission"] = round(detail_raw_commission, 2)
             ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
+            ctx["detail_plan_coeff"] = detail_plan_coeff
+            ctx["detail_plan_coeff_details"] = detail_plan_coeff_details
+            ctx["detail_contest_rewards"] = round(detail_contest_rewards, 2)
+            ctx["detail_contest_details"] = detail_contest_details
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
@@ -364,6 +423,13 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         all_rates = db.get_all_salary_rates() or []
         # (user_id[0], first_name[1], last_name[2], daily_rate[3], telegram_id[4])
 
+        # Contest rewards bulk (computed once per contest)
+        xls_contest_bulk: dict = {}
+        try:
+            xls_contest_bulk = db.get_bulk_contest_rewards_by_telegram(start_date, end_date)
+        except Exception:
+            pass
+
         rows: list = []
         total_fund = 0.0
         for row in all_rates:
@@ -376,15 +442,16 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             adj = db.get_salary_adjustments_sum(uid, year, month)
             earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
             motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            contest_r = round(xls_contest_bulk.get(row[4], 0.0), 2)
             base = rate * (worked + paid_abs)
-            total = base + adj + motivation
+            total = base + adj + motivation + contest_r
             total_fund += total
             rows.append((
                 f"{row[1] or ''} {row[2] or ''}".strip(),
-                rate, worked, base, motivation, adj, total
+                rate, worked, base, motivation, adj, contest_r, total
             ))
 
-        rows.sort(key=lambda r: -r[6])
+        rows.sort(key=lambda r: -r[7])
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -398,8 +465,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         even_fill = PatternFill("solid", fgColor="F0F8FF")
         tot_fill = PatternFill("solid", fgColor="DCFCE7")
 
-        headers = ["Сотрудник", "Ставка/день", "Смен", "Оклад", "Мотивация", "Корр.", "Итого"]
-        col_widths = [28, 14, 9, 16, 14, 14, 16]
+        headers = ["Сотрудник", "Ставка/день", "Смен", "Оклад", "Мотивация", "Корр.", "Конкурсы", "Итого"]
+        col_widths = [28, 14, 9, 16, 14, 14, 14, 16]
 
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
             cell = ws.cell(row=1, column=i, value=h)
@@ -418,22 +485,22 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx in (2, 4, 5, 6, 7):
+                if col_idx in (2, 4, 5, 6, 7, 8):
                     cell.number_format = '#,##0.00 ₽'
                     cell.alignment = Alignment(horizontal="right")
                 elif col_idx == 3:
                     cell.alignment = Alignment(horizontal="center")
-                if col_idx == 7:
+                if col_idx == 8:
                     cell.font = Font(bold=True, color="166534")
 
         # Total row
         tr = len(rows) + 2
-        for col in range(1, 8):
+        for col in range(1, 9):
             ws.cell(row=tr, column=col).border = border
             ws.cell(row=tr, column=col).fill = tot_fill
         ws.cell(row=tr, column=1, value="ИТОГО").font = Font(bold=True)
         ws.cell(row=tr, column=3, value=sum(r[2] for r in rows)).font = Font(bold=True)
-        tot = ws.cell(row=tr, column=7, value=total_fund)
+        tot = ws.cell(row=tr, column=8, value=total_fund)
         tot.font = Font(bold=True)
         tot.number_format = '#,##0.00 ₽'
         tot.alignment = Alignment(horizontal="right")
