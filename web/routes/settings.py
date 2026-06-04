@@ -306,8 +306,6 @@ async def settings_save(
     payment_alerts: str = Form(default=""),
     admin_notifications: str = Form(default=""),
     shift_sale_alerts: str = Form(default=""),
-    plan_coeff_enabled: str = Form(default=""),
-    plan_coeff_cap: str = Form(default=""),
     stock_threshold: int = Form(default=5),
     notification_time: str = Form(default="09:00"),
 ):
@@ -335,10 +333,42 @@ async def settings_save(
                 payment_alerts=1 if payment_alerts == "on" else 0,
                 admin_notifications=1 if admin_notifications == "on" else 0,
                 shift_sale_alerts=1 if shift_sale_alerts == "on" else 0,
-                plan_coeff_enabled=1 if plan_coeff_enabled == "on" else 0,
-                plan_coeff_cap=1 if plan_coeff_cap == "on" else 0,
                 stock_threshold=max(0, stock_threshold),
                 notification_time=notification_time or "09:00",
+            )
+    except Exception:
+        pass
+
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/settings/salary")
+async def settings_salary_save(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    plan_coeff_enabled: str = Form(default=""),
+    plan_coeff_cap: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if user_db_id:
+            db.update_notification_settings(
+                user_db_id,
+                plan_coeff_enabled=1 if plan_coeff_enabled == "on" else 0,
+                plan_coeff_cap=1 if plan_coeff_cap == "on" else 0,
             )
     except Exception:
         pass

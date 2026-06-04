@@ -868,8 +868,23 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
     keyboard_buttons.extend([
         [InlineKeyboardButton(text=f"📏 Порог остатков ({settings['stock_threshold']} шт.)", callback_data="set_stock_threshold")],
         [InlineKeyboardButton(text=f"⏰ Время уведомлений ({settings['notification_time']})", callback_data="set_notification_time")],
-        [back_button("notifications_menu")]
     ])
+
+    # Salary & motivation section
+    plan_coeff_on = settings.get('plan_coeff_enabled', False)
+    plan_coeff_cap_on = settings.get('plan_coeff_cap', True)
+    keyboard_buttons.append(
+        [InlineKeyboardButton(text="─── 💰 Зарплата и мотивация ───", callback_data="noop_salary_header")]
+    )
+    keyboard_buttons.append(
+        [InlineKeyboardButton(text=f"📈 Коэф. выполнения плана {'✅' if plan_coeff_on else '❌'}", callback_data="toggle_plan_coeff")]
+    )
+    if plan_coeff_on:
+        keyboard_buttons.append(
+            [InlineKeyboardButton(text=f"✂️ Обрезать до 100% {'✅' if plan_coeff_cap_on else '❌'}", callback_data="toggle_plan_coeff_cap")]
+        )
+
+    keyboard_buttons.append([back_button("notifications_menu")])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.answer()
@@ -890,7 +905,12 @@ async def set_notification_time_start(callback: CallbackQuery, state: FSMContext
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await state.set_state(NotificationStates.waiting_for_time)
 
-@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale"]))
+@notifications_router.callback_query(F.data == "noop_salary_header")
+async def noop_salary_header(callback: CallbackQuery):
+    await callback.answer()
+
+
+@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale", "toggle_plan_coeff", "toggle_plan_coeff_cap"]))
 async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     user = await current_db.get_user(callback.from_user.id)
@@ -906,6 +926,8 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
         'toggle_payment_alerts': 'payment_alerts',
         'toggle_admin_notifications': 'admin_notifications',
         'toggle_shift_sale': 'shift_sale_alerts',
+        'toggle_plan_coeff': 'plan_coeff_enabled',
+        'toggle_plan_coeff_cap': 'plan_coeff_cap',
     }
     
     setting_type = setting_mapping.get(callback.data)
