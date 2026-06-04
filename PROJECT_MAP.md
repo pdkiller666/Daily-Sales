@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-02 (сессия 347) · 50 модулей · 50 test_imports · GitHub `02fea9d` · Amvera `11310d3`
+> Последнее обновление: 2026-06-04 · 50 модулей · GitHub `2b553d4` · Amvera `5dab31f`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -557,7 +557,7 @@ APScheduler (AsyncIOScheduler)
   coalesce=True          — пропущенные повторы схлопываются в один
   max_instances=1        — никакого параллельного запуска одного задания
 
-Задачи (9 штук):
+Задачи (10 штук):
   send_sales_alerts()               cron(minute='*', second=0)   — дневные цели продаж
   send_payment_alerts()             cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день) + trial reminders
   send_daily_reports()              cron(minute='*', second=24)  — ежедневные отчёты (async)
@@ -567,6 +567,7 @@ APScheduler (AsyncIOScheduler)
   auto_finish_contests()            cron(hour='*', minute=0)     — завершение конкурсов
   auto_reject_stale_payments()      cron(hour=10, minute=15)     — отклонение pending СБП >72ч
   backup_job()                      cron(hour=3, minute=0)       — авто-бэкап (retention 30 дней)
+  cleanup_fsm_storage()             cron(day_of_week='sun', hour=4, minute=30) — удаление FSM-записей старше 30 дней
 
 _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
@@ -740,7 +741,10 @@ FastAPI + Uvicorn (порт 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpin
 ```
 web/
   app.py              — create_web_app(); регистрация роутеров, Jinja2 globals/filters
-  auth.py             — get_session_user(), get_csrf_token(), verify_csrf_token()
+  auth.py             — get_session_user(), get_csrf_token(), verify_csrf_token(),
+                         generate_login_nonce(), verify_login_nonce() (HMAC nonce для /auth/code)
+  rate_store.py       — persistent SQLite rate limiter; check_rate_limit(key, limit, window_sec)
+                         → (allowed, retry_after); хранит в data/rate_limits.db; выдерживает рестарты
   deps.py             — get_web_db(telegram_id, org_db) → Database(path)
   routes/
     auth_routes.py    — GET/POST /login, GET /logout
@@ -797,6 +801,9 @@ web/
 8. **Новый роутер**: добавить import + `app.include_router(...)` в `web/app.py`
 9. **Jinja2 globals**: `bot_username()`, `pending_payments_count()` — зарегистрированы в `app.py`
 10. **In-memory state**: `_import_sessions` (products.py) и `_device_flow` (integration.py) — теряются при рестарте
+11. **Persistent rate limiting**: `check_rate_limit(key, limit, window_sec)` из `web/rate_store.py` — хранит состояние в `data/rate_limits.db`; используется в `auth_routes.py` для auth-эндпоинтов
+12. **HMAC nonce для `/auth/code`**: `generate_login_nonce()` / `verify_login_nonce()` в `web/auth.py` — stateless, хранения в БД не требует
+13. **Кликабельные уведомления**: `_notif_url(notification_type)` в `api.py` и `notifications.py` → URL-роутинг по типу; `base.html` mobile/desktop items навигируют по клику
 
 ### Доступ по ролям
 | Роль | Что видит / может делать |

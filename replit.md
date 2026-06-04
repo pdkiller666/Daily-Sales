@@ -20,7 +20,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ## Where things live
 
 ### Bot
-- `main.py` — bot entry, router registration, 9 APScheduler jobs
+- `main.py` — bot entry, router registration, 10 APScheduler jobs
 - `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
@@ -40,12 +40,15 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ### Web Interface (`web/`)
 - `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals; `SecurityHeadersMiddleware` (5 security headers on every response); `/robots.txt` and `/sitemap.xml` routes; `_api_rate_ok()` rate limiter (60 req/min/IP)
-- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`
+- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`, `generate_login_nonce()`, `verify_login_nonce()` (5-min HMAC stateless nonce for `/auth/code`)
+- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `(allowed, retry_after)`; survives restarts; used by `auth_routes.py`
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
 - `web/routes/` — 23 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`
 - `web/routes/support.py` — `GET /support` (форма обратной связи), `POST /support/send` (отправка через Telegram Bot API с rate limit 3 req/hour/user; `urllib.request` stdlib)
-- `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; rate-limited 60 req/min/IP; returns sales by other users)
-- `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling
+- `web/routes/pos.py` — GET `/pos`: передаёт `sales_limit_reached` + `sales_limit_msg` в шаблон; красный 🚫 баннер при достижении лимита продаж
+- `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; rate-limited 60 req/min/IP; returns sales by other users; каждый item содержит поле `url` через `_notif_url()` для навигации по клику)
+- `web/routes/notifications.py` — история уведомлений содержит поле `url` через `_notif_url(type)`; items с url — кликабельные ссылки (`<a>` в templates)
+- `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling; уведомления кликабельны (mobile sheet + desktop dropdown): `@click` → navigate по `url`; иконки по типу (📦 low_stock, 📊 daily_report, 💳 payment и др.)
 - `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors); full SEO head: canonical, OG tags, Twitter card, JSON-LD SoftwareApplication schema, robots meta, keywords, favicon
 - `web/templates/products/form.html` — product add/edit form (admin only)
 - `web/templates/*/` — per-module Jinja2 templates
@@ -59,6 +62,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — auto-creates missing tables including `shift_templates`, `start_time`/`end_time` in `work_schedule`
 - **Subscription tiers**: Бесплатный (0₽, 50 products/1 shop/100 sales, no features) → Базовый (500₽/30d, 200/3/500, export+analytics+notifications, NO integrations) → Стандарт (1200₽/90d, 500/10/1500, + Google Sheets) → Премиум (4000₽/365d, unlimited all). Migration always enforces `can_use_integrations=0` for Базовый. Default `trial_plan='Премиум'`.
 - **deploy.sh always pushes to both GitHub + Amvera** (default); `--no-amvera` to skip; hash verification runs after every Amvera push; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
+- **Login nonce (stateless CSRF for `/auth/code`)**: `generate_login_nonce()` создаёт HMAC-SHA256(secret, timestamp//300); `verify_login_nonce()` принимает nonce ±1 окно (10 мин tolerance); не хранится в БД — чистый stateless
+- **Persistent rate limiting**: `web/rate_store.py` — SQLite `data/rate_limits.db`; `check_rate_limit(key, limit, window_sec)` — выдерживает рестарты; используется в `auth_routes.py`; `_api_rate_ok()` (in-memory) остаётся для `/api/*`
+- **FSM cleanup job**: `sqlite_storage.py` таблица `fsm_data` имеет колонку `updated_at TEXT`; еженедельный job `cleanup_fsm_storage` (воскресенье 04:30) удаляет записи старше 30 дней → 10-й APScheduler job
 - **Timezone-aware**: `datetime.now()` on Amvera = UTC; all display uses `timezone_utils`; scheduled_notifications stored as UTC (`get_utc_time()` on write, `format_user_datetime()` on display)
 - **Filter system**: `ADMIN_FILTER_KEY="admin_filter"` in FSM data; `flt_open_{back_cb}` opens panel; scope = ceiling, filter = floor (`merge_scope_with_filter`); `admin_filter` preserved by `clear_state_keep_org()`
 - **plan_milestone_alerts**: UNIQUE(user_id, plan_id, milestone, period_start) — fires once per period
@@ -75,9 +81,10 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
 - **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod
 - **Session cookie security**: `httponly=True`, `secure=True`, `samesite='lax'`, `max_age=7d`; secret derived from `SHA256(BOT_TOKEN)` — rotates automatically if BOT_TOKEN changes
-- **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`
+- **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`; GET `/auth/code` serves `login_nonce`; POST verifies via `verify_login_nonce()`
 - **Telegram auth**: `verify_telegram_auth()` checks HMAC against BOT_TOKEN + rejects `auth_date` older than 24h
-- **Rate limiting**: auth routes — 5 req/60s/IP (`_check_rate_limit`); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`); all in-memory dicts, reset on restart
+- **Rate limiting**: auth routes — 5 req/60s/IP (`check_rate_limit` из `web/rate_store.py`, **persistent** SQLite); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`, in-memory); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`, in-memory)
+- **Clickable notifications**: `_notif_url(notification_type)` в `api.py` и `notifications.py` роутит тип → URL (`/sales`, `/products`, `/dashboard` и др.); `base.html` mobile sheet и desktop dropdown рендерят `<div @click>` с навигацией; `notifications/index.html` history items с url — `<a>` теги
 - **robots.txt**: `/robots.txt` route in `web/app.py` — allows only `/$` and `/static/`; disallows all 25 app routes (`/dashboard`, `/sales`, `/api/`, `/support`, `/absences`, etc.) to prevent crawl budget waste and structure leakage; `Sitemap:` pointer included; **when adding a new route — always add `Disallow:` to `_ROBOTS_TXT` in `web/app.py`**
 - **sitemap.xml**: `/sitemap.xml` route — single entry `https://dailysales.app/` with `priority=1.0`, `changefreq=weekly`; submit to Google Search Console + Яндекс.Вебмастер for fast indexing
 - **SEO meta (landing.html)**: canonical `https://dailysales.app/`; `og:image/url/locale(ru_RU)/site_name`; `twitter:card=summary_large_image`; JSON-LD `SoftwareApplication` with offers (0–4000₽), aggregateRating, featureList; `<link rel="icon">` for favicon in browser tab; `keywords` meta; `robots: index, follow`
@@ -132,7 +139,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 13. `scheduled_notifications.scheduled_datetime` stored as UTC string
 14. `sales_handlers.py` **не имеет глобального `logger`** — использует `import logging` + `logging.error()`; любой `logger.xxx()` вызовет `NameError` → outer except → удаление продаж!
 15. В `complete_sale` outer `except Exception` удаляет все `processed_sales` через `delete_sale` — любой необработанный exception ПОСЛЕ `add_sale` → потеря продажи. Все вызовы внутри outer try должны быть в `try/except`.
-16. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID в Google Cloud Console выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow (`https://oauth2.googleapis.com/device/code`). Скачанный JSON содержит ключ `"installed"` — это нормально. `client_id` и `client_secret` → в Replit Secrets как `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+16. **Invite back-button** — в `admin_handlers.py` кнопка «Назад» из формы редактирования инвайта ведёт на `personnel_hub` (НЕ `admin_management`); при изменениях в этом блоке проверять `back_button("personnel_hub")`
+17. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID в Google Cloud Console выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow (`https://oauth2.googleapis.com/device/code`). Скачанный JSON содержит ключ `"installed"` — это нормально. `client_id` и `client_secret` → в Replit Secrets как `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
 
 ## Pointers
 

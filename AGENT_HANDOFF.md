@@ -654,8 +654,9 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `auto_finish_contests` | каждый час в :00 | автозавершение конкурсов |
 | `auto_reject_stale_payments` | 10:15 ежедневно | авто-отклонение pending СБП-заявок >72ч |
 | `backup_job` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
+| `cleanup_fsm_storage` | воскресенье 04:30 | удаление FSM-записей старше 30 дней из `fsm_data` |
 
-**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются.
+**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются. Итого: **10 задач**.
 
 **Timezone в APScheduler:** все задачи используют `datetime.now()` (UTC на Amvera), конвертируют через `.astimezone(user_tz)` для сравнения с настроенным временем.
 
@@ -664,6 +665,24 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ---
 
 ## 6. ИСТОРИЯ СЕССИЙ
+
+**Сессия 2026-06-04 — SECURITY AUDIT FIXES + UX + MD UPDATE:**
+
+1. **Invite back-button fix** (`admin_handlers.py` строка 933): `back_button("admin_management")` → `back_button("personnel_hub")` — кнопка «Назад» из формы редактирования инвайта возвращала на несуществующий хаб.
+
+2. **FSM `updated_at` колонка** (`sqlite_storage.py`): таблица `fsm_data` теперь имеет колонку `updated_at TEXT`; миграция через `ALTER TABLE IF NOT EXISTS`. `set_state` и `set_data` штампуют `updated_at`. Еженедельный APScheduler-job `cleanup_fsm_storage` (воскресенье 04:30) удаляет записи старше 30 дней. **APScheduler-задач стало 10**.
+
+3. **POS limit warning banner** (`web/routes/pos.py`, `web/templates/pos/index.html`): при достижении лимита продаж GET `/pos` возвращает `sales_limit_reached=True` + `sales_limit_msg`; шаблон показывает красный 🚫 баннер со ссылкой на `/subscription`.
+
+4. **Stateless HMAC nonce для `/auth/code`** (`web/auth.py`): `generate_login_nonce()` создаёт HMAC-SHA256(secret, timestamp//300) — валиден 5 минут. `verify_login_nonce()` принимает ±1 временное окно (10 мин tolerance). GET `/auth/code` → форма с nonce; POST верифицирует nonce. Полностью stateless, без хранения в БД.
+
+5. **Persistent SQLite rate limiting** (`web/rate_store.py`): новый модуль. `check_rate_limit(key, limit, window_sec)` → `(allowed: bool, retry_after: int)`. Хранит счётчики в `data/rate_limits.db`; выдерживает рестарты. `_check_rate_limit()` в `auth_routes.py` теперь делегирует в `web.rate_store.check_rate_limit`.
+
+6. **Кликабельные уведомления** (`web/routes/api.py`, `web/routes/notifications.py`, `web/templates/base.html`, `web/templates/notifications/index.html`): добавлена функция `_notif_url(notification_type)` → URL страницы. `GET /api/sales-feed` и история уведомлений содержат поле `url`. В `base.html` mobile sheet и desktop dropdown: `<div @click="window.location.href=url">` с hover-эффектом. В `notifications/index.html`: items с url → `<a href=url>`. Иконки по типу: 📦 low_stock, 📊 daily_report, 💳 payment и др.
+
+- **GitHub**: `2b553d4` (notifications) / последний `5dab31f` (Amvera)
+
+
 
 **Сессии 261–273 (2026-06-02) — ВЕБ-ИНТЕРФЕЙС (задачи #1–#7, #10, #14, #15):**
 

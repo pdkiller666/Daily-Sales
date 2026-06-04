@@ -144,7 +144,8 @@
 - **Разделы:** Дашборд, Продажи, Товары (CRUD), Инвентарь, Отчёты, Рейтинги, Персонал, Планы, Зарплата, Расписание, Конкурсы, Настройки, Google Sheets, Платежи
 - **CRUD товаров:** создание, редактирование, удаление прямо из веб-кабинета
 - **Рейтинги:** мгновенный поиск по имени без перезагрузки страницы (Alpine.js)
-- **Безопасность:** CSRF-токены на всех POST-формах, JWT 7 дней, rate limit на форме входа
+- **Безопасность:** CSRF-токены на всех POST-формах, JWT 7 дней, stateless HMAC nonce для `/auth/code`, persistent rate limiting (SQLite-backed, выдерживает рестарты)
+- **Кликабельные уведомления:** push-уведомления в sidebar навигируют на нужный раздел при клике
 
 ---
 
@@ -207,7 +208,7 @@ bash deploy.sh "описание изменений" --no-amvera
 - **0 hardcoded secrets** — только через env/Replit Secrets
 - WAL mode + `busy_timeout=10s` на всех SQLite соединениях
 - Thread-local connection pool — безопасный параллельный доступ из `asyncio.to_thread`
-- APScheduler: `misfire_grace=60s`, `coalesce=True`, `max_instances=1`; 9 фоновых задач
+- APScheduler: `misfire_grace=60s`, `coalesce=True`, `max_instances=1`; 10 фоновых задач (включая еженедельную очистку FSM)
 - Глобальный error handler с user-friendly уведомлениями
 - Ежедневный автобэкап с 30-дневным хранением
 
@@ -220,7 +221,9 @@ bash deploy.sh "описание изменений" --no-amvera
 - **Anchor message pattern**: все FSM-флоу редактируют одно сообщение через `fsm_edit()`; `clear_state_keep_org()` всегда ПОСЛЕ `fsm_edit()`, никогда до
 - **Hub-навигация**: разделы сгруппированы по логике — 1 кнопка раскрывает хаб с 2–4 подразделами
 - **Invite-система**: deep-link (`/start CODE`), ротация кода, пресет роли/магазина, имя из Telegram, уведомление owner/admin
-- **APScheduler**: 9 фоновых задач стартуют в разные секунды минуты
+- **APScheduler**: 10 фоновых задач; еженедельная очистка устаревших FSM-записей (`cleanup_fsm_storage`)
+- **Persistent rate limiting**: `web/rate_store.py` — SQLite-backed счётчики запросов; выдерживает рестарты; auth-эндпоинты защищены даже после падения процесса
+- **Stateless HMAC nonce**: `/auth/code` использует HMAC-SHA256 временной метки вместо хранения состояния в БД
 - **Timezone-aware**: все времена хранятся как UTC, отображаются в TZ пользователя
 - **Filter system**: scope роли — потолок, ручной фильтр — пол; FSM key `admin_filter` сохраняется при `clear_state_keep_org()`
 - **Migrations on access**: `create_tables()` кешируется в `_INITIALIZED_DBS` — выполняется один раз на путь БД за жизнь процесса, повторные вызовы — мгновенный return

@@ -1,6 +1,6 @@
 # DailySales — Конкурентный анализ и стратегия
 
-> Последнее обновление: 2026-06-03
+> Последнее обновление: 2026-06-04
 > Документ описывает положение продукта на рынке, сильные/слабые стороны и приоритеты развития.
 
 ---
@@ -75,7 +75,7 @@
 | **Тёмная тема** | Полная без flash, ранний скрипт в `<head>`, `localStorage.ds_dark` |
 | **Keyboard shortcuts** | Alt+D (dark), Alt+N (primary action), / (search), Escape (close), ? (hints) |
 | **Swipe-жесты** | Bottom-sheet на мобильных |
-| **Security** | CSRF, 5 security headers, HSTS, rate limiting (3 уровня), httponly+secure cookie |
+| **Security** | CSRF, 5 security headers, HSTS, persistent rate limiting (SQLite-backed, 3 уровня), HMAC nonce, httponly+secure cookie |
 | **Telegram Auth** | Widget + HMAC-проверка + 24h auth_date expiry |
 | **Multi-tenancy** | Изолированные SQLite на каждую организацию |
 | **SEO** | OG, Twitter Card, JSON-LD SoftwareApplication, sitemap.xml, robots.txt |

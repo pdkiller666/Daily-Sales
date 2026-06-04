@@ -2,11 +2,30 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-02
+> Обновлён: 2026-06-04
 
 ---
 
 ## История изменений интерфейса
+
+### v4 — 2026-06-04: Security fixes + UX improvements
+
+**Исправление: Invite back-button**
+- **Было:** `back_button("admin_management")` в обработчике формы инвайта (`admin_handlers.py` строка 933)
+- **Стало:** `back_button("personnel_hub")` — возвращает в правильный хаб «Команда»
+- **Затронуты:** `admin_handlers.py`
+
+**Уведомления: кликабельность**
+- **Было:** уведомления в mobile sheet и desktop dropdown — только текст, без действия при клике
+- **Стало:** каждый item содержит `url` (маршрутизируется `_notif_url(type)` → `/sales`, `/products`, `/dashboard` и др.); при наличии url — `<div @click="window.location.href=url">` с hover-эффектом; история уведомлений (`/notifications`) — items с url рендерятся как `<a>` теги; иконки расширены по типу: 📦 low_stock, 📊 daily_report, 💳 payment и др.
+- **Затронуты:** `web/routes/api.py`, `web/routes/notifications.py`, `web/templates/base.html`, `web/templates/notifications/index.html`
+
+**POS: предупреждение о лимите**
+- **Было:** при достижении лимита продаж POS-касса открывалась без предупреждений
+- **Стало:** красный 🚫 баннер вверху страницы; ссылка на `/subscription` для апгрейда
+- **Затронуты:** `web/routes/pos.py`, `web/templates/pos/index.html`
+
+---
 
 ### v3 — 2026-05-26: UX-рефакторинг (Средний + Низкий приоритет)
 
