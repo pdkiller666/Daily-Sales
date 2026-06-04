@@ -190,7 +190,7 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     builder.button(text=f"📊 Сводка ФОТ — {_MONTH_NAMES[now.month - 1]} {now.year}",
                    callback_data=f"slr_sum_{now.year}_{now.month}")
     builder.button(text="✏️ Корректировки зарплат", callback_data="slr_adj_menu")
-    builder.add(back_button("team_hub"))
+    builder.add(back_button("personnel_hub"))
     builder.add(home_button())
     builder.adjust(1)
     await callback.message.edit_text(
