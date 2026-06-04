@@ -1827,12 +1827,9 @@ async def _show_schedule_matrix(callback, state, page=0):
     for prod_id in page_prods:
         month_row = []
         for yr, mo in col_months:
-            cell = cell_data[prod_id].get((yr, mo))
-            is_sched = cell['is_scheduled'] if cell else False
-            prefix = "✏️" if is_sched else "➕"
-            mo_short = MONTH_NAMES_SHORT[mo][:3]
+            mo_name = MONTH_NAMES_SHORT[mo]
             month_row.append(InlineKeyboardButton(
-                text=f"{prefix} {mo_short}",
+                text=mo_name,
                 callback_data=f"sched_cell_{prod_id}_{yr}_{mo}"
             ))
         builder.row(*month_row)
