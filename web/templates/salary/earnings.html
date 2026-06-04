@@ -97,14 +97,20 @@
 {% endif %}
 
 <!-- Earnings breakdown -->
-{% if earnings %}
+{% if earnings or total_earnings_count > 0 %}
+{% set base_pg_url = "/salary?year=" ~ year ~ "&month=" ~ month %}
 <div class="card overflow-hidden mb-5">
     <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div>
             <h2 class="font-semibold text-slate-800">🎯 Детализация мотивации</h2>
             <p class="text-xs text-slate-400 mt-0.5">Начислено за каждую продажу с мотивацией</p>
         </div>
-        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{{ earnings|length }}</span>
+        <div class="flex items-center gap-2">
+            {% if total_pages > 1 %}
+            <span class="text-xs text-slate-400">Стр. {{ page }} / {{ total_pages }}</span>
+            {% endif %}
+            <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{{ total_earnings_count }}</span>
+        </div>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -148,6 +154,19 @@
             </tfoot>
         </table>
     </div>
+    {% if total_pages > 1 %}
+    <div class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500">
+        <a {% if page > 1 %}href="{{ base_pg_url }}&page={{ page - 1 }}"{% else %}href="#"{% endif %}
+           class="px-3 py-1 rounded-lg border border-slate-200 text-xs transition-colors {{ 'hover:bg-slate-50 text-slate-600' if page > 1 else 'opacity-30 cursor-default' }}">
+            ← Пред.
+        </a>
+        <span class="text-xs text-slate-500">Стр. {{ page }} / {{ total_pages }} · {{ total_earnings_count }} записей</span>
+        <a {% if page < total_pages %}href="{{ base_pg_url }}&page={{ page + 1 }}"{% else %}href="#"{% endif %}
+           class="px-3 py-1 rounded-lg border border-slate-200 text-xs transition-colors {{ 'hover:bg-slate-50 text-slate-600' if page < total_pages else 'opacity-30 cursor-default' }}">
+            След. →
+        </a>
+    </div>
+    {% endif %}
 </div>
 {% else %}
 <div class="card p-8 text-center text-slate-400 mb-5">

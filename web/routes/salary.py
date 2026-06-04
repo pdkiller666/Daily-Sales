@@ -20,7 +20,10 @@ def _adjacent_month(year: int, month: int, delta: int):
     return (total // 12 + 1, total % 12 + 1)
 
 
-def _salary_user_earnings(request, user, year: int, month: int):
+EARNINGS_PAGE_SIZE = 20
+
+
+def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
     """Personal earnings view for user role."""
     from web.auth import get_csrf_token
     from web.deps import get_web_db
@@ -60,6 +63,9 @@ def _salary_user_earnings(request, user, year: int, month: int):
         "paid_absence_days": 0,
         "daily_rate": 0.0,
         "adj_rows": [],
+        "page": 1,
+        "total_pages": 1,
+        "total_earnings_count": 0,
         "error": None,
     }
 
@@ -159,8 +165,16 @@ def _salary_user_earnings(request, user, year: int, month: int):
         except Exception:
             pass
 
+        # Pagination for earnings rows
+        total_earnings_count = len(earnings)
+        total_pages = max(1, (total_earnings_count + EARNINGS_PAGE_SIZE - 1) // EARNINGS_PAGE_SIZE)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * EARNINGS_PAGE_SIZE
+        earnings_page = earnings[start:start + EARNINGS_PAGE_SIZE]
+
         ctx.update({
-            "earnings": earnings,
+            "earnings": earnings_page,
+            "total_earnings_count": total_earnings_count,
             "total_commission": round(total_commission, 2),
             "commission_before_coeff": round(commission_before_coeff, 2),
             "plan_coeff": plan_coeff,
@@ -174,6 +188,8 @@ def _salary_user_earnings(request, user, year: int, month: int):
             "paid_absence_days": paid_abs,
             "daily_rate": rate,
             "adj_rows": adj_rows,
+            "page": page,
+            "total_pages": total_pages,
         })
 
     except Exception as exc:
@@ -192,6 +208,7 @@ def salary_page(
     year: int = 0,
     month: int = 0,
     user_id: int = 0,
+    page: int = 1,
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -202,7 +219,7 @@ def salary_page(
 
     # Non-admin users see their personal earnings view
     if user.get("role") == "user":
-        return _salary_user_earnings(request, user, year, month)
+        return _salary_user_earnings(request, user, year, month, page)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
