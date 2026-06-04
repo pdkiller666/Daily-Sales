@@ -594,6 +594,8 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
             current_db.get_worked_days_count(user_id, year, month),
             current_db.get_seller_total_earnings(user_id, start_date=month_start, end_date=today),
             current_db.get_user_contest_rewards(telegram_id, month_start, today),
+            current_db.get_paid_absence_days_count(user_id, year, month),
+            current_db.get_salary_adjustments_sum(user_id, year, month),
         ]
         if user_id else []
     )
@@ -619,14 +621,17 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     today_earnings  = _r(4, 0.0) or 0.0
 
     salary = worked_days = daily_rate = 0.0
-    motivations = contest_rewards = 0.0
+    motivations = contest_rewards = adj_sum_val = 0.0
+    paid_absence_days = 0
     if user_id:
-        daily_rate     = _r(5, 0.0) or 0.0
-        worked_days    = _r(6, 0) or 0
-        salary         = daily_rate * worked_days
-        _earn          = _r(7, {}) or {}
-        motivations    = _earn.get('total_earnings', 0.0)
-        contest_rewards = _r(8, 0.0) or 0.0
+        daily_rate        = _r(5, 0.0) or 0.0
+        worked_days       = _r(6, 0) or 0
+        _earn             = _r(7, {}) or {}
+        motivations       = _earn.get('total_earnings', 0.0)
+        contest_rewards   = _r(8, 0.0) or 0.0
+        paid_absence_days = _r(9, 0) or 0
+        adj_sum_val       = _r(10, 0.0) or 0.0
+        salary            = daily_rate * (worked_days + paid_absence_days)
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -655,16 +660,23 @@ async def build_admin_dashboard(current_db, today: str, now_str: str,
     # ── Зарплата (общая для всех масштабов) ──────────────────────────────────
     text += f"💰 <b>Моя зарплата — {month_ru} {year}</b>\n"
     if user_id and daily_rate > 0:
-        text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
-                 f" = <b>{salary:,.0f} ₽</b>\n")
+        if paid_absence_days:
+            text += (f"• Оклад: ({worked_days}+{paid_absence_days} оплач.) × {daily_rate:,.0f} ₽"
+                     f" = <b>{salary:,.0f} ₽</b>\n")
+        else:
+            text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
+                     f" = <b>{salary:,.0f} ₽</b>\n")
     elif user_id:
         text += "• Оклад: не установлен\n"
     else:
         text += "• Данные недоступны\n"
     text += f"• Мотивация: <b>+{motivations:,.0f} ₽</b>\n"
+    if adj_sum_val != 0:
+        sign = '+' if adj_sum_val > 0 else ''
+        text += f"• Корректировки: <b>{sign}{adj_sum_val:,.0f} ₽</b>\n"
     if contest_rewards > 0:
         text += f"• Призы конкурсов: <b>+{contest_rewards:,.0f} ₽</b>\n"
-    text += f"• Итого: <b>{salary + motivations + contest_rewards:,.0f} ₽</b>\n\n"
+    text += f"• Итого: <b>{salary + motivations + adj_sum_val + contest_rewards:,.0f} ₽</b>\n\n"
 
     # ── Продажи ──────────────────────────────────────────────────────────────
     sales_scope_label = {
@@ -818,25 +830,29 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
         current_db.get_user_contest_rewards(telegram_id, month_start, today),
         current_db.get_user_plans_progress(telegram_id, today_dt.date()),
         current_db.get_contests(status='active'),
+        current_db.get_paid_absence_days_count(user_id, year, month),
+        current_db.get_salary_adjustments_sum(user_id, year, month),
         return_exceptions=True,
     )
 
     _ur = lambda i, default=None: _ures[i] if not isinstance(_ures[i], Exception) else default
 
-    daily_rate    = _ur(0, 0.0) or 0.0
-    worked_days   = _ur(1, 0) or 0
-    salary        = daily_rate * worked_days
-    _earn_m       = _ur(2, {}) or {}
-    motivations   = _earn_m.get('total_earnings', 0.0)
-    _earn_p       = _ur(3, {}) or {}
+    daily_rate        = _ur(0, 0.0) or 0.0
+    worked_days       = _ur(1, 0) or 0
+    _earn_m           = _ur(2, {}) or {}
+    motivations       = _earn_m.get('total_earnings', 0.0)
+    _earn_p           = _ur(3, {}) or {}
     period_motivations = _earn_p.get('total_earnings', 0.0)
-    _psumm        = _ur(4)
-    period_sales  = int(_psumm[0] or 0) if _psumm else 0
-    period_qty    = int(_psumm[1] or 0) if _psumm else 0
-    period_rev    = float(_psumm[2] or 0.0) if _psumm else 0.0
-    contest_rewards = _ur(5, 0.0) or 0.0
-    plans_progress  = _ur(6, []) or []
-    user_contests   = _ur(7, []) or []
+    _psumm            = _ur(4)
+    period_sales      = int(_psumm[0] or 0) if _psumm else 0
+    period_qty        = int(_psumm[1] or 0) if _psumm else 0
+    period_rev        = float(_psumm[2] or 0.0) if _psumm else 0.0
+    contest_rewards   = _ur(5, 0.0) or 0.0
+    plans_progress    = _ur(6, []) or []
+    user_contests     = _ur(7, []) or []
+    paid_absence_days = _ur(8, 0) or 0
+    adj_sum_val       = _ur(9, 0.0) or 0.0
+    salary            = daily_rate * (worked_days + paid_absence_days)
 
     month_ru = MONTH_NAMES_RU.get(month, str(month))
 
@@ -846,14 +862,21 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
 
     text += f"💰 <b>Моя зарплата — {month_ru} {year}</b>\n"
     if daily_rate > 0:
-        text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
-                 f" = <b>{salary:,.0f} ₽</b>\n")
+        if paid_absence_days:
+            text += (f"• Оклад: ({worked_days}+{paid_absence_days} оплач.) × {daily_rate:,.0f} ₽"
+                     f" = <b>{salary:,.0f} ₽</b>\n")
+        else:
+            text += (f"• Оклад: {worked_days} смен × {daily_rate:,.0f} ₽"
+                     f" = <b>{salary:,.0f} ₽</b>\n")
     else:
         text += "• Оклад: не установлен\n"
     text += f"• Мотивация (месяц): <b>+{motivations:,.0f} ₽</b>\n"
+    if adj_sum_val != 0:
+        sign = '+' if adj_sum_val > 0 else ''
+        text += f"• Корректировки: <b>{sign}{adj_sum_val:,.0f} ₽</b>\n"
     if contest_rewards > 0:
         text += f"• Призы конкурсов: <b>+{contest_rewards:,.0f} ₽</b>\n"
-    text += f"• Итого: <b>{salary + motivations + contest_rewards:,.0f} ₽</b>\n\n"
+    text += f"• Итого: <b>{salary + motivations + adj_sum_val + contest_rewards:,.0f} ₽</b>\n\n"
 
     text += f"🛒 <b>Мои продажи · {period_label}</b>\n"
     text += f"• Транзакций: <b>{period_sales}</b>\n"

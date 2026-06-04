@@ -1043,28 +1043,47 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     summary = [r for r in raw_summary
                if not env_manager.is_super_admin(r[7])]
     if summary:
+        # Параллельно: мотивация, оплаченные отсутствия, конкурсы (bulk)
         motivation_results = await asyncio.gather(
             *[current_db.get_seller_total_earnings(row[0], start_date=month_start, end_date=month_end)
               for row in summary],
             return_exceptions=True
         )
+        paid_abs_results = await asyncio.gather(
+            *[current_db.get_paid_absence_days_count(row[0], year, month)
+              for row in summary],
+            return_exceptions=True
+        )
+        try:
+            contest_bulk = await current_db.get_bulk_contest_rewards_by_telegram(month_start, month_end)
+        except Exception:
+            contest_bulk = {}
     else:
         motivation_results = []
+        paid_abs_results = []
+        contest_bulk = {}
     text = f"📊 <b>Сводка ФОТ — {_MONTH_NAMES[month - 1]} {year}</b>\n\n"
     total_fot = 0
     if not summary:
         text += "❌ Нет данных"
     else:
-        for row, earn in zip(summary, motivation_results):
-            s_uid, fn, ln, daily_rate, worked_days, salary, shop, tg_id, adj_sum = row
+        for row, earn, paid_abs_r in zip(summary, motivation_results, paid_abs_results):
+            s_uid, fn, ln, daily_rate, worked_days, _salary_raw, shop, tg_id, adj_sum = row
             earn_dict = earn if isinstance(earn, dict) else {}
             motivation = float(earn_dict.get('total_earnings', 0.0) or 0.0)
-            plan_coeff = earn_dict.get('plan_coeff')  # None если не применялся
+            plan_coeff = earn_dict.get('plan_coeff')
+            paid_abs = int(paid_abs_r) if not isinstance(paid_abs_r, Exception) else 0
+            contest_r = float(contest_bulk.get(tg_id, 0.0) or 0.0)
+            # Оклад = (смены + оплач.отсутствия) × ставка
+            salary = float(daily_rate or 0) * (worked_days + paid_abs)
+            total_salary = salary + adj_sum + motivation + contest_r
             name = he(f"{fn} {ln}".strip())
             shop_str = f" · {he(shop)}" if shop else ""
             rate_str = f"{format_price(daily_rate)}₽" if daily_rate else "—"
-            total_salary = salary + adj_sum + motivation
-            lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽"]
+            if paid_abs:
+                lines = [f"   📅 ({worked_days}+{paid_abs} оплач.) × {rate_str} = {format_price(salary)}₽"]
+            else:
+                lines = [f"   📅 {worked_days} смен × {rate_str} = {format_price(salary)}₽"]
             if motivation > 0:
                 if plan_coeff is not None and plan_coeff < 1.0:
                     lines.append(f"   🎯 Мотивация: <b>+{format_price(motivation)}₽</b> (план ×{plan_coeff:.2f})")
@@ -1074,6 +1093,8 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
                 lines.append(f"   ➕ Бонус: <b>+{format_price(adj_sum)}₽</b>")
             elif adj_sum < 0:
                 lines.append(f"   ➖ Штраф: <b>−{format_price(abs(adj_sum))}₽</b>")
+            if contest_r > 0:
+                lines.append(f"   🏆 Конкурсы: <b>+{format_price(contest_r)}₽</b>")
             lines.append(f"   💰 <b>Итого: {format_price(total_salary)}₽</b>")
             text += f"👤 <b>{name}</b>{shop_str}\n" + "\n".join(lines) + "\n\n"
             total_fot += total_salary
