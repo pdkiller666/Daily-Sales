@@ -316,12 +316,12 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             title = "👥 <b>Все пользователи системы</b>"
         elif selected_org_id == 0:
             users = [u for u in await asyncio.to_thread(_read_users, 'data/shop_bot.db') if u[1] == user_id]
-            back_target = "team_hub"
+            back_target = "personnel_hub"
             show_admin_management = False
             title = "👤 <b>Личный кабинет</b>"
         else:
             users = tenant_manager.get_org_users(selected_org_id)
-            back_target = "team_hub"
+            back_target = "personnel_hub"
             show_admin_management = True
             org_name = data.get("selected_org_name", "Организация")
             title = f"👥 <b>Сотрудники: {he(org_name)}</b>"
@@ -359,7 +359,7 @@ async def _collect_admin_users(user_id: int, state: FSMContext):
             elif _af.get("networks"):
                 users = [u for u in users if u[7] in _af["networks"]]
 
-        back_target = "team_hub"
+        back_target = "personnel_hub"
 
     return users, title, back_target, show_admin_management, current_db, is_super_user, data
 
@@ -805,13 +805,6 @@ async def admin_management_menu_handler(callback: CallbackQuery, state: FSMConte
         user_data = await state.get_data()
         selected_org_id = user_data.get('selected_org_id')
         
-        # Добавляем кнопку генерации приглашения, если выбрана реальная организация (org_id > 0)
-        if selected_org_id and selected_org_id > 0:
-            has_invite_btn = any(any(btn.callback_data == "generate_invite" for btn in row) for row in new_keyboard)
-            if not has_invite_btn:
-                # Вставляем перед кнопкой "Назад"
-                new_keyboard.insert(-1, [InlineKeyboardButton(text="📩 Создать приглашение", callback_data="generate_invite")])
-        
         # Проверяем кнопку смены организации
         has_change_btn = any(any(btn.callback_data == "change_org_context" for btn in row) for row in new_keyboard)
         if not has_change_btn:
@@ -821,16 +814,6 @@ async def admin_management_menu_handler(callback: CallbackQuery, state: FSMConte
                 new_keyboard.append([InlineKeyboardButton(text="🔄 Сменить организацию", callback_data="change_org_context")])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=new_keyboard)
-
-    elif is_admin:
-        user_data = await state.get_data()
-        _org_id = user_data.get('selected_org_id', 0)
-        if _org_id and _org_id > 0:
-            _new_kb = list(keyboard.inline_keyboard)
-            _has_invite = any(any(btn.callback_data == "generate_invite" for btn in row) for row in _new_kb)
-            if not _has_invite:
-                _new_kb.insert(-1, [InlineKeyboardButton(text="📩 Создать приглашение", callback_data="generate_invite")])
-            keyboard = InlineKeyboardMarkup(inline_keyboard=_new_kb)
 
     await callback.message.edit_text(
         text,
@@ -1160,18 +1143,21 @@ async def motivation_hub_handler(callback: CallbackQuery, state: FSMContext):
     )
 
 
-@admin_router.callback_query(F.data == "team_hub")
-async def team_hub_handler(callback: CallbackQuery, state: FSMContext):
-    """Хаб команды: сотрудники + оклады"""
+@admin_router.callback_query(F.data.in_({"team_hub", "personnel_hub"}))
+async def personnel_hub_handler(callback: CallbackQuery, state: FSMContext):
+    """Хаб персонала: сотрудники, оклады, рассылка, отсутствия, приглашение"""
     if not is_any_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещён!", show_alert=True)
         return
     await callback.answer()
-    from keyboards import team_hub_menu
+    from keyboards import personnel_hub_menu
+    data = await state.get_data()
+    org_id = data.get('selected_org_id', 0)
+    include_invite = bool(org_id and org_id > 0)
     await callback.message.edit_text(
-        "👥 <b>Команда</b>\n\n"
-        "Управление сотрудниками и настройка окладов и графиков работы.",
-        reply_markup=team_hub_menu(),
+        "👥 <b>Персонал</b>\n\n"
+        "Управление сотрудниками, оклады, рассылки и отсутствия.",
+        reply_markup=personnel_hub_menu(include_invite=include_invite),
         parse_mode="HTML"
     )
 

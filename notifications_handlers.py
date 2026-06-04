@@ -121,7 +121,7 @@ async def admin_send_notification_start(callback: CallbackQuery, state: FSMConte
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         "📨 <b>Отправка уведомления</b>\n\nВведите текст сообщения, которое вы хотите отправить всем пользователям:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]),
         parse_mode="HTML"
     )
     await state.set_state(NotificationStates.waiting_for_admin_message)
@@ -133,7 +133,7 @@ async def process_admin_notification_text(message: Message, state: FSMContext):
     if not notification_text:
         await fsm_edit(state, message,
                        "❌ Текст уведомления не может быть пустым. Введите текст сообщения:",
-                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]))
         return
     await state.update_data(admin_notification_text=notification_text)
     is_super = env_manager.is_super_admin(message.from_user.id)
@@ -153,7 +153,7 @@ def _build_rcpt_selection_kb(is_super: bool) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🏙 По городу",           callback_data="ntf_rcpt_city")])
         rows.append([InlineKeyboardButton(text="🌐 По торговой сети",    callback_data="ntf_rcpt_network")])
         rows.append([InlineKeyboardButton(text="👤 Выбрать конкретных",  callback_data="ntf_rcpt_pick")])
-    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin_management")])
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="personnel_hub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -207,7 +207,7 @@ async def _show_notif_send_preview(callback: CallbackQuery, state: FSMContext, c
             [InlineKeyboardButton(text="✅ Отправить сейчас", callback_data="admin_confirm_send_now")],
             [InlineKeyboardButton(text="📅 Запланировать",    callback_data="admin_schedule_notification")],
             [InlineKeyboardButton(text="↩️ Изменить получателей", callback_data="ntf_change_rcpt")],
-            [InlineKeyboardButton(text="❌ Отмена",            callback_data="admin_management")],
+            [InlineKeyboardButton(text="❌ Отмена",            callback_data="personnel_hub")],
         ]),
         parse_mode="HTML"
     )
@@ -677,7 +677,7 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
     final_text = f"✅ Уведомление успешно отправлено {count} пользователям!"
     await callback.message.edit_text(
         final_text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]])
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]])
     )
     await clear_state_keep_org(state)
 
@@ -687,7 +687,7 @@ async def admin_schedule_notification_start(callback: CallbackQuery, state: FSMC
     await callback.answer()
     await callback.message.edit_text(
         "📅 <b>Планирование уведомления</b>\n\nВведите время отправки в формате ДД.ММ.ГГГГ ЧЧ:ММ (напр. 02.02.2026 09:00):",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]),
         parse_mode="HTML"
     )
     await state.update_data(anchor_msg_id=callback.message.message_id)
@@ -707,7 +707,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
         text = data.get('admin_notification_text')
         if not text:
             await fsm_edit(state, message, "❌ Текст уведомления не найден. Начните заново.",
-                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]))
             await clear_state_keep_org(state)
             return
 
@@ -715,7 +715,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
         admin_user = await current_db.get_user(message.from_user.id)
         if not admin_user:
             await fsm_edit(state, message, "❌ Профиль администратора не найден.",
-                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
+                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]))
             await clear_state_keep_org(state)
             return
 
@@ -734,7 +734,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
             await fsm_edit(state, message,
                 f"❌ Достигнут лимит запланированных уведомлений ({_MAX_SCHEDULED}). "
                 f"Удалите некоторые из существующих перед созданием нового.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]))
             await clear_state_keep_org(state)
             return
 
@@ -763,7 +763,7 @@ async def process_schedule_time(message: Message, state: FSMContext):
             f"📅 Время: {time_text} ({admin_tz})\n"
             f"👥 Получатели: {_rcpt_label}\n"
             f"💬 Текст: {he(text)}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("admin_management")]]))
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("personnel_hub")]]))
         await clear_state_keep_org(state)
     except ValueError:
         await fsm_edit(state, message, "❌ Неверный формат. Используйте ДД.ММ.ГГГГ ЧЧ:ММ (напр. 02.02.2026 09:00)")

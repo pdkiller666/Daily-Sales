@@ -91,13 +91,27 @@ def admin_management_menu(chat_id: int):
         InlineKeyboardButton(text="📦 Каталог товаров", callback_data="catalog_menu"),
         InlineKeyboardButton(text="📝 Упр. продажами", callback_data="edit_sales"),
         InlineKeyboardButton(text="🎯 Мотивация", callback_data="motivation_hub"),
-        InlineKeyboardButton(text="👥 Команда", callback_data="team_hub"),
+        InlineKeyboardButton(text="👥 Персонал", callback_data="personnel_hub"),
         InlineKeyboardButton(text="🏪 Упр. магазинами", callback_data="admin_shops"),
         InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_menu"),
+    )
+    builder.add(back_button("main_menu"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def personnel_hub_menu(include_invite: bool = False):
+    """Хаб персонала: сотрудники + оклады + рассылка + отсутствия + приглашение"""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="👥 Управление сотрудниками", callback_data="admin_users"),
+        InlineKeyboardButton(text="💰 Оклады и смены", callback_data="admin_salary_menu"),
         InlineKeyboardButton(text="📨 Рассылка сотрудникам", callback_data="admin_send_notification"),
         InlineKeyboardButton(text="📋 Отсутствия сотрудников", callback_data="abs_admin"),
     )
-    builder.add(back_button("main_menu"))
+    if include_invite:
+        builder.add(InlineKeyboardButton(text="📩 Создать приглашение", callback_data="generate_invite"))
+    builder.add(back_button("admin_management"))
     builder.adjust(1)
     return builder.as_markup()
 
