@@ -530,13 +530,20 @@ function toastMgr() {
                             <p class="text-center text-xs text-slate-400 py-8">Уведомлений нет</p>
                         </template>
                         <template x-for="n in notifItems" :key="n.id">
-                            <div class="flex gap-2.5 p-2.5 rounded-lg border"
-                                 :class="n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'">
+                            <div class="flex gap-2.5 p-2.5 rounded-lg border transition-shadow"
+                                 :class="[
+                                     n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100',
+                                     n.url ? 'cursor-pointer hover:shadow-sm active:scale-[0.98]' : ''
+                                 ]"
+                                 @click="n.url && (notifDdOpen=false, window.location.href=n.url)">
                                 <span class="text-base shrink-0 mt-0.5"
-                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
+                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':'🔔'"></span>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-xs text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
-                                    <p class="text-[10px] text-slate-400 mt-0.5" x-text="n.created_at"></p>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        <p class="text-[10px] text-slate-400" x-text="n.created_at"></p>
+                                        <span x-show="n.url" class="text-[10px] text-blue-500 font-medium">→ перейти</span>
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -1649,13 +1656,20 @@ function mainApp() {
             <p class="text-center text-sm text-slate-400 py-10">Уведомлений нет</p>
         </template>
         <template x-for="n in notifItems" :key="n.id">
-            <div class="flex gap-3 p-3 rounded-xl border"
-                 :class="n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100'">
+            <div class="flex gap-3 p-3 rounded-xl border transition-all"
+                 :class="[
+                     n.is_read ? 'bg-white border-slate-100' : 'bg-blue-50 border-blue-100',
+                     n.url ? 'cursor-pointer hover:shadow-md active:scale-[0.98]' : ''
+                 ]"
+                 @click="n.url && (notifOpen=false, window.location.href=n.url)">
                 <span class="text-xl shrink-0 mt-0.5"
-                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':'🔔'"></span>
+                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':'🔔'"></span>
                 <div class="flex-1 min-w-0">
                     <p class="text-sm text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
-                    <p class="text-xs text-slate-400 mt-1" x-text="n.created_at"></p>
+                    <div class="flex items-center gap-2 mt-1">
+                        <p class="text-xs text-slate-400" x-text="n.created_at"></p>
+                        <span x-show="n.url" class="text-xs text-blue-500 font-medium">→ перейти</span>
+                    </div>
                 </div>
             </div>
         </template>

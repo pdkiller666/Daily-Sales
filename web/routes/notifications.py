@@ -10,6 +10,25 @@ from fastapi.responses import RedirectResponse, JSONResponse, Response
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _notif_url(notification_type: str) -> str:
+    """Map notification_type to the most relevant web page URL."""
+    _MAP = {
+        "shift_sale":        "/sales",
+        "sales":             "/sales",
+        "plan_milestone":    "/plans",
+        "low_stock":         "/inventory",
+        "daily_report":      "/reports",
+        "payment":           "/subscription",
+        "trial_expired":     "/subscription",
+        "trial_expiring":    "/subscription",
+        "contest":           "/contests",
+        "contest_winner":    "/contests",
+        "salary_adjustment": "/salary/earnings",
+        "admin":             "",
+    }
+    return _MAP.get(notification_type or "", "")
+
 ROLE_LABELS = {
     "owner": "Директор",
     "admin": "Администратор",
@@ -133,6 +152,7 @@ def notifications_page(
                     "message": h[3] or "",
                     "is_read": bool(h[4]),
                     "created_at": str(h[5] or "")[:16],
+                    "url": _notif_url(h[2] or "admin"),
                 }
                 for h in hist_raw
             ]

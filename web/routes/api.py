@@ -63,6 +63,25 @@ def sales_feed(request: Request, since: str = ""):
         return {"ok": False, "count": 0, "items": []}
 
 
+def _notif_url(notification_type: str) -> str:
+    """Map notification_type to the most relevant web page URL."""
+    _MAP = {
+        "shift_sale":        "/sales",
+        "sales":             "/sales",
+        "plan_milestone":    "/plans",
+        "low_stock":         "/inventory",
+        "daily_report":      "/reports",
+        "payment":           "/subscription",
+        "trial_expired":     "/subscription",
+        "trial_expiring":    "/subscription",
+        "contest":           "/contests",
+        "contest_winner":    "/contests",
+        "salary_adjustment": "/salary/earnings",
+        "admin":             "",
+    }
+    return _MAP.get(notification_type or "", "")
+
+
 @router.get("/my-notifications")
 def my_notifications(request: Request, limit: int = 20):
     """Return current user's notification history with unread count."""
@@ -112,6 +131,7 @@ def my_notifications(request: Request, limit: int = 20):
                 "message": r[2] or "",
                 "is_read": bool(r[3]),
                 "created_at": (lambda s: f"{s[8:10]}.{s[5:7]}.{s[:4]} {s[11:16]}" if s and len(s) >= 16 else s)(str(r[4] or "").replace("T"," ")),
+                "url": _notif_url(r[1] or "admin"),
             }
             for r in rows
         ]

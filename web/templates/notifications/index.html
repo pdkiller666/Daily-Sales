@@ -250,6 +250,20 @@
             </div>
             <div class="divide-y divide-slate-50 max-h-72 overflow-y-auto">
                 {% for h in history %}
+                {% if h.url %}
+                <a href="{{ h.url }}"
+                   class="px-4 py-3 flex items-start gap-2.5 hover:bg-slate-50 transition-colors group {{ 'opacity-60' if h.is_read else '' }}">
+                    <div class="mt-1.5 w-2 h-2 rounded-full shrink-0
+                                {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-slate-700 leading-snug">{{ h.message|striptags }}</p>
+                        <div class="flex items-center gap-2 mt-1">
+                            <p class="text-xs text-slate-400">{{ h.created_at|fmt_datetime }}</p>
+                            <span class="text-xs text-blue-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity">→ перейти</span>
+                        </div>
+                    </div>
+                </a>
+                {% else %}
                 <div class="px-4 py-3 flex items-start gap-2.5 {{ 'opacity-60' if h.is_read else '' }}">
                     <div class="mt-1.5 w-2 h-2 rounded-full shrink-0
                                 {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
@@ -258,6 +272,7 @@
                         <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_datetime }}</p>
                     </div>
                 </div>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>
