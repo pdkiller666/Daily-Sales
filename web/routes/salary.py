@@ -209,6 +209,7 @@ def salary_page(
     month: int = 0,
     user_id: int = 0,
     page: int = 1,
+    detail_page: int = 1,
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -250,6 +251,7 @@ def salary_page(
         "detail_earnings": [], "detail_motivation_total": 0.0,
         "detail_plan_coeff": None, "detail_plan_coeff_details": [],
         "detail_contest_rewards": 0.0, "detail_contest_details": [],
+        "detail_page": 1, "detail_total_pages": 1, "detail_total_count": 0,
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
     }
@@ -386,12 +388,22 @@ def salary_page(
             except Exception:
                 pass
 
+            # Pagination for detail earnings
+            detail_total_count = len(detail_earnings)
+            detail_total_pages = max(1, (detail_total_count + EARNINGS_PAGE_SIZE - 1) // EARNINGS_PAGE_SIZE)
+            detail_page = max(1, min(detail_page, detail_total_pages))
+            d_start = (detail_page - 1) * EARNINGS_PAGE_SIZE
+            detail_earnings_page = detail_earnings[d_start:d_start + EARNINGS_PAGE_SIZE]
+
             ctx["detail_user"] = rate_row
             ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
             ctx["adjustments"] = adj_rows
             ctx["adj_sum"] = adj_sum_val
             ctx["cal_grid"] = cal_grid
-            ctx["detail_earnings"] = detail_earnings
+            ctx["detail_earnings"] = detail_earnings_page
+            ctx["detail_total_count"] = detail_total_count
+            ctx["detail_page"] = detail_page
+            ctx["detail_total_pages"] = detail_total_pages
             ctx["detail_raw_commission"] = round(detail_raw_commission, 2)
             ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
             ctx["detail_plan_coeff"] = detail_plan_coeff
