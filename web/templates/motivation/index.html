@@ -17,6 +17,27 @@
 <div class="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium">⚠️ Ошибка: {{ error }}</div>
 {% endif %}
 
+{% set active_shift_coeffs = [] %}
+{% if extra_conditions_global %}
+  {% for ec in extra_conditions_global %}
+    {% if ec[1] == 'multi_seller_coeff' %}
+      {% set _ = active_shift_coeffs.append(ec) %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% if active_shift_coeffs %}
+<div class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+    <p class="text-sm font-semibold text-amber-800">⚠️ Ставки в таблице — базовые, до применения коэффициента смены</p>
+    {% for ec in active_shift_coeffs %}
+    <p class="text-xs text-amber-700 mt-1">
+        Коэф. ×{{ ec[5] }}{% if ec[4] %} при ≥{{ ec[4] }} продавцах{% endif %}{% if ec[3] %} · {{ ec[3] }}{% else %} · все магазины{% endif %}
+        <span class="text-amber-500 ml-1">— фактическая выплата = ставка × {{ ec[5] }}</span>
+    </p>
+    {% endfor %}
+    <p class="text-[11px] text-amber-600 mt-1.5">Коэффициент применяется при закрытии периода, когда в магазине работало нужное число продавцов</p>
+</div>
+{% endif %}
+
 <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
     <!-- LEFT: current motivations table -->

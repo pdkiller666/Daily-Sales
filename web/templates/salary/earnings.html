@@ -147,7 +147,31 @@
                 {% endfor %}
             </tbody>
             <tfoot>
+                {% if joint_adj and joint_adj != 0 %}
+                <tr class="bg-slate-50 border-t border-slate-100">
+                    <td class="px-5 py-3 text-xs text-slate-400" colspan="3">Сумма комиссий по строкам</td>
+                    <td class="px-5 py-3 text-right text-xs text-slate-400">{{ commission_raw|int|fmt_currency }}</td>
+                </tr>
+                <tr class="bg-purple-50 border-t border-purple-100">
+                    <td class="px-5 py-3 text-xs text-purple-700 font-semibold" colspan="3">+ Корр. коэф. смены (совместный режим)</td>
+                    <td class="px-5 py-3 text-right text-xs text-purple-700 font-semibold">+{{ joint_adj|int|fmt_currency }}</td>
+                </tr>
                 {% if plan_coeff is not none %}
+                <tr class="bg-slate-50 border-t border-slate-100">
+                    <td class="px-5 py-3 text-xs text-slate-400" colspan="3">Итого до коэф. планов</td>
+                    <td class="px-5 py-3 text-right text-xs text-slate-400">{{ commission_before_coeff|int|fmt_currency }}</td>
+                </tr>
+                <tr class="bg-amber-50 border-t border-amber-100">
+                    <td class="px-5 py-3 text-xs text-amber-700 font-semibold" colspan="3">× Коэф. планов ×{{ "%.2f"|format(plan_coeff) }} → итого мотивации</td>
+                    <td class="px-5 py-3 text-right font-bold text-blue-600">+{{ total_commission|int|fmt_currency }}</td>
+                </tr>
+                {% else %}
+                <tr class="bg-slate-50 border-t border-slate-200">
+                    <td class="px-5 py-3 font-semibold text-slate-700" colspan="3">Итого мотивации</td>
+                    <td class="px-5 py-3 text-right font-bold text-blue-600">+{{ total_commission|int|fmt_currency }}</td>
+                </tr>
+                {% endif %}
+                {% elif plan_coeff is not none %}
                 <tr class="bg-slate-50 border-t border-slate-100">
                     <td class="px-5 py-3 text-xs text-slate-400" colspan="3">Сумма по строкам (до коэф.)</td>
                     <td class="px-5 py-3 text-right text-xs text-slate-400">{{ commission_before_coeff|int|fmt_currency }}</td>

@@ -124,6 +124,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             })
 
         # Учитываем joint-бонус (совместный режим мотивации, если настроен)
+        commission_raw = total_commission  # сумма из seller_earnings до joint-корр.
         try:
             joint_adj = db.get_joint_bonus_adjustment(user_db_id, start_date, end_date)
             total_commission = round(total_commission + joint_adj, 2)
@@ -176,6 +177,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             "earnings": earnings_page,
             "total_earnings_count": total_earnings_count,
             "total_commission": round(total_commission, 2),
+            "commission_raw": round(commission_raw, 2),
+            "joint_adj": round(joint_adj, 2),
             "commission_before_coeff": round(commission_before_coeff, 2),
             "plan_coeff": plan_coeff,
             "plan_coeff_details": plan_coeff_details,
@@ -249,6 +252,7 @@ def salary_page(
         "detail_user": None, "work_days_set": set(),
         "adjustments": [], "adj_sum": 0.0,
         "detail_earnings": [], "detail_motivation_total": 0.0,
+        "detail_joint_adj": 0.0, "detail_raw_commission": 0.0,
         "detail_plan_coeff": None, "detail_plan_coeff_details": [],
         "detail_contest_rewards": 0.0, "detail_contest_details": [],
         "detail_page": 1, "detail_total_pages": 1, "detail_total_count": 0,
@@ -364,6 +368,11 @@ def salary_page(
 
             # Adjusted motivation total (with joint_bonus + plan_coeff) for summary line
             detail_motivation_total = rate_row["motivation"] if rate_row else round(detail_raw_commission, 2)
+            # Joint bonus adjustment (совместный режим — для отображения в разбивке)
+            try:
+                detail_joint_adj = round(db.get_joint_bonus_adjustment(user_id, start_date, end_date), 2)
+            except Exception:
+                detail_joint_adj = 0.0
             # Plan coefficient details for selected user
             detail_plan_coeff = None
             detail_plan_coeff_details = []
@@ -405,6 +414,7 @@ def salary_page(
             ctx["detail_page"] = detail_page
             ctx["detail_total_pages"] = detail_total_pages
             ctx["detail_raw_commission"] = round(detail_raw_commission, 2)
+            ctx["detail_joint_adj"] = detail_joint_adj
             ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
             ctx["detail_plan_coeff"] = detail_plan_coeff
             ctx["detail_plan_coeff_details"] = detail_plan_coeff_details

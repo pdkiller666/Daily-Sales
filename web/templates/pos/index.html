@@ -468,6 +468,9 @@
         <div class="flex justify-end mb-2" x-show="totalMotivation > 0">
             <span class="text-xs text-indigo-500 font-semibold" x-text="'🎯 Ваша комиссия: ' + fmtPrice(totalMotivation)"></span>
         </div>
+        <div class="flex justify-end mb-1" x-show="extraCoeffNote && totalMotivation > 0">
+            <span class="text-[10px] text-amber-600" x-text="'⚠️ базовая ставка · коэф. смены ' + extraCoeffNote + ' применяется при закрытии'"></span>
+        </div>
         <div x-show="checkoutError" class="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="checkoutError"></div>
         <button @click="checkout()"
                 :disabled="checkoutLoading || cart.length === 0"
@@ -570,6 +573,7 @@ function posApp() {
         favorites: [],      /* Set of product IDs (stored as Set after init) */
         recent: [],         /* [{id,name,price,category,stock}] */
         motivations: {},    /* {product_id_str: {type,value}} */
+        extraCoeffNote: '', /* активный коэф. смены, если задан */
         quickQtys: [1, 2, 3, 5, 10, 20, 50],
 
         init() {
@@ -647,6 +651,7 @@ function posApp() {
                     this.favorites = new Set(data.favorites || []);
                     this.recent = data.recent || [];
                     this.motivations = data.motivations || {};
+                    this.extraCoeffNote = data.extra_coeff_note || '';
                 })
                 .catch(() => {});
         },

@@ -170,10 +170,26 @@ def api_pos_meta(request: Request, shop: str = ""):
         except Exception:
             pass
 
+        # Check for active shift coefficient (multi_seller_coeff)
+        extra_coeff_note = ""
+        try:
+            raw_extra = db.get_extra_conditions(active_only=True) or []
+            for ec in raw_extra:
+                if ec[1] == 'multi_seller_coeff':
+                    coeff = float(ec[5] or 1.0)
+                    min_s = int(ec[4] or 0)
+                    ec_shop = ec[3]  # None = all shops
+                    if (not ec_shop) or ec_shop == shop:
+                        extra_coeff_note = f"×{coeff} при ≥{min_s} прод."
+                        break
+        except Exception:
+            pass
+
         return JSONResponse({
             "favorites": favorites,
             "recent": recent,
             "motivations": motivations,
+            "extra_coeff_note": extra_coeff_note,
         })
     except Exception as e:
         return JSONResponse({"error": "Внутренняя ошибка сервера", "favorites": [], "recent": [], "motivations": {}})
