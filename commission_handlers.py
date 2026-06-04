@@ -3,7 +3,7 @@
 """
 import asyncio
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
@@ -1760,8 +1760,8 @@ async def extra_ym_selected(callback: CallbackQuery, state: FSMContext):
 # ПРОСМОТР РАСПИСАНИЯ МОТИВАЦИИ ПО МЕСЯЦАМ
 # ─────────────────────────────────────────────────────────────
 
-MATRIX_PRODS_PER_PAGE = 3  # fewer rows fit comfortably in Telegram with 7 month columns
-MATRIX_COL_PAST = 5        # последние 6 месяцев (5 прошлых + текущий) + 1 будущий = 7 столбцов
+MATRIX_PRODS_PER_PAGE = 1  # 1 товар = максимум 5 кнопок месяцев, чисто и читаемо
+MATRIX_COL_PAST = 3        # 3 прошлых + текущий + 1 будущий = 5 столбцов
 MATRIX_COL_FUTURE = 1
 
 
@@ -1797,13 +1797,12 @@ async def _show_schedule_matrix(callback, state, page=0):
         )
         return
 
-    total_pages = max(1, (len(prod_order) + MATRIX_PRODS_PER_PAGE - 1) // MATRIX_PRODS_PER_PAGE)
-    start = page * MATRIX_PRODS_PER_PAGE
-    page_prods = prod_order[start:start + MATRIX_PRODS_PER_PAGE]
+    page_prods, has_prev, has_next, total_pages, page = paginate(prod_order, page, MATRIX_PRODS_PER_PAGE)
 
-    # Build text table
+    # Header with page counter
     hdr = " ".join(f"{MONTH_NAMES_SHORT[m]}{str(y)[-2:]}" for y, m in col_months)
-    text = f"📅 <b>Мотивация по месяцам</b>\n<code>{hdr}</code>\n\n"
+    page_str = f" · {page + 1}/{total_pages}" if total_pages > 1 else ""
+    text = f"📅 <b>Мотивация по месяцам</b>{page_str}\n<code>{hdr}</code>\n\n"
 
     for prod_id in page_prods:
         name = product_names.get(prod_id, f"#{prod_id}")
@@ -1816,45 +1815,37 @@ async def _show_schedule_matrix(callback, state, page=0):
                 sched_mark = "●" if cell['is_scheduled'] else "○"
                 rate_parts.append(f"{sched_mark}{mv:.0f}{'%' if mt == 'percentage' else '₽'}")
             else:
-                rate_parts.append(" — ")
+                rate_parts.append("—")
         text += f"📦 <b>{he(name)}</b>\n"
-        text += "<code>" + " ".join(rate_parts) + "</code>\n\n"
+        text += "<code>" + "  ".join(rate_parts) + "</code>\n\n"
 
     text += "<i>● расписание  ○ глобальная</i>"
 
     builder = InlineKeyboardBuilder()
-    # Edit buttons grouped by product
+
+    # Edit buttons: 1 product × N months → one compact row per product
     for prod_id in page_prods:
-        name = product_names.get(prod_id, f"#{prod_id}")
-        short_name = name[:8] + "…" if len(name) > 8 else name
+        month_row = []
         for yr, mo in col_months:
             cell = cell_data[prod_id].get((yr, mo))
             is_sched = cell['is_scheduled'] if cell else False
             prefix = "✏️" if is_sched else "➕"
             mo_short = MONTH_NAMES_SHORT[mo][:3]
-            builder.button(
-                text=f"{prefix}{short_name} {mo_short}",
+            month_row.append(InlineKeyboardButton(
+                text=f"{prefix} {mo_short}",
                 callback_data=f"sched_cell_{prod_id}_{yr}_{mo}"
-            )
-        builder.adjust(len(col_months))
+            ))
+        builder.row(*month_row)
 
-    # Pagination row
-    pag_row = []
-    if page > 0:
-        pag_row.append(("⬅️ Пред.", f"sched_page_{page - 1}"))
-    if page < total_pages - 1:
-        pag_row.append((f"➡️ След.", f"sched_page_{page + 1}"))
-    for lbl, cb in pag_row:
-        builder.button(text=lbl, callback_data=cb)
-    if pag_row:
-        builder.adjust(len(pag_row))
+    # Navigation row
+    nav = page_nav_row("sched_page_", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
 
-    builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
-    builder.button(text="📋 Архив по месяцам", callback_data="archive_months")
-    builder.button(text="⬅️ В меню", callback_data="admin_motivation")
-    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="📝 Установить мотивацию", callback_data="set_motivation"))
+    builder.row(InlineKeyboardButton(text="📋 Архив по месяцам", callback_data="archive_months"))
+    builder.row(InlineKeyboardButton(text="⬅️ В меню", callback_data="admin_motivation"))
 
-    text += f"\n<i>Стр. {page + 1}/{total_pages}</i>"
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
