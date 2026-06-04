@@ -100,9 +100,22 @@ def pos_page(request: Request):
         except Exception:
             pass
         ctx["default_shop"] = default_shop
+
+        # Subscription limit: warn early if monthly sale cap reached
+        try:
+            from subscription_utils import check_sales_limit
+            _limit_ok, _limit_msg = check_sales_limit(telegram_id)
+            ctx["sales_limit_reached"] = not _limit_ok
+            ctx["sales_limit_msg"] = _limit_msg if not _limit_ok else ""
+        except Exception:
+            ctx["sales_limit_reached"] = False
+            ctx["sales_limit_msg"] = ""
+
     except Exception as e:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
         ctx["default_shop"] = ""
+        ctx["sales_limit_reached"] = False
+        ctx["sales_limit_msg"] = ""
 
     return request.app.state.templates.TemplateResponse(request, "pos/index.html", ctx)
 

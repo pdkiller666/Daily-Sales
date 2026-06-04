@@ -15,6 +15,17 @@
 </div>
 {% endif %}
 
+{% if sales_limit_reached %}
+<div class="mb-4 flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <span class="text-lg shrink-0">🚫</span>
+    <div>
+        <p class="font-semibold mb-0.5">Лимит продаж исчерпан</p>
+        <p class="text-red-600">{{ sales_limit_msg or 'Достигнут лимит продаж на текущий месяц. Оформление продаж недоступно.' }}</p>
+        <a href="/subscription" class="inline-block mt-2 text-xs font-medium text-red-700 underline hover:text-red-900">Улучшить тариф →</a>
+    </div>
+</div>
+{% endif %}
+
 {% if not shops %}
 <div class="flex flex-col items-center justify-center py-24 text-center">
     <div class="text-5xl mb-4">🏪</div>

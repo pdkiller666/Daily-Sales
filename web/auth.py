@@ -68,3 +68,23 @@ def verify_csrf_token(request, form_token: str) -> bool:
     """Return True if the form's CSRF token matches the session-derived token."""
     expected = get_csrf_token(request)
     return bool(form_token) and hmac.compare_digest(expected, form_token)
+
+
+def generate_login_nonce() -> str:
+    """Time-based HMAC nonce for pre-auth CSRF on /auth/code.
+    Rotates every 5 minutes; verify_login_nonce accepts current + previous window (~10 min).
+    """
+    window = int(time.time()) // 300
+    return hmac.new(_SECRET.encode(), f"login:{window}".encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def verify_login_nonce(nonce: str) -> bool:
+    """Accept nonce from current or previous 5-minute window."""
+    if not nonce:
+        return False
+    window = int(time.time()) // 300
+    for w in (window, window - 1):
+        expected = hmac.new(_SECRET.encode(), f"login:{w}".encode(), hashlib.sha256).hexdigest()[:24]
+        if hmac.compare_digest(nonce, expected):
+            return True
+    return False

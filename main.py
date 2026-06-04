@@ -964,7 +964,34 @@ async def main():
         coalesce=True,
         misfire_grace_time=3600,
     )
-    
+
+    # Очистка FSM-хранилища — еженедельно в воскресенье в 04:30
+    # Удаляет строки без активного состояния и данных, обновлявшиеся более 30 дней назад
+    async def cleanup_fsm_storage():
+        try:
+            import sqlite3 as _sqlite3
+            _conn = _sqlite3.connect("data/fsm_storage.db", timeout=10)
+            deleted = _conn.execute(
+                "DELETE FROM fsm_data "
+                "WHERE state IS NULL AND data = '{}' "
+                "AND (updated_at IS NULL OR updated_at < datetime('now', '-30 days'))"
+            ).rowcount
+            _conn.commit()
+            _conn.close()
+            if deleted > 0:
+                logging.info(f"FSM cleanup: удалено {deleted} устаревших idle-записей")
+        except Exception as _fsm_err:
+            logging.error(f"FSM cleanup error: {_fsm_err}")
+
+    scheduler.add_job(
+        cleanup_fsm_storage,
+        CronTrigger(day_of_week='sun', hour=4, minute=30),
+        id='fsm_storage_cleanup',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
 
     # Регистрируем cron-задачи из интеграций Google Sheets

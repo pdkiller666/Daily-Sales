@@ -7,21 +7,17 @@ router = APIRouter()
 
 TOKEN_EXPIRE_DAYS = 7
 
-# Rate limiting for /auth/code/auto — 5 attempts per 60 s per IP
-_code_attempt_log: dict = {}
-_RATE_WINDOW = 60
-_RATE_MAX = 5
-
 
 def _check_rate_limit(ip: str) -> bool:
-    """Return True if request is allowed, False if rate-limited."""
-    now = _time.time()
-    hits = [t for t in _code_attempt_log.get(ip, []) if now - t < _RATE_WINDOW]
-    if len(hits) >= _RATE_MAX:
-        return False
-    hits.append(now)
-    _code_attempt_log[ip] = hits
-    return True
+    """Return True if request is allowed, False if rate-limited.
+    Uses persistent SQLite store so limits survive restarts/deploys.
+    Falls back to in-memory if rate_store is unavailable.
+    """
+    try:
+        from web.rate_store import check_rate_limit
+        return check_rate_limit(f"auth:{ip}", max_requests=5, window_seconds=60)
+    except Exception:
+        return True  # fail open
 
 
 @router.get("/login")
@@ -190,7 +186,7 @@ async def code_auto_login(request: Request, c: str = ""):
 @router.get("/auth/code")
 async def code_login_page(request: Request):
     """Show the code-based login form (bot-code alternative to Telegram Widget)."""
-    from web.auth import get_session_user
+    from web.auth import get_session_user, generate_login_nonce
     if get_session_user(request):
         return RedirectResponse(url="/dashboard", status_code=302)
     templates = request.app.state.templates
@@ -199,6 +195,7 @@ async def code_login_page(request: Request):
         "auth_url": "",
         "error": request.query_params.get("error"),
         "show_code_form": True,
+        "login_nonce": generate_login_nonce(),
     })
 
 
@@ -206,32 +203,35 @@ async def code_login_page(request: Request):
 async def code_login_submit(
     request: Request,
     code: str = Form(default=""),
+    login_nonce: str = Form(default=""),
 ):
     """Validate a one-time bot code and issue a web session JWT."""
-    from web.auth import create_session_token, COOKIE_NAME
+    from web.auth import create_session_token, COOKIE_NAME, verify_login_nonce, generate_login_nonce
     from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
     from env_manager import env_manager
     from web_login_codes import validate_code
 
-    _ip = request.client.host if request.client else "unknown"
-    if not _check_rate_limit(_ip):
-        templates = request.app.state.templates
+    templates = request.app.state.templates
+
+    def _err(msg: str, code_val: str = ""):
         return templates.TemplateResponse(request, "auth/login.html", {
             "bot_username": "", "auth_url": "",
-            "error": "Слишком много попыток. Подождите минуту и попробуйте снова.",
-            "show_code_form": True, "code_value": "",
+            "error": msg,
+            "show_code_form": True,
+            "code_value": code_val,
+            "login_nonce": generate_login_nonce(),
         })
+
+    if not verify_login_nonce(login_nonce):
+        return _err("Форма устарела. Обновите страницу и попробуйте снова.")
+
+    _ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(_ip):
+        return _err("Слишком много попыток. Подождите минуту и попробуйте снова.")
 
     telegram_id = validate_code(code.strip())
     if not telegram_id:
-        templates = request.app.state.templates
-        return templates.TemplateResponse(request, "auth/login.html", {
-            "bot_username": "",
-            "auth_url": "",
-            "error": "bad_code",
-            "show_code_form": True,
-            "code_value": code.strip(),
-        })
+        return _err("bad_code", code.strip())
 
     org_db = get_user_org_db_path(telegram_id)
     role = get_user_role_from_db(telegram_id)

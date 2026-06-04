@@ -927,7 +927,7 @@ async def _show_invite_screen(message, org_id: int, invite_code: str):
             InlineKeyboardButton(text="🔄 Сбросить код", callback_data=f"reset_invite_{org_id}"),
             InlineKeyboardButton(text="⚙️ Пресет", callback_data=f"invite_preset_start_{org_id}"),
         ],
-        [back_button("admin_management")],
+        [back_button("personnel_hub")],
     ])
     try:
         await message.edit_text(text, reply_markup=kb, parse_mode="HTML")

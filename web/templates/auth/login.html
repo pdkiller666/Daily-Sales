@@ -91,6 +91,7 @@
                         </span>
                     </div>
                     <form method="post" action="/auth/code" class="space-y-3">
+                        <input type="hidden" name="login_nonce" value="{{ login_nonce or '' }}">
                         <div>
                             <label class="block text-xs font-medium text-slate-600 mb-1.5">Код из бота</label>
                             <input type="text" name="code" inputmode="numeric" maxlength="6" pattern="\d{6}"

@@ -45,15 +45,21 @@ class SQLiteStorage(BaseStorage):
         conn = self._get_conn()
         conn.execute("""
             CREATE TABLE IF NOT EXISTS fsm_data (
-                bot_id   TEXT    NOT NULL,
-                chat_id  INTEGER NOT NULL,
-                user_id  INTEGER NOT NULL,
-                destiny  TEXT    NOT NULL DEFAULT 'default',
-                state    TEXT,
-                data     TEXT    NOT NULL DEFAULT '{}',
+                bot_id     TEXT    NOT NULL,
+                chat_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                destiny    TEXT    NOT NULL DEFAULT 'default',
+                state      TEXT,
+                data       TEXT    NOT NULL DEFAULT '{}',
+                updated_at TEXT,
                 PRIMARY KEY (bot_id, chat_id, user_id, destiny)
             )
         """)
+        # Migration: add updated_at to existing tables
+        try:
+            conn.execute("ALTER TABLE fsm_data ADD COLUMN updated_at TEXT")
+        except Exception:
+            pass  # column already exists
         conn.commit()
 
     def _make_key(self, key: StorageKey) -> tuple:
@@ -70,10 +76,10 @@ class SQLiteStorage(BaseStorage):
         conn = self._get_conn()
         try:
             conn.execute("""
-                INSERT INTO fsm_data (bot_id, chat_id, user_id, destiny, state)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO fsm_data (bot_id, chat_id, user_id, destiny, state, updated_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(bot_id, chat_id, user_id, destiny)
-                DO UPDATE SET state = excluded.state
+                DO UPDATE SET state = excluded.state, updated_at = datetime('now')
             """, (bot_id, chat_id, user_id, destiny, state_str))
             conn.commit()
         except Exception as e:
@@ -110,10 +116,10 @@ class SQLiteStorage(BaseStorage):
         conn = self._get_conn()
         try:
             conn.execute("""
-                INSERT INTO fsm_data (bot_id, chat_id, user_id, destiny, data)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO fsm_data (bot_id, chat_id, user_id, destiny, data, updated_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(bot_id, chat_id, user_id, destiny)
-                DO UPDATE SET data = excluded.data
+                DO UPDATE SET data = excluded.data, updated_at = datetime('now')
             """, (bot_id, chat_id, user_id, destiny, data_str))
             conn.commit()
         except Exception as e:
