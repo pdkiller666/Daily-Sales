@@ -9,23 +9,29 @@
 
 {% block extra_css %}
 <style>
-/* ── Full-screen chat: убираем отступы main, чтобы чат занял весь экран между шапкой и нижним меню ── */
+/* ── Full-screen chat ── */
 main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
-/* ── Wrapper: от нижнего края шапки (3.5rem = h-14) до нижнего края экрана ── */
 #chat-wrapper {
     height: calc(100vh - 3.5rem);
-    height: calc(100dvh - 3.5rem); /* dvh учитывает chrome мобильного браузера */
+    height: calc(100dvh - 3.5rem);
 }
 
 /* ── Bubble styles ── */
 .msg-bubble { max-width: 72%; word-break: break-word; }
 @media (max-width: 640px) { .msg-bubble { max-width: 88%; } }
-.msg-mine .msg-bubble  { background:#2563eb;color:#fff;border-radius:1rem 1rem 0.25rem 1rem; }
-.msg-other .msg-bubble { background:#f1f5f9;color:#1e293b;border-radius:1rem 1rem 1rem 0.25rem; }
+.msg-mine  .msg-bubble  { background:#2563eb;color:#fff;border-radius:1rem 1rem 0.25rem 1rem; }
+.msg-other .msg-bubble  { background:#f1f5f9;color:#1e293b;border-radius:1rem 1rem 1rem 0.25rem; }
 html.dark .msg-other .msg-bubble { background:#1e293b;color:#e2e8f0; }
 .msg-mine .msg-meta { text-align:right; }
+
+/* Delete button — visible on touch, hover on desktop */
+.msg-del-btn { opacity:0; transition:opacity .15s; }
+.msg-bubble:hover .msg-del-btn { opacity:.55; }
+.msg-del-btn:hover { opacity:.9 !important; }
+@media (hover: none) { .msg-del-btn { opacity:.3; } }  /* always show on touch devices */
+
 /* ── Scroll ── */
 #chat-scroll::-webkit-scrollbar { width:4px; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
@@ -91,13 +97,15 @@ html.dark .topic-menu-item:hover { background:#374151; }
      MAIN CHAT APP
      ═══════════════════════════════════════════════════════════════════════ -->
 <script>
-/* topics JSON извлечён из HTML-атрибута во избежание обрыва кавычками */
-const _chatTopics = {{ topics | tojson }};
+const _chatTopics    = {{ topics | tojson }};
+const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batch */
 </script>
+
 <div id="chat-wrapper" class="flex flex-col bg-white dark:bg-slate-900"
      x-data="chatApp({{ current_topic_id }}, {{ latest_id }}, '{{ csrf_token }}',
                      _chatTopics, {{ my_db_id }},
-                     {{ 'true' if user.role in ('owner', 'admin', 'super_admin') else 'false' }})"
+                     {{ 'true' if user.role in ('owner', 'admin', 'super_admin') else 'false' }},
+                     _initMessages)"
      x-init="init()">
 
     <!-- ══ Header ══ -->
@@ -113,13 +121,12 @@ const _chatTopics = {{ topics | tojson }};
         </div>
     </div>
 
-    <!-- ══ Topic tabs (прикреплена под шапкой) ══ -->
+    <!-- ══ Topic tabs ══ -->
     <div class="shrink-0 px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
         <div class="flex items-center gap-2 overflow-x-auto scroll-smooth"
              style="scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px"
              id="topics-bar">
 
-            <!-- Existing topics -->
             <template x-for="t in topicsList" :key="t.id">
                 <div class="relative" x-data="{ menuOpen: false }">
                     <button
@@ -129,48 +136,35 @@ const _chatTopics = {{ topics | tojson }};
                         class="topic-tab">
                         <span x-text="t.name"></span>
                         <span x-show="t.unread > 0" class="topic-unread" x-text="t.unread > 9 ? '9+' : t.unread"></span>
-                        <!-- admin menu trigger (not on «Общий») -->
                         <span x-show="isAdmin && t.id !== 1 && t.id === currentTopicId"
                               @click.stop="menuOpen = !menuOpen"
                               class="ml-0.5 opacity-60 hover:opacity-100 text-[11px]">⋯</span>
                     </button>
 
-                    <!-- Context menu -->
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
                          class="topic-menu">
-                        <div class="topic-menu-item"
-                             @click="startRename(t); menuOpen = false">
-                            ✏️ Переименовать
-                        </div>
-                        <div class="topic-menu-item danger"
-                             @click="archiveTopic(t.id); menuOpen = false">
-                            🗄️ Архивировать
-                        </div>
+                        <div class="topic-menu-item" @click="startRename(t); menuOpen = false">✏️ Переименовать</div>
+                        <div class="topic-menu-item danger" @click="archiveTopic(t.id); menuOpen = false">🗄️ Архивировать</div>
                     </div>
                 </div>
             </template>
 
-            <!-- Add topic button -->
             <button @click="newTopicOpen = !newTopicOpen"
-                    class="topic-tab topic-tab-idle shrink-0"
-                    title="Создать новую тему">
+                    class="topic-tab topic-tab-idle shrink-0" title="Создать новую тему">
                 <span class="text-blue-500 font-bold text-sm">+</span>
                 <span class="text-xs">Тема</span>
             </button>
         </div>
 
         <!-- New topic inline form -->
-        <div x-show="newTopicOpen" x-cloak
-             class="flex gap-2 mt-2 items-center">
+        <div x-show="newTopicOpen" x-cloak class="flex gap-2 mt-2 items-center">
             <input x-model="newTopicName"
                    @keydown.enter.prevent="createTopic()"
                    @keydown.escape="newTopicOpen = false; newTopicName = ''"
-                   placeholder="Название темы…"
-                   maxlength="64"
+                   placeholder="Название темы…" maxlength="64"
                    class="flex-1 border border-blue-300 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100">
-            <button @click="createTopic()"
-                    :disabled="!newTopicName.trim() || creatingTopic"
+            <button @click="createTopic()" :disabled="!newTopicName.trim() || creatingTopic"
                     class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-xl transition-colors">
                 <span x-show="!creatingTopic">Создать</span>
                 <span x-show="creatingTopic" class="spin inline-block">⟳</span>
@@ -180,16 +174,14 @@ const _chatTopics = {{ topics | tojson }};
         </div>
 
         <!-- Rename topic inline form -->
-        <div x-show="renameOpen" x-cloak
-             class="flex gap-2 mt-2 items-center">
+        <div x-show="renameOpen" x-cloak class="flex gap-2 mt-2 items-center">
             <span class="text-xs text-slate-400 shrink-0">Переименовать:</span>
             <input x-model="renameName"
                    @keydown.enter.prevent="submitRename()"
                    @keydown.escape="renameOpen = false"
                    maxlength="64"
                    class="flex-1 border border-amber-300 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100">
-            <button @click="submitRename()"
-                    :disabled="!renameName.trim()"
+            <button @click="submitRename()" :disabled="!renameName.trim()"
                     class="bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-xl transition-colors">
                 Сохранить
             </button>
@@ -213,80 +205,44 @@ const _chatTopics = {{ topics | tojson }};
             </div>
         </div>
 
-        <!-- Server-rendered initial messages -->
-        <template x-if="!topicSwitched">
-            <div>
-            {% for msg in messages %}
-            <div class="flex gap-2.5 mb-3 {% if msg.user_id == my_db_id %}msg-mine flex-row-reverse{% else %}msg-other{% endif %}"
-                 id="msg-{{ msg.id }}">
-                {% if msg.user_id != my_db_id %}
-                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto">{{ msg.initial }}</div>
-                {% endif %}
-                <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
-                    <p class="text-[10px] font-semibold mb-1 {% if msg.user_id == my_db_id %}text-white/70{% else %}text-blue-600{% endif %}">{{ msg.display_name }}</p>
-                    {% if msg.message %}
-                    <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ msg.message }}</p>
-                    {% endif %}
-                    {% if msg.has_file %}
-                    <div class="mt-1.5">
-                        {% if msg.is_image %}
-                        <a href="{{ msg.file_url }}" target="_blank">
-                            <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" class="file-preview-img">
-                        </a>
-                        {% else %}
-                        <a href="{{ msg.file_url }}" target="_blank" class="attach-chip">
-                            <span>📎</span><span class="truncate">{{ msg.file_name }}</span>
-                        </a>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                    <div class="msg-meta mt-1 flex items-center {% if msg.user_id == my_db_id %}justify-end{% endif %}">
-                        <span class="text-[10px] opacity-60">{{ msg.created_at }}</span>
-                        {% if user.role in ('owner', 'admin', 'super_admin') or msg.user_id == my_db_id %}
-                        <button onclick="deleteMsg({{ msg.id }}, '{{ csrf_token }}')"
-                                class="text-[10px] opacity-0 hover:opacity-60 transition-opacity ml-1.5 {% if msg.user_id == my_db_id %}text-white{% else %}text-slate-400{% endif %}"
-                                onmouseenter="this.style.opacity='0.6'" onmouseleave="this.style.opacity='0'"
-                                title="Удалить">✕</button>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-            </div>
-        </template>
-
-        <!-- Dynamic messages (polling + topic switch) -->
-        <template x-for="msg in dynamicMsgs" :key="msg.id">
+        <!-- All messages — single unified Alpine template -->
+        <template x-for="msg in msgs" :key="msg.id">
             <div class="flex gap-2.5 mb-3"
                  :class="msg.user_id === myUserId ? 'msg-mine flex-row-reverse' : 'msg-other'"
                  :id="'msg-' + msg.id">
+                <!-- Avatar (only for other people's messages) -->
                 <template x-if="msg.user_id !== myUserId">
                     <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto"
                          x-text="msg.initial"></div>
                 </template>
+                <!-- Bubble -->
                 <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
                     <p class="text-[10px] font-semibold mb-1"
                        :class="msg.user_id === myUserId ? 'text-white/70' : 'text-blue-600'"
                        x-text="msg.display_name"></p>
+                    <!-- Text -->
                     <template x-if="msg.message">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
                     </template>
+                    <!-- Image file -->
                     <template x-if="msg.has_file && msg.is_image">
                         <a :href="msg.file_url" target="_blank">
                             <img :src="msg.file_url" :alt="msg.file_name" class="file-preview-img mt-1.5">
                         </a>
                     </template>
+                    <!-- Non-image file -->
                     <template x-if="msg.has_file && !msg.is_image">
                         <a :href="msg.file_url" target="_blank" class="attach-chip mt-1.5">
                             <span>📎</span><span class="truncate" x-text="msg.file_name"></span>
                         </a>
                     </template>
-                    <div class="msg-meta mt-1 flex items-center"
+                    <!-- Meta + delete -->
+                    <div class="msg-meta mt-1 flex items-center gap-1.5"
                          :class="msg.user_id === myUserId ? 'justify-end' : ''">
                         <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
                         <button x-show="msg.can_delete"
-                                @click="deleteMsgDyn(msg.id)"
-                                class="text-[10px] ml-1.5 opacity-0 hover:opacity-60 active:opacity-80 transition-opacity touch-manipulation"
+                                @click="deleteMsg(msg.id)"
+                                class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
                                 :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
                                 title="Удалить сообщение">✕</button>
                     </div>
@@ -295,17 +251,16 @@ const _chatTopics = {{ topics | tojson }};
         </template>
 
         <!-- Empty state -->
-        <template x-if="!loadingTopic && dynamicMsgs.length === 0 && topicSwitched">
-            <div class="flex flex-col items-center justify-center py-16 text-center text-slate-400">
-                <div class="text-4xl mb-3">💬</div>
-                <p class="text-sm">Сообщений пока нет. Начните беседу!</p>
-            </div>
-        </template>
+        <div x-show="!loadingTopic && msgs.length === 0"
+             class="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+            <div class="text-4xl mb-3">💬</div>
+            <p class="text-sm">Сообщений пока нет. Начните беседу!</p>
+        </div>
 
         <div id="chat-bottom"></div>
     </div>
 
-    <!-- ══ Input area (прикреплена над нижним меню) ══ -->
+    <!-- ══ Input area ══ -->
     <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
 
         <!-- File preview -->
@@ -323,7 +278,6 @@ const _chatTopics = {{ topics | tojson }};
         </div>
 
         <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
-            <!-- File attach -->
             <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файл">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -350,11 +304,9 @@ const _chatTopics = {{ topics | tojson }};
                     :disabled="sending || (!text.trim() && !attachedFile)"
                     :class="(sending || (!text.trim() && !attachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
                     class="shrink-0 w-11 h-11 bg-blue-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-sm">
-                <!-- Иконка отправки — видна по умолчанию, скрывается Alpine только во время отправки -->
                 <svg x-show="!sending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
                 </svg>
-                <!-- Спиннер — скрыт по умолчанию (style), Alpine показывает при отправке -->
                 <svg x-show="sending" style="display:none" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
@@ -369,20 +321,18 @@ const _chatTopics = {{ topics | tojson }};
 const _CHAT_MY_USER_ID = {{ my_db_id or 0 }};
 const _CHAT_CSRF = '{{ csrf_token }}';
 
-/* ── localStorage helpers per topic ── */
-function _lsKey(topicId) { return 'ds_chat_seen_' + topicId; }
+function _lsKey(topicId)    { return 'ds_chat_seen_' + topicId; }
 function _getSeenId(topicId) { return parseInt(localStorage.getItem(_lsKey(topicId)) || '0', 10); }
 function _setSeenId(topicId, id) { try { localStorage.setItem(_lsKey(topicId), id); } catch(e){} }
 
-function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isAdmin) {
+function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isAdmin, initMessages) {
     return {
         /* ── state ── */
         currentTopicId:   initTopicId,
         currentTopicName: (initTopics.find(t => t.id === initTopicId) || {}).name || 'Общий',
         latestId:         initLatestId,
         topicsList:       initTopics.map(t => ({ ...t, unread: 0 })),
-        dynamicMsgs:      [],
-        topicSwitched:    false,
+        msgs:             [],          /* single source of truth for all messages */
         loadingTopic:     false,
         myUserId,
         isAdmin,
@@ -409,9 +359,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
         /* ════════════════════════════════════════════ */
         init() {
+            /* pre-populate with server-side messages so they show immediately */
+            this.msgs = Array.isArray(initMessages) ? initMessages : [];
             this.scrollBottom(true);
             this.startPolling();
-            /* mark current topic as seen */
             _setSeenId(this.currentTopicId, this.latestId);
         },
 
@@ -433,15 +384,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const data = await res.json();
                 if (!data.ok || !data.messages?.length) return;
 
-                const existingIds = new Set([
-                    ...this.dynamicMsgs.map(m => m.id),
-                    /* also collect ids rendered server-side */
-                    ...[...document.querySelectorAll('[id^="msg-"]')]
-                        .map(el => parseInt(el.id.replace('msg-', ''), 10))
-                ]);
+                const existingIds = new Set(this.msgs.map(m => m.id));
                 const newOnes = data.messages.filter(m => !existingIds.has(m.id));
                 if (newOnes.length) {
-                    this.dynamicMsgs.push(...newOnes);
+                    this.msgs.push(...newOnes);
                     this.latestId = data.latest_id;
                     _setSeenId(this.currentTopicId, data.latest_id);
                     this.scrollBottom();
@@ -457,18 +403,17 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) {}
         },
 
-        /* ── Topic switch (no page reload) ── */
+        /* ── Topic switch ── */
         async switchTopic(topicId) {
             if (topicId === this.currentTopicId) return;
             this.loadingTopic = true;
-            this.topicSwitched = true;
-            this.dynamicMsgs = [];
+            this.msgs = [];
 
             try {
                 const res = await fetch(`/chat/topics/${topicId}/messages`);
                 const data = await res.json();
                 if (data.ok) {
-                    this.dynamicMsgs = data.messages;
+                    this.msgs = data.messages;
                     this.latestId = data.latest_id;
                 }
             } catch(e) {}
@@ -482,8 +427,6 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.loadingTopic = false;
             this.startPolling();
             this.scrollBottom(true);
-
-            /* update URL without reload */
             history.replaceState(null, '', '/chat?topic=' + topicId);
         },
 
@@ -503,9 +446,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     this.newTopicOpen = false;
                     this.newTopicName = '';
                     await this.switchTopic(data.topic.id);
-                } else {
-                    alert(data.error || 'Ошибка создания');
-                }
+                } else { alert(data.error || 'Ошибка создания'); }
             } catch(e) { alert('Ошибка соединения'); }
             this.creatingTopic = false;
         },
@@ -527,12 +468,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const data = await res.json();
                 if (data.ok) {
                     const t = this.topicsList.find(t => t.id === this.renameTopicId);
-                    if (t) { t.name = name; }
+                    if (t) t.name = name;
                     if (this.renameTopicId === this.currentTopicId) this.currentTopicName = name;
                     this.renameOpen = false;
-                } else {
-                    alert(data.error || 'Ошибка переименования');
-                }
+                } else { alert(data.error || 'Ошибка переименования'); }
             } catch(e) { alert('Ошибка'); }
         },
 
@@ -550,13 +489,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         const first = this.topicsList[0];
                         if (first) await this.switchTopic(first.id);
                     }
-                } else {
-                    alert(data.error || 'Ошибка');
-                }
+                } else { alert(data.error || 'Ошибка'); }
             } catch(e) { alert('Ошибка'); }
         },
 
-        /* ── Send message ── */
+        /* ── File attach ── */
         onFileChange(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -573,6 +510,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             el.style.height = Math.min(el.scrollHeight, 120) + 'px';
         },
 
+        /* ── Send message ── */
         async sendMessage() {
             if (this.sending) return;
             const txt = this.text.trim();
@@ -594,22 +532,21 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         const ta = document.querySelector('textarea');
                         if (ta) ta.style.height = 'auto';
                     });
-                    if (data.messages) {
-                        const existingIds = new Set(this.dynamicMsgs.map(m => m.id));
-                        this.dynamicMsgs.push(...data.messages.filter(m => !existingIds.has(m.id)));
+                    if (data.messages?.length) {
+                        const existingIds = new Set(this.msgs.map(m => m.id));
+                        const newOnes = data.messages.filter(m => !existingIds.has(m.id));
+                        this.msgs.push(...newOnes);
                         this.latestId = data.latest_id;
                         _setSeenId(this.currentTopicId, data.latest_id);
                         this.scrollBottom(true);
                     }
-                    /* hide server-rendered messages once user sends first msg */
-                    this.topicSwitched = true;
                 } else { alert(data.error || 'Ошибка отправки'); }
             } catch(e) { alert('Ошибка соединения'); }
             this.sending = false;
         },
 
-        /* ── Delete (dynamic) ── */
-        async deleteMsgDyn(msgId) {
+        /* ── Delete message ── */
+        async deleteMsg(msgId) {
             if (!confirm('Удалить сообщение?')) return;
             try {
                 const fd = new FormData();
@@ -617,7 +554,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const res = await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
                 const data = await res.json();
                 if (data.ok) {
-                    this.dynamicMsgs = this.dynamicMsgs.filter(m => m.id !== msgId);
+                    this.msgs = this.msgs.filter(m => m.id !== msgId);
                 } else {
                     alert(data.error || 'Не удалось удалить сообщение');
                 }
@@ -627,19 +564,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         }
     };
 }
-
-/* ── Delete server-rendered message ── */
-async function deleteMsg(msgId, csrf) {
-    if (!confirm('Удалить сообщение?')) return;
-    try {
-        const fd = new FormData();
-        fd.append('csrf_token', csrf);
-        const res = await fetch(`/chat/message/${msgId}/delete`, { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data.ok) { const el = document.getElementById('msg-' + msgId); if (el) el.remove(); }
-    } catch(e) {}
-}
 </script>
-{% endif %}
 
+{% endif %}
 {% endblock %}
