@@ -870,20 +870,6 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
         [InlineKeyboardButton(text=f"⏰ Время уведомлений ({settings['notification_time']})", callback_data="set_notification_time")],
     ])
 
-    # Salary & motivation section
-    plan_coeff_on = settings.get('plan_coeff_enabled', False)
-    plan_coeff_cap_on = settings.get('plan_coeff_cap', True)
-    keyboard_buttons.append(
-        [InlineKeyboardButton(text="─── 💰 Зарплата и мотивация ───", callback_data="noop_salary_header")]
-    )
-    keyboard_buttons.append(
-        [InlineKeyboardButton(text=f"📈 Коэф. выполнения плана {'✅' if plan_coeff_on else '❌'}", callback_data="toggle_plan_coeff")]
-    )
-    if plan_coeff_on:
-        keyboard_buttons.append(
-            [InlineKeyboardButton(text=f"✂️ Обрезать до 100% {'✅' if plan_coeff_cap_on else '❌'}", callback_data="toggle_plan_coeff_cap")]
-        )
-
     keyboard_buttons.append([back_button("notifications_menu")])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)

@@ -826,11 +826,29 @@ async def motivation_extra_menu(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
 
+    current_db = await get_db(callback.from_user.id, state)
+    user = await current_db.get_user(callback.from_user.id)
+    plan_coeff_on = False
+    plan_coeff_cap_on = True
+    if user:
+        ns = await current_db.get_notification_settings(user[0])
+        plan_coeff_on = bool(ns.get('plan_coeff_enabled', False))
+        plan_coeff_cap_on = bool(ns.get('plan_coeff_cap', True))
+
     builder = InlineKeyboardBuilder()
     builder.button(text="📉 Коэффициент смены", callback_data="add_coeff_condition")
     builder.button(text="🔒 Фильтр категорий", callback_data="add_category_filter")
     builder.button(text="📋 Просмотр условий", callback_data="view_extra_conditions")
     builder.button(text="🗑 Удалить условие", callback_data="del_extra_start")
+    builder.button(
+        text=f"📈 Коэф. выполнения плана {'✅' if plan_coeff_on else '❌'}",
+        callback_data="motiv_toggle_plan_coeff"
+    )
+    if plan_coeff_on:
+        builder.button(
+            text=f"✂️ Обрезать до 100% {'✅' if plan_coeff_cap_on else '❌'}",
+            callback_data="motiv_toggle_plan_coeff_cap"
+        )
     builder.button(text="⬅️ Назад", callback_data="admin_motivation")
     builder.adjust(1)
 
@@ -840,10 +858,34 @@ async def motivation_extra_menu(callback: CallbackQuery, state: FSMContext):
         "📉 <b>Коэффициент смены</b> — если в магазине работают N и более продавцов "
         "в текущем месяце, каждый получает мотивацию × коэффициент (напр. ×0.7)\n\n"
         "🔒 <b>Фильтр категорий</b> — продавец получает комиссию только "
-        "с определённых категорий товаров",
+        "с определённых категорий товаров\n\n"
+        "📈 <b>Коэф. выполнения плана</b> — итоговая мотивация умножается "
+        "на среднее % выполнения недельных планов",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
+
+
+@commission_router.callback_query(F.data.in_(["motiv_toggle_plan_coeff", "motiv_toggle_plan_coeff_cap"]))
+async def motiv_toggle_plan_coeff(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    user = await current_db.get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+    user_id = user[0]
+    ns = await current_db.get_notification_settings(user_id)
+    if callback.data == "motiv_toggle_plan_coeff":
+        new_val = not bool(ns.get('plan_coeff_enabled', False))
+        await current_db.update_notification_settings(user_id, plan_coeff_enabled=new_val)
+    else:
+        new_val = not bool(ns.get('plan_coeff_cap', True))
+        await current_db.update_notification_settings(user_id, plan_coeff_cap=new_val)
+    await callback.answer("✅ Настройка изменена")
+    await motivation_extra(callback, state)
 
 
 # ── Коэффициент смены ──────────────────────────────────────

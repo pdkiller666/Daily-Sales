@@ -78,6 +78,9 @@ def motivation_page(request: Request, category: str = ""):
         "month_labels": month_labels,
         "extra_conditions": [],
         "extra_saved": request.query_params.get("extra_saved") == "1",
+        "plan_coeff_enabled": False,
+        "plan_coeff_cap": True,
+        "coeff_saved": request.query_params.get("coeff_saved") == "1",
     }
 
     try:
@@ -131,6 +134,22 @@ def motivation_page(request: Request, category: str = ""):
         except Exception:
             ctx["extra_conditions_global"] = []
 
+        # Plan coefficient settings for current user
+        try:
+            import sqlite3 as _sq3
+            _conn = db.get_connection()
+            _cur = _conn.cursor()
+            _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            _row = _cur.fetchone()
+            _conn.close()
+            if _row:
+                ns = db.get_notification_settings(_row[0])
+                ctx["plan_coeff_enabled"] = bool(ns.get("plan_coeff_enabled", False))
+                ctx["plan_coeff_cap"] = bool(ns.get("plan_coeff_cap", True))
+        except Exception:
+            ctx["plan_coeff_enabled"] = False
+            ctx["plan_coeff_cap"] = True
+
     except Exception as exc:
         logger.error(f"motivation_page error: {exc}")
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
@@ -138,6 +157,46 @@ def motivation_page(request: Request, category: str = ""):
     return request.app.state.templates.TemplateResponse(
         request, "motivation/index.html", ctx
     )
+
+
+@router.post("/motivation/plan_coeff")
+def motivation_plan_coeff(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    plan_coeff_enabled: str = Form(default=""),
+    plan_coeff_cap: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return Response(content="Недействительный CSRF-токен.", status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        _conn = db.get_connection()
+        _cur = _conn.cursor()
+        _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        _row = _cur.fetchone()
+        _conn.close()
+        if _row:
+            db.update_notification_settings(
+                _row[0],
+                plan_coeff_enabled=1 if plan_coeff_enabled == "on" else 0,
+                plan_coeff_cap=1 if plan_coeff_cap == "on" else 0,
+            )
+    except Exception as exc:
+        from urllib.parse import quote as _q
+        return RedirectResponse(url=f"/motivation?error={_q(str(exc))}", status_code=303)
+
+    return RedirectResponse(url="/motivation?coeff_saved=1", status_code=303)
 
 
 @router.post("/motivation/set")

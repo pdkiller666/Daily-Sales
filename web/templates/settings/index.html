@@ -173,63 +173,6 @@
             </div>
         </form>
 
-        <!-- Salary & motivation settings — separate card & form -->
-        {% if notif_settings %}
-        <form method="post" action="/settings/salary">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="card p-5">
-                <h2 class="font-semibold text-slate-800 mb-1">💰 Зарплата и мотивация</h2>
-                <p class="text-xs text-slate-400 mb-4">Параметры расчёта зарплаты для вашего аккаунта</p>
-
-                {% macro salary_toggle(name, label, desc, checked) %}
-                <label class="flex items-center justify-between gap-4 cursor-pointer group">
-                    <div>
-                        <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">{{ label }}</p>
-                        <p class="text-xs text-slate-400 mt-0.5">{{ desc }}</p>
-                    </div>
-                    <div class="relative shrink-0">
-                        <input type="checkbox" name="{{ name }}" value="on"
-                               {% if checked %}checked{% endif %}
-                               class="peer sr-only">
-                        <div class="w-11 h-6 bg-slate-200 peer-checked:bg-emerald-500 rounded-full transition-colors duration-200"></div>
-                        <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
-                    </div>
-                </label>
-                {% endmacro %}
-
-                <div class="space-y-4">
-                    {{ salary_toggle('plan_coeff_enabled', 'Коэффициент выполнения плана',
-                                     'Итоговая мотивация умножается на % выполнения недельных планов', notif_settings.plan_coeff_enabled) }}
-
-                    <script>
-                    document.addEventListener('DOMContentLoaded', function() {
-                        var chk = document.querySelector('input[name="plan_coeff_enabled"]');
-                        var cap = document.getElementById('plan-cap-row');
-                        if (chk && cap) {
-                            function syncCap() { cap.style.display = chk.checked ? '' : 'none'; }
-                            chk.addEventListener('change', syncCap);
-                            syncCap();
-                        }
-                    });
-                    </script>
-
-                    <div id="plan-cap-row" class="pl-4 border-l-2 border-emerald-100 space-y-2"
-                         style="{{ '' if notif_settings.plan_coeff_enabled else 'display:none' }}">
-                        {{ salary_toggle('plan_coeff_cap', 'Обрезать коэффициент до 100%',
-                                         'Перевыполнение плана не увеличивает мотивацию сверх базы', notif_settings.plan_coeff_cap) }}
-                    </div>
-                </div>
-
-                <div class="mt-5 pt-4 border-t border-slate-100">
-                    <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
-                        💾 Сохранить
-                    </button>
-                </div>
-            </div>
-        </form>
-        {% endif %}
-
         {% else %}
         <div class="card p-5 text-center text-slate-400">
             <p>Настройки недоступны — пользователь не найден в базе данных организации</p>

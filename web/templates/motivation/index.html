@@ -345,6 +345,71 @@
             </div>
         </div>
 
+        <!-- Plan coefficient settings -->
+        <div class="card p-5 mt-4" x-data="{ coeffOpen: false }">
+            <div class="flex items-center justify-between cursor-pointer" @click="coeffOpen = !coeffOpen">
+                <div>
+                    <h2 class="font-semibold text-slate-800">📈 Коэффициент выполнения плана</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Итоговая мотивация × % выполнения планов</p>
+                </div>
+                <svg class="w-4 h-4 text-slate-400 transition-transform" :class="coeffOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+            <div x-show="coeffOpen" x-cloak x-transition class="mt-4">
+                {% if coeff_saved %}
+                <div class="mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">✅ Настройки сохранены</div>
+                {% endif %}
+                <p class="text-xs text-slate-500 mb-4">Когда включено, итоговая мотивация умножается на среднее % выполнения недельных планов за месяц.</p>
+                <form method="post" action="/motivation/plan_coeff" class="space-y-4" id="coeff-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                        <div>
+                            <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">Коэффициент выполнения плана</p>
+                            <p class="text-xs text-slate-400 mt-0.5">Итоговая мотивация × % выполнения недельных планов</p>
+                        </div>
+                        <div class="relative shrink-0">
+                            <input type="checkbox" name="plan_coeff_enabled" value="on"
+                                   id="coeff-chk"
+                                   {% if plan_coeff_enabled %}checked{% endif %}
+                                   class="peer sr-only">
+                            <div class="w-11 h-6 bg-slate-200 peer-checked:bg-emerald-500 rounded-full transition-colors duration-200"></div>
+                            <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                        </div>
+                    </label>
+                    <div id="coeff-cap-row" class="pl-4 border-l-2 border-emerald-100"
+                         style="{{ '' if plan_coeff_enabled else 'display:none' }}">
+                        <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                            <div>
+                                <p class="text-sm font-medium text-slate-700 group-hover:text-slate-900">Обрезать коэффициент до 100%</p>
+                                <p class="text-xs text-slate-400 mt-0.5">Перевыполнение плана не увеличивает мотивацию сверх базы</p>
+                            </div>
+                            <div class="relative shrink-0">
+                                <input type="checkbox" name="plan_coeff_cap" value="on"
+                                       {% if plan_coeff_cap %}checked{% endif %}
+                                       class="peer sr-only">
+                                <div class="w-11 h-6 bg-slate-200 peer-checked:bg-emerald-500 rounded-full transition-colors duration-200"></div>
+                                <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                            </div>
+                        </label>
+                    </div>
+                    <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var chk = document.getElementById('coeff-chk');
+                        var cap = document.getElementById('coeff-cap-row');
+                        if (chk && cap) {
+                            function syncCap() { cap.style.display = chk.checked ? '' : 'none'; }
+                            chk.addEventListener('change', syncCap);
+                        }
+                    });
+                    </script>
+                    <button type="submit"
+                            onclick="this.disabled=true;this.innerHTML='⏳ Сохранение…'"
+                            class="w-full bg-emerald-600 text-white font-medium py-2.5 rounded-lg text-sm hover:bg-emerald-700 transition-colors">
+                        💾 Сохранить
+                    </button>
+                </form>
+            </div>
+        </div>
+
         {% if categories %}
         <div class="card p-5 mt-4" x-data="{ bulkOpen: false }">
             <div class="flex items-center justify-between cursor-pointer" @click="bulkOpen = !bulkOpen">
