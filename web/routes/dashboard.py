@@ -144,17 +144,26 @@ def dashboard(request: Request):
                 for plan, actual, pct in raw:
                     metric = plan[2]
                     target = float(plan[3] or 1)
+                    target_type = plan[4]
                     label = (plan[12] or "") + (" " + (plan[13] or "")[:1] + "." if plan[13] else "").strip() \
-                        if plan[1] == "seller" else (plan[6] or "Весь орг")
+                        if target_type == "seller" else (plan[6] or "Весь орг")
+                    period_raw = plan[1] or ""
+                    period_label = "Неделя" if period_raw == "weekly" else ("Месяц" if period_raw == "monthly" else period_raw)
+                    filter_type = plan[7] or "all"
+                    filter_value = plan[8] or ""
                     plans_dash.append({
                         "id": plan[0],
-                        "plan_type": plan[1],
+                        "plan_type": period_raw,
                         "metric": metric,
                         "label": label,
                         "actual": float(actual or 0),
                         "target": target,
                         "pct": min(100, int(pct or 0)),
                         "shop_name": plan[6] or "",
+                        "target_type": target_type,
+                        "period_label": period_label,
+                        "filter_type": filter_type,
+                        "filter_value": filter_value,
                     })
                 # Sort: least complete first (most urgent)
                 plans_dash.sort(key=lambda x: x["pct"])
@@ -173,15 +182,23 @@ def dashboard(request: Request):
                     metric = plan[2]
                     target = float(plan[3] or 1)
                     label = plan[6] or "Личный план"
+                    period_raw = plan[1] or ""
+                    period_label = "Неделя" if period_raw == "weekly" else ("Месяц" if period_raw == "monthly" else period_raw)
+                    filter_type = plan[7] or "all"
+                    filter_value = plan[8] or ""
                     plans_dash.append({
                         "id": plan[0],
-                        "plan_type": plan[1],
+                        "plan_type": period_raw,
                         "metric": metric,
                         "label": label,
                         "actual": float(actual or 0),
                         "target": target,
                         "pct": min(100, int(pct or 0)),
                         "shop_name": plan[6] or "",
+                        "target_type": plan[4] or "shop",
+                        "period_label": period_label,
+                        "filter_type": filter_type,
+                        "filter_value": filter_value,
                     })
                 plans_dash.sort(key=lambda x: x["pct"])
                 ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)

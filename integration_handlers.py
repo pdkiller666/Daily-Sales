@@ -946,20 +946,9 @@ def _build_conn_detail_content(conn, conn_id: int, exports: list):
         text="❌ Отключить" if enabled else "✅ Включить",
         callback_data=f"gs_toggle_conn_{conn_id}"
     ))
-    kb.row(InlineKeyboardButton(text="📋 Экспорты", callback_data=f"gs_exports_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="📥 Импорт данных", callback_data=f"gs_import_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="🔍 Тест подключения", callback_data=f"gs_test_conn_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="🔄 Синхронизировать мотивацию",
-                                callback_data=f"gs_sync_motiv_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="📊 Кэш мотивации",
-                                callback_data=f"gs_show_motiv_{conn_id}"))
-    kb.row(InlineKeyboardButton(text="📢 Журнал событий", callback_data=f"gs_log_{conn_id}"))
-    if cfg.get("auth_type") == "oauth":
-        kb.row(InlineKeyboardButton(text="🔑 Переавторизовать Google",
-                                    callback_data=f"gs_reauth_{conn_id}"))
-    if exports:
-        kb.row(InlineKeyboardButton(text="📤 Перенести экспорты",
-                                    callback_data=f"gs_move_exports_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📊 Данные", callback_data=f"gs_hub_data_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="🔧 Диагностика", callback_data=f"gs_hub_diag_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="🎯 Мотивация", callback_data=f"gs_hub_motiv_{conn_id}"))
     kb.row(InlineKeyboardButton(text="🗑 Удалить", callback_data=f"gs_del_conn_{conn_id}"))
     kb.row(_back("integration_menu"))
     return text, kb.as_markup()
@@ -977,6 +966,68 @@ async def gs_conn_detail(callback: CallbackQuery, state: FSMContext):
     exports      = await current_db.get_integration_exports(conn_id)
     text, markup = _build_conn_detail_content(conn, conn_id, exports)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+@integration_router.callback_query(F.data.startswith("gs_hub_data_"))
+async def gs_hub_data(callback: CallbackQuery, state: FSMContext):
+    """Hub: Данные — экспорты, импорт, перенос."""
+    conn_id = int(callback.data.split("_")[3])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    exports = await current_db.get_integration_exports(conn_id)
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="📋 Экспорты", callback_data=f"gs_exports_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📥 Импорт данных", callback_data=f"gs_import_{conn_id}"))
+    if exports:
+        kb.row(InlineKeyboardButton(text="📤 Перенести экспорты",
+                                    callback_data=f"gs_move_exports_{conn_id}"))
+    kb.row(_back(f"gs_conn_{conn_id}"))
+    await callback.message.edit_text(
+        "📊 <b>Данные</b>\n\nУправление экспортами и импортом данных из Google Sheets.",
+        reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_hub_diag_"))
+async def gs_hub_diag(callback: CallbackQuery, state: FSMContext):
+    """Hub: Диагностика — тест, журнал, переавторизация."""
+    conn_id = int(callback.data.split("_")[3])
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    conn = await current_db.get_integration_connection(conn_id)
+    if not conn:
+        await callback.answer("❌ Подключение не найдено", show_alert=True)
+        return
+    cfg = json.loads(conn[3] or '{}')
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔍 Тест подключения",
+                                callback_data=f"gs_test_conn_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📢 Журнал событий", callback_data=f"gs_log_{conn_id}"))
+    if cfg.get("auth_type") == "oauth":
+        kb.row(InlineKeyboardButton(text="🔑 Переавторизовать Google",
+                                    callback_data=f"gs_reauth_{conn_id}"))
+    kb.row(_back(f"gs_conn_{conn_id}"))
+    await callback.message.edit_text(
+        "🔧 <b>Диагностика</b>\n\nИнструменты проверки и управления подключением.",
+        reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
+
+
+@integration_router.callback_query(F.data.startswith("gs_hub_motiv_"))
+async def gs_hub_motiv(callback: CallbackQuery, state: FSMContext):
+    """Hub: Мотивация — синхронизация и просмотр кэша."""
+    conn_id = int(callback.data.split("_")[3])
+    await callback.answer()
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔄 Синхронизировать мотивацию",
+                                callback_data=f"gs_sync_motiv_{conn_id}"))
+    kb.row(InlineKeyboardButton(text="📊 Кэш мотивации",
+                                callback_data=f"gs_show_motiv_{conn_id}"))
+    kb.row(_back(f"gs_conn_{conn_id}"))
+    await callback.message.edit_text(
+        "🎯 <b>Мотивация</b>\n\nСинхронизация бонусных данных из Google Sheets и просмотр кэша.",
+        reply_markup=kb.as_markup(), parse_mode="HTML"
+    )
 
 
 @integration_router.callback_query(F.data.startswith("gs_toggle_conn_"))
@@ -1015,7 +1066,7 @@ async def gs_test_conn(callback: CallbackQuery, state: FSMContext):
     icon = "✅" if ok else "❌"
     await callback.message.edit_text(
         f"{icon} {msg}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_hub_diag_{conn_id}")]]),
         parse_mode="HTML"
     )
 
@@ -1158,7 +1209,7 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     logs = await current_db.get_integration_logs(conn_id, limit=10)
-    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_hub_diag_{conn_id}")]])
     if not logs:
         await callback.message.edit_text(
             "📢 <b>Журнал пуст.</b>",
@@ -1202,7 +1253,7 @@ async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
         f"Пример: <code>w{{week}}</code>\n\n"
         f"Введите название листа:",
         reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]
+            inline_keyboard=[[_back(f"gs_hub_motiv_{conn_id}")]]
         ),
         parse_mode="HTML"
     )
@@ -1324,7 +1375,7 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Синхронизировать",
                                       callback_data=f"gs_sync_motiv_{conn_id}")],
-                [_back(f"gs_conn_{conn_id}")],
+                [_back(f"gs_hub_motiv_{conn_id}")],
             ]),
             parse_mode="HTML"
         )
@@ -1353,7 +1404,7 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔄 Обновить",
                                 callback_data=f"gs_sync_motiv_{conn_id}"))
-    kb.row(_back(f"gs_conn_{conn_id}"))
+    kb.row(_back(f"gs_hub_motiv_{conn_id}"))
 
     await callback.message.edit_text(
         "\n".join(lines),

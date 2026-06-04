@@ -342,7 +342,7 @@
             <div class="border-t border-slate-200"></div>
             {% endif %}
             <a href="/plans/{{ p.id }}" class="block hover:opacity-80 transition-opacity">
-                <div class="flex items-center justify-between gap-2 mb-1.5">
+                <div class="flex items-center justify-between gap-2 mb-1">
                     <p class="text-xs text-slate-500">
                         {{ 'Выручка' if p.metric == 'turnover' else 'Штуки' }}
                         {% if p.metric == 'turnover' %}
@@ -353,6 +353,14 @@
                     </p>
                     <span class="shrink-0 text-sm font-bold {{ text_color }}">{{ p.pct }}%</span>
                 </div>
+                <p class="text-xs text-slate-400 mb-1.5">
+                    {{ p.period_label }}
+                    {% if p.filter_type == 'category' and p.filter_value %}
+                    · Кат: {{ p.filter_value }}
+                    {% elif p.filter_type == 'product' and p.filter_value %}
+                    · Товар: {{ p.filter_value }}
+                    {% endif %}
+                </p>
                 <div class="w-full bg-slate-200 rounded-full h-1.5">
                     <div class="{{ bar_color }} h-1.5 rounded-full transition-all" style="width: {{ p.pct }}%"></div>
                 </div>
