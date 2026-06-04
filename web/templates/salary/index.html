@@ -262,6 +262,32 @@
                     </tr>
                     {% endfor %}
                 </tbody>
+                <tfoot>
+                    {% if detail_plan_coeff is not none %}
+                    <tr class="bg-slate-50 border-t border-slate-100">
+                        <td class="px-3 py-2 text-xs text-slate-400" colspan="3">Сумма по строкам (до коэф.)</td>
+                        <td class="px-3 py-2 text-right text-xs text-slate-400">{{ detail_raw_commission|int|fmt_currency }}</td>
+                    </tr>
+                    <tr class="bg-amber-50 border-t border-amber-100">
+                        <td class="px-3 py-2 text-xs text-amber-700 font-semibold" colspan="3">× Коэф. планов ×{{ "%.2f"|format(detail_plan_coeff) }} → итого мотивации</td>
+                        <td class="px-3 py-2 text-right font-bold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</td>
+                    </tr>
+                    {% elif detail_raw_commission != detail_motivation_total %}
+                    <tr class="bg-slate-50 border-t border-slate-100">
+                        <td class="px-3 py-2 text-xs text-slate-400" colspan="3">Сумма комиссий</td>
+                        <td class="px-3 py-2 text-right text-xs text-slate-400">{{ detail_raw_commission|int|fmt_currency }}</td>
+                    </tr>
+                    <tr class="bg-slate-50 border-t border-slate-100">
+                        <td class="px-3 py-2 text-xs font-semibold text-slate-600" colspan="3">Итого мотивации (с бонусами)</td>
+                        <td class="px-3 py-2 text-right font-bold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</td>
+                    </tr>
+                    {% else %}
+                    <tr class="bg-slate-50 border-t border-slate-200">
+                        <td class="px-3 py-2 font-semibold text-slate-700 text-xs" colspan="3">Итого мотивации</td>
+                        <td class="px-3 py-2 text-right font-bold text-blue-600">+{{ detail_motivation_total|int|fmt_currency }}</td>
+                    </tr>
+                    {% endif %}
+                </tfoot>
             </table>
         </div>
         {% if detail_total_pages > 1 %}
@@ -384,38 +410,63 @@
         {% endif %}
     </div>
 
-    <!-- Final total breakdown -->
-    <div class="mt-4 pt-4 border-t border-slate-100 space-y-2 text-sm">
-        <div class="flex justify-between">
-            <span class="text-slate-500">Оклад ({{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} × {{ detail_user.daily_rate|int|fmt_currency }})</span>
-            <span class="font-medium text-slate-700">{{ detail_user.base_salary|int|fmt_currency }}</span>
+    <!-- Final total breakdown — detailed formula -->
+    <div class="mt-4 pt-4 border-t border-slate-100 text-sm">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Формула расчёта зарплаты</p>
+
+        <!-- Оклад -->
+        <div class="flex justify-between items-start py-2 border-b border-slate-50">
+            <div>
+                <span class="font-medium text-slate-800">Оклад</span>
+                <p class="text-xs text-slate-400 mt-0.5">
+                    {{ detail_user.worked_days }} смен × {{ detail_user.daily_rate|int|fmt_currency }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач. отсутств. × {{ detail_user.daily_rate|int|fmt_currency }}{% endif %}
+                </p>
+            </div>
+            <span class="font-semibold text-slate-800 ml-4 shrink-0">{{ detail_user.base_salary|int|fmt_currency }}</span>
         </div>
+
+        <!-- Мотивация -->
         {% if detail_user.motivation > 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Мотивация{% if detail_plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(detail_plan_coeff) }} план)</span>{% endif %}</span>
-            <span class="font-medium text-blue-600">+{{ detail_user.motivation|int|fmt_currency }}</span>
+        <div class="flex justify-between items-start py-2 border-b border-slate-50">
+            <div>
+                <span class="font-medium text-slate-800">Мотивация</span>
+                {% if detail_plan_coeff is not none %}
+                <p class="text-xs text-amber-600 mt-0.5">{{ detail_raw_commission|int|fmt_currency }} × {{ "%.2f"|format(detail_plan_coeff) }} (план) = {{ detail_motivation_total|int|fmt_currency }}</p>
+                {% else %}
+                <p class="text-xs text-slate-400 mt-0.5">Комиссии за продажи</p>
+                {% endif %}
+            </div>
+            <span class="font-semibold text-blue-600 ml-4 shrink-0">+{{ detail_user.motivation|int|fmt_currency }}</span>
         </div>
         {% endif %}
-        {% if detail_user.adj_sum > 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Бонусы / корректировки</span>
-            <span class="font-medium text-emerald-600">+{{ detail_user.adj_sum|int|fmt_currency }}</span>
-        </div>
-        {% elif detail_user.adj_sum < 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Штрафы / корректировки</span>
-            <span class="font-medium text-red-500">{{ detail_user.adj_sum|int|fmt_currency }}</span>
+
+        <!-- Корректировки -->
+        {% if detail_user.adj_sum != 0 %}
+        <div class="flex justify-between items-center py-2 border-b border-slate-50">
+            <span class="font-medium text-slate-800">Корректировки</span>
+            <span class="font-semibold {{ 'text-emerald-600' if detail_user.adj_sum > 0 else 'text-red-500' }} ml-4 shrink-0">
+                {{ '+' if detail_user.adj_sum > 0 else '' }}{{ detail_user.adj_sum|int|fmt_currency }}
+            </span>
         </div>
         {% endif %}
+
+        <!-- Призы -->
         {% if detail_contest_rewards > 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Призы конкурсов</span>
-            <span class="font-medium text-violet-600">+{{ detail_contest_rewards|int|fmt_currency }}</span>
+        <div class="flex justify-between items-center py-2 border-b border-slate-50">
+            <span class="font-medium text-slate-800">Призы конкурсов</span>
+            <span class="font-semibold text-violet-600 ml-4 shrink-0">+{{ detail_contest_rewards|int|fmt_currency }}</span>
         </div>
         {% endif %}
-        <div class="flex justify-between pt-2 border-t border-slate-100">
-            <span class="font-semibold text-slate-700">К выплате</span>
-            <span class="text-xl font-bold text-emerald-600">{{ detail_user.total|int|fmt_currency }}</span>
+
+        <!-- К выплате -->
+        <div class="flex justify-between items-center pt-3 mt-1">
+            <div>
+                <span class="font-bold text-slate-900 text-base">К выплате</span>
+                <p class="text-xs text-slate-400 mt-0.5">
+                    {{ detail_user.base_salary|int|fmt_currency }}{% if detail_user.motivation > 0 %} + {{ detail_user.motivation|int|fmt_currency }}{% endif %}{% if detail_user.adj_sum > 0 %} + {{ detail_user.adj_sum|int|fmt_currency }}{% elif detail_user.adj_sum < 0 %} {{ detail_user.adj_sum|int|fmt_currency }}{% endif %}{% if detail_contest_rewards > 0 %} + {{ detail_contest_rewards|int|fmt_currency }}{% endif %}
+                </p>
+            </div>
+            <span class="text-xl font-bold text-emerald-600 ml-4 shrink-0">{{ detail_user.total|int|fmt_currency }}</span>
         </div>
     </div>
 </div>

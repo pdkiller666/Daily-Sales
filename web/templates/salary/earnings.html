@@ -147,10 +147,21 @@
                 {% endfor %}
             </tbody>
             <tfoot>
-                <tr class="bg-slate-50 border-t border-slate-200">
-                    <td class="px-5 py-3 font-semibold text-slate-700" colspan="3">Итого комиссий</td>
+                {% if plan_coeff is not none %}
+                <tr class="bg-slate-50 border-t border-slate-100">
+                    <td class="px-5 py-3 text-xs text-slate-400" colspan="3">Сумма по строкам (до коэф.)</td>
+                    <td class="px-5 py-3 text-right text-xs text-slate-400">{{ commission_before_coeff|int|fmt_currency }}</td>
+                </tr>
+                <tr class="bg-amber-50 border-t border-amber-100">
+                    <td class="px-5 py-3 text-xs text-amber-700 font-semibold" colspan="3">× Коэф. планов ×{{ "%.2f"|format(plan_coeff) }} → итого мотивации</td>
                     <td class="px-5 py-3 text-right font-bold text-blue-600">+{{ total_commission|int|fmt_currency }}</td>
                 </tr>
+                {% else %}
+                <tr class="bg-slate-50 border-t border-slate-200">
+                    <td class="px-5 py-3 font-semibold text-slate-700" colspan="3">Итого мотивации</td>
+                    <td class="px-5 py-3 text-right font-bold text-blue-600">+{{ total_commission|int|fmt_currency }}</td>
+                </tr>
+                {% endif %}
             </tfoot>
         </table>
     </div>
@@ -228,35 +239,62 @@
 
 <!-- Итоговый расчёт -->
 <div class="card p-4">
-    <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-slate-700 text-sm">Итоговый расчёт</h3>
-    </div>
-    <div class="space-y-2 text-sm">
-        <div class="flex justify-between">
-            <span class="text-slate-500">Оклад ({{ worked_days }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач.{% endif %} × {{ daily_rate|int|fmt_currency }})</span>
-            <span class="font-medium text-slate-700">{{ total_base|int|fmt_currency }}</span>
+    <h3 class="font-semibold text-slate-700 text-sm mb-3">Формула расчёта зарплаты</h3>
+    <div class="text-sm">
+
+        <!-- Оклад -->
+        <div class="flex justify-between items-start py-2.5 border-b border-slate-100">
+            <div>
+                <span class="font-medium text-slate-800">Оклад</span>
+                <p class="text-xs text-slate-400 mt-0.5">
+                    {{ worked_days }} смен × {{ daily_rate|int|fmt_currency }}{% if paid_absence_days %} + {{ paid_absence_days }} оплач. отсутств. × {{ daily_rate|int|fmt_currency }}{% endif %}
+                </p>
+            </div>
+            <span class="font-semibold text-slate-800 ml-4 shrink-0">{{ total_base|int|fmt_currency }}</span>
         </div>
-        <div class="flex justify-between">
-            <span class="text-slate-500">Мотивация{% if plan_coeff is not none %} <span class="text-amber-500 text-xs">(×{{ "%.2f"|format(plan_coeff) }} план)</span>{% endif %}</span>
-            <span class="font-medium text-blue-600">+{{ total_commission|int|fmt_currency }}</span>
+
+        <!-- Мотивация -->
+        {% if total_commission > 0 %}
+        <div class="flex justify-between items-start py-2.5 border-b border-slate-100">
+            <div>
+                <span class="font-medium text-slate-800">Мотивация</span>
+                {% if plan_coeff is not none %}
+                <p class="text-xs text-amber-600 mt-0.5">{{ commission_before_coeff|int|fmt_currency }} × {{ "%.2f"|format(plan_coeff) }} (план) = {{ total_commission|int|fmt_currency }}</p>
+                {% else %}
+                <p class="text-xs text-slate-400 mt-0.5">Комиссии за продажи с мотивацией</p>
+                {% endif %}
+            </div>
+            <span class="font-semibold text-blue-600 ml-4 shrink-0">+{{ total_commission|int|fmt_currency }}</span>
         </div>
+        {% endif %}
+
+        <!-- Корректировки -->
         {% if total_adj != 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Корректировки</span>
-            <span class="font-medium {{ 'text-emerald-600' if total_adj > 0 else 'text-red-500' }}">
+        <div class="flex justify-between items-center py-2.5 border-b border-slate-100">
+            <span class="font-medium text-slate-800">Корректировки</span>
+            <span class="font-semibold {{ 'text-emerald-600' if total_adj > 0 else 'text-red-500' }} ml-4 shrink-0">
                 {{ '+' if total_adj > 0 else '' }}{{ total_adj|int|fmt_currency }}
             </span>
         </div>
         {% endif %}
+
+        <!-- Призы -->
         {% if contest_rewards > 0 %}
-        <div class="flex justify-between">
-            <span class="text-slate-500">Призы конкурсов</span>
-            <span class="font-medium text-violet-600">+{{ contest_rewards|int|fmt_currency }}</span>
+        <div class="flex justify-between items-center py-2.5 border-b border-slate-100">
+            <span class="font-medium text-slate-800">Призы конкурсов</span>
+            <span class="font-semibold text-violet-600 ml-4 shrink-0">+{{ contest_rewards|int|fmt_currency }}</span>
         </div>
         {% endif %}
-        <div class="flex justify-between pt-2 border-t border-slate-100">
-            <span class="font-semibold text-slate-700">К выплате</span>
-            <span class="font-bold text-emerald-600 text-base">{{ grand_total|int|fmt_currency }}</span>
+
+        <!-- К выплате -->
+        <div class="flex justify-between items-center pt-3 mt-1">
+            <div>
+                <span class="font-bold text-slate-900 text-base">К выплате</span>
+                <p class="text-xs text-slate-400 mt-0.5">
+                    {{ total_base|int|fmt_currency }}{% if total_commission > 0 %} + {{ total_commission|int|fmt_currency }}{% endif %}{% if total_adj > 0 %} + {{ total_adj|int|fmt_currency }}{% elif total_adj < 0 %} {{ total_adj|int|fmt_currency }}{% endif %}{% if contest_rewards > 0 %} + {{ contest_rewards|int|fmt_currency }}{% endif %}
+                </p>
+            </div>
+            <span class="font-bold text-emerald-600 text-xl ml-4 shrink-0">{{ grand_total|int|fmt_currency }}</span>
         </div>
     </div>
 </div>
