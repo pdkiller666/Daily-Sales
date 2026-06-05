@@ -41,14 +41,41 @@ html.dark .msg-other .msg-bubble { background:#1e293b;color:#e2e8f0; }
                border-radius:8px;padding:4px 10px;font-size:0.75rem;color:#1d4ed8;max-width:240px;overflow:hidden; }
 html.dark .attach-chip { background:#1e3a5f;border-color:#3b82f6;color:#93c5fd; }
 /* ── Topic tabs ── */
-.topic-tab { flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
-             border-radius:9999px;font-size:0.8125rem;font-weight:500;cursor:pointer;
-             white-space:nowrap;transition:background .15s,color .15s;user-select:none; }
-.topic-tab-active { background:#2563eb;color:#fff; }
-.topic-tab-idle   { background:#f1f5f9;color:#475569; }
-html.dark .topic-tab-idle { background:#1e293b;color:#94a3b8; }
-.topic-tab-idle:hover { background:#e2e8f0; }
-html.dark .topic-tab-idle:hover { background:#2d3748; }
+/* Pill wrapper — the visual "pill" that holds both the label button and the gear button */
+.topic-pill { flex-shrink:0;display:inline-flex;align-items:stretch;
+              border-radius:9999px;overflow:hidden;
+              font-size:0.8125rem;font-weight:500;white-space:nowrap;
+              transition:background .15s,color .15s;user-select:none; }
+.topic-pill-active { background:#2563eb;color:#fff; }
+.topic-pill-idle   { background:#f1f5f9;color:#475569; }
+html.dark .topic-pill-idle { background:#1e293b;color:#94a3b8; }
+.topic-pill-idle:hover { background:#e2e8f0; }
+html.dark .topic-pill-idle:hover { background:#2d3748; }
+
+/* Left part — label */
+.topic-tab { display:inline-flex;align-items:center;gap:5px;
+             padding:5px 10px 5px 12px;cursor:pointer;background:transparent;
+             touch-action:manipulation; }
+/* Right part — gear button, separated by a subtle divider line */
+.topic-gear { display:inline-flex;align-items:center;justify-content:center;
+              padding:5px 9px 5px 7px;cursor:pointer;background:transparent;
+              border-left:1px solid rgba(255,255,255,.25);
+              touch-action:manipulation;transition:background .12s; }
+.topic-pill-idle .topic-gear { border-left-color:rgba(0,0,0,.1); }
+html.dark .topic-pill-idle .topic-gear { border-left-color:rgba(255,255,255,.1); }
+.topic-pill-active .topic-gear:hover { background:rgba(255,255,255,.18); border-radius:0 9999px 9999px 0; }
+.topic-pill-idle .topic-gear:hover { background:rgba(0,0,0,.07); border-radius:0 9999px 9999px 0; }
+html.dark .topic-pill-idle .topic-gear:hover { background:rgba(255,255,255,.08); border-radius:0 9999px 9999px 0; }
+
+/* keep old .topic-tab for the + button */
+.topic-tab-add { flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
+                 border-radius:9999px;font-size:0.8125rem;font-weight:500;cursor:pointer;
+                 white-space:nowrap;transition:background .15s,color .15s;user-select:none;
+                 background:#f1f5f9;color:#475569; }
+html.dark .topic-tab-add { background:#1e293b;color:#94a3b8; }
+.topic-tab-add:hover { background:#e2e8f0; }
+html.dark .topic-tab-add:hover { background:#2d3748; }
+
 .topic-unread { display:inline-flex;align-items:center;justify-content:center;
                 width:18px;height:18px;border-radius:9999px;
                 background:#ef4444;color:#fff;font-size:10px;font-weight:700; }
@@ -159,27 +186,34 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
              id="topics-bar">
 
             <template x-for="t in topicsList" :key="t.id">
-                <div class="relative inline-block" x-data="{ menuOpen: false }">
+                <div class="relative" x-data="{ menuOpen: false }">
 
-                    <!-- Tab pill.
-                         Tap on inactive tab → switch topic.
-                         Tap on already-active tab (admin only, non-General) → toggle menu.
-                         Right-click (desktop) → toggle menu. -->
-                    <button
-                        @click="if(t.id === currentTopicId){ if(isAdmin && t.id !== 1) menuOpen = !menuOpen }
-                                else { switchTopic(t.id); menuOpen = false }"
-                        @contextmenu.prevent="if(isAdmin && t.id !== 1) menuOpen = !menuOpen"
-                        :class="t.id === currentTopicId ? 'topic-tab-active' : 'topic-tab-idle'"
-                        class="topic-tab"
-                        style="touch-action:manipulation">
-                        <span x-text="t.name"></span>
-                        <span x-show="t.unread > 0" class="topic-unread" x-text="t.unread > 9 ? '9+' : t.unread"></span>
-                        <!-- subtle gear hint on active admin tabs -->
-                        <span x-show="isAdmin && t.id !== 1 && t.id === currentTopicId"
-                              class="opacity-50 text-[10px] leading-none select-none">⚙️</span>
-                    </button>
+                    <!-- Single pill: left = switch, right = gear menu (admin only, non-General) -->
+                    <div class="topic-pill"
+                         :class="t.id === currentTopicId ? 'topic-pill-active' : 'topic-pill-idle'">
 
-                    <!-- Context menu -->
+                        <!-- Left: topic label — switches topic on click -->
+                        <button class="topic-tab"
+                                @click="switchTopic(t.id); menuOpen = false">
+                            <span x-text="t.name"></span>
+                            <span x-show="t.unread > 0" class="topic-unread"
+                                  x-text="t.unread > 9 ? '9+' : t.unread"></span>
+                        </button>
+
+                        <!-- Right: gear — opens menu; only for admin on non-General topics -->
+                        <button x-show="isAdmin && t.id !== 1"
+                                class="topic-gear"
+                                @click.stop="menuOpen = !menuOpen"
+                                title="Настройки темы">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 opacity-70" fill="none"
+                                 viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                      d="M12 5v.01M12 12v.01M12 19v.01"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Dropdown menu -->
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
                          class="topic-menu">
@@ -190,7 +224,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             </template>
 
             <button @click="newTopicOpen = !newTopicOpen"
-                    class="topic-tab topic-tab-idle shrink-0" title="Создать новую тему">
+                    class="topic-tab-add shrink-0" title="Создать новую тему">
                 <span class="text-blue-500 font-bold text-sm">+</span>
                 <span class="text-xs">Тема</span>
             </button>
