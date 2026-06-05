@@ -1019,7 +1019,14 @@ async def main():
                 return
             try:
                 url = f"https://api.telegram.org/bot{_token}/sendMessage"
-                payload = _json.dumps({"chat_id": tg_id, "text": text, "parse_mode": "HTML"}).encode()
+                payload = _json.dumps({
+                    "chat_id": tg_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {
+                        "inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]
+                    },
+                }).encode()
                 req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
                 _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
             except Exception:
