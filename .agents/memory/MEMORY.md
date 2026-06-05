@@ -18,3 +18,4 @@
 - [PostgreSQL migration plan](postgres-migration.md) — поэтапный план SQLite→PG: schema-per-org, asyncpg, dual-write, 279 методов; начинать при ≥30 платящих оргов или реальном lock-contention
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
+- [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt

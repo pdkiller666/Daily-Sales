@@ -418,6 +418,10 @@ def task_change_status(
     if status not in STATUS_LABELS:
         return RedirectResponse(url=f"/tasks/{task_id}?msg=bad_status", status_code=303)
 
+    # Non-admin cannot cancel tasks
+    if not is_admin and status == 'cancelled':
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=bad_status", status_code=303)
+
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
@@ -427,12 +431,23 @@ def task_change_status(
         conn.close()
         my_db_id = my_row[0] if my_row else 0
 
+        # Deny unresolved users
+        if not my_db_id:
+            return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
 
         if not is_admin and task.get("assigned_to") != my_db_id:
             return RedirectResponse(url="/tasks", status_code=303)
+
+        # Server-side enforce valid transition for non-admin
+        _VALID_NEXT = {'new': 'in_progress', 'in_progress': 'review', 'review': 'done'}
+        if not is_admin:
+            allowed = _VALID_NEXT.get(task.get('status', ''))
+            if status != allowed:
+                return RedirectResponse(url=f"/tasks/{task_id}?msg=bad_status", status_code=303)
 
         db.update_task_status(task_id, status)
 
@@ -556,11 +571,28 @@ def task_toggle_checklist(
         conn.close()
         my_db_id = my_row[0] if my_row else 0
 
+        # Deny unresolved users
+        if not my_db_id:
+            return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         if not is_admin and task.get("assigned_to") != my_db_id:
             return RedirectResponse(url="/tasks", status_code=303)
+
+        # IDOR guard: verify item_id belongs to this task_id
+        item_conn = db.get_connection()
+        item_row = item_conn.execute(
+            "SELECT task_id FROM task_checklist WHERE id = ?", (item_id,)
+        ).fetchone()
+        item_conn.close()
+        if not item_row or item_row[0] != task_id:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+        # Block checklist edits on closed tasks for non-admin
+        if not is_admin and task.get("status") in ('done', 'cancelled'):
+            return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.toggle_task_checklist_item(item_id, my_db_id)
     except Exception as e:

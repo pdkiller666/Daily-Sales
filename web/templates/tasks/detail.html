@@ -258,7 +258,7 @@
 
       {% if task.get('linked_chat_topic_id') %}
       <div class="pt-1 border-t border-slate-100 dark:border-slate-700">
-        <a href="/chat?topic_id={{ task.linked_chat_topic_id }}"
+        <a href="/chat?topic={{ task.linked_chat_topic_id }}"
            class="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium">
           💬 Обсудить в чате
         </a>

@@ -71,8 +71,14 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
         nav_row.append(InlineKeyboardButton(text="Далее ▶", callback_data=f"tsk_page_{page+1}"))
     if nav_row:
         kb.row(*nav_row)
-    if is_admin:
-        kb.row(InlineKeyboardButton(text="🌐 Открыть в веб", url="https://t.me/BotCraftAi_Test_4_bot"))
+    try:
+        from bot_holder import get_username as _get_uname
+        _un = _get_uname() or ""
+        _web_url = f"https://t.me/{_un}" if _un else None
+    except Exception:
+        _web_url = None
+    if is_admin and _web_url:
+        kb.row(InlineKeyboardButton(text="🌐 Открыть в веб", url=_web_url))
     kb.row(home_button())
     return kb.as_markup()
 
@@ -255,8 +261,18 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
 
 @tasks_router.callback_query(F.data.startswith("tsk_setstatus_"))
 async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
-    parts = callback.data.split("_")
-    task_id = int(parts[2])
+    # Format: tsk_setstatus_{task_id}_{status}
+    # Status may contain '_' (e.g. in_progress), so split with maxsplit=3
+    parts = callback.data.split("_", 3)
+    # parts: ['tsk', 'setstatus', '{task_id}', '{status}']
+    if len(parts) < 4:
+        await callback.answer("Неверный формат команды")
+        return
+    try:
+        task_id = int(parts[2])
+    except ValueError:
+        await callback.answer("Неверный id задачи")
+        return
     new_status = parts[3]
 
     if new_status not in STATUS_LABELS:
