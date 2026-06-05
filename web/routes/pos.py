@@ -287,8 +287,99 @@ def api_pos_products(request: Request, shop: str = ""):
         return JSONResponse({"error": "Внутренняя ошибка сервера", "products": [], "categories": {}})
 
 
+async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: str, sold_items: list):
+    """Fire-and-forget: уведомления коллегам по смене + Google Sheets после веб-POS продажи."""
+    import html as _html
+    from datetime import datetime as _dt
+
+    # ── 1. Уведомления коллегам по смене ──────────────────────────────────
+    try:
+        from bot_holder import get_bot as _get_bot
+        from notif_utils import add_read_btn as _add_read_btn
+        from zoneinfo import ZoneInfo
+
+        bot = _get_bot()
+        if bot:
+            try:
+                user_tz = db.get_user_timezone(telegram_id) or 'Europe/Moscow'
+            except Exception:
+                user_tz = 'Europe/Moscow'
+
+            today_str = _dt.now(ZoneInfo(user_tz)).date().isoformat()
+
+            try:
+                coworkers = db.get_shop_coworkers_on_shift(shop_name, today_str, internal_uid) or []
+            except Exception:
+                coworkers = []
+
+            if coworkers:
+                try:
+                    user_row = db.get_user(telegram_id)
+                    seller_name = f"{user_row[2] or ''} {user_row[3] or ''}".strip() if user_row else ""
+                except Exception:
+                    seller_name = ""
+
+                shop_esc = _html.escape(shop_name)
+                notif_lines = [f"🛍 <b>Новая продажа в магазине {shop_esc}</b>"]
+                if seller_name:
+                    notif_lines.append(f"👤 Продавец: {_html.escape(seller_name)}")
+                for item in sold_items:
+                    total_fmt = f"{item['total']:,.0f} ₽".replace(",", " ")
+                    price_fmt = f"{item['price']:,.0f} ₽".replace(",", " ")
+                    notif_lines.append(
+                        f"• {_html.escape(item['name'])}: {item['qty']} шт. "
+                        f"× {price_fmt} = {total_fmt}"
+                    )
+                notif_text = "\n".join(notif_lines)
+
+                for cw_uid, cw_tgid, _cw_name in coworkers:
+                    try:
+                        await bot.send_message(
+                            int(cw_tgid),
+                            notif_text,
+                            parse_mode="HTML",
+                            reply_markup=_add_read_btn(),
+                        )
+                        try:
+                            db.add_notification_to_history(cw_uid, 'shift_sale', notif_text)
+                        except Exception:
+                            pass
+                    except Exception as _send_err:
+                        logging.warning(f"web pos shift_sale notif to {cw_tgid}: {_send_err}")
+    except Exception as _notif_err:
+        logging.error(f"web pos shift_sale notifications error: {_notif_err}")
+
+    # ── 2. Google Sheets integration trigger ──────────────────────────────
+    try:
+        from integration.manager import integration_manager as _int_mgr
+        _sync_db = object.__getattribute__(db, '_db') if hasattr(db, '_db') else db
+        _now_str = _dt.now().strftime('%Y-%m-%d %H:%M')
+        try:
+            _user_row2 = db.get_user(telegram_id)
+            _seller = f"{_user_row2[2] or ''} {_user_row2[3] or ''}".strip() if _user_row2 else ""
+        except Exception:
+            _seller = ""
+        for item in sold_items:
+            _sale_event = {
+                'date': _now_str,
+                'shop_name': shop_name,
+                'quantity': item['qty'],
+                'total': item['total'],
+                'seller_name': _seller,
+                'product_name': item['name'],
+                'price': item['price'],
+                'category': '',
+            }
+            try:
+                await _int_mgr.trigger_export(_sync_db, 'sales', _sale_event)
+            except Exception as _item_err:
+                logging.warning(f"web pos GS trigger item error: {_item_err}")
+    except Exception as _gs_err:
+        logging.warning(f"web pos GS trigger error: {_gs_err}")
+
+
 @router.post("/pos/checkout")
-def pos_checkout(
+async def pos_checkout(
     request: Request,
     items_json: Annotated[str, Form()],
     shop_name: Annotated[str, Form()],
@@ -296,6 +387,7 @@ def pos_checkout(
 ):
     """Process a POS cart checkout — records multiple sales at once."""
     import json
+    import asyncio
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
@@ -332,6 +424,7 @@ def pos_checkout(
             return JSONResponse({"ok": False, "error": _msg or "Достигнут лимит продаж по тарифу"}, status_code=403)
 
         sold = []
+        sold_items = []  # детализация для пост-обработки
         errors = []
         for item in items:
             product_id = int(item.get("id", 0))
@@ -354,11 +447,19 @@ def pos_checkout(
                     errors.append(f"«{name}»: недостаточно на складе")
                 else:
                     sold.append(name)
+                    sold_items.append({"name": name, "qty": qty, "price": price, "total": qty * price})
             except Exception as e:
                 errors.append(f"«{name}»: {e}")
 
         if not sold:
             return JSONResponse({"ok": False, "error": "; ".join(errors) or "Ошибка записи"}, status_code=400)
+
+        # Запускаем пост-обработку (нотификации + GS) в фоне — не блокируем ответ
+        if sold_items:
+            try:
+                asyncio.create_task(_post_sale_async(db, telegram_id, internal_uid, shop_name, sold_items))
+            except Exception:
+                pass
 
         msg = f"Продано {len(sold)} поз."
         if errors:
