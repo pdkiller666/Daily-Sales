@@ -186,7 +186,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
              id="topics-bar">
 
             <template x-for="t in topicsList" :key="t.id">
-                <div class="relative" x-data="{ menuOpen: false }">
+                <div x-data="{ menuOpen: false, mx: 0, my: 0 }">
 
                     <!-- Single pill: left = switch, right = gear menu (admin only, non-General) -->
                     <div class="topic-pill"
@@ -203,17 +203,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                         <!-- Right: gear — opens menu; only for admin on non-General topics -->
                         <button x-show="isAdmin && t.id !== 1"
                                 class="topic-gear"
-                                @click.stop="
-                                    const r = $el.getBoundingClientRect();
-                                    const menu = $el.closest('.relative').querySelector('.topic-menu');
-                                    if (menu) {
-                                        const mw = 168;
-                                        let left = r.left;
-                                        if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
-                                        menu.style.top = (r.bottom + 6) + 'px';
-                                        menu.style.left = left + 'px';
-                                    }
-                                    menuOpen = !menuOpen"
+                                @click.stop="_gearClick($event, $data)"
                                 title="Настройки темы">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 opacity-70" fill="none"
                                  viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -223,10 +213,11 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                         </button>
                     </div>
 
-                    <!-- Dropdown menu -->
+                    <!-- Dropdown menu — position:fixed via mx/my set in _gearClick -->
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
-                         class="topic-menu">
+                         class="topic-menu"
+                         :style="'top:' + my + 'px;left:' + mx + 'px'">
                         <div class="topic-menu-item" @click="startRename(t); menuOpen = false">✏️ Переименовать</div>
                         <div class="topic-menu-item danger" @click="archiveTopic(t.id); menuOpen = false">🗑️ Удалить</div>
                     </div>
@@ -834,6 +825,18 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             }
         }
     };
+}
+
+/* ── Gear button: calculate fixed position and toggle menuOpen ── */
+function _gearClick(event, data) {
+    var btn = event.currentTarget || event.target;
+    var r = btn.getBoundingClientRect();
+    var mw = 168;
+    var left = r.left;
+    if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+    data.mx = left;
+    data.my = r.bottom + 6;
+    data.menuOpen = !data.menuOpen;
 }
 </script>
 
