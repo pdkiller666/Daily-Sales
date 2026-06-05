@@ -167,16 +167,16 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                         class="topic-tab">
                         <span x-text="t.name"></span>
                         <span x-show="t.unread > 0" class="topic-unread" x-text="t.unread > 9 ? '9+' : t.unread"></span>
-                        <span x-show="isAdmin && t.id !== 1 && t.id === currentTopicId"
+                        <span x-show="isAdmin && t.id !== 1"
                               @click.stop="menuOpen = !menuOpen"
-                              class="ml-0.5 opacity-60 hover:opacity-100 text-[11px]">⋯</span>
+                              class="ml-0.5 opacity-60 hover:opacity-100 text-[11px] px-0.5">⋯</span>
                     </button>
 
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
                          class="topic-menu">
                         <div class="topic-menu-item" @click="startRename(t); menuOpen = false">✏️ Переименовать</div>
-                        <div class="topic-menu-item danger" @click="archiveTopic(t.id); menuOpen = false">🗄️ Архивировать</div>
+                        <div class="topic-menu-item danger" @click="archiveTopic(t.id); menuOpen = false">🗑️ Удалить</div>
                     </div>
                 </div>
             </template>

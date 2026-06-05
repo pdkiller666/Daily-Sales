@@ -1863,27 +1863,33 @@ function mainApp() {
 {% if chat_enabled() %}
 <!-- ══ Chat FAB (mobile, draggable, edge-snap) ══ -->
 <div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none"
-     style="bottom:84px;right:16px{% if request.url.path.startswith('/chat') %};display:none{% endif %}">
-    <a id="chat-fab" href="/chat"
-       class="w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative"
+     style="bottom:84px;right:16px">
+    <button id="chat-fab"
+       class="w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-white text-2xl transition-colors relative"
+       style="background:#2563eb"
        draggable="false" aria-label="Открыть чат">
-        💬
+        <span id="chat-fab-icon">💬</span>
         <span id="chat-fab-badge"
               class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full items-center justify-center hidden">
         </span>
-    </a>
+    </button>
 </div>
 <script>
 (function () {
     const wrap = document.getElementById('chat-fab-wrap');
     const fab = document.getElementById('chat-fab');
     const badge = document.getElementById('chat-fab-badge');
+    const iconEl = document.getElementById('chat-fab-icon');
     if (!wrap || !fab) return;
 
-    /* ── hide FAB on chat page ── */
-    if (window.location.pathname.startsWith('/chat')) {
-        wrap.style.display = 'none';
-        return;
+    const onChatPage = window.location.pathname.startsWith('/chat');
+
+    /* ── on chat page: show as back button ── */
+    if (onChatPage) {
+        fab.style.background = '#475569';
+        iconEl.textContent = '←';
+        fab.setAttribute('aria-label', 'Вернуться назад');
+        fab.title = 'Закрыть чат';
     }
 
     /* ── restore saved position ── */
@@ -1946,9 +1952,23 @@ function mainApp() {
         const btm = Math.max(edgeGap, vh - snapTop - r.height);
         wrap.style.bottom = btm + 'px';
         try { localStorage.setItem('ds_chat_fab_pos', JSON.stringify({ side, edge, bottom: btm })); } catch (e) {}
-        /* if not really dragged — let the link navigate */
+        /* if not really dragged — navigate */
         if (!moved) {
-            window.location.href = '/chat';
+            if (onChatPage) {
+                /* back to previous page */
+                const prev = sessionStorage.getItem('ds_chat_prev_url');
+                if (prev && !prev.startsWith('/chat')) {
+                    window.location.href = prev;
+                } else if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.location.href = '/dashboard';
+                }
+            } else {
+                /* save current URL before entering chat */
+                try { sessionStorage.setItem('ds_chat_prev_url', window.location.pathname + window.location.search); } catch (e) {}
+                window.location.href = '/chat';
+            }
         }
     }
 
@@ -1958,11 +1978,6 @@ function mainApp() {
     wrap.addEventListener('touchstart', pointerDown, { passive: false });
     window.addEventListener('touchmove', pointerMove, { passive: false });
     window.addEventListener('touchend', pointerUp);
-
-    /* prevent default link click when drag happened */
-    fab.addEventListener('click', function (e) {
-        if (moved) e.preventDefault();
-    });
 
     /* ── unread badge via /chat/poll ── */
     const LS_KEY = 'ds_chat_last_id';
