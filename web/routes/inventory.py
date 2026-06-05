@@ -35,16 +35,21 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         all_inv_shops = db.get_inventory_shops() or []
         if is_admin:
             shops = all_inv_shops
+            user_editable_shops = all_inv_shops
         else:
             from web.routes.sales import _get_user_allowed_shops
             allowed = _get_user_allowed_shops(telegram_id, db)
             shops = [s for s in all_inv_shops if s in allowed] or all_inv_shops
+            user_editable_shops = shops
 
         if not shop or shop not in shops:
             shop = shops[0] if shops else ""
 
         ctx["shops"] = shops
         ctx["selected_shop"] = shop
+
+        # Пользователь может редактировать если выбранный магазин входит в его scope
+        ctx["can_edit"] = bool(shop and shop in user_editable_shops)
 
         # inv: id[0] product_id[1] shop_name[2] quantity[3] updated_at[4]
         #       updated_by[5] name[6] category[7] price[8] updated_by_name[9]
@@ -77,6 +82,7 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
+        ctx["can_edit"] = False
 
     return request.app.state.templates.TemplateResponse(
         request, "inventory/index.html", ctx
@@ -210,15 +216,21 @@ def inventory_adjust(
     user = get_session_user(request)
     if not user:
         return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return JSONResponse({"success": False, "error": "Нет прав"}, status_code=403)
     if not verify_csrf_token(request, csrf_token):
         return JSONResponse({"success": False, "error": "CSRF error"}, status_code=403)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
     try:
         db = get_web_db(telegram_id, org_db)
+
+        # Обычный пользователь может редактировать только магазины из своего scope
+        if not is_admin:
+            from web.routes.sales import _get_user_allowed_shops
+            allowed = _get_user_allowed_shops(telegram_id, db)
+            if shop_name not in allowed:
+                return JSONResponse({"success": False, "error": "Нет доступа к этому магазину"}, status_code=403)
 
         if mode == "set":
             # Read current qty to compute delta
@@ -268,7 +280,48 @@ def inventory_adjust(
         row = cur.fetchone()
         conn.close()
         new_qty = int(row[0] or 0) if row else 0
-        return JSONResponse({"success": True, "new_qty": new_qty})
+
+        # Google Sheets: ждём результата (до 8с), чтобы показать статус пользователю
+        gs_status = None  # None = интеграция не настроена/недоступна
+        try:
+            from web.app import _main_loop
+            from integration.manager import integration_manager as _int_mgr
+            from datetime import datetime as _dt
+            if _main_loop is not None:
+                product_name = ""
+                category = ""
+                try:
+                    p = db.get_product(product_id)
+                    if p:
+                        product_name = p[1] or ""
+                        category = p[2] or ""
+                except Exception:
+                    pass
+                import asyncio as _asyncio
+                future = _asyncio.run_coroutine_threadsafe(
+                    _int_mgr.trigger_export_with_result(db, "inventory", {
+                        "shop_name": shop_name,
+                        "product_name": product_name,
+                        "category": category,
+                        "quantity": new_qty,
+                        "last_updated": _dt.now().strftime("%Y-%m-%d %H:%M"),
+                    }),
+                    _main_loop,
+                )
+                try:
+                    results = future.result(timeout=8)
+                    if results:  # пустой список = экспорт не настроен
+                        gs_status = "ok" if all(r.get("success") for r in results) else "error"
+                except Exception as _fe:
+                    logging.warning(f"inventory_adjust: GSheets result error: {_fe}")
+                    gs_status = "error"
+        except Exception as _gs_err:
+            logging.warning(f"inventory_adjust: GSheets trigger error: {_gs_err}")
+
+        response: dict = {"success": True, "new_qty": new_qty}
+        if gs_status is not None:
+            response["gs_status"] = gs_status
+        return JSONResponse(response)
 
     except Exception as e:
         logging.error(f"inventory_adjust error: {e}")
@@ -284,17 +337,23 @@ def inventory_history(request: Request, shop: str = "", product_id: int = 0):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return JSONResponse({"error": "Нет прав"}, status_code=403)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
     rows = []
     product_name = ""
     error = None
     try:
         db = get_web_db(telegram_id, org_db)
+
+        # Обычный пользователь видит историю только своих магазинов
+        if not is_admin and shop:
+            from web.routes.sales import _get_user_allowed_shops
+            allowed = _get_user_allowed_shops(telegram_id, db)
+            if shop not in allowed:
+                return JSONResponse({"error": "Нет доступа"}, status_code=403)
         # Get product name
         p = db.get_product(product_id)
         if p:

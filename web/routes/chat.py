@@ -20,9 +20,10 @@ PLAN_ORDER = ["Бесплатный", "Базовый", "Стандарт", "П�
 _SHOP_BOT_DB = "data/shop_bot.db"
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
-_SEND_RATE_STORE:  dict[int, list[float]] = {}   # 30 msg/min per telegram_id
-_POLL_RATE_STORE:  dict[str, list[float]] = {}   # 60 req/min per IP
-_TOPIC_RATE_STORE: dict[int, list[float]] = {}   # 5 topics/hour per telegram_id
+_SEND_RATE_STORE:   dict[int, list[float]] = {}   # 30 msg/min per telegram_id
+_POLL_RATE_STORE:   dict[str, list[float]] = {}   # 60 req/min per IP
+_TOPIC_RATE_STORE:  dict[int, list[float]] = {}   # 5 topics/hour per telegram_id
+_SEARCH_RATE_STORE: dict[str, list[float]] = {}   # 30 search req/min per IP
 
 
 def _rate_ok(store: dict, key, limit: int, window: float) -> bool:
@@ -36,9 +37,10 @@ def _rate_ok(store: dict, key, limit: int, window: float) -> bool:
     return True
 
 
-def _send_rate_ok(tid: int)  -> bool: return _rate_ok(_SEND_RATE_STORE,  tid, 30, 60.0)
-def _poll_rate_ok(ip: str)   -> bool: return _rate_ok(_POLL_RATE_STORE,  ip,  60, 60.0)
-def _topic_rate_ok(tid: int) -> bool: return _rate_ok(_TOPIC_RATE_STORE, tid,  5, 3600.0)
+def _send_rate_ok(tid: int)   -> bool: return _rate_ok(_SEND_RATE_STORE,   tid, 30, 60.0)
+def _poll_rate_ok(ip: str)    -> bool: return _rate_ok(_POLL_RATE_STORE,   ip,  60, 60.0)
+def _topic_rate_ok(tid: int)  -> bool: return _rate_ok(_TOPIC_RATE_STORE,  tid,  5, 3600.0)
+def _search_rate_ok(ip: str)  -> bool: return _rate_ok(_SEARCH_RATE_STORE, ip,  30, 60.0)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -181,6 +183,14 @@ def _fmt_topic(row) -> dict:
         "created_by": created_by,
         "msg_count": msg_count or 0,
     }
+
+
+def _fmt_search_result(row, my_db_id: int = 0, is_admin: bool = False) -> dict:
+    """Как _fmt_msg, но строка содержит 13 колонок (добавлены topic_id, topic_name)."""
+    base = _fmt_msg(row[:11], my_db_id=my_db_id, is_admin=is_admin)
+    base["result_topic_id"]   = row[11] or 1
+    base["result_topic_name"] = row[12] or "Общий"
+    return base
 
 
 def _ensure_access(db, telegram_id: int) -> tuple[bool, str]:
@@ -644,3 +654,62 @@ def chat_topic_archive(
     except Exception as exc:
         logger.error(f"chat_topic_archive error: {exc}")
         return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+@router.get("/chat/search")
+def chat_search(request: Request, q: str = "", topic_id: int = 0):
+    """Поиск сообщений в чате.
+
+    topic_id=0  → глобальный поиск по всем темам (до 30 результатов)
+    topic_id>0  → поиск только в указанной теме (до 25 результатов)
+    Минимальная длина запроса: 2 символа.
+    Rate limit: 30 req/min per IP.
+    """
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "results": []}, status_code=401)
+
+    ip = request.client.host if request.client else "unknown"
+    if not _search_rate_ok(ip):
+        return JSONResponse({"ok": False, "results": [], "error": "Слишком много запросов"}, status_code=429)
+
+    q = q.strip()[:100]
+    if len(q) < 2:
+        return JSONResponse({"ok": True, "results": [], "scope": "topic" if topic_id else "global"})
+
+    min_plan = _get_chat_min_plan()
+    if min_plan == "Отключён":
+        return JSONResponse({"ok": False, "results": []})
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_plan = _get_org_active_plan(telegram_id)
+        if not _plan_allowed(org_plan, min_plan):
+            return JSONResponse({"ok": False, "results": []}, status_code=403)
+
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+        limit = 25 if topic_id else 30
+        rows = db.search_chat_messages(
+            query=q,
+            topic_id=topic_id if topic_id else None,
+            limit=limit,
+        )
+        results = [_fmt_search_result(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+        return JSONResponse({
+            "ok": True,
+            "results": results,
+            "total": len(results),
+            "scope": "topic" if topic_id else "global",
+        })
+
+    except Exception as exc:
+        logger.error(f"chat_search error: {exc}")
+        return JSONResponse({"ok": False, "results": [], "error": "Ошибка сервера"}, status_code=500)

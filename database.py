@@ -8692,3 +8692,52 @@ class Database:
         conn.close()
         return affected > 0
 
+    def search_chat_messages(self, query: str, topic_id: int | None = None,
+                              limit: int = 25) -> list:
+        """Полнотекстовый поиск по сообщениям чата.
+
+        Если topic_id задан — ищет только в этой теме.
+        Если topic_id=None — ищет по всем не-архивным темам.
+        Возвращает строки из 13 колонок:
+          (m.id, m.user_id, m.message, m.file_path, m.file_name,
+           m.file_type, m.file_size, m.created_at,
+           u.first_name, u.last_name, u.username,
+           t.id AS topic_id, t.name AS topic_name)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        pattern = f"%{query}%"
+        if topic_id is not None:
+            cursor.execute('''
+                SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                       m.file_type, m.file_size, m.created_at,
+                       u.first_name, u.last_name, u.username,
+                       t.id, t.name
+                FROM chat_messages m
+                LEFT JOIN users u ON u.id = m.user_id
+                LEFT JOIN chat_topics t ON t.id = m.topic_id
+                WHERE m.is_deleted = 0
+                  AND m.topic_id = ?
+                  AND LOWER(m.message) LIKE LOWER(?)
+                ORDER BY m.id DESC
+                LIMIT ?
+            ''', (topic_id, pattern, limit))
+        else:
+            cursor.execute('''
+                SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                       m.file_type, m.file_size, m.created_at,
+                       u.first_name, u.last_name, u.username,
+                       t.id, t.name
+                FROM chat_messages m
+                LEFT JOIN users u ON u.id = m.user_id
+                LEFT JOIN chat_topics t ON t.id = m.topic_id
+                WHERE m.is_deleted = 0
+                  AND (t.is_archived = 0 OR t.id IS NULL)
+                  AND LOWER(m.message) LIKE LOWER(?)
+                ORDER BY m.id DESC
+                LIMIT ?
+            ''', (pattern, limit))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+

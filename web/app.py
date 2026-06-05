@@ -186,6 +186,7 @@ Disallow: /pos
 Disallow: /absences
 Disallow: /support
 Disallow: /chat
+Disallow: /chat/search
 Disallow: /api/
 Disallow: /login
 Disallow: /auth/

@@ -12,13 +12,13 @@
 <div id="inv-history-modal"
      class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
      onclick="if(event.target===this)closeInvHistory()">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[85vh]">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h3 class="font-semibold text-slate-800 flex items-center gap-2">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                 📋 <span id="inv-hist-title">История изменений</span>
             </h3>
             <button onclick="closeInvHistory()"
-                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors text-lg">✕</button>
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 transition-colors text-lg">✕</button>
         </div>
         <div id="inv-hist-body" class="p-4 overflow-y-auto flex-1">
             <div class="py-8 text-center text-slate-300 text-sm">Загрузка…</div>
@@ -26,10 +26,77 @@
     </div>
 </div>
 
+<!-- Toast уведомление (Google Sheets статус) -->
+<div id="inv-toast" style="opacity:0;" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition-all duration-300 bg-emerald-600 text-white pointer-events-none"></div>
+
+<!-- Edit modal -->
+{% if can_edit %}
+<div id="inv-edit-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm"
+     onclick="if(event.target===this)closeInvEdit()">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                ✏️ <span id="inv-edit-title">Изменить остаток</span>
+            </h3>
+            <button onclick="closeInvEdit()"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-lg">✕</button>
+        </div>
+        <div class="p-5">
+            <div class="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                Текущий остаток: <span id="inv-edit-current" class="font-bold text-slate-800 dark:text-slate-100">—</span> шт.
+            </div>
+            <!-- Mode tabs -->
+            <div class="flex gap-1 mb-4 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                <button id="inv-mode-add" onclick="setInvMode('add')"
+                        class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400 shadow-sm">
+                    + Приход
+                </button>
+                <button id="inv-mode-subtract" onclick="setInvMode('subtract')"
+                        class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-600/60">
+                    − Списание
+                </button>
+                <button id="inv-mode-set" onclick="setInvMode('set')"
+                        class="flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-600/60">
+                    = Итог
+                </button>
+            </div>
+            <!-- Value input -->
+            <div class="mb-3">
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1" id="inv-edit-label">Количество (приход)</label>
+                <input id="inv-edit-value" type="number" min="0" step="1" value="1"
+                       class="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Введите количество">
+            </div>
+            <!-- Reason input -->
+            <div class="mb-5">
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Причина <span class="text-slate-300">(необязательно)</span></label>
+                <input id="inv-edit-reason" type="text" maxlength="120"
+                       class="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Поступление, инвентаризация…">
+            </div>
+            <!-- Error -->
+            <div id="inv-edit-error" class="hidden mb-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2"></div>
+            <!-- Actions -->
+            <div class="flex gap-2">
+                <button id="inv-edit-submit" onclick="submitInvEdit()"
+                        class="flex-1 bg-slate-800 dark:bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-700 dark:hover:bg-blue-500 transition-colors">
+                    Применить
+                </button>
+                <button onclick="closeInvEdit()"
+                        class="py-2.5 px-4 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 rounded-xl text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="flex items-center justify-between mb-6">
     <div>
-        <h1 class="text-2xl font-bold text-slate-800">Остатки</h1>
-        <p class="text-sm text-slate-500 mt-0.5">Складские остатки по магазинам</p>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Остатки</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Складские остатки по магазинам</p>
     </div>
     <a href="/inventory/export.xlsx{% if selected_shop %}?shop={{ selected_shop|urlencode }}{% endif %}"
        class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors">
@@ -50,7 +117,7 @@
         {% for s in shops %}
         <a href="/inventory?shop={{ s|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
-                  {{ 'bg-blue-600 text-white border-blue-600' if s == selected_shop else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600' }}">
+                  {{ 'bg-blue-600 text-white border-blue-600' if s == selected_shop else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-600' }}">
             🏪 {{ s }}
         </a>
         {% endfor %}
@@ -63,7 +130,7 @@
         <div class="relative flex-1 max-w-xs">
             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
             <input type="text" name="q" value="{{ q }}" placeholder="Поиск по названию…"
-                   class="w-full border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">Найти</button>
         {% if q or selected_category %}
@@ -75,13 +142,13 @@
     <div class="flex flex-wrap gap-2">
         <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
-                  {{ 'bg-indigo-600 text-white border-indigo-600' if not selected_category else 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300' }}">
+                  {{ 'bg-indigo-600 text-white border-indigo-600' if not selected_category else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-indigo-300' }}">
             Все категории
         </a>
         {% for cat in categories %}
         <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}&category={{ cat|urlencode }}"
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
-                  {{ 'bg-indigo-600 text-white border-indigo-600' if cat == selected_category else 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300' }}">
+                  {{ 'bg-indigo-600 text-white border-indigo-600' if cat == selected_category else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-indigo-300' }}">
             {{ cat }}
         </a>
         {% endfor %}
@@ -94,23 +161,23 @@
 <div class="grid grid-cols-3 gap-4 mb-5">
     <div class="card p-4">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Позиций</p>
-        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ total_items }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{{ total_items }}</p>
     </div>
     <div class="card p-4">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Нет в наличии</p>
-        <p class="text-xl sm:text-2xl font-bold {{ 'text-red-500' if out_of_stock > 0 else 'text-slate-800' }}">{{ out_of_stock }}</p>
+        <p class="text-xl sm:text-2xl font-bold {{ 'text-red-500' if out_of_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ out_of_stock }}</p>
     </div>
     <div class="card p-4">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Мало (≤5 шт.)</p>
-        <p class="text-xl sm:text-2xl font-bold {{ 'text-orange-500' if low_stock > 0 else 'text-slate-800' }}">{{ low_stock }}</p>
+        <p class="text-xl sm:text-2xl font-bold {{ 'text-orange-500' if low_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ low_stock }}</p>
     </div>
 </div>
 {% endif %}
 
 <!-- Inventory table -->
 <div class="card overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
-        <h2 class="font-semibold text-slate-800">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">
             {% if selected_shop %}🏪 {{ selected_shop }}{% else %}Все магазины{% endif %}
         </h2>
         {% if out_of_stock > 0 %}
@@ -129,7 +196,7 @@
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr class="bg-slate-50 border-b border-slate-100">
+                <tr class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
                     <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Товар</th>
                     {% if not selected_shop %}
                     <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Магазин</th>
@@ -138,37 +205,36 @@
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Остаток</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Цена</th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Статус</th>
-                    {% if is_admin and selected_shop %}
-                    <th class="px-3 py-3 text-xs font-semibold text-slate-500 uppercase text-center hidden sm:table-cell">История</th>
-                    <th class="px-3 py-3 text-xs font-semibold text-slate-500 uppercase text-center hidden lg:table-cell">Корр.</th>
+                    {% if can_edit %}
+                    <th class="px-3 py-3 text-xs font-semibold text-slate-500 uppercase text-center">Действия</th>
                     {% endif %}
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50" id="inv-tbody">
+            <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50" id="inv-tbody">
                 {% for r in inventory %}
                 {#
                   inv: id[0] product_id[1] shop_name[2] quantity[3] updated_at[4]
                        updated_by[5] name[6] category[7] price[8] updated_by_name[9]
                 #}
                 {% set qty = r[3]|int %}
-                <tr class="hover:bg-slate-50/70 transition-colors {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}">
+                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors {{ 'bg-red-50/30' if qty <= 0 else 'bg-orange-50/20' if qty <= 5 else '' }}">
                     <td class="px-5 py-3 cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
-                        <p class="font-medium text-slate-800 max-w-[200px] truncate hover:text-blue-600 transition-colors" title="{{ r[6] }}">{{ r[6] }}</p>
+                        <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[200px] truncate hover:text-blue-600 transition-colors" title="{{ r[6] }}">{{ r[6] }}</p>
                     </td>
                     {% if not selected_shop %}
                     <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
-                        <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{{ r[2] }}</span>
+                        <span class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{{ r[2] }}</span>
                     </td>
                     {% endif %}
                     <td class="px-3 py-3 hidden sm:table-cell cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
                         {% if r[7] %}
-                        <span class="text-xs bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full">{{ r[7] }}</span>
+                        <span class="text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 px-2 py-0.5 rounded-full">{{ r[7] }}</span>
                         {% else %}
                         <span class="text-slate-300">—</span>
                         {% endif %}
                     </td>
                     <td class="px-3 py-3 text-right cursor-pointer" onclick="window.location='/products/{{ r[1] }}'">
-                        <span id="qty-{{ r[1] }}" class="text-lg font-bold {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-800' }}">
+                        <span id="qty-{{ r[1] }}" class="text-lg font-bold {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-800 dark:text-slate-100' }}">
                             {{ qty }}
                         </span>
                         <span class="text-xs text-slate-400">&thinsp;шт.</span>
@@ -189,50 +255,15 @@
                         </span>
                         {% endif %}
                     </td>
-                    {% if is_admin and selected_shop %}
-                    <td class="px-3 py-3 text-center hidden sm:table-cell" onclick="event.stopPropagation()">
-                        <button onclick="openInvHistory('{{ r[2]|e }}', {{ r[1] }}, '{{ r[6]|e }}')"
-                                class="w-7 h-7 inline-flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 transition-colors text-sm"
-                                title="История изменений">📋</button>
-                    </td>
-                    <td class="px-3 py-3 text-center hidden lg:table-cell" onclick="event.stopPropagation()"
-                        x-data="{adjOpen: false, adjMode: 'add', adjVal: 1}">
+                    {% if can_edit %}
+                    <td class="px-3 py-3 text-center" onclick="event.stopPropagation()">
                         <div class="flex items-center gap-1 justify-center">
-                            <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, 'subtract', 1, '{{ csrf_token }}')"
-                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors text-base font-bold leading-none"
-                                    title="−1">−</button>
-                            <span id="qty-txt-{{ r[1] }}" class="text-sm font-semibold text-slate-700 w-8 text-center">{{ qty }}</span>
-                            <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, 'add', 1, '{{ csrf_token }}')"
-                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-colors text-base font-bold leading-none"
-                                    title="+1">+</button>
-                            <button @click="adjOpen = !adjOpen"
-                                    class="w-7 h-7 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:bg-slate-100 transition-colors text-xs"
-                                    title="Произвольная корректировка">✎</button>
-                        </div>
-                        <div x-show="adjOpen" x-cloak @click.stop
-                             class="absolute z-20 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3 w-52 text-left">
-                            <p class="text-xs font-semibold text-slate-500 mb-2">Корректировка остатка</p>
-                            <div class="flex gap-1 mb-2">
-                                <button @click="adjMode = 'add'"
-                                        :class="adjMode==='add' ? 'bg-emerald-600 text-white' : 'border border-slate-200 text-slate-600'"
-                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">+ Приход</button>
-                                <button @click="adjMode = 'subtract'"
-                                        :class="adjMode==='subtract' ? 'bg-red-600 text-white' : 'border border-slate-200 text-slate-600'"
-                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">− Списание</button>
-                                <button @click="adjMode = 'set'"
-                                        :class="adjMode==='set' ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-600'"
-                                        class="flex-1 py-1 rounded text-xs font-medium transition-colors">= Итог</button>
-                            </div>
-                            <input type="number" x-model="adjVal" min="0" step="1"
-                                   class="w-full border border-slate-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
-                            <div class="flex gap-1">
-                                <button @click="invAdj1('{{ r[2] }}', {{ r[1] }}, adjMode, adjVal, '{{ csrf_token }}'); adjOpen = false"
-                                        class="flex-1 bg-slate-800 text-white py-1.5 rounded text-xs font-medium hover:bg-slate-700 transition-colors">
-                                    Применить
-                                </button>
-                                <button @click="adjOpen = false"
-                                        class="py-1.5 px-2 border border-slate-200 text-slate-500 rounded text-xs hover:bg-slate-50 transition-colors">✕</button>
-                            </div>
+                            <button onclick="openInvEdit('{{ r[2]|e }}', {{ r[1] }}, '{{ r[6]|e }}', {{ qty }}, '{{ csrf_token }}')"
+                                    class="w-7 h-7 inline-flex items-center justify-center rounded border border-slate-200 dark:border-slate-600 text-slate-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:border-blue-200 hover:text-blue-600 transition-colors text-sm"
+                                    title="Изменить остаток">✏️</button>
+                            <button onclick="openInvHistory('{{ r[2]|e }}', {{ r[1] }}, '{{ r[6]|e }}')"
+                                    class="w-7 h-7 inline-flex items-center justify-center rounded border border-slate-200 dark:border-slate-600 text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:border-indigo-200 hover:text-indigo-600 transition-colors text-sm"
+                                    title="История изменений">📋</button>
                         </div>
                     </td>
                     {% endif %}
@@ -242,7 +273,7 @@
         </table>
     </div>
     <!-- Inventory pagination -->
-    <div id="inv-pager" class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hidden">
+    <div id="inv-pager" class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-sm text-slate-500 hidden">
         <span id="inv-pager-info"></span>
         <div class="flex items-center gap-1">
             <button id="inv-pager-prev" onclick="invPaginate(-1)"
@@ -276,7 +307,7 @@
     </div>
     {% endif %}
 </div>
-{% if is_admin and selected_shop %}
+
 <script>
 function openInvHistory(shop, pid, productName) {
     const modal = document.getElementById('inv-history-modal');
@@ -299,52 +330,166 @@ function closeInvHistory() {
     document.body.style.overflow = '';
 }
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeInvHistory();
+    if (e.key === 'Escape') { closeInvHistory(); closeInvEdit(); }
 });
+</script>
 
-function invAdj1(shop, pid, mode, value, csrf) {
-    const body = new URLSearchParams({
-        shop_name: shop, product_id: pid, mode: mode, value: value, csrf_token: csrf
+{% if can_edit %}
+<script>
+var _invEditState = {shop: '', pid: 0, name: '', current: 0, mode: 'add', csrf: ''};
+
+function showInvToast(msg, type) {
+    var t = document.getElementById('inv-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg transition-all duration-300 '
+        + (type === 'ok'
+            ? 'bg-emerald-600 text-white'
+            : 'bg-red-600 text-white');
+    t.style.opacity = '1';
+    t.style.pointerEvents = 'none';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function() {
+        t.style.opacity = '0';
+    }, 4000);
+}
+
+function openInvEdit(shop, pid, name, currentQty, csrf) {
+    _invEditState = {shop: shop, pid: pid, name: name, current: currentQty, mode: 'add', csrf: csrf};
+    document.getElementById('inv-edit-title').textContent = name || 'Изменить остаток';
+    document.getElementById('inv-edit-current').textContent = currentQty;
+    document.getElementById('inv-edit-value').value = 1;
+    document.getElementById('inv-edit-reason').value = '';
+    document.getElementById('inv-edit-error').classList.add('hidden');
+    setInvMode('add');
+    var modal = document.getElementById('inv-edit-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    setTimeout(function(){ document.getElementById('inv-edit-value').focus(); }, 100);
+}
+function closeInvEdit() {
+    var modal = document.getElementById('inv-edit-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
+}
+function setInvMode(mode) {
+    _invEditState.mode = mode;
+    var modes = ['add', 'subtract', 'set'];
+    var labels = {'add': 'Количество (приход)', 'subtract': 'Количество (списание)', 'set': 'Новый итог (шт.)'};
+    var activeClasses = {
+        add: 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400 shadow-sm',
+        subtract: 'bg-white dark:bg-slate-600 text-red-600 dark:text-red-400 shadow-sm',
+        set: 'bg-white dark:bg-slate-600 text-blue-600 dark:text-blue-400 shadow-sm'
+    };
+    modes.forEach(function(m) {
+        var btn = document.getElementById('inv-mode-' + m);
+        if (!btn) return;
+        if (m === mode) {
+            btn.className = btn.className.replace(/text-slate-500 dark:text-slate-400 hover:bg-white\/60 dark:hover:bg-slate-600\/60/g, '');
+            btn.className = 'flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors ' + activeClasses[m];
+        } else {
+            btn.className = 'flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-600/60';
+        }
     });
-    fetch('/inventory/adjust', {method: 'POST', body: body,
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'}})
-        .then(r => r.json())
-        .then(d => {
-            if (d.success) {
-                const el = document.getElementById('qty-' + pid);
-                const txt = document.getElementById('qty-txt-' + pid);
-                if (el) {
-                    el.textContent = d.new_qty;
-                    el.className = el.className.replace(/text-(red|orange|slate)-\d+/, '');
-                    el.classList.add(d.new_qty <= 0 ? 'text-red-500' : d.new_qty <= 5 ? 'text-orange-500' : 'text-slate-800');
-                }
-                if (txt) txt.textContent = d.new_qty;
-            } else {
-                alert('Ошибка: ' + (d.error || 'неизвестная'));
+    var lbl = document.getElementById('inv-edit-label');
+    if (lbl) lbl.textContent = labels[mode] || 'Количество';
+    if (mode === 'set') {
+        document.getElementById('inv-edit-value').value = _invEditState.current;
+    } else {
+        document.getElementById('inv-edit-value').value = 1;
+    }
+}
+function submitInvEdit() {
+    var val = parseInt(document.getElementById('inv-edit-value').value, 10);
+    var reason = document.getElementById('inv-edit-reason').value.trim();
+    var errEl = document.getElementById('inv-edit-error');
+    errEl.classList.add('hidden');
+
+    if (isNaN(val) || val < 0) {
+        errEl.textContent = 'Введите корректное неотрицательное число';
+        errEl.classList.remove('hidden');
+        return;
+    }
+    if (_invEditState.mode === 'set' && val < 0) {
+        errEl.textContent = 'Итог не может быть отрицательным';
+        errEl.classList.remove('hidden');
+        return;
+    }
+
+    var btn = document.getElementById('inv-edit-submit');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
+
+    var body = new URLSearchParams({
+        shop_name: _invEditState.shop,
+        product_id: _invEditState.pid,
+        mode: _invEditState.mode,
+        value: val,
+        reason: reason,
+        csrf_token: _invEditState.csrf
+    });
+    fetch('/inventory/adjust', {
+        method: 'POST',
+        body: body,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+        btn.disabled = false;
+        btn.textContent = 'Применить';
+        if (d.success) {
+            var newQty = d.new_qty;
+            // Обновляем ячейку остатка в таблице без перезагрузки
+            var qtyEl = document.getElementById('qty-' + _invEditState.pid);
+            if (qtyEl) {
+                qtyEl.textContent = newQty;
+                qtyEl.className = 'text-lg font-bold ' + (newQty <= 0 ? 'text-red-500' : newQty <= 5 ? 'text-orange-500' : 'text-slate-800 dark:text-slate-100');
             }
-        })
-        .catch(() => alert('Ошибка соединения'));
+            _invEditState.current = newQty;
+            document.getElementById('inv-edit-current').textContent = newQty;
+            closeInvEdit();
+            // Статус Google Таблиц — тост-уведомление
+            if (d.gs_status === 'ok') {
+                showInvToast('📋 Google Таблицы: записано', 'ok');
+            } else if (d.gs_status === 'error') {
+                showInvToast('📋 Google Таблицы: ошибка записи', 'error');
+            }
+        } else {
+            errEl.textContent = 'Ошибка: ' + (d.error || 'неизвестная');
+            errEl.classList.remove('hidden');
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Применить';
+        errEl.textContent = 'Ошибка соединения. Попробуйте снова.';
+        errEl.classList.remove('hidden');
+    });
 }
 </script>
 {% endif %}
+
 <script>
 (function(){
-    const PAGE = 10;
-    let _invPage = 1;
-    const tbody = document.getElementById('inv-tbody');
+    var PAGE = 10;
+    var _invPage = 1;
+    var tbody = document.getElementById('inv-tbody');
     if (!tbody) return;
-    const rows = Array.from(tbody.querySelectorAll('tr'));
+    var rows = Array.from(tbody.querySelectorAll('tr'));
     if (!rows.length) return;
-    const pager = document.getElementById('inv-pager');
-    const info  = document.getElementById('inv-pager-info');
-    const prev  = document.getElementById('inv-pager-prev');
-    const next  = document.getElementById('inv-pager-next');
+    var pager = document.getElementById('inv-pager');
+    var info  = document.getElementById('inv-pager-info');
+    var prev  = document.getElementById('inv-pager-prev');
+    var next  = document.getElementById('inv-pager-next');
     if (pager) pager.classList.remove('hidden');
-    const _invTotalPages = Math.ceil(rows.length / PAGE);
+    var _invTotalPages = Math.ceil(rows.length / PAGE);
     if (_invTotalPages <= 1) { if (prev) prev.classList.add('hidden'); if (next) next.classList.add('hidden'); }
     function render() {
-        const total = rows.length;
-        const pages = Math.ceil(total / PAGE);
+        var total = rows.length;
+        var pages = Math.ceil(total / PAGE);
         if (pages > 1) rows.forEach(function(r, i) {
             r.style.display = (i >= (_invPage-1)*PAGE && i < _invPage*PAGE) ? '' : 'none';
         });
@@ -353,7 +498,7 @@ function invAdj1(shop, pid, mode, value, csrf) {
         if (next) next.disabled = _invPage >= pages;
     }
     window.invPaginate = function(d) {
-        const pages = Math.ceil(rows.length / PAGE);
+        var pages = Math.ceil(rows.length / PAGE);
         _invPage = Math.max(1, Math.min(pages, _invPage + d));
         render();
         tbody.closest('.card').scrollIntoView({behavior:'smooth', block:'nearest'});
