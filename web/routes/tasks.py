@@ -377,39 +377,52 @@ def tasks_new_post(
             f"🌐 Откройте веб-кабинет для подробностей."
         )
         notif_msg = f"📋 Назначена задача: {title}"
-        if assign_mode == "person" and _assigned_to and _assigned_to != my_db_id:
-            tg_id = _get_user_tg_id(db, _assigned_to)
-            logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
+
+        def _safe_add_notif(uid: int, ntype: str, msg: str):
             try:
-                db.add_notification_to_history(_assigned_to, "task_assigned", notif_msg)
-            except Exception as ne:
-                logger.warning("tasks: add_notification_to_history failed: %s", ne)
-            if tg_id:
-                _send_tg_task_notify(tg_id, notify_text)
-            else:
-                logger.warning("tasks notify: no telegram_id for user uid=%s", _assigned_to)
+                db.add_notification_to_history(uid, ntype, msg)
+            except Exception as _ne:
+                logger.warning("tasks: add_notification_to_history uid=%s: %s", uid, _ne)
+
+        if assign_mode == "person" and _assigned_to:
+            if _assigned_to != my_db_id:
+                tg_id = _get_user_tg_id(db, _assigned_to)
+                logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
+                _safe_add_notif(_assigned_to, "task_assigned", notif_msg)
+                if tg_id:
+                    _send_tg_task_notify(tg_id, notify_text)
+                else:
+                    logger.warning("tasks notify: no tg_id for uid=%s", _assigned_to)
+            # Notify creator about task created for someone
+            if my_db_id:
+                assignee_name = next(
+                    (s["name"] for s in _get_staff_list(db) if s["id"] == _assigned_to),
+                    f"id={_assigned_to}"
+                )
+                creator_msg = f"📋 Задача создана: «{title}» → {assignee_name}"
+                _safe_add_notif(my_db_id, "task_assigned", creator_msg)
         elif assign_mode == "shop" and _assigned_shop:
             members = _get_shop_members_tg_ids(db, _assigned_shop)
-            logger.info("tasks notify: shop=%s members=%s", _assigned_shop, members)
+            logger.info("tasks notify: shop=%s members=%s", _assigned_shop, len(members))
             for uid, tg_id in members:
-                if uid == my_db_id:
-                    continue
-                try:
-                    db.add_notification_to_history(uid, "task_assigned", notif_msg)
-                except Exception as ne:
-                    logger.warning("tasks: add_notification_to_history failed uid=%s: %s", uid, ne)
-                _send_tg_task_notify(tg_id, notify_text)
+                _safe_add_notif(uid, "task_assigned", notif_msg)
+                if uid != my_db_id:
+                    _send_tg_task_notify(tg_id, notify_text)
+            # Notify creator even if they're not in that shop
+            if my_db_id and not any(uid == my_db_id for uid, _ in members):
+                _safe_add_notif(my_db_id, "task_assigned",
+                                f"📋 Задача создана: «{title}» → магазин {_assigned_shop}")
         elif assign_mode == "all":
             members = _get_all_members_tg_ids(db)
-            logger.info("tasks notify: all members=%s", members)
+            logger.info("tasks notify: all members=%s", len(members))
             for uid, tg_id in members:
-                if uid == my_db_id:
-                    continue
-                try:
-                    db.add_notification_to_history(uid, "task_assigned", notif_msg)
-                except Exception as ne:
-                    logger.warning("tasks: add_notification_to_history failed uid=%s: %s", uid, ne)
-                _send_tg_task_notify(tg_id, notify_text)
+                _safe_add_notif(uid, "task_assigned", notif_msg)
+                if uid != my_db_id:
+                    _send_tg_task_notify(tg_id, notify_text)
+            # Notify creator if somehow not in members list
+            if my_db_id and not any(uid == my_db_id for uid, _ in members):
+                _safe_add_notif(my_db_id, "task_assigned",
+                                f"📋 Задача создана: «{title}» → вся команда")
 
         return RedirectResponse(url=f"/tasks/{task_id}?msg=created", status_code=303)
     except Exception as e:
