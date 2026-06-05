@@ -1205,6 +1205,7 @@ async def gs_move_exports_execute(callback: CallbackQuery, state: FSMContext):
 
 @integration_router.callback_query(F.data.startswith("gs_log_"))
 async def gs_log(callback: CallbackQuery, state: FSMContext):
+    from timezone_utils import format_user_datetime
     conn_id = int(callback.data.split("_")[2])
     await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
@@ -1216,10 +1217,12 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
             reply_markup=back_kb, parse_mode="HTML"
         )
         return
+    _tz = await current_db.get_user_timezone(callback.from_user.id)
     lines = []
     for log in logs:
-        icon = "✅" if log[3] == "success" else "❌"
-        lines.append(f"{icon} {log[5][:16]} — {log[4][:80]}")
+        icon = "✅" if log[3] == "success" else ("⚠️" if log[3] == "warning" else "❌")
+        dt_str = format_user_datetime(log[5], user_timezone=_tz, format_str='%d.%m.%Y %H:%M')
+        lines.append(f"{icon} {dt_str} — {log[4][:80]}")
     await callback.message.edit_text(
         "📢 <b>Последние события:</b>\n\n" + "\n".join(lines),
         reply_markup=back_kb, parse_mode="HTML"
