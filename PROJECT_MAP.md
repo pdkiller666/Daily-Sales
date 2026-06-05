@@ -779,6 +779,11 @@ web/
     payments.py       — GET /payments, POST /payments/{id}/confirm, /payments/{id}/reject
     absences.py       — GET /absences, POST /absences/add, /absences/update,
                          GET /absences/settings, POST /absences/settings/update
+    chat.py           — GET /chat, POST /chat/send, GET /chat/poll,
+                         GET /chat/topics/{id}/messages, GET /chat/file/{id},
+                         POST /chat/message/{id}/delete, POST /chat/topics/create,
+                         POST /chat/topics/{id}/rename, POST /chat/topics/{id}/archive,
+                         GET /chat/search?q=&topic_id=  ← поиск (topic_id=0 = все темы)
   sale_events.py    — async post_sale_effects(org_db_path, sale_id, shop_name, telegram_id)
                        вызывается через asyncio.run_coroutine_threadsafe из sales_create;
                        3 эффекта: GSheets trigger · shift-sale push · plan milestones
@@ -826,6 +831,9 @@ web/
 | `POST /staff/{id}/remove` | JSON+CSRF | Удалить сотрудника (с иерархией) | owner+ |
 | `POST /salary/adjustment/add` | CSRF form | Добавить корректировку/бонус | owner/admin |
 | `POST /salary/adjustment/{id}/delete` | CSRF form | Удалить корректировку | owner/admin |
+
+| `GET /chat/search` | JSON | Поиск сообщений по теме или глобально (дебаунс 300 мс) | user+ |
+| `POST /inventory/adjust` | JSON+CSRF | Изменить остаток; возвращает `gs_status` если GSheets настроен | user+ |
 
 **Вспомогательная функция**: `_get_user_allowed_shops(telegram_id, db)` в `web/routes/sales.py` — определяет scope пользователя через `get_user_org_scope()`: None=все, 'shop'=список, 'city'/'network'=запрос к БД.
 

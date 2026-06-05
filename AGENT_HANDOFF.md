@@ -30,6 +30,14 @@ Workflow: "Start application" → python main.py
 
 **Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
 
+**Сессия 459 (2026-06-05) — Веб: динамический поиск в чате + Google Sheets статус инвентаря:**
+- **Поиск в чате (B+C)**: `GET /chat/search?q=&topic_id=` — новый эндпоинт в `web/routes/chat.py`; `topic_id=0` → глобальный поиск по всем темам (до 30), `topic_id>0` → по одной теме (до 25); rate limit 30 req/min/IP; `_fmt_search_result` — расширение `_fmt_msg` с полями `result_topic_id`/`result_topic_name`; `_SEARCH_RATE_STORE` — in-memory per IP
+- **`search_chat_messages(query, topic_id, limit)`** в `database.py`: SQLite `LOWER(m.message) LIKE LOWER(?)` — регистронезависимо включая кириллицу; 13 колонок (базовые + `t.id`, `t.name`); topic_id=None → по всем не-архивным темам через LEFT JOIN chat_topics
+- **UI поиска в чате**: кнопка 🔍 в хедере чата; Ctrl+F/Cmd+F — открытие из клавиатуры; Alpine.js: `searchOpen`, `searchQ`, `searchScope`, `searchResults`, дебаунс 300 мс; переключатель «В теме / 🌐 Везде»; результаты с: инициалом, именем, временем, бейджем темы (global), highlighted сниппетом (`<mark>`); клик → `goToResult(r)`: `switchTopic()` если нужно + скролл + CSS-флеш `.search-flash` 1.6 сек; `#search-panel` — `position:absolute; inset:0; z-index:20` над областью сообщений; Escape закрывает
+- **GSheets статус инвентаря**: `POST /inventory/adjust` теперь ждёт результата через `trigger_export_with_result` (timeout 8 с) и возвращает `gs_status: "ok"|"error"` в JSON; toast-уведомление в `inventory/index.html` (зелёный/красный, 4 с); показывается только когда интеграция настроена
+- **robots.txt**: добавлен `Disallow: /chat/search`
+- **Деплой**: GitHub `c4f7aa5` · Amvera `599f699` · сессия 459
+
 **Сессия 329 (2026-06-02) — Веб: PWA, свайп-жесты, WAL, браузерные уведомления:**
 - **PWA**: `web/static/manifest.json` (shortcuts: /pos, /dashboard, /sales), `web/static/icon.svg`, `web/static/icon-maskable.svg`, `web/static/sw.js` (Cache-first для `/static/`, network-only для auth-роутов, push-handler для будущего VAPID). Мета-теги в `base.html`: `<link rel="manifest">`, `theme-color`, `apple-mobile-web-app-*`.
 - **Service Worker маршрут**: `GET /sw.js` в `web/app.py` → `FileResponse(web/static/sw.js)` с заголовком `Service-Worker-Allowed: /` + `Cache-Control: no-cache` — SW регистрируется на `/sw.js` со scope `/` из `base.html`.
