@@ -488,6 +488,34 @@ async def settings_change_password(
     return RedirectResponse(url="/settings?email_saved=1#security", status_code=302)
 
 
+# ── POST /settings/email-unlink ──────────────────────────────────────────────
+
+@router.post("/settings/email-unlink")
+async def settings_email_unlink(request: Request, csrf_token: str = Form(default="")):
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings?email_error=csrf#security", status_code=302)
+
+    tg_id = int(user["sub"])
+    if tg_id < 0:
+        return RedirectResponse(url="/settings?email_error=cannot_unlink#security", status_code=302)
+
+    try:
+        db = _shop_db()
+        cred = db.get_web_credential_by_telegram_id(tg_id)
+        if cred:
+            db.delete_web_credential_by_id(cred['id'])
+    except Exception as exc:
+        logger.error("settings_email_unlink: %s", exc)
+        return RedirectResponse(url="/settings?email_error=server_error#security", status_code=302)
+
+    return RedirectResponse(url="/settings?email_saved=1#security", status_code=302)
+
+
 # ── POST /settings/email-resend-verify ────────────────────────────────────────
 
 @router.post("/settings/email-resend-verify")

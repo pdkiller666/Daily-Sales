@@ -1,10 +1,18 @@
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+SHOP_BOT_DB = 'data/shop_bot.db'
+
+
+class SetWebLoginState(StatesGroup):
+    waiting_email = State()
 
 
 @router.message(Command("weblogin"))
@@ -39,6 +47,74 @@ async def cmd_weblogin(message: Message):
     except Exception as e:
         logger.error(f"cmd_weblogin error for {message.from_user.id}: {e}")
         await message.answer("❌ Не удалось создать ссылку. Попробуйте позже.")
+
+
+@router.message(Command("setweblogin"))
+async def cmd_setweblogin(message: Message, state: FSMContext):
+    """Привязывает Telegram-аккаунт к существующему email-аккаунту DailySales."""
+    await state.set_state(SetWebLoginState.waiting_email)
+    await message.answer(
+        "🔗 <b>Привязка Telegram к email-аккаунту</b>\n\n"
+        "Введите email, с которым вы зарегистрировались в веб-кабинете DailySales.\n\n"
+        "Это позволит входить в веб-интерфейс как через Telegram, так и по email + паролю.\n\n"
+        "<i>Напишите /cancel для отмены.</i>",
+        parse_mode="HTML",
+    )
+
+
+@router.message(SetWebLoginState.waiting_email)
+async def process_setweblogin_email(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Пожалуйста, введите email текстом.")
+        return
+
+    if message.text.strip().lower() == '/cancel':
+        await state.clear()
+        await message.answer("Отменено.")
+        return
+
+    email = message.text.strip().lower()
+    if '@' not in email or '.' not in email.split('@')[-1]:
+        await message.answer(
+            "❌ Некорректный email-адрес. Попробуйте ещё раз или напишите /cancel."
+        )
+        return
+
+    telegram_id = message.from_user.id
+    try:
+        from database import Database
+        db = Database(SHOP_BOT_DB)
+        result = db.link_web_credential_to_telegram(email, telegram_id)
+    except Exception as exc:
+        logger.error("process_setweblogin_email: %s", exc)
+        result = 'error'
+
+    await state.clear()
+
+    if result == 'ok':
+        await message.answer(
+            f"✅ <b>Email привязан!</b>\n\n"
+            f"Теперь вы можете входить в веб-кабинет DailySales как через Telegram, "
+            f"так и по адресу <code>{email}</code> с вашим паролем.",
+            parse_mode="HTML",
+        )
+    elif result == 'not_found':
+        await message.answer(
+            "❌ <b>Email не найден.</b>\n\n"
+            "Убедитесь, что вы уже зарегистрировались в веб-кабинете по этому адресу. "
+            "Если нет — перейдите на страницу регистрации: /register",
+            parse_mode="HTML",
+        )
+    elif result == 'already_linked':
+        await message.answer(
+            "⚠️ <b>Этот email уже привязан к другому Telegram-аккаунту.</b>\n\n"
+            "Обратитесь к администратору, если это ошибка.",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            "❌ Ошибка сервера. Попробуйте позже или обратитесь к администратору."
+        )
 
 
 @router.callback_query(F.data == "web_open_hub")

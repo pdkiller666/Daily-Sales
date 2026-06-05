@@ -233,7 +233,7 @@ function switchTab(tab) {
         btnTg.classList.add('tab-active'); btnEm.classList.remove('tab-active');
     }
 }
-{% if show_email_form %}
+{% if show_email_form or request.query_params.get('msg') == 'password_reset' %}
 document.addEventListener('DOMContentLoaded', function(){ switchTab('email'); });
 {% endif %}
 </script>

@@ -9476,3 +9476,39 @@ class Database:
         except Exception as exc:
             logger.error("update_web_last_login: %s", exc)
 
+    def link_web_credential_to_telegram(self, email: str, telegram_id: int) -> str:
+        """Link an email credential to a real Telegram account.
+        Returns: 'ok' | 'already_linked' | 'not_found' | 'error'
+        """
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT id, telegram_id FROM web_credentials WHERE email=? COLLATE NOCASE LIMIT 1",
+                (email.strip().lower(),)
+            ).fetchone()
+            if not row:
+                return 'not_found'
+            cred_id = row['id']
+            existing_tg = row['telegram_id']
+            if existing_tg and existing_tg > 0:
+                return 'ok' if existing_tg == telegram_id else 'already_linked'
+            conn.execute(
+                "UPDATE web_credentials SET telegram_id=? WHERE id=?",
+                (telegram_id, cred_id)
+            )
+            conn.commit()
+            return 'ok'
+        except Exception as exc:
+            logger.error("link_web_credential_to_telegram: %s", exc)
+            return 'error'
+
+    def delete_web_credential_by_id(self, cred_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute("DELETE FROM web_credentials WHERE id=?", (cred_id,))
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("delete_web_credential_by_id: %s", exc)
+            return False
+
