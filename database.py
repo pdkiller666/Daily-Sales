@@ -1101,6 +1101,8 @@ class Database:
                 created_by           INTEGER NOT NULL DEFAULT 0,
                 assigned_to          INTEGER DEFAULT NULL,
                 shop_id              INTEGER DEFAULT NULL,
+                assigned_shop        TEXT    DEFAULT NULL,
+                assign_all           INTEGER DEFAULT 0,
                 priority             TEXT    DEFAULT 'normal',
                 status               TEXT    DEFAULT 'new',
                 deadline             TEXT    DEFAULT NULL,
@@ -1109,6 +1111,12 @@ class Database:
                 updated_at           TEXT    DEFAULT (datetime('now'))
             )
         ''')
+        for _col, _def in [('assigned_shop', 'TEXT DEFAULT NULL'),
+                            ('assign_all',    'INTEGER DEFAULT 0')]:
+            try:
+                cursor.execute(f'ALTER TABLE tasks ADD COLUMN {_col} {_def}')
+            except Exception:
+                pass
 
         # ── Task checklist items ───────────────────────────────────────────────
         cursor.execute('''
@@ -8865,6 +8873,7 @@ class Database:
     def create_task(self, title: str, description: str = '',
                     topic_id: int | None = None, created_by: int = 0,
                     assigned_to: int | None = None, shop_id: int | None = None,
+                    assigned_shop: str | None = None, assign_all: int = 0,
                     priority: str = 'normal', deadline: str | None = None,
                     linked_chat_topic_id: int | None = None,
                     checklist: list | None = None) -> int:
@@ -8875,11 +8884,13 @@ class Database:
                 """
                 INSERT INTO tasks
                     (title, description, topic_id, created_by, assigned_to,
-                     shop_id, priority, deadline, linked_chat_topic_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     shop_id, assigned_shop, assign_all,
+                     priority, deadline, linked_chat_topic_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (title, description, topic_id, created_by, assigned_to,
-                 shop_id, priority, deadline, linked_chat_topic_id)
+                 shop_id, assigned_shop, assign_all,
+                 priority, deadline, linked_chat_topic_id)
             )
             task_id = cur.lastrowid
             if checklist:
@@ -8898,18 +8909,30 @@ class Database:
     def get_tasks(self, assigned_to: int | None = None,
                   topic_id: int | None = None, status: str | None = None,
                   created_by: int | None = None,
-                  is_admin: bool = False, my_user_id: int | None = None) -> list:
+                  is_admin: bool = False, my_user_id: int | None = None,
+                  my_shop: str | None = None,
+                  shop_filter: str | None = None) -> list:
         """Список задач с фильтрацией. Admin видит все, user — только свои."""
         try:
             conn = self.get_connection()
             where = ["1=1"]
             params = []
             if not is_admin and my_user_id:
-                where.append("(t.assigned_to = ? OR t.created_by = ?)")
-                params += [my_user_id, my_user_id]
+                sub_clauses = ["t.created_by = ?", "t.assign_all = 1"]
+                sub_params = [my_user_id]
+                sub_clauses.append("t.assigned_to = ?")
+                sub_params.append(my_user_id)
+                if my_shop:
+                    sub_clauses.append("t.assigned_shop = ?")
+                    sub_params.append(my_shop)
+                where.append(f"({' OR '.join(sub_clauses)})")
+                params += sub_params
             if assigned_to:
                 where.append("t.assigned_to = ?")
                 params.append(assigned_to)
+            if shop_filter:
+                where.append("t.assigned_shop = ?")
+                params.append(shop_filter)
             if topic_id:
                 where.append("t.topic_id = ?")
                 params.append(topic_id)
@@ -8925,14 +8948,13 @@ class Database:
                        tt.name AS topic_name, tt.color AS topic_color,
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
-                       s.name AS shop_name,
+                       t.assigned_shop, t.assign_all,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
                 LEFT JOIN users uc ON uc.id = t.created_by
-                LEFT JOIN shops s  ON s.id  = t.shop_id
                 WHERE {where_sql}
                 ORDER BY
                     CASE t.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1
@@ -8957,8 +8979,8 @@ class Database:
                     "created_at": r[11], "updated_at": r[12],
                     "topic_name": r[13], "topic_color": r[14] or "blue",
                     "assigned_name": a_name, "creator_name": c_name,
-                    "shop_name": r[21],
-                    "checklist_total": r[22], "checklist_done": r[23],
+                    "assigned_shop": r[21], "assign_all": bool(r[22]),
+                    "checklist_total": r[23], "checklist_done": r[24],
                 })
             return result
         except Exception as e:
@@ -8977,12 +8999,11 @@ class Database:
                        tt.name AS topic_name, tt.color AS topic_color,
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
-                       s.name AS shop_name
+                       t.assigned_shop, t.assign_all
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
                 LEFT JOIN users uc ON uc.id = t.created_by
-                LEFT JOIN shops s  ON s.id  = t.shop_id
                 WHERE t.id = ?
                 """,
                 (task_id,)
@@ -9012,7 +9033,8 @@ class Database:
                 "created_at": row[11], "updated_at": row[12],
                 "topic_name": row[13], "topic_color": row[14] or "blue",
                 "assigned_name": a_name, "creator_name": c_name,
-                "shop_name": row[21], "checklist": checklist,
+                "assigned_shop": row[21], "assign_all": bool(row[22]),
+                "checklist": checklist,
             }
         except Exception as e:
             logger.error("get_task: %s", e)
@@ -9036,19 +9058,23 @@ class Database:
     def update_task(self, task_id: int, title: str, description: str,
                     topic_id: int | None, assigned_to: int | None,
                     shop_id: int | None, priority: str,
-                    deadline: str | None) -> bool:
+                    deadline: str | None,
+                    assigned_shop: str | None = None,
+                    assign_all: int = 0) -> bool:
         """Обновить поля задачи (редактирование admin)."""
         try:
             conn = self.get_connection()
             conn.execute(
                 """
                 UPDATE tasks SET title=?, description=?, topic_id=?,
-                    assigned_to=?, shop_id=?, priority=?, deadline=?,
+                    assigned_to=?, shop_id=?, assigned_shop=?, assign_all=?,
+                    priority=?, deadline=?,
                     updated_at=datetime('now')
                 WHERE id=?
                 """,
                 (title, description, topic_id, assigned_to,
-                 shop_id, priority, deadline, task_id)
+                 shop_id, assigned_shop, assign_all,
+                 priority, deadline, task_id)
             )
             conn.commit()
             conn.close()

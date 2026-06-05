@@ -99,13 +99,31 @@
       <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}"
          class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not assigned_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
-        Все
+        Все сотрудники
       </a>
       {% for s in staff_list %}
       <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}&assigned_filter={{ s.id }}"
          class="block px-2.5 py-1.5 rounded-lg text-sm transition-colors truncate
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if assigned_filter == s.id else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         {{ s.name }}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if is_admin and shops_list %}
+    <div class="card p-3 dark:bg-slate-900 mt-3">
+      <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">По магазину</p>
+      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}"
+         class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
+                {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not shop_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+        Все магазины
+      </a>
+      {% for sh in shops_list %}
+      <a href="/tasks?status={{ status_filter }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}&shop_filter={{ sh.name | urlencode }}"
+         class="block px-2.5 py-1.5 rounded-lg text-sm transition-colors truncate
+                {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if shop_filter == sh.name else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+        🏪 {{ sh.name }}
       </a>
       {% endfor %}
     </div>
@@ -158,11 +176,12 @@
                 {{ t.topic_name }}
               </span>
               {% endif %}
-              {% if t.get('assigned_name') %}
+              {% if t.get('assign_all') %}
+              <span>👥 Вся команда</span>
+              {% elif t.get('assigned_shop') %}
+              <span>🏪 {{ t.assigned_shop }}</span>
+              {% elif t.get('assigned_name') %}
               <span>👤 {{ t.assigned_name }}</span>
-              {% endif %}
-              {% if t.get('shop_name') %}
-              <span>🏪 {{ t.shop_name }}</span>
               {% endif %}
               {% if t.get('deadline') %}
               <span class="{{ 'text-red-500 font-medium' if overdue else '' }}">

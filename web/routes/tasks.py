@@ -118,14 +118,45 @@ def _get_staff_list(db) -> list:
 
 
 def _get_shops_list(db) -> list:
-    """Список магазинов для привязки задачи."""
+    """Список магазинов из users.shop_name (distinct)."""
     try:
         conn = db.get_connection()
         rows = conn.execute(
-            "SELECT id, name FROM shops WHERE is_active = 1 ORDER BY name"
+            "SELECT DISTINCT shop_name FROM users "
+            "WHERE is_active = 1 AND shop_name IS NOT NULL AND shop_name != '' "
+            "ORDER BY shop_name"
         ).fetchall()
         conn.close()
-        return [{"id": r[0], "name": r[1]} for r in rows]
+        return [{"id": r[0], "name": r[0]} for r in rows]
+    except Exception:
+        return []
+
+
+def _get_shop_members_tg_ids(db, shop_name: str) -> list[tuple]:
+    """Возвращает [(users.id, telegram_id)] всех активных сотрудников магазина."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, telegram_id FROM users "
+            "WHERE is_active = 1 AND shop_name = ? AND telegram_id IS NOT NULL",
+            (shop_name,)
+        ).fetchall()
+        conn.close()
+        return [(r[0], r[1]) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_all_members_tg_ids(db) -> list[tuple]:
+    """Возвращает [(users.id, telegram_id)] всех активных сотрудников орга."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT id, telegram_id FROM users "
+            "WHERE is_active = 1 AND telegram_id IS NOT NULL"
+        ).fetchall()
+        conn.close()
+        return [(r[0], r[1]) for r in rows]
     except Exception:
         return []
 
@@ -153,7 +184,7 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 
 @router.get("/tasks")
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
-               assigned_filter: int = 0, msg: str = ""):
+               assigned_filter: int = 0, shop_filter: str = "", msg: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -167,9 +198,9 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
-        "tasks": [], "topics": [], "staff_list": [],
+        "tasks": [], "topics": [], "staff_list": [], "shops_list": [],
         "status_filter": status, "topic_filter": topic_id,
-        "assigned_filter": assigned_filter,
+        "assigned_filter": assigned_filter, "shop_filter": shop_filter,
         "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
         "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
         "topic_colors": TOPIC_COLORS,
@@ -182,10 +213,11 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
         my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
 
         ctx["topics"] = db.get_task_topics()
 
@@ -193,12 +225,15 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             status=status or None,
             topic_id=topic_id or None,
             assigned_to=assigned_filter if assigned_filter else None,
+            shop_filter=shop_filter or None,
             is_admin=is_admin,
             my_user_id=my_db_id,
+            my_shop=my_shop or None,
         )
         ctx["tasks"] = tasks
         if is_admin:
             ctx["staff_list"] = _get_staff_list(db)
+            ctx["shops_list"] = _get_shops_list(db)
         ctx["my_db_id"] = my_db_id
     except Exception as e:
         logger.error("tasks_list: %s", e)
@@ -252,8 +287,9 @@ def tasks_new_post(
     title: str = Form(""),
     description: str = Form(""),
     topic_id: str = Form(""),
+    assign_mode: str = Form("person"),
     assigned_to: str = Form(""),
-    shop_id: str = Form(""),
+    assigned_shop: str = Form(""),
     priority: str = Form("normal"),
     deadline: str = Form(""),
     create_chat_topic: str = Form(""),
@@ -287,11 +323,20 @@ def tasks_new_post(
         my_db_id = my_row[0] if my_row else 0
 
         _topic_id = int(topic_id) if topic_id.isdigit() else None
-        _assigned_to = int(assigned_to) if assigned_to.isdigit() else None
-        _shop_id = int(shop_id) if shop_id.isdigit() else None
         _deadline = deadline.strip() or None
         if priority not in PRIORITY_LABELS:
             priority = 'normal'
+
+        # Resolve assignment based on mode
+        _assigned_to = None
+        _assigned_shop = None
+        _assign_all = 0
+        if assign_mode == "person":
+            _assigned_to = int(assigned_to) if assigned_to.isdigit() else None
+        elif assign_mode == "shop":
+            _assigned_shop = assigned_shop.strip() or None
+        elif assign_mode == "all":
+            _assign_all = 1
 
         _linked_chat_topic_id = None
         if create_chat_topic == "1" and title:
@@ -309,29 +354,57 @@ def tasks_new_post(
             topic_id=_topic_id,
             created_by=my_db_id,
             assigned_to=_assigned_to,
-            shop_id=_shop_id,
+            assigned_shop=_assigned_shop,
+            assign_all=_assign_all,
             priority=priority,
             deadline=_deadline,
             linked_chat_topic_id=_linked_chat_topic_id,
             checklist=items,
         )
 
-        if _assigned_to and _assigned_to != my_db_id:
+        # Send notifications
+        deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
+        prio = PRIORITY_LABELS.get(priority, "")
+        notify_text = (
+            f"📋 <b>Вам назначена задача</b>\n\n"
+            f"<b>{title}</b>\n"
+            f"{prio}{deadline_str}\n\n"
+            f"🌐 Откройте веб-кабинет для подробностей."
+        )
+        if assign_mode == "person" and _assigned_to and _assigned_to != my_db_id:
             tg_id = _get_user_tg_id(db, _assigned_to)
             if tg_id:
-                deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
-                prio = PRIORITY_LABELS.get(priority, "")
-                db.add_notification_to_history(
-                    _assigned_to, "task_assigned",
-                    f"📋 Назначена задача: {title}"
-                )
-                _send_tg_task_notify(
-                    tg_id,
-                    f"📋 <b>Вам назначена задача</b>\n\n"
-                    f"<b>{title}</b>\n"
-                    f"{prio}{deadline_str}\n\n"
-                    f"🌐 Откройте веб-кабинет для подробностей."
-                )
+                try:
+                    db.add_notification_to_history(
+                        _assigned_to, "task_assigned", f"📋 Назначена задача: {title}"
+                    )
+                except Exception:
+                    pass
+                _send_tg_task_notify(tg_id, notify_text)
+        elif assign_mode == "shop" and _assigned_shop:
+            members = _get_shop_members_tg_ids(db, _assigned_shop)
+            for uid, tg_id in members:
+                if uid == my_db_id:
+                    continue
+                try:
+                    db.add_notification_to_history(
+                        uid, "task_assigned", f"📋 Назначена задача: {title}"
+                    )
+                except Exception:
+                    pass
+                _send_tg_task_notify(tg_id, notify_text)
+        elif assign_mode == "all":
+            members = _get_all_members_tg_ids(db)
+            for uid, tg_id in members:
+                if uid == my_db_id:
+                    continue
+                try:
+                    db.add_notification_to_history(
+                        uid, "task_assigned", f"📋 Назначена задача: {title}"
+                    )
+                except Exception:
+                    pass
+                _send_tg_task_notify(tg_id, notify_text)
 
         return RedirectResponse(url=f"/tasks/{task_id}?msg=created", status_code=303)
     except Exception as e:
@@ -475,20 +548,29 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
         my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
         ctx["my_db_id"] = my_db_id
 
         task = db.get_task(task_id)
         if not task:
             return RedirectResponse(url="/tasks?msg=not_found", status_code=302)
 
-        if not is_admin and task.get("assigned_to") != my_db_id and task.get("created_by") != my_db_id:
-            return RedirectResponse(url="/tasks", status_code=302)
+        if not is_admin:
+            allowed = (
+                task.get("assigned_to") == my_db_id
+                or task.get("created_by") == my_db_id
+                or task.get("assign_all")
+                or (task.get("assigned_shop") and my_shop and task["assigned_shop"] == my_shop)
+            )
+            if not allowed:
+                return RedirectResponse(url="/tasks", status_code=302)
 
         ctx["task"] = task
+        ctx["my_shop"] = my_shop
         ctx["comments"] = db.get_task_comments(task_id)
     except Exception as e:
         logger.error("task_detail: %s", e)
@@ -755,8 +837,9 @@ def task_edit_post(
     title: str = Form(""),
     description: str = Form(""),
     topic_id: str = Form(""),
+    assign_mode: str = Form("person"),
     assigned_to: str = Form(""),
-    shop_id: str = Form(""),
+    assigned_shop: str = Form(""),
     priority: str = Form("normal"),
     deadline: str = Form(""),
 ):
@@ -785,23 +868,35 @@ def task_edit_post(
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
 
         _topic_id = int(topic_id) if topic_id.isdigit() else None
-        _assigned_to = int(assigned_to) if assigned_to.isdigit() else None
-        _shop_id = int(shop_id) if shop_id.isdigit() else None
         _deadline = deadline.strip() or None
         if priority not in PRIORITY_LABELS:
             priority = 'normal'
 
-        db.update_task(task_id, title, description.strip(), _topic_id,
-                       _assigned_to, _shop_id, priority, _deadline)
+        _assigned_to = None
+        _assigned_shop_val = None
+        _assign_all = 0
+        if assign_mode == "person":
+            _assigned_to = int(assigned_to) if assigned_to.isdigit() else None
+        elif assign_mode == "shop":
+            _assigned_shop_val = assigned_shop.strip() or None
+        elif assign_mode == "all":
+            _assign_all = 1
 
-        if _assigned_to and _assigned_to != old_task.get("assigned_to"):
+        db.update_task(task_id, title, description.strip(), _topic_id,
+                       _assigned_to, None, priority, _deadline,
+                       assigned_shop=_assigned_shop_val, assign_all=_assign_all)
+
+        # Notify if new person assigned
+        if assign_mode == "person" and _assigned_to and _assigned_to != old_task.get("assigned_to"):
             tg_id = _get_user_tg_id(db, _assigned_to)
             if tg_id:
                 deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
-                db.add_notification_to_history(
-                    _assigned_to, "task_assigned",
-                    f"📋 Назначена задача: {title}"
-                )
+                try:
+                    db.add_notification_to_history(
+                        _assigned_to, "task_assigned", f"📋 Назначена задача: {title}"
+                    )
+                except Exception:
+                    pass
                 _send_tg_task_notify(
                     tg_id,
                     f"📋 <b>Вам назначена задача</b>\n\n"

@@ -4,17 +4,17 @@
 {% block breadcrumb %}
 <span class="text-slate-400 text-xs">🏠</span>
 <span class="text-slate-300 text-xs">/</span>
-<span class="font-medium text-slate-700 text-sm">Продажи</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">Продажи</span>
 {% endblock %}
 
 {% block content %}
 {% if flash_ok %}
-<div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">
+<div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300">
     ✅ Продажа записана
 </div>
 {% endif %}
 {% if flash_err %}
-<div class="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+<div class="mb-4 flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
     ⚠️ {{ flash_err }}
 </div>
 {% endif %}
@@ -24,8 +24,8 @@
 <!-- Header -->
 <div class="flex items-center justify-between mb-5">
     <div>
-        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">Продажи</h1>
-        <p class="text-xs sm:text-sm text-slate-500 mt-0.5">История транзакций</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">Продажи</h1>
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">История транзакций</p>
     </div>
     <div class="flex items-center gap-2">
         {% if shops %}
@@ -38,7 +38,7 @@
         </button>
         {% endif %}
         <a href="/sales/export.xlsx?date_from={{ date_from }}&date_to={{ date_to }}{% if selected_shop %}&shop={{ selected_shop|urlencode }}{% endif %}"
-           class="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+           class="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
            title="Экспорт Excel">
             <span>📥</span>
             <span class="hidden sm:inline">Excel</span>
@@ -47,7 +47,7 @@
 </div>
 
 {% if error %}
-<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
     <span>⚠️</span><span>{{ error }}</span>
 </div>
 {% endif %}
@@ -55,53 +55,53 @@
 <!-- Edit sale modal -->
 <div x-show="editOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="editOpen = false"></div>
-    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
-        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100">
-            <h3 class="text-base font-semibold text-slate-800">Редактировать продажу</h3>
-            <button @click="editOpen = false" class="text-slate-400 hover:text-slate-600">
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Редактировать продажу</h3>
+            <button @click="editOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
         </div>
-        <div x-show="editError" class="mx-5 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="editError"></div>
+        <div x-show="editError" class="mx-5 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300" x-text="editError"></div>
         <div class="p-5 space-y-4">
             <div>
-                <p class="text-xs text-slate-400 mb-1">Товар</p>
-                <p class="text-sm font-medium text-slate-800 truncate" x-text="editProductName"></p>
+                <p class="text-xs text-slate-400 dark:text-slate-500 mb-1">Товар</p>
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate" x-text="editProductName"></p>
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Магазин</label>
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Магазин</label>
                 {% if is_admin %}
                 <select x-model="editShop"
-                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     {% for s in shops %}
                     <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
                 </select>
                 {% else %}
-                <p class="text-sm text-slate-700 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg" x-text="editShop || '—'"></p>
+                <p class="text-sm text-slate-700 dark:text-slate-200 px-3 py-2.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg" x-text="editShop || '—'"></p>
                 {% endif %}
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Кол-во</label>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Кол-во</label>
                     <input type="number" x-model="editQty" min="1" step="1"
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Цена (₽)</label>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Цена (₽)</label>
                     <input type="number" x-model="editPrice" min="0" step="0.01"
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
             <div x-show="editPrice > 0 && editQty > 0"
-                 class="bg-blue-50 rounded-lg px-3 py-2 text-sm text-blue-700 font-medium text-center">
+                 class="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 text-sm text-blue-700 dark:text-blue-300 font-medium text-center">
                 Итого: <span x-text="(parseFloat(editPrice) * parseInt(editQty)).toLocaleString('ru-RU') + ' ₽'"></span>
             </div>
             <div class="flex gap-3 pt-1">
                 <button type="button" @click="editOpen = false"
-                        class="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                        class="flex-1 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     Отмена
                 </button>
                 <button type="button" @click="submitEdit()"
@@ -118,10 +118,10 @@
 <!-- Sale creation modal -->
 <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="open = false"></div>
-    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md z-10" @click.stop>
-        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100">
-            <h3 class="text-base font-semibold text-slate-800">Записать продажу</h3>
-            <button @click="open = false" class="text-slate-400 hover:text-slate-600">
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md z-10" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">Записать продажу</h3>
+            <button @click="open = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
@@ -134,16 +134,16 @@
             <input type="hidden" name="shop_name" :value="selectedShop">
 
             <div>
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Магазин</label>
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Магазин</label>
                 <select x-show="!crossShop" x-model="selectedShop" @change="loadProducts()"
-                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     {% for s in shops %}
                     <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
                 </select>
                 {% if is_admin and all_shops %}
                 <select x-show="crossShop" x-model="selectedShop" @change="loadProducts()"
-                        class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     {% for s in all_shops %}
                     <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
@@ -151,19 +151,19 @@
                 <div class="flex items-center gap-2 mt-1.5">
                     <input type="checkbox" id="crossShopCb" x-model="crossShop" @change="loadProducts()"
                            class="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer">
-                    <label for="crossShopCb" class="text-xs text-slate-500 cursor-pointer">Продать с другого магазина</label>
+                    <label for="crossShopCb" class="text-xs text-slate-500 dark:text-slate-400 cursor-pointer">Продать с другого магазина</label>
                 </div>
                 {% endif %}
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Товар</label>
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Товар</label>
                 <input type="hidden" name="product_id" :value="selectedProductId">
                 <!-- Tabs: Все / Избранное / Недавние -->
                 <div class="flex gap-1 mb-2">
                     <template x-for="[val, lbl] in [['all','Все'],['fav','⭐'],['recent','🔄']]" :key="val">
                         <button type="button" @click="switchProductTab(val)"
-                                :class="productTab === val ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'"
+                                :class="productTab === val ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'"
                                 class="px-2.5 py-1 rounded text-xs font-medium transition-colors" x-text="lbl"></button>
                     </template>
                 </div>
@@ -171,28 +171,28 @@
                 <div class="relative mb-1.5">
                     <input type="text" x-model="search" @input="autoSelectFirst()"
                            placeholder="🔍 Быстрый поиск…"
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-500 rounded-lg px-3 py-2 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <button type="button" x-show="search" @click="search=''; autoSelectFirst()"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+                            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none">×</button>
                 </div>
                 <!-- Scrollable product list -->
-                <div class="border border-slate-200 rounded-lg overflow-y-auto bg-white" style="max-height:200px">
-                    <div x-show="loading" class="py-3 text-center text-sm text-slate-400">Загрузка…</div>
-                    <div x-show="!loading && products.length === 0" class="py-3 text-center text-sm text-slate-400">Нет товаров в наличии</div>
-                    <div x-show="!loading && products.length > 0 && filteredProducts.length === 0" class="py-3 text-center text-sm text-slate-400">Ничего не найдено</div>
-                    <div x-show="!loading" class="divide-y divide-slate-50">
+                <div class="border border-slate-200 dark:border-slate-600 rounded-lg overflow-y-auto bg-white dark:bg-slate-700" style="max-height:200px">
+                    <div x-show="loading" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Загрузка…</div>
+                    <div x-show="!loading && products.length === 0" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Нет товаров в наличии</div>
+                    <div x-show="!loading && products.length > 0 && filteredProducts.length === 0" class="py-3 text-center text-sm text-slate-400 dark:text-slate-500">Ничего не найдено</div>
+                    <div x-show="!loading" class="divide-y divide-slate-50 dark:divide-slate-600">
                         <template x-for="p in filteredProducts" :key="p.id">
                             <button type="button" @click="selectProduct(p)"
                                     :class="String(selectedProductId) === String(p.id)
-                                        ? 'bg-blue-50 border-l-[3px] border-blue-500'
-                                        : 'border-l-[3px] border-transparent hover:bg-slate-50'"
+                                        ? 'bg-blue-50 dark:bg-blue-900/30 border-l-[3px] border-blue-500'
+                                        : 'border-l-[3px] border-transparent hover:bg-slate-50 dark:hover:bg-slate-600'"
                                     class="w-full text-left px-3 py-2 flex items-center justify-between gap-2 transition-colors">
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-sm font-medium text-slate-800 truncate" x-text="p.name"></p>
-                                    <p class="text-xs text-slate-400"
+                                    <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate" x-text="p.name"></p>
+                                    <p class="text-xs text-slate-400 dark:text-slate-500"
                                        x-text="(p.category ? p.category + ' · ' : '') + p.stock + '\u00a0шт.'"></p>
                                 </div>
-                                <span class="text-sm font-semibold text-emerald-600 shrink-0 tabular-nums"
+                                <span class="text-sm font-semibold text-emerald-600 dark:text-emerald-400 shrink-0 tabular-nums"
                                       x-text="p.price.toLocaleString('ru-RU') + '\u00a0₽'"></span>
                             </button>
                         </template>
@@ -200,42 +200,42 @@
                 </div>
                 <!-- Selected product label -->
                 <p x-show="selectedProductId && !loading"
-                   class="mt-1.5 text-xs text-blue-600 truncate"
+                   class="mt-1.5 text-xs text-blue-600 dark:text-blue-400 truncate"
                    x-text="'✓ ' + (products.find(p => String(p.id) === String(selectedProductId))?.name || '')"></p>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Кол-во</label>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Кол-во</label>
                     <input type="number" name="quantity" x-model="qty" min="1" step="1" required
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <div class="flex flex-wrap gap-1 mt-1.5">
                         <template x-for="n in [1,2,3,5,10,20,50]" :key="n">
                             <button type="button" @click="qty = n"
-                                    :class="qty == n ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-blue-50'"
+                                    :class="qty == n ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-600'"
                                     class="px-2 py-0.5 rounded text-xs font-medium transition-colors"
                                     x-text="n"></button>
                         </template>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Цена (₽)</label>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Цена (₽)</label>
                     <input type="number" name="sale_price" x-model="price" min="0" step="0.01" required
-                           class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
 
             <div x-show="price > 0 && qty > 0"
-                 class="bg-emerald-50 rounded-lg px-3 py-2 text-sm text-emerald-700 font-medium text-center">
+                 class="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300 font-medium text-center">
                 Итого: <span x-text="(price * qty).toLocaleString('ru-RU') + ' ₽'"></span>
                 <template x-if="motivPreview">
-                    <span class="block text-xs font-normal text-emerald-600 mt-0.5" x-text="motivPreview"></span>
+                    <span class="block text-xs font-normal text-emerald-600 dark:text-emerald-400 mt-0.5" x-text="motivPreview"></span>
                 </template>
             </div>
 
             <div class="flex gap-3 pt-1">
                 <button type="button" @click="open = false"
-                        class="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">
+                        class="flex-1 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     Отмена
                 </button>
                 <button type="submit"
@@ -254,14 +254,14 @@
         <!-- Date row: always 2 columns -->
         <div class="grid grid-cols-2 gap-2">
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-slate-500">От</label>
+                <label class="text-xs font-medium text-slate-500 dark:text-slate-400">От</label>
                 <input type="date" name="date_from" value="{{ date_from }}"
-                       class="border border-slate-200 rounded-lg px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                       class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
             </div>
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-slate-500">До</label>
+                <label class="text-xs font-medium text-slate-500 dark:text-slate-400">До</label>
                 <input type="date" name="date_to" value="{{ date_to }}"
-                       class="border border-slate-200 rounded-lg px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                       class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-2.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
             </div>
         </div>
         <!-- Shop + Seller row -->
@@ -269,9 +269,9 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {% if shops %}
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-slate-500">Магазин</label>
+                <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Магазин</label>
                 <select name="shop"
-                        class="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                        class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
                     <option value="">Все магазины</option>
                     {% for s in shops %}
                     <option value="{{ s }}" {% if s == selected_shop %}selected{% endif %}>{{ s }}</option>
@@ -281,9 +281,9 @@
             {% endif %}
             {% if sellers %}
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-slate-500">Продавец</label>
+                <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Продавец</label>
                 <select name="seller_id"
-                        class="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                        class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
                     <option value="0">Все продавцы</option>
                     {% for s in sellers %}
                     <option value="{{ s.id }}" {% if s.id == selected_seller_id %}selected{% endif %}>{{ s.name }}</option>
@@ -299,7 +299,7 @@
                     class="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
                 🔍 Применить
             </button>
-            <a href="/sales" class="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-600">
+            <a href="/sales" class="flex items-center gap-1 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 × Сбросить
             </a>
         </div>
@@ -309,53 +309,50 @@
 <!-- Summary cards -->
 <div class="grid grid-cols-3 gap-2 sm:gap-4 mb-5">
     <div class="card p-3 sm:p-4">
-        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Транзакций</p>
-        <p class="text-lg sm:text-2xl font-bold text-slate-800">{{ summary[0]|int }}</p>
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">Транзакций</p>
+        <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{{ summary[0]|int }}</p>
     </div>
     <div class="card p-3 sm:p-4">
-        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
             <span class="sm:hidden">Продано</span>
             <span class="hidden sm:inline">Продано, шт.</span>
         </p>
-        <p class="text-lg sm:text-2xl font-bold text-slate-800">{{ summary[1]|int if summary[1] else 0 }}</p>
+        <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{{ summary[1]|int if summary[1] else 0 }}</p>
     </div>
     <div class="card p-3 sm:p-4">
-        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Выручка</p>
-        <p class="text-base sm:text-2xl font-bold text-emerald-600 leading-tight">{{ summary[2]|int|fmt_currency if summary[2] else '0 ₽' }}</p>
+        <p class="text-[10px] sm:text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">Выручка</p>
+        <p class="text-base sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 leading-tight">{{ summary[2]|int|fmt_currency if summary[2] else '0 ₽' }}</p>
     </div>
 </div>
 
 <!-- Sales table -->
 <div class="card overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-3">
-            <h2 class="font-semibold text-slate-800">Журнал продаж</h2>
-            <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+            <h2 class="font-semibold text-slate-800 dark:text-slate-100">Журнал продаж</h2>
+            <span class="text-xs text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
                 {{ total_count }} записей
             </span>
         </div>
-        {% if total_pages > 1 %}
-        <span class="text-xs text-slate-400">Стр. {{ page }} / {{ total_pages }}</span>
-        {% endif %}
     </div>
 
     {% if sales %}
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr class="bg-slate-50 border-b border-slate-100">
-                    <th class="text-left px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">#</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Товар</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Магазин</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Кол.</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Цена</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Сумма</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Продавец</th>
-                    <th class="text-right px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Дата</th>
+                <tr class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
+                    <th class="text-left px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">#</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Товар</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Магазин</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Кол.</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Цена</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Сумма</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden md:table-cell">Продавец</th>
+                    <th class="text-right px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Дата</th>
                     {% if is_admin or current_user_id %}<th class="px-2 py-3"></th>{% endif %}
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {% set page_offset = (page - 1) * 50 %}
                 {% for s in sales %}
                 {#
@@ -363,36 +360,36 @@
                          user_id[5] sale_date[6]
                   then  product_name[7] category[8] first_name[9] last_name[10]
                 #}
-                <tr class="hover:bg-slate-50/70 transition-colors" data-sale-id="{{ s[0] }}">
-                    <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
+                <tr class="hover:bg-slate-50/70 dark:hover:bg-slate-700/30 transition-colors" data-sale-id="{{ s[0] }}">
+                    <td class="px-3 sm:px-5 py-3 text-xs text-slate-400 dark:text-slate-500 hidden sm:table-cell">{{ page_offset + loop.index }}</td>
                     <td class="px-3 py-2.5">
                         {% if s[1] %}
                         <a href="/products/{{ s[1] }}" class="group">
-                            <p class="font-medium text-slate-800 max-w-[160px] sm:max-w-[200px] truncate group-hover:text-blue-600 transition-colors text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
-                            <p class="text-xs text-slate-400">{{ s[8] or '—' }}</p>
+                            <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
+                            <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
                         </a>
                         {% else %}
-                        <p class="font-medium text-slate-800 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
-                        <p class="text-xs text-slate-400">{{ s[8] or '—' }}</p>
+                        <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
+                        <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
                         {% endif %}
                         <!-- Mobile: date + shop inline -->
-                        <p class="sm:hidden text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                        <p class="sm:hidden text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1.5">
                             <span>{{ s[6][:10]|fmt_date if s[6] else '—' }}</span>
-                            {% if s[2] %}<span class="text-slate-300">·</span><span>{{ s[2] }}</span>{% endif %}
+                            {% if s[2] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[2] }}</span>{% endif %}
                         </p>
                     </td>
                     <td class="px-3 py-2.5 hidden sm:table-cell" data-field="shop">
-                        <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{{ s[2] }}</span>
+                        <span class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{{ s[2] }}</span>
                     </td>
-                    <td class="px-3 py-2.5 text-right font-medium text-slate-700 text-xs sm:text-sm" data-field="qty">{{ s[3] }}&thinsp;шт.</td>
-                    <td class="px-3 py-2.5 text-right text-slate-500 hidden sm:table-cell" data-field="price">{{ s[4]|int|fmt_currency }}</td>
-                    <td class="px-3 py-2.5 text-right font-semibold text-emerald-600 whitespace-nowrap text-xs sm:text-sm" data-field="total">
+                    <td class="px-3 py-2.5 text-right font-medium text-slate-700 dark:text-slate-200 text-xs sm:text-sm" data-field="qty">{{ s[3] }}&thinsp;шт.</td>
+                    <td class="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell" data-field="price">{{ s[4]|int|fmt_currency }}</td>
+                    <td class="px-3 py-2.5 text-right font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-xs sm:text-sm" data-field="total">
                         {{ (s[3] * s[4])|int|fmt_currency }}
                     </td>
-                    <td class="px-3 py-2.5 hidden md:table-cell text-slate-600 text-xs">
+                    <td class="px-3 py-2.5 hidden md:table-cell text-slate-600 dark:text-slate-300 text-xs">
                         {{ s[9] or '' }}{% if s[10] %} {{ s[10][0] }}.{% endif %}
                     </td>
-                    <td class="px-3 sm:px-5 py-2.5 text-right text-xs text-slate-400 whitespace-nowrap hidden sm:table-cell">
+                    <td class="px-3 sm:px-5 py-2.5 text-right text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap hidden sm:table-cell">
                         {{ s[6][:10]|fmt_date if s[6] else '—' }}
                     </td>
                     {% if is_admin or s[5] == current_user_id %}
@@ -400,13 +397,13 @@
                         <div class="flex items-center justify-end gap-0.5">
                             <button type="button"
                                     @click="openEdit({{ s[0] }})"
-                                    class="text-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded transition-colors"
+                                    class="text-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-1.5 py-1 rounded transition-colors"
                                     title="Редактировать">✏️</button>
                             <form method="post" action="/sales/{{ s[0] }}/delete"
                                   onsubmit="return confirm('Удалить продажу? Остатки будут восстановлены.')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button type="submit"
-                                        class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-1.5 py-1 rounded transition-colors"
+                                        class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-1.5 py-1 rounded transition-colors"
                                         title="Удалить">✕</button>
                             </form>
                         </div>
@@ -421,23 +418,67 @@
     </div>
 
     <!-- Pagination -->
-    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ selected_shop ~ "&seller_id=" ~ selected_seller_id %}
-    {% if total_pages > 1 %}
-    <div class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500">
-        <a {% if page > 1 %}href="{{ base_url }}&page={{ page - 1 }}"{% else %}href="#"{% endif %}
-           class="px-3 py-1 rounded-lg border border-slate-200 text-xs transition-colors {{ 'hover:bg-slate-50 text-slate-600' if page > 1 else 'opacity-30 cursor-default' }}">
-            ← Пред.
-        </a>
-        <span class="text-xs text-slate-500">Стр. {{ page }} / {{ total_pages }} · {{ total_count }} записей</span>
-        <a {% if page < total_pages %}href="{{ base_url }}&page={{ page + 1 }}"{% else %}href="#"{% endif %}
-           class="px-3 py-1 rounded-lg border border-slate-200 text-xs transition-colors {{ 'hover:bg-slate-50 text-slate-600' if page < total_pages else 'opacity-30 cursor-default' }}">
-            След. →
-        </a>
+    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ (selected_shop | urlencode) ~ "&seller_id=" ~ selected_seller_id %}
+    {% set page_start = (page - 1) * 50 + 1 %}
+    {% set page_end   = [page * 50, total_count] | min %}
+    <div class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <!-- Info -->
+        <span class="text-xs text-slate-400 dark:text-slate-500 order-2 sm:order-1">
+            {% if total_count == 0 %}
+                Нет записей
+            {% elif total_pages == 1 %}
+                Все {{ total_count }} записей
+            {% else %}
+                {{ page_start }}–{{ page_end }} из {{ total_count }}
+            {% endif %}
+        </span>
+
+        <!-- Page controls -->
+        {% if total_pages > 1 %}
+        <div class="flex items-center gap-1 order-1 sm:order-2">
+            <!-- Prev -->
+            <a {% if page > 1 %}href="{{ base_url }}&page={{ page - 1 }}"{% else %}href="#"{% endif %}
+               class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors
+                      {% if page > 1 %}border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700{% else %}border-slate-100 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-default{% endif %}">
+                ← Пред.
+            </a>
+
+            <!-- Page numbers -->
+            {% set pages_shown = namespace(val=[]) %}
+            {% for p in range(1, total_pages + 1) %}
+                {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                    {% set pages_shown.val = pages_shown.val + [p] %}
+                {% endif %}
+            {% endfor %}
+
+            {% set prev_p = namespace(val=0) %}
+            {% for p in pages_shown.val %}
+                {% if prev_p.val and p - prev_p.val > 1 %}
+                <span class="px-1 text-slate-300 dark:text-slate-600 text-xs">…</span>
+                {% endif %}
+                <a href="{{ base_url }}&page={{ p }}"
+                   class="inline-flex items-center justify-center w-8 h-8 rounded-lg border text-xs font-medium transition-colors
+                          {% if p == page %}bg-indigo-600 border-indigo-600 text-white{% else %}border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700{% endif %}">
+                    {{ p }}
+                </a>
+                {% set prev_p.val = p %}
+            {% endfor %}
+
+            <!-- Next -->
+            <a {% if page < total_pages %}href="{{ base_url }}&page={{ page + 1 }}"{% else %}href="#"{% endif %}
+               class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors
+                      {% if page < total_pages %}border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700{% else %}border-slate-100 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-default{% endif %}">
+                След. →
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- Right side: page indicator -->
+        <span class="text-xs text-slate-400 dark:text-slate-500 order-3 hidden sm:block">Стр. {{ page }} / {{ total_pages }}</span>
     </div>
-    {% endif %}
 
     {% else %}
-    <div class="py-16 text-center text-slate-400">
+    <div class="py-16 text-center text-slate-400 dark:text-slate-500">
         <p class="text-5xl mb-3">📭</p>
         <p class="text-sm font-medium">Продаж за выбранный период нет</p>
         <p class="text-xs mt-1">Измените фильтры или запишите продажу</p>
