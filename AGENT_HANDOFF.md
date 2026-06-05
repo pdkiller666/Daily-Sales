@@ -25,10 +25,21 @@ Workflow: "Start application" → python main.py
 - `BOT_TOKEN` — токен тестового бота
 - `GITHUB_TOKEN` — токен для push на GitHub
 - `ADMIN_CHAT_ID` — ID супер-администратора
+- `YANDEX_EMAIL` — адрес Яндекс Почты для SMTP (email-auth)
+- `YANDEX_SMTP_PASSWORD` — **пароль приложения** Яндекс (16 симв.), НЕ пароль аккаунта
 
 **Последний деплой:** GitHub `f29b527` · Amvera `5e0d528` (2026-06-05, сессия 469). Оба хэша верифицированы через `git ls-remote`.
 
-**Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget. Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
+**Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget **или email+пароль** (регистрация по инвайт-коду). Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
+
+**Сессия 469 (2026-06-05) — Email + пароль аутентификация:**
+- **DB**: `web_credentials` в `shop_bot.db`; 13 методов (`create_web_credential`, `get_web_credential_by_email/token/tg`, `set_email_verified`, `set_verify_token`, `set_reset_token`, `update_web_credential_telegram`, `set_web_credential_link_code`, `get_web_credential_by_link_code`, `update_web_credential_last_login`, `update_web_credential_email`, `update_web_credential_password`, `delete_web_credential_telegram`); `synthetic_tg_id = -(10_000_000 + cred_id)` для email-only юзеров
+- **web/email_utils.py**: `send_verification_email()`, `send_reset_email()`, `send_link_notification()`; SMTP `smtp.yandex.ru:465` SSL; `is_configured()` guard — маршруты деградируют до 503 без SMTP
+- **web/auth.py**: `hash_password()` / `verify_password()` (PBKDF2-SHA256, 390k итераций, stdlib)
+- **web/routes/email_auth.py**: 9 маршрутов: `GET/POST /register`, `GET/POST /auth/email`, `GET /auth/verify`, `POST /auth/resend-verify`, `GET/POST /auth/reset`, `GET/POST /auth/reset/confirm`, `POST /settings/email-change`, `POST /settings/password-change`, `POST /settings/email-unlink`; rate limit 5 req/10min/IP
+- **web_auth_handlers.py**: `/setweblogin` команда → 6-символьный код (TTL 10 мин) для привязки email к Telegram
+- **Шаблоны**: `auth/login.html` (Telegram + email табы), `auth/register.html`, `auth/reset_request.html`, `auth/reset_confirm.html`, `auth/verify_sent.html`; email-раздел в `settings/index.html`
+- **Деплой**: GitHub `f29b527` · Amvera `5e0d528` · хэши верифицированы
 
 **Сессия 459 (2026-06-05) — Веб: динамический поиск в чате + Google Sheets статус инвентаря:**
 - **Поиск в чате (B+C)**: `GET /chat/search?q=&topic_id=` — новый эндпоинт в `web/routes/chat.py`; `topic_id=0` → глобальный поиск по всем темам (до 30), `topic_id>0` → по одной теме (до 25); rate limit 30 req/min/IP; `_fmt_search_result` — расширение `_fmt_msg` с полями `result_topic_id`/`result_topic_name`; `_SEARCH_RATE_STORE` — in-memory per IP
@@ -481,6 +492,7 @@ build:
 | `yookassa_payments` | yookassa_payment_id (UNIQUE), user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
 | `referrals` | id, referrer_id (telegram_id), referred_id (telegram_id), created_at, bonus_applied (0/1) — реф. программа |
 | `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at — надстройки |
+| `web_credentials` | id, email UNIQUE, password_hash, telegram_id (nullable), synthetic_tg_id, org_db, first_name, email_verified, verify_token, verify_expires, reset_token, reset_expires, last_login, created_at — email+пароль вход |
 
 ---
 
@@ -1135,6 +1147,8 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 36. **`_low_stock_count()` в dashboard**: при scope city/network магазины ищутся в `users` и `shops` таблицах. Таблица `shops` может не иметь сотрудников, но хранит city/trade_network — без неё inventory-only магазины исчезают из подсчёта низких остатков. Fallback `try/except` если таблица `shops` отсутствует.
 37. **`get_absence_days_map(year, month, user_id=None)`** → `{user_id: {day_num: {type, status, id}}}` — ключ первого уровня = user_id (int). Вызывающий код ОБЯЗАН делать `.get(user_id, {})` для получения `{day_num: {...}}`. Без этого получишь dict с user_id-ключами вместо дня-карты.
 38. **`fsm_edit(msg_or_cb, text, markup)` НЕ вызывается в callback-handlers** — функция принимает `message`, не `callback`. В callback-хендлерах: `await callback.answer()` + `await callback.message.edit_text(text, reply_markup=markup, parse_mode=...)`.
+39. **Email-only user identity**: `synthetic_tg_id = -(10_000_000 + cred_id)` — хранится в `web_credentials.synthetic_tg_id`; используется как `tg_id` в JWT. При привязке к Telegram (`/setweblogin`) `telegram_id` в `web_credentials` обновляется. `org_db` для email-only берётся из `web_credentials.org_db` — НЕ из `user_org_mapping`.
+40. **YANDEX_SMTP_PASSWORD** — это **пароль приложения** (16 символов), НЕ пароль аккаунта Яндекс. Генерируется в Яндекс ID → Безопасность → Пароли приложений. Обычный пароль Яндекс через SMTP не работает. `web/email_utils.is_configured()` проверять перед любым SMTP-вызовом; при отсутствии секретов `/register` и `/auth/reset` возвращают HTTP 503.
 
 ---
 
@@ -1153,7 +1167,8 @@ Chart.js (графики дашборда)    |  openpyxl (Excel импорт/э
 ### Маршруты (все файлы в `web/routes/`)
 | Файл | URL prefix | Доступ | Назначение |
 |------|-----------|--------|------------|
-| `auth_routes.py` | `/login`, `/logout` | public | Telegram Login Widget |
+| `auth_routes.py` | `/login`, `/logout` | public | Telegram Login Widget + редирект на `/` |
+| `email_auth.py` | `/register`, `/auth/email`, `/auth/verify`, `/auth/resend-verify`, `/auth/reset`, `/auth/reset/confirm`, `/settings/email-*` | public/auth | Email+пароль регистрация, вход, верификация, сброс пароля |
 | `dashboard.py` | `/dashboard` | all roles | Сводка продаж, графики |
 | `sales.py` | `/sales`, `/sales/export.xlsx` | all roles | Продажи + Excel-экспорт |
 | `products.py` | `/products`, `/products/import` | all roles | Каталог + Excel-импорт |
@@ -1172,11 +1187,24 @@ Chart.js (графики дашборда)    |  openpyxl (Excel импорт/э
 
 ### Auth flow
 ```
+# Telegram Login Widget
 GET /login → Telegram Login Widget (JS) → POST /login (с hash verification)
-    → JWT cookie «web_session» (HS256, 24ч) → redirect /dashboard
+    → JWT cookie «web_session» (HS256, 7д) → redirect /dashboard
     → claims: sub=telegram_id, name, role, org_db
+
+# Email + пароль
+GET /register?invite=CODE → форма (email, пароль, имя) → POST /register
+    → create web_credentials + send_verification_email() → GET /auth/verify?token=…
+    → email_verified=1 → redirect /dashboard
+
+GET /auth/email → форма входа → POST /auth/email (email + пароль)
+    → verify_password(PBKDF2) → JWT cookie → redirect /dashboard
+
+POST /auth/reset → email → send_reset_email() → GET /auth/reset/confirm?token=…
+    → новый пароль → hash_password() → redirect /auth/email
 ```
 CSRF: derived from JWT secret + telegram_id. `get_csrf_token(request)` / `verify_csrf_token(request, token)`.
+Rate limit: `check_rate_limit(f"email_auth:{ip}", 5, 600)` → 5 попыток / 10 мин / IP (email_auth.py).
 
 ### Паттерны веб-кода (обязательны)
 ```python

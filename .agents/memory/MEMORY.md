@@ -17,5 +17,6 @@
 - [Alpine CSP unsafe-eval](alpine-csp-unsafe-eval.md) — Alpine.js 3 needs 'unsafe-eval' in CSP script-src; without it every x-* eval is blocked → 30 "Script error. @?:0" → Alpine dead, x-cloak removed but x-show never applied
 - [PostgreSQL migration plan](postgres-migration.md) — поэтапный план SQLite→PG: schema-per-org, asyncpg, dual-write, 279 методов; начинать при ≥30 платящих оргов или реальном lock-contention
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
+- [Email auth architecture](email-auth.md) — web_credentials в shop_bot.db; PBKDF2-SHA256 stdlib; synthetic_tg_id = -(10M + cred_id); YANDEX_SMTP_PASSWORD = пароль приложения (не аккаунта)
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
 - [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt

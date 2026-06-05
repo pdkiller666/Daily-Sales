@@ -139,12 +139,12 @@
 ### 🌐 Веб-кабинет (FastAPI)
 
 - **URL:** порт 5000, работает параллельно с ботом
-- **Аутентификация:** вход через Telegram — без пароля и регистрации
+- **Аутентификация:** вход через Telegram Login Widget **или по email и паролю** (регистрация по инвайт-коду + подтверждение email)
 - **Публичный лендинг** (`/`): промо-страница для посетителей из интернета; если пользователь авторизован — редирект на `/dashboard`
 - **Разделы:** Дашборд, Продажи, Товары (CRUD), Инвентарь, Отчёты, Рейтинги, Персонал, Планы, Зарплата, Расписание, Конкурсы, Настройки, Google Sheets, Платежи
 - **CRUD товаров:** создание, редактирование, удаление прямо из веб-кабинета
 - **Рейтинги:** мгновенный поиск по имени без перезагрузки страницы (Alpine.js)
-- **Безопасность:** CSRF-токены на всех POST-формах, JWT 7 дней, stateless HMAC nonce для `/auth/code`, persistent rate limiting (SQLite-backed, выдерживает рестарты)
+- **Безопасность:** CSRF-токены на всех POST-формах, JWT 7 дней, stateless HMAC nonce, PBKDF2-SHA256 (390 000 итераций) для паролей, persistent rate limiting (SQLite-backed, выдерживает рестарты)
 - **Кликабельные уведомления:** push-уведомления в sidebar навигируют на нужный раздел при клике
 
 ---
@@ -172,6 +172,8 @@ pip install -r requirements.txt
 | `GITHUB_TOKEN` | Токен для деплоя на GitHub | для деплоя |
 | `GOOGLE_OAUTH_CLIENT_ID` | OAuth client_id для Google Sheets | для интеграции |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | OAuth client_secret для Google Sheets | для интеграции |
+| `YANDEX_EMAIL` | Email-адрес для SMTP (Яндекс Почта) | для email-auth |
+| `YANDEX_SMTP_PASSWORD` | **Пароль приложения** Яндекс (не пароль аккаунта!) | для email-auth |
 
 На Replit все переменные хранятся в **Secrets** (не в `.env`).
 
@@ -229,3 +231,4 @@ bash deploy.sh "описание изменений" --no-amvera
 - **Migrations on access**: `create_tables()` кешируется в `_INITIALIZED_DBS` — выполняется один раз на путь БД за жизнь процесса, повторные вызовы — мгновенный return
 - **Hosting**: Amvera (production, persistent mount `/app/data`), Replit (development)
 - **Payments**: pluggable провайдеры (СБП / ЮKassa) через `payment_provider.py`
+- **Email + пароль аутентификация**: `/register` по инвайт-коду + email + пароль; подтверждение через Яндекс SMTP; сброс пароля через письмо; PBKDF2-SHA256 хеширование; для пользователей без Telegram — synthetic telegram_id в `web_credentials`

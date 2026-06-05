@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-04 · 50 модулей · GitHub `2b553d4` · Amvera `5dab31f`
+> Последнее обновление: 2026-06-05 · 52 модуля · GitHub `f29b527` · Amvera `5e0d528`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -9,7 +9,7 @@ Telegram API
    main.py  ──── запускает polling, регистрирует роутеры, инициализирует планировщик
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
-   │                    РОУТЕРЫ (22 штуки)                          │
+   │                    РОУТЕРЫ (23 штуки)                          │
    │  router              ← handlers.py         (старт, профиль)   │
    │  admin_router        ← admin_handlers.py   (орг, юзеры)       │
    │  sales_router        ← sales_handlers.py   (продажи)          │
@@ -32,6 +32,7 @@ Telegram API
    │  referral_router     ← referral_handlers.py (реф. программа)   │
    │  addon_router        ← addon_handlers.py   (надстройки)        │
    │  absence_router      ← absence_handlers.py (отсутствия)        │
+   │  web_auth_router     ← web_auth_handlers.py (/setweblogin)     │
    └────────────────────────────────────────────────────────────────┘
      │
    ┌─┴──────────────────────────────────────────────────────────────┐
@@ -103,6 +104,7 @@ Telegram API
 | `yookassa_payments` | id, yookassa_payment_id UNIQUE, user_id, plan_type, amount, status, promocode_id, is_scheduled, schedule_date |
 | `referrals` | id, referrer_id (telegram_id), referred_id (telegram_id), created_at, bonus_applied (0/1) |
 | `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at |
+| `web_credentials` | id, email UNIQUE, password_hash (PBKDF2-SHA256), telegram_id (nullable FK), synthetic_tg_id, org_db, first_name, email_verified (0/1), verify_token, verify_expires (unix ts), reset_token, reset_expires (unix ts), last_login, created_at — **email+пароль аутентификация** |
 
 ### Индексы (create_tables, все IF NOT EXISTS)
 
@@ -742,12 +744,21 @@ FastAPI + Uvicorn (порт 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpin
 web/
   app.py              — create_web_app(); регистрация роутеров, Jinja2 globals/filters
   auth.py             — get_session_user(), get_csrf_token(), verify_csrf_token(),
-                         generate_login_nonce(), verify_login_nonce() (HMAC nonce для /auth/code)
+                         generate_login_nonce(), verify_login_nonce() (HMAC nonce для /auth/code);
+                         hash_password() / verify_password() (PBKDF2-SHA256, 390k итераций, stdlib)
+  email_utils.py      — send_verification_email(), send_reset_email(), send_link_notification();
+                         smtp.yandex.ru:465 SSL; secrets YANDEX_EMAIL + YANDEX_SMTP_PASSWORD;
+                         is_configured() — проверять перед вызовом (503 если SMTP не настроен)
   rate_store.py       — persistent SQLite rate limiter; check_rate_limit(key, limit, window_sec)
-                         → (allowed, retry_after); хранит в data/rate_limits.db; выдерживает рестарты
+                         → bool; хранит в data/rate_limits.db; выдерживает рестарты
   deps.py             — get_web_db(telegram_id, org_db) → Database(path)
   routes/
     auth_routes.py    — GET/POST /login, GET /logout
+    email_auth.py     — GET/POST /register, GET/POST /auth/email, GET /auth/verify,
+                         POST /auth/resend-verify, GET/POST /auth/reset,
+                         GET/POST /auth/reset/confirm,
+                         POST /settings/email-change, /settings/password-change,
+                         /settings/email-unlink; rate limit 5 req/10min/IP
     dashboard.py      — GET /dashboard
     sales.py          — GET /sales, GET /sales/export.xlsx,
                          POST /sales/create (CSRF), POST /sales/{id}/delete (CSRF),
@@ -789,7 +800,9 @@ web/
                        3 эффекта: GSheets trigger · shift-sale push · plan milestones
   templates/
     base.html         — сайдбар, nav (включает Платежи только для super_admin + pending badge)
-    auth/, dashboard/, sales/, products/, inventory/, reports/, rankings/,
+    auth/             — login.html (Telegram+email табы), register.html, reset_request.html,
+                        reset_confirm.html, verify_sent.html
+    dashboard/, sales/, products/, inventory/, reports/, rankings/,
     staff/, plans/, salary/, schedule/, contests/, settings/, integration/, payments/
     errors/403.html, errors/404.html
   static/             — (пустой, авто-создаётся)
@@ -806,9 +819,11 @@ web/
 8. **Новый роутер**: добавить import + `app.include_router(...)` в `web/app.py`
 9. **Jinja2 globals**: `bot_username()`, `pending_payments_count()` — зарегистрированы в `app.py`
 10. **In-memory state**: `_import_sessions` (products.py) и `_device_flow` (integration.py) — теряются при рестарте
-11. **Persistent rate limiting**: `check_rate_limit(key, limit, window_sec)` из `web/rate_store.py` — хранит состояние в `data/rate_limits.db`; используется в `auth_routes.py` для auth-эндпоинтов
+11. **Persistent rate limiting**: `check_rate_limit(key, limit, window_sec)` из `web/rate_store.py` — хранит состояние в `data/rate_limits.db`; используется в `auth_routes.py` и `email_auth.py`
 12. **HMAC nonce для `/auth/code`**: `generate_login_nonce()` / `verify_login_nonce()` в `web/auth.py` — stateless, хранения в БД не требует
 13. **Кликабельные уведомления**: `_notif_url(notification_type)` в `api.py` и `notifications.py` → URL-роутинг по типу; `base.html` mobile/desktop items навигируют по клику
+14. **Email auth — synthetic_tg_id**: email-only пользователи получают `synthetic_tg_id = -(10_000_000 + cred_id)`; хранится в `web_credentials.synthetic_tg_id`; используется как `tg_id` в JWT; `org_db` для email-only берётся из `web_credentials.org_db`, НЕ из `user_org_mapping`
+15. **Email auth — SMTP**: `web/email_utils.is_configured()` проверять перед каждым SMTP-вызовом; `YANDEX_SMTP_PASSWORD` = пароль приложения (16 символов), НЕ пароль аккаунта Яндекс
 
 ### Доступ по ролям
 | Роль | Что видит / может делать |
