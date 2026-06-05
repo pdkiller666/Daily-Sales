@@ -8878,6 +8878,21 @@ class Database:
             logger.error("get_task_topics: %s", e)
             return []
 
+    def update_task_topic(self, topic_id: int, name: str, color: str) -> bool:
+        """Переименовать тему и/или сменить цвет."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE task_topics SET name = ?, color = ? WHERE id = ?",
+                (name, color, topic_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("update_task_topic: %s", e)
+            return False
+
     def delete_task_topic(self, topic_id: int) -> bool:
         """Удалить тему; задачи темы получают topic_id=NULL."""
         try:

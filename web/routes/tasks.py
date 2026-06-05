@@ -438,6 +438,9 @@ def tasks_topics(request: Request, msg: str = ""):
         "topics": [], "topic_colors": TOPIC_COLORS,
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
+        "colors": [("blue","bg-blue-500","Синий"), ("green","bg-emerald-500","Зелёный"),
+                   ("amber","bg-amber-500","Жёлтый"), ("red","bg-red-500","Красный"),
+                   ("purple","bg-purple-500","Фиолетовый"), ("slate","bg-slate-400","Серый")],
     }
     try:
         db = get_web_db(telegram_id, org_db)
@@ -491,6 +494,44 @@ def tasks_topics_new(
         return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
 
     return RedirectResponse(url="/tasks/topics?msg=created", status_code=303)
+
+
+@router.post("/tasks/topics/{tid}/edit")
+def tasks_topics_edit(
+    request: Request,
+    tid: int,
+    csrf_token: str = Form(""),
+    name: str = Form(""),
+    color: str = Form("blue"),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks/topics", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/topics?msg=csrf_error", status_code=303)
+
+    name = name.strip()
+    if not name:
+        return RedirectResponse(url="/tasks/topics?msg=no_name", status_code=303)
+    if color not in TOPIC_COLORS:
+        color = "blue"
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.update_task_topic(tid, name, color)
+    except Exception as e:
+        logger.error("tasks_topics_edit: %s", e)
+        return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/topics?msg=saved", status_code=303)
 
 
 @router.post("/tasks/topics/{tid}/delete")
