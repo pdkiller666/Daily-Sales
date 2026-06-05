@@ -159,19 +159,25 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
              id="topics-bar">
 
             <template x-for="t in topicsList" :key="t.id">
-                <div class="relative" x-data="{ menuOpen: false }">
+                <div class="relative inline-flex items-center" x-data="{ menuOpen: false }">
+                    <!-- Tab pill -->
                     <button
                         @click="t.id === currentTopicId ? null : switchTopic(t.id)"
-                        @contextmenu.prevent="isAdmin && t.id !== 1 ? menuOpen = !menuOpen : null"
                         :class="t.id === currentTopicId ? 'topic-tab-active' : 'topic-tab-idle'"
                         class="topic-tab">
                         <span x-text="t.name"></span>
                         <span x-show="t.unread > 0" class="topic-unread" x-text="t.unread > 9 ? '9+' : t.unread"></span>
-                        <span x-show="isAdmin && t.id !== 1"
-                              @click.stop="menuOpen = !menuOpen"
-                              class="ml-0.5 opacity-60 hover:opacity-100 text-[11px] px-0.5">⋯</span>
                     </button>
 
+                    <!-- ⋯ menu trigger — separate element, never nested inside <button> -->
+                    <button x-show="isAdmin && t.id !== 1"
+                            @click.stop="menuOpen = !menuOpen"
+                            :class="t.id === currentTopicId ? 'text-white/80 hover:text-white' : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
+                            class="shrink-0 px-1.5 py-1 text-sm leading-none rounded transition-colors"
+                            style="margin-left:-4px"
+                            title="Управление темой">⋯</button>
+
+                    <!-- Context menu -->
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
                          class="topic-menu">
