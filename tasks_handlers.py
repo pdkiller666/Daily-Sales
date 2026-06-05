@@ -83,12 +83,22 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
     return kb.as_markup()
 
 
-def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool) -> InlineKeyboardMarkup:
+def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
+                          my_shop: str | None = None) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     status = task.get('status', 'new')
     assigned_to = task.get('assigned_to')
+    assign_all = task.get('assign_all', False)
+    assigned_shop = task.get('assigned_shop', '')
 
-    if status in _STATUS_NEXT and (is_admin or assigned_to == my_db_id):
+    can_act = (
+        is_admin
+        or assigned_to == my_db_id
+        or assign_all
+        or (assigned_shop and my_shop and assigned_shop == my_shop)
+    )
+
+    if status in _STATUS_NEXT and can_act:
         next_status = _STATUS_NEXT[status]
         next_label = STATUS_LABELS.get(next_status, next_status)
         kb.row(InlineKeyboardButton(
@@ -130,13 +140,14 @@ async def _show_tasks_list(
         tg_id = target.from_user.id if isinstance(target, Msg) else target.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (tg_id,)
+            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
         ).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
         admin = await is_any_admin(state)
 
-        tasks = db.get_tasks(is_admin=admin, my_user_id=my_db_id)
+        tasks = db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
         active = [t for t in tasks if t.get('status') not in ('done', 'cancelled')]
 
         if not active:
@@ -191,10 +202,11 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         tg_id = callback.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (tg_id,)
+            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
         ).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
         admin = await is_any_admin(state)
 
         task = db.get_task(task_id)
@@ -221,7 +233,8 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         assigned_name = task.get('assigned_name', '')
         creator_name = task.get('creator_name', '')
         topic_name = task.get('topic_name', '')
-        shop_name = task.get('shop_name', '')
+        assigned_shop = task.get('assigned_shop', '')
+        assign_all = task.get('assign_all', False)
 
         checklist = task.get('checklist', [])
         cl_str = ""
@@ -238,18 +251,20 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         )
         if topic_name:
             text += f"🏷 {topic_name}\n"
-        if assigned_name:
+        if assign_all:
+            text += "👥 Исполнитель: Вся команда\n"
+        elif assigned_shop:
+            text += f"🏪 Магазин: {assigned_shop}\n"
+        elif assigned_name:
             text += f"👤 Исполнитель: {assigned_name}\n"
         if creator_name:
             text += f"✍️ Автор: {creator_name}\n"
-        if shop_name:
-            text += f"🏪 Магазин: {shop_name}\n"
         text += dl_str
         if desc:
             text += f"\n\n{desc}"
         text += cl_str
 
-        kb = _task_detail_keyboard(task, my_db_id, admin)
+        kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop)
         await callback.answer()
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
@@ -288,17 +303,26 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         tg_id = callback.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (tg_id,)
+            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
         ).fetchone()
         conn.close()
         my_db_id = my_row[0] if my_row else 0
+        my_shop = my_row[1] if my_row and len(my_row) > 1 else None
         admin = await is_any_admin(state)
 
         task = db.get_task(task_id)
         if not task:
             await callback.answer("Задача не найдена")
             return
-        if not admin and task.get('assigned_to') != my_db_id:
+        assign_all = task.get('assign_all', False)
+        assigned_shop = task.get('assigned_shop', '')
+        can_act = (
+            admin
+            or task.get('assigned_to') == my_db_id
+            or assign_all
+            or (assigned_shop and my_shop and assigned_shop == my_shop)
+        )
+        if not can_act:
             await callback.answer("Нет доступа")
             return
 
