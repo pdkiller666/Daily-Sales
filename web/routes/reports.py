@@ -111,31 +111,26 @@ def reports_page(
         ctx["date_to"] = date_to
 
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
-        if is_admin:
+        from web.routes.sales import _get_user_allowed_shops
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        ctx["shops"] = allowed_shops
+        if is_admin and set(allowed_shops) == set(db.get_all_shops() or []):
+            # Unrestricted admin — show full shop list
             ctx["shops"] = db.get_all_shops() or []
-        else:
-            from web.routes.sales import _get_user_allowed_shops
-            allowed_shops = _get_user_allowed_shops(telegram_id, db)
-            ctx["shops"] = allowed_shops
+
+        all_shops = db.get_all_shops() or []
+        _scoped = bool(allowed_shops) and set(allowed_shops) != set(all_shops)
 
         kwargs: dict = {"start_date": df, "end_date": dt}
         if shop:
+            # Validate requested shop against allowed scope for all users (incl. scoped admin)
+            if _scoped and shop not in allowed_shops:
+                shop = allowed_shops[0] if allowed_shops else shop
+                ctx["shop"] = shop
             kwargs["shop_name"] = shop
-
-        if not is_admin:
-            # Enforce scope: restrict sales to user's allowed shops
-            all_shops = db.get_all_shops() or []
-            if not shop:
-                # No manual shop filter — scope-restrict across all allowed shops
-                if set(allowed_shops) != set(all_shops):
-                    kwargs.pop("shop_name", None)
-                    kwargs["shop_names"] = allowed_shops
-            else:
-                # Manual shop filter — only allow if it's in the user's scope
-                if shop not in allowed_shops:
-                    kwargs["shop_name"] = allowed_shops[0] if allowed_shops else shop
-                    shop = kwargs["shop_name"]
-                    ctx["shop"] = shop
+        elif _scoped:
+            # Auto-apply scope restriction (non-admin and scoped admin)
+            kwargs["shop_names"] = allowed_shops
 
         all_sales = db.get_sales_report(**kwargs) or []
         ctx["all_sales"] = all_sales

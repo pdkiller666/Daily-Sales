@@ -605,6 +605,22 @@ def salary_adj_add(
     try:
         db = get_web_db(telegram_id, org_db)
         creator_uid = _get_internal_uid(db, telegram_id)
+
+        # Validate target_user_id exists in the org and within the admin's scope
+        from web.routes.sales import _get_user_allowed_shops
+        from db_utils import get_user_org_scope
+        allowed_shops = _get_user_allowed_shops(telegram_id, db)
+        all_shops = db.get_all_shops() or []
+        if set(allowed_shops) != set(all_shops):
+            # Scoped admin — verify target user belongs to allowed shops
+            conn = db.get_connection()
+            target_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE id = ?", (target_user_id,)
+            ).fetchone()
+            conn.close()
+            if not target_row or target_row[1] not in allowed_shops:
+                return RedirectResponse(url="/salary?error=access_denied", status_code=302)
+
         db.add_salary_adjustment(
             user_id=target_user_id,
             year=year,
@@ -613,6 +629,8 @@ def salary_adj_add(
             comment=(comment or "").strip()[:500] or None,
             created_by=creator_uid,
         )
+    except RedirectResponse:
+        raise
     except Exception as e:
         logging.error(f"salary_adj_add error: {e}")
 

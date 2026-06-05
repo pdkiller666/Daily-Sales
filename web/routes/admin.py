@@ -30,7 +30,11 @@ ALL_PLANS = ["Бесплатный", "Базовый", "Стандарт", "Пр
 
 def _guard(user) -> bool:
     """Return True if access should be denied."""
-    return user is None or getattr(user, "role", None) != "super_admin"
+    if user is None:
+        return True
+    # user is a dict (decoded JWT payload), not an object
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    return role != "super_admin"
 
 
 def _db() -> Database:

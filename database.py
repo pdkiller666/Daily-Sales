@@ -8487,7 +8487,9 @@ class Database:
 
         month_start_d = date(year, month, 1)
         month_end_d = date(year, month, days_in_month)
-        total = 0
+        # Collect all paid-absence dates into a set to prevent double-counting
+        # overlapping records (e.g. two approved records covering the same day)
+        paid_days: set = set()
         for atype, sd, ed, is_paid_override in rows:
             paid = bool(is_paid_override) if is_paid_override is not None \
                 else type_paid.get(atype, True)
@@ -8496,11 +8498,13 @@ class Database:
             try:
                 d_start = max(date.fromisoformat(sd[:10]), month_start_d)
                 d_end = min(date.fromisoformat(ed[:10]), month_end_d)
-                if d_end >= d_start:
-                    total += (d_end - d_start).days + 1
+                cur = d_start
+                while cur <= d_end:
+                    paid_days.add(cur)
+                    cur += timedelta(days=1)
             except Exception:
                 pass
-        return total
+        return len(paid_days)
 
     def get_absence_used_days(self, user_id: int, atype: str, year: int) -> int:
         """Использованных дней данного типа за год (для лимитов)."""

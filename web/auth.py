@@ -8,7 +8,12 @@ from typing import Optional
 from jose import jwt, JWTError
 
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
-_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest() if BOT_TOKEN else 'dev_secret_shopbot_change_me'
+if not BOT_TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN environment variable is not set. "
+        "Set it in Replit Secrets before starting the application."
+    )
+_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()
 ALGORITHM = "HS256"
 COOKIE_NAME = "web_session"
 TOKEN_EXPIRE_DAYS = 7

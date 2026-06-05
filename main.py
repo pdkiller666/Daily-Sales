@@ -424,9 +424,12 @@ async def send_sales_alerts(bot: Bot):
                             total_amount = sale[3] * (sale[4] or 0)
                             message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
 
-                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                        await asyncio.sleep(0.05)
-                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
+                        try:
+                            await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                            await asyncio.sleep(0.05)
+                            await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
+                        except Exception as _send_err:
+                            logging.warning(f"send_sales_alerts: skip {telegram_id}: {_send_err}")
             except Exception: continue
     except Exception as e:
         logging.error(f"Error in send_sales_alerts: {e}")
@@ -463,9 +466,12 @@ async def send_personalized_notifications(bot: Bot):
                         for item in low_stock_items[:10]:
                             message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
                         
-                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                        await asyncio.sleep(0.05)
-                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
+                        try:
+                            await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                            await asyncio.sleep(0.05)
+                            await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
+                        except Exception as _send_err:
+                            logging.warning(f"send_personalized_notifications: skip {telegram_id}: {_send_err}")
             except Exception: continue
     except Exception as e:
         logging.error(f"Error in send_personalized_notifications: {e}")
@@ -525,9 +531,12 @@ async def send_daily_reports(bot: Bot):
                         else:
                             message += "ℹ️ Продаж не было."
 
-                    await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                    await asyncio.sleep(0.05)
-                    await current_db.add_notification_to_history(user_id, 'daily_report', message)
+                    try:
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        await asyncio.sleep(0.05)
+                        await current_db.add_notification_to_history(user_id, 'daily_report', message)
+                    except Exception as _send_err:
+                        logging.warning(f"send_daily_reports: skip {telegram_id}: {_send_err}")
             except Exception:
                 continue
     except Exception as e:
