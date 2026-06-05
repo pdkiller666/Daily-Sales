@@ -40,11 +40,18 @@
     <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-sm font-semibold text-slate-600 shrink-0">🏪 Магазин:</span>
         <select x-model="shop" @change="onShopChange()"
-                class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 max-w-xs">
+                class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 max-w-xs"
+                :class="shop !== userShop && userShop ? 'border-amber-400 ring-1 ring-amber-300' : ''">
             {% for s in shops %}
-            <option value="{{ s }}">{{ s }}</option>
+            <option value="{{ s }}"{% if s == default_shop %} selected{% endif %}>{{ s }}</option>
             {% endfor %}
         </select>
+    </div>
+    <!-- Предупреждение: продажа с чужого магазина -->
+    <div x-show="shop && userShop && shop !== userShop" x-cloak
+         class="w-full mt-1 flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
+        <span>⚠️</span>
+        <span>Продажа с чужого магазина — ваш: <strong>{{ default_shop }}</strong></span>
     </div>
     <div class="hidden lg:flex items-center gap-2 text-sm text-slate-500 shrink-0">
         <span x-show="cartCount > 0" class="font-semibold text-emerald-700"
