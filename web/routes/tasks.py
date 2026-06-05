@@ -100,18 +100,18 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
 
 
 def _get_staff_list(db) -> list:
-    """Список активных сотрудников org для выбора исполнителя."""
+    """Список сотрудников org для выбора исполнителя."""
     try:
-        conn = db.get_connection()
-        rows = conn.execute(
-            "SELECT id, first_name, last_name, username, shop_name "
-            "FROM users WHERE COALESCE(is_active, 1) != 0 ORDER BY first_name, last_name"
-        ).fetchall()
-        conn.close()
+        rows = db.get_all_users()
         result = []
         for r in rows:
-            name = f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or f"User#{r[0]}"
-            result.append({"id": r[0], "name": name, "shop": r[4] or ""})
+            # SELECT * → id(0) telegram_id(1) first_name(2) last_name(3) middle_name(4)
+            #             phone(5) email(6) trade_network(7) shop_name(8) city(9)
+            #             timezone(10) created_at(11) username(12)
+            uid = r[0]
+            name = f"{r[2] or ''} {r[3] or ''}".strip() or r[12] or f"User#{uid}"
+            shop = r[8] or ""
+            result.append({"id": uid, "name": name, "shop": shop})
         return result
     except Exception:
         return []
@@ -123,7 +123,7 @@ def _get_shops_list(db) -> list:
         conn = db.get_connection()
         rows = conn.execute(
             "SELECT DISTINCT shop_name FROM users "
-            "WHERE COALESCE(is_active, 1) != 0 AND shop_name IS NOT NULL AND shop_name != '' "
+            "WHERE shop_name IS NOT NULL AND shop_name != '' "
             "ORDER BY shop_name"
         ).fetchall()
         conn.close()
@@ -138,7 +138,7 @@ def _get_shop_members_tg_ids(db, shop_name: str) -> list[tuple]:
         conn = db.get_connection()
         rows = conn.execute(
             "SELECT id, telegram_id FROM users "
-            "WHERE is_active = 1 AND shop_name = ? AND telegram_id IS NOT NULL",
+            "WHERE shop_name = ? AND telegram_id IS NOT NULL",
             (shop_name,)
         ).fetchall()
         conn.close()
@@ -148,12 +148,12 @@ def _get_shop_members_tg_ids(db, shop_name: str) -> list[tuple]:
 
 
 def _get_all_members_tg_ids(db) -> list[tuple]:
-    """Возвращает [(users.id, telegram_id)] всех активных сотрудников орга."""
+    """Возвращает [(users.id, telegram_id)] всех сотрудников орга."""
     try:
         conn = db.get_connection()
         rows = conn.execute(
             "SELECT id, telegram_id FROM users "
-            "WHERE is_active = 1 AND telegram_id IS NOT NULL"
+            "WHERE telegram_id IS NOT NULL"
         ).fetchall()
         conn.close()
         return [(r[0], r[1]) for r in rows]
