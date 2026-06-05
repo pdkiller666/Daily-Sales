@@ -1,7 +1,10 @@
 import io
+import logging
 from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -202,14 +205,14 @@ def reports_export_xlsx(
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
-    from subscription_utils import check_export_permission
-    if not check_export_permission(telegram_id):
-        return RedirectResponse(
-            url="/reports?error=Экспорт+отчётов+недоступен+на+вашем+тарифе",
-            status_code=302,
-        )
-
     try:
+        from subscription_utils import check_export_permission
+        if not check_export_permission(telegram_id, org_db=org_db):
+            return RedirectResponse(
+                url="/reports?error=Экспорт+отчётов+недоступен+на+вашем+тарифе",
+                status_code=302,
+            )
+
         db = get_web_db(telegram_id, org_db)
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
@@ -299,6 +302,5 @@ def reports_export_xlsx(
             headers={"Content-Disposition": f'attachment; filename="{fname_safe}"'},
         )
     except Exception as exc:
-        import logging
-        logging.error(f"reports_export_xlsx error: {exc}")
-        return RedirectResponse(url="/reports?error=export", status_code=303)
+        logger.error(f"reports_export_xlsx error: {exc}")
+        return RedirectResponse(url="/reports?error=Ошибка+при+формировании+отчёта.+Попробуйте+позже.", status_code=302)

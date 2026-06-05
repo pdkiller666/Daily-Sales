@@ -5,6 +5,8 @@ from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from datetime import date
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 MONTH_NAMES = {

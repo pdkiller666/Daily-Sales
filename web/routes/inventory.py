@@ -4,6 +4,8 @@ from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 

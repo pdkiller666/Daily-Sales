@@ -367,10 +367,46 @@ def check_integrations_permission(telegram_id):
     return get_plan_limits(telegram_id).get('can_use_integrations', False)
 
 
-def check_export_permission(telegram_id):
-    """Проверка разрешения на экспорт отчётов."""
+def _get_org_plan_by_db_path(org_db: str):
+    """Возвращает название плана организации по пути её db_file.
+    Используется для email-only пользователей (synthetic tg_id), которых нет в user_org_mapping."""
+    try:
+        conn = sqlite3.connect(MAIN_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT subscription_plan, subscription_end FROM organizations WHERE db_file = ?",
+            (org_db,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            plan_name = row[0] or 'Бесплатный'
+            subscription_end = row[1]
+            if subscription_end and plan_name not in ('Бесплатный', 'free', None):
+                try:
+                    end_dt = datetime.fromisoformat(subscription_end)
+                    if datetime.now() > end_dt:
+                        return 'Бесплатный'
+                except Exception:
+                    pass
+            return plan_name
+    except Exception:
+        pass
+    return None
+
+
+def check_export_permission(telegram_id, org_db: str = None):
+    """Проверка разрешения на экспорт отчётов.
+    org_db — путь к БД организации; обязателен для email-only пользователей (tg_id < 0)."""
     if env_manager.is_super_admin(telegram_id):
         return True
+    # Email-only users have synthetic (negative) tg_id — look up via org db path
+    if telegram_id < 0 and org_db:
+        plan_name = _get_org_plan_by_db_path(org_db)
+        if plan_name is None:
+            return False
+        limits = _plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK
+        return bool(limits.get('can_export_reports', False))
     return get_plan_limits(telegram_id)['can_export_reports']
 
 

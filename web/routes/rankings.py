@@ -1,6 +1,9 @@
 import io
+import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
