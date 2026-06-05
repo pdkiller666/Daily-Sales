@@ -165,7 +165,11 @@ def _fmt_deadline(d: str | None) -> str:
     if not d:
         return ""
     try:
-        dt = date.fromisoformat(d[:10])
+        s = d[:16].replace("T", " ")
+        has_time = len(d) >= 13 and ("T" in d or " " in d[10:])
+        dt = datetime.fromisoformat(s) if has_time else date.fromisoformat(d[:10])
+        if has_time:
+            return dt.strftime("%d.%m.%Y %H:%M")
         return dt.strftime("%d.%m.%Y")
     except Exception:
         return d
@@ -175,7 +179,8 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
     if not deadline or status in ('done', 'cancelled'):
         return False
     try:
-        return date.fromisoformat(deadline[:10]) < date.today()
+        dl = date.fromisoformat(deadline[:10])
+        return dl < date.today()
     except Exception:
         return False
 
@@ -341,10 +346,10 @@ def tasks_new_post(
         _linked_chat_topic_id = None
         if create_chat_topic == "1" and title:
             try:
-                chat_topic_id = db.create_chat_topic(title, my_db_id)
+                chat_topic_id = db.add_chat_topic(title, my_db_id)
                 _linked_chat_topic_id = chat_topic_id
             except Exception as ce:
-                logger.warning("tasks: create_chat_topic failed: %s", ce)
+                logger.warning("tasks: add_chat_topic failed: %s", ce)
 
         items = [s.strip() for s in checklist_items.split("\n") if s.strip()]
 
@@ -371,39 +376,39 @@ def tasks_new_post(
             f"{prio}{deadline_str}\n\n"
             f"🌐 Откройте веб-кабинет для подробностей."
         )
+        notif_msg = f"📋 Назначена задача: {title}"
         if assign_mode == "person" and _assigned_to and _assigned_to != my_db_id:
             tg_id = _get_user_tg_id(db, _assigned_to)
+            logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
+            try:
+                db.add_notification_to_history(_assigned_to, "task_assigned", notif_msg)
+            except Exception as ne:
+                logger.warning("tasks: add_notification_to_history failed: %s", ne)
             if tg_id:
-                try:
-                    db.add_notification_to_history(
-                        _assigned_to, "task_assigned", f"📋 Назначена задача: {title}"
-                    )
-                except Exception:
-                    pass
                 _send_tg_task_notify(tg_id, notify_text)
+            else:
+                logger.warning("tasks notify: no telegram_id for user uid=%s", _assigned_to)
         elif assign_mode == "shop" and _assigned_shop:
             members = _get_shop_members_tg_ids(db, _assigned_shop)
+            logger.info("tasks notify: shop=%s members=%s", _assigned_shop, members)
             for uid, tg_id in members:
                 if uid == my_db_id:
                     continue
                 try:
-                    db.add_notification_to_history(
-                        uid, "task_assigned", f"📋 Назначена задача: {title}"
-                    )
-                except Exception:
-                    pass
+                    db.add_notification_to_history(uid, "task_assigned", notif_msg)
+                except Exception as ne:
+                    logger.warning("tasks: add_notification_to_history failed uid=%s: %s", uid, ne)
                 _send_tg_task_notify(tg_id, notify_text)
         elif assign_mode == "all":
             members = _get_all_members_tg_ids(db)
+            logger.info("tasks notify: all members=%s", members)
             for uid, tg_id in members:
                 if uid == my_db_id:
                     continue
                 try:
-                    db.add_notification_to_history(
-                        uid, "task_assigned", f"📋 Назначена задача: {title}"
-                    )
-                except Exception:
-                    pass
+                    db.add_notification_to_history(uid, "task_assigned", notif_msg)
+                except Exception as ne:
+                    logger.warning("tasks: add_notification_to_history failed uid=%s: %s", uid, ne)
                 _send_tg_task_notify(tg_id, notify_text)
 
         return RedirectResponse(url=f"/tasks/{task_id}?msg=created", status_code=303)
