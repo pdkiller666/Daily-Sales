@@ -604,6 +604,8 @@ if ('serviceWorker' in navigator) {
    2. Swipe gestures (mobile)
    • Swipe left/right on period selectors → navigate periods
    • Swipe right from left edge (< 40px) → browser back
+   • Swipe down on bottom sheets → close them
+   • Swipe up on bottom nav bar → open More sheet
 ══════════════════════════════════════════════════ */
 (function () {
     let _ts = null;
@@ -627,12 +629,22 @@ if ('serviceWorker' in navigator) {
         if (!_ts) return;
         const t = e.changedTouches[0];
         const dx = t.clientX - _ts.x;
-        const dy = Math.abs(t.clientY - _ts.y);
+        const dy = t.clientY - _ts.y;          /* signed: positive = downward */
         const startX = _ts.x;
+        const startY = _ts.y;
         const tgt = _ts.target;
         _ts = null;
 
-        if (Math.abs(dx) < MIN_DIST || dy > MAX_VERT) return;
+        /* ── Swipe UP on bottom nav → open More sheet ── */
+        const nav = document.querySelector('nav.fixed.bottom-0');
+        if (nav && dy < -50 && Math.abs(dx) < 60 && tgt.closest('nav.fixed.bottom-0')) {
+            const alpine = document.querySelector('[x-data]').__x;
+            /* dispatch custom event; Alpine listener on body catches it */
+            document.dispatchEvent(new CustomEvent('ds-open-more'));
+            return;
+        }
+
+        if (Math.abs(dx) < MIN_DIST || Math.abs(dy) > MAX_VERT) return;
         if (_inScrollable(tgt)) return;
         if (tgt.closest('input,textarea,select,[contenteditable]')) return;
 
@@ -671,6 +683,72 @@ if ('serviceWorker' in navigator) {
             window.history.back();
         }
     }, { passive: true });
+})();
+
+/* ══════════════════════════════════════════════════
+   2b. Swipe-down-to-close for bottom sheets
+   Attaches to: #ds-more-sh, #ds-nav-sh, #ds-notif-sh
+   — rubber-band drag while holding, snap-close on release
+══════════════════════════════════════════════════ */
+(function () {
+    const SHEETS = [
+        { id: 'ds-more-sh',  close: () => document.dispatchEvent(new CustomEvent('ds-close-more'))  },
+        { id: 'ds-nav-sh',   close: () => document.dispatchEvent(new CustomEvent('ds-close-nav'))   },
+        { id: 'ds-notif-sh', close: () => document.dispatchEvent(new CustomEvent('ds-close-notif')) },
+    ];
+
+    SHEETS.forEach(({ id, close }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        let startY = null, startScrollTop = 0, dragging = false;
+
+        el.addEventListener('touchstart', e => {
+            startY = e.touches[0].clientY;
+            startScrollTop = el.scrollTop;
+            dragging = false;
+            el.style.transition = 'none';
+        }, { passive: true });
+
+        el.addEventListener('touchmove', e => {
+            if (startY === null) return;
+            const dy = e.touches[0].clientY - startY;
+            /* Only drag down, and only when scrolled to top */
+            if (dy > 0 && el.scrollTop <= 0) {
+                dragging = true;
+                /* rubber-band: resistance increases with distance */
+                const pull = Math.pow(dy, 0.75);
+                el.style.transform = `translateY(${pull}px)`;
+            } else {
+                dragging = false;
+                el.style.transform = '';
+            }
+        }, { passive: true });
+
+        el.addEventListener('touchend', e => {
+            el.style.transition = '';
+            if (dragging) {
+                const dy = e.changedTouches[0].clientY - startY;
+                if (dy > 100) {
+                    /* animate out then close */
+                    el.style.transition = 'transform 0.22s ease-in';
+                    el.style.transform = 'translateY(100%)';
+                    setTimeout(() => {
+                        el.style.transform = '';
+                        close();
+                    }, 220);
+                } else {
+                    el.style.transform = '';
+                }
+            }
+            startY = null; dragging = false;
+        }, { passive: true });
+
+        el.addEventListener('touchcancel', () => {
+            el.style.transition = ''; el.style.transform = '';
+            startY = null; dragging = false;
+        }, { passive: true });
+    });
 })();
 
 /* ══════════════════════════════════════════════════
@@ -954,6 +1032,17 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
             } catch (_) {}
         }
     });
+
+    /* Swipe-gesture custom events → Alpine state */
+    function _getAlpineData() {
+        const body = document.querySelector('[x-data]');
+        if (!body || !body._x_dataStack) return null;
+        try { return Alpine.$data ? Alpine.$data(body) : null; } catch (_) { return null; }
+    }
+    document.addEventListener('ds-open-more',  () => { const d = _getAlpineData(); if (d) d.moreOpen = true; });
+    document.addEventListener('ds-close-more',  () => { const d = _getAlpineData(); if (d) d.moreOpen = false; });
+    document.addEventListener('ds-close-nav',   () => { const d = _getAlpineData(); if (d) d.editNavOpen = false; });
+    document.addEventListener('ds-close-notif', () => { const d = _getAlpineData(); if (d) d.notifOpen = false; });
 
     /* Shortcuts hint */
     function _dsShowShortcutsHint() {
@@ -1685,7 +1774,7 @@ function mainApp() {
      x-transition:leave-end="opacity-0"
      class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm lg:hidden"></div>
 
-<div x-show="notifOpen" x-cloak
+<div id="ds-notif-sh" x-show="notifOpen" x-cloak
      x-transition:enter="transition duration-300 ease-out"
      x-transition:enter-start="sheet-from"
      x-transition:enter-end="sheet-to"
@@ -1694,7 +1783,11 @@ function mainApp() {
      x-transition:leave-end="sheet-from"
      class="fixed bottom-0 inset-x-0 z-50 bg-white rounded-t-2xl shadow-2xl lg:hidden overflow-y-auto"
      style="max-height:70vh">
-    <div class="flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-slate-100 sticky top-0 bg-white">
+    <!-- Drag handle -->
+    <div class="flex justify-center pt-3 pb-1 shrink-0">
+        <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+    </div>
+    <div class="flex items-center justify-between px-4 pt-1 pb-2.5 border-b border-slate-100 sticky top-0 bg-white">
         <h2 class="text-sm font-bold text-slate-800">🔔 Уведомления</h2>
         <button @click="notifOpen=false"
                 class="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">

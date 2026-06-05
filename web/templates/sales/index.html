@@ -679,6 +679,70 @@ function saleModal() {
         },
     };
 }
+
+/* ── Swipe-left on sale rows (mobile) → reveal delete button ── */
+(function () {
+    const SWIPE_THRESHOLD = 60;   /* px to reveal the action */
+    const FULL_REVEAL = 72;       /* px the row slides left when "open" */
+    let activeRow = null;
+
+    function closeActive() {
+        if (!activeRow) return;
+        activeRow.style.transition = 'transform .2s ease';
+        activeRow.style.transform = '';
+        activeRow._swipeOpen = false;
+        activeRow = null;
+    }
+
+    document.addEventListener('touchstart', e => {
+        const tr = e.target.closest('tr[data-sale-id]');
+        if (!tr) { closeActive(); return; }
+        /* ignore if the touch is on a button/form */
+        if (e.target.closest('button,form,a')) return;
+
+        tr._ts = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        tr.style.transition = 'none';
+        if (activeRow && activeRow !== tr) closeActive();
+    }, { passive: true });
+
+    document.addEventListener('touchmove', e => {
+        const tr = e.target.closest('tr[data-sale-id]');
+        if (!tr || !tr._ts) return;
+        const dx = e.touches[0].clientX - tr._ts.x;
+        const dy = Math.abs(e.touches[0].clientY - tr._ts.y);
+        if (dy > 20) { tr._ts = null; return; }   /* vertical scroll — ignore */
+        if (dx < 0) {
+            /* Clamp: max slide = FULL_REVEAL, with resistance beyond it */
+            const slide = Math.min(Math.abs(dx), FULL_REVEAL + Math.max(0, Math.abs(dx) - FULL_REVEAL) * 0.2);
+            tr.style.transform = `translateX(-${slide}px)`;
+        } else if (tr._swipeOpen) {
+            const slide = Math.max(0, FULL_REVEAL - dx);
+            tr.style.transform = slide > 0 ? `translateX(-${slide}px)` : '';
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+        const tr = e.target.closest('tr[data-sale-id]');
+        if (!tr || !tr._ts) return;
+        const dx = e.changedTouches[0].clientX - tr._ts.x;
+        tr._ts = null;
+        tr.style.transition = 'transform .2s ease';
+        if (dx < -SWIPE_THRESHOLD) {
+            tr.style.transform = `translateX(-${FULL_REVEAL}px)`;
+            tr._swipeOpen = true;
+            activeRow = tr;
+        } else {
+            tr.style.transform = '';
+            tr._swipeOpen = false;
+            if (activeRow === tr) activeRow = null;
+        }
+    }, { passive: true });
+
+    /* Tap anywhere outside open row → close */
+    document.addEventListener('click', e => {
+        if (activeRow && !activeRow.contains(e.target)) closeActive();
+    });
+})();
 </script>
 {% endblock %}
 
