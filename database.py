@@ -1150,6 +1150,27 @@ class Database:
             WHERE product_id NOT IN (SELECT id FROM products)
         ''')
 
+        # ── web_credentials (только shop_bot.db) ────────────────────────────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS web_credentials (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email           TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                    password_hash   TEXT NOT NULL,
+                    telegram_id     INTEGER UNIQUE,
+                    synthetic_tg_id INTEGER UNIQUE,
+                    org_db          TEXT,
+                    first_name      TEXT,
+                    email_verified  INTEGER DEFAULT 0,
+                    verify_token    TEXT,
+                    verify_expires  INTEGER,
+                    reset_token     TEXT,
+                    reset_expires   INTEGER,
+                    created_at      TEXT DEFAULT (datetime('now')),
+                    last_login      TEXT
+                )
+            ''')
+
         # ── Индексы для ускорения тяжёлых запросов ──────────────────────────
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
@@ -9251,4 +9272,207 @@ class Database:
         except Exception as e:
             logger.error("get_overdue_tasks: %s", e)
             return []
+
+    # ── web_credentials methods (shop_bot.db only) ───────────────────────────
+
+    def _wc_row(self, row) -> dict | None:
+        if not row:
+            return None
+        keys = ('id', 'email', 'password_hash', 'telegram_id', 'synthetic_tg_id',
+                'org_db', 'first_name', 'email_verified', 'verify_token',
+                'verify_expires', 'reset_token', 'reset_expires', 'created_at', 'last_login')
+        return dict(zip(keys, row))
+
+    def create_web_credential(self, email: str, password_hash: str,
+                              telegram_id: int | None = None) -> int | None:
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                "INSERT INTO web_credentials (email, password_hash, telegram_id) VALUES (?, ?, ?)",
+                (email.lower().strip(), password_hash, telegram_id)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception as exc:
+            logger.error("create_web_credential: %s", exc)
+            return None
+
+    def get_web_credential_by_email(self, email: str) -> dict | None:
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT * FROM web_credentials WHERE email=? COLLATE NOCASE LIMIT 1",
+                (email.strip(),)
+            ).fetchone()
+            return self._wc_row(row)
+        except Exception as exc:
+            logger.error("get_web_credential_by_email: %s", exc)
+            return None
+
+    def get_web_credential_by_telegram_id(self, telegram_id: int) -> dict | None:
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT * FROM web_credentials WHERE telegram_id=? LIMIT 1",
+                (telegram_id,)
+            ).fetchone()
+            return self._wc_row(row)
+        except Exception as exc:
+            logger.error("get_web_credential_by_telegram_id: %s", exc)
+            return None
+
+    def get_web_credential_by_id(self, cred_id: int) -> dict | None:
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT * FROM web_credentials WHERE id=? LIMIT 1", (cred_id,)
+            ).fetchone()
+            return self._wc_row(row)
+        except Exception as exc:
+            logger.error("get_web_credential_by_id: %s", exc)
+            return None
+
+    def set_web_synthetic_tg_id(self, cred_id: int, synthetic_tg_id: int,
+                                 org_db: str, first_name: str) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET synthetic_tg_id=?, org_db=?, first_name=? WHERE id=?",
+                (synthetic_tg_id, org_db, first_name, cred_id)
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("set_web_synthetic_tg_id: %s", exc)
+            return False
+
+    def set_web_verify_token(self, cred_id: int, token: str, expires: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET verify_token=?, verify_expires=? WHERE id=?",
+                (token, expires, cred_id)
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("set_web_verify_token: %s", exc)
+            return False
+
+    def verify_web_email_token(self, token: str) -> int | None:
+        """Mark email as verified if token valid and not expired. Returns cred_id."""
+        import time
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT id, verify_expires FROM web_credentials WHERE verify_token=?",
+                (token,)
+            ).fetchone()
+            if not row:
+                return None
+            cred_id, expires = row
+            if expires and int(time.time()) > expires:
+                return None
+            conn.execute(
+                "UPDATE web_credentials SET email_verified=1, verify_token=NULL, verify_expires=NULL WHERE id=?",
+                (cred_id,)
+            )
+            conn.commit()
+            return cred_id
+        except Exception as exc:
+            logger.error("verify_web_email_token: %s", exc)
+            return None
+
+    def set_web_reset_token(self, email: str, token: str, expires: int) -> bool:
+        try:
+            conn = self.get_connection()
+            result = conn.execute(
+                "UPDATE web_credentials SET reset_token=?, reset_expires=? "
+                "WHERE email=? COLLATE NOCASE",
+                (token, expires, email.strip())
+            )
+            conn.commit()
+            return result.rowcount > 0
+        except Exception as exc:
+            logger.error("set_web_reset_token: %s", exc)
+            return False
+
+    def verify_web_reset_token(self, token: str) -> dict | None:
+        """Return credential dict if reset token is valid and not expired."""
+        import time
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT * FROM web_credentials WHERE reset_token=?", (token,)
+            ).fetchone()
+            if not row:
+                return None
+            cred = self._wc_row(row)
+            if cred['reset_expires'] and int(time.time()) > cred['reset_expires']:
+                return None
+            return cred
+        except Exception as exc:
+            logger.error("verify_web_reset_token: %s", exc)
+            return None
+
+    def reset_web_password(self, token: str, new_hash: str) -> bool:
+        """Reset password using reset token. Clears token after use."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET password_hash=?, reset_token=NULL, reset_expires=NULL "
+                "WHERE reset_token=?",
+                (new_hash, token)
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("reset_web_password: %s", exc)
+            return False
+
+    def update_web_password(self, cred_id: int, new_hash: str) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET password_hash=? WHERE id=?",
+                (new_hash, cred_id)
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("update_web_password: %s", exc)
+            return False
+
+    def update_web_credential_email(self, cred_id: int, email: str,
+                                    password_hash: str | None = None) -> bool:
+        try:
+            conn = self.get_connection()
+            if password_hash:
+                conn.execute(
+                    "UPDATE web_credentials SET email=?, password_hash=?, "
+                    "email_verified=0, verify_token=NULL, verify_expires=NULL WHERE id=?",
+                    (email, password_hash, cred_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE web_credentials SET email=?, "
+                    "email_verified=0, verify_token=NULL, verify_expires=NULL WHERE id=?",
+                    (email, cred_id)
+                )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("update_web_credential_email: %s", exc)
+            return False
+
+    def update_web_last_login(self, cred_id: int) -> None:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET last_login=datetime('now') WHERE id=?",
+                (cred_id,)
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.error("update_web_last_login: %s", exc)
 

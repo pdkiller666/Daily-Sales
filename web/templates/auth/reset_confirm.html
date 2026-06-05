@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Новый пароль — DailySales</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='68' text-anchor='middle' font-size='58' font-family='Arial Black,sans-serif' font-weight='900' fill='white'>D</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+<div class="relative w-full max-w-sm mx-4">
+    <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+
+        <div class="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 pt-8 pb-7 text-center">
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-500 to-transparent"></div>
+            <div class="w-14 h-14 mx-auto mb-3 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl select-none"
+                 style="background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 8px 28px rgba(59,130,246,.55)">DS</div>
+            <h1 class="text-xl font-extrabold text-white">Новый пароль</h1>
+            <p class="text-blue-400/80 text-[11px] mt-1 uppercase tracking-widest font-semibold">Восстановление доступа</p>
+        </div>
+
+        <div class="px-8 py-6">
+
+            {% if error %}
+            <div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+                <span class="shrink-0 mt-0.5">⚠️</span>
+                <div>
+                    <p>{{ error }}</p>
+                    {% if not token %}
+                    <a href="/auth/reset" class="mt-2 inline-block text-xs text-red-500 hover:underline">Запросить новую ссылку →</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if token %}
+            <p class="text-slate-500 text-sm mb-5">Придумайте новый пароль для вашего аккаунта.</p>
+            <form method="post" action="/auth/reset/confirm" class="space-y-3">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="login_nonce" value="{{ login_nonce or '' }}">
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Новый пароль <span class="text-slate-400 font-normal">(мин. 8 символов)</span></label>
+                    <input type="password" name="password" autofocus required minlength="8" autocomplete="new-password"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Повторите пароль</label>
+                    <input type="password" name="password2" required minlength="8" autocomplete="new-password"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+                </div>
+                <button type="submit"
+                        onclick="this.disabled=true;this.innerHTML='⏳ Сохраняем…'"
+                        class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm">
+                    Сохранить пароль
+                </button>
+            </form>
+            {% endif %}
+
+            <div class="mt-5 text-center">
+                <a href="/login" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">← Вернуться к входу</a>
+            </div>
+        </div>
+    </div>
+    <p class="text-center text-slate-600 text-xs mt-4">© DailySales Web Interface</p>
+</div>
+</body>
+</html>

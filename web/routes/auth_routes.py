@@ -22,7 +22,7 @@ def _check_rate_limit(ip: str) -> bool:
 
 @router.get("/login")
 async def login_page(request: Request):
-    from web.auth import get_session_user
+    from web.auth import get_session_user, generate_login_nonce
     if get_session_user(request):
         return RedirectResponse(url="/dashboard", status_code=302)
     templates = request.app.state.templates
@@ -33,6 +33,8 @@ async def login_page(request: Request):
         "bot_username": bot_username,
         "auth_url": f"{base_url}/auth/telegram/callback",
         "error": request.query_params.get("error"),
+        "login_nonce": generate_login_nonce(),
+        "show_email_form": False,
     })
 
 

@@ -14,6 +14,28 @@ if not BOT_TOKEN:
         "Set it in Replit Secrets before starting the application."
     )
 _SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()
+
+_PBKDF2_ITERS = 390_000
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using PBKDF2-SHA256 (stdlib, no extra deps)."""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, _PBKDF2_ITERS)
+    return salt.hex() + ':' + key.hex()
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Constant-time password verification."""
+    try:
+        salt_hex, key_hex = stored_hash.split(':', 1)
+        salt = bytes.fromhex(salt_hex)
+        key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, _PBKDF2_ITERS)
+        return hmac.compare_digest(key.hex(), key_hex)
+    except Exception:
+        return False
+
+
 ALGORITHM = "HS256"
 COOKIE_NAME = "web_session"
 TOKEN_EXPIRE_DAYS = 7

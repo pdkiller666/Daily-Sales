@@ -61,7 +61,22 @@
 
             <!-- Body -->
             <div class="px-8 py-7">
-                {% if error %}
+
+                <!-- Tab switcher -->
+                <div class="flex rounded-xl bg-slate-100 p-1 mb-5 gap-1" id="authTabs">
+                    <button type="button" id="tab-tg"
+                            onclick="switchTab('tg')"
+                            class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all tab-active">
+                        📱 Telegram
+                    </button>
+                    <button type="button" id="tab-email"
+                            onclick="switchTab('email')"
+                            class="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all">
+                        ✉️ Email
+                    </button>
+                </div>
+
+                {% if error and not show_email_form %}
                 <div class="mb-5 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
                     <span class="shrink-0 mt-0.5">⚠️</span>
                     <span>
@@ -73,6 +88,8 @@
                 </div>
                 {% endif %}
 
+                <!-- ── Telegram tab ── -->
+                <div id="pane-tg">
                 <p class="text-slate-500 text-sm text-center mb-6 leading-relaxed">
                     Войдите через Telegram для доступа к панели управления
                 </p>
@@ -154,11 +171,71 @@
                     </div>
                     {% endif %}
                 </div>
-            </div>
-        </div>
+                </div><!-- /pane-tg -->
+
+                <!-- ── Email tab ── -->
+                <div id="pane-email" class="hidden">
+                    {% if error and show_email_form %}
+                    <div class="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+                        <span class="shrink-0 mt-0.5">⚠️</span><span>{{ error }}</span>
+                    </div>
+                    {% endif %}
+                    {% if request.query_params.get('msg') == 'password_reset' %}
+                    <div class="mb-4 flex items-start gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-700">
+                        <span class="shrink-0">✅</span><span>Пароль успешно изменён. Войдите с новым паролем.</span>
+                    </div>
+                    {% endif %}
+                    <form method="post" action="/auth/email" class="space-y-3">
+                        <input type="hidden" name="login_nonce" value="{{ login_nonce or '' }}">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                            <input type="email" name="email" value="{{ email_value or '' }}"
+                                   placeholder="you@example.com" autofocus autocomplete="email"
+                                   class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 placeholder-slate-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Пароль</label>
+                            <input type="password" name="password" autocomplete="current-password"
+                                   class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+                        </div>
+                        <button type="submit"
+                                onclick="this.disabled=true;this.innerHTML='⏳ Проверка…'"
+                                class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm">
+                            Войти
+                        </button>
+                    </form>
+                    <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
+                        <a href="/auth/reset" class="hover:text-blue-600 transition-colors">Забыли пароль?</a>
+                        <a href="/register" class="hover:text-blue-600 transition-colors">Регистрация →</a>
+                    </div>
+                </div><!-- /pane-email -->
+
+            </div><!-- /body -->
+        </div><!-- /card -->
 
         <p class="text-center text-slate-600 text-xs mt-4">© DailySales Web Interface</p>
     </div>
 
+<style>
+.tab-active{background:#fff;color:#1e40af;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+</style>
+<script>
+function switchTab(tab) {
+    var tg = document.getElementById('pane-tg');
+    var em = document.getElementById('pane-email');
+    var btnTg = document.getElementById('tab-tg');
+    var btnEm = document.getElementById('tab-email');
+    if (tab === 'email') {
+        tg.classList.add('hidden'); em.classList.remove('hidden');
+        btnEm.classList.add('tab-active'); btnTg.classList.remove('tab-active');
+    } else {
+        em.classList.add('hidden'); tg.classList.remove('hidden');
+        btnTg.classList.add('tab-active'); btnEm.classList.remove('tab-active');
+    }
+}
+{% if show_email_form %}
+document.addEventListener('DOMContentLoaded', function(){ switchTab('email'); });
+{% endif %}
+</script>
 </body>
 </html>

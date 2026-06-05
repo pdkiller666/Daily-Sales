@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация — DailySales</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='68' text-anchor='middle' font-size='58' font-family='Arial Black,sans-serif' font-weight='900' fill='white'>D</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>.circuit-line{position:absolute;background:rgba(37,99,235,.1);border-radius:2px}</style>
+</head>
+<body class="h-full min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden py-8">
+
+<div class="absolute inset-0 overflow-hidden pointer-events-none select-none" aria-hidden="true">
+    <div class="absolute -top-32 -right-32 w-80 h-80 bg-blue-600/8 rounded-full blur-3xl"></div>
+    <div class="absolute -bottom-32 -left-32 w-80 h-80 bg-indigo-700/8 rounded-full blur-3xl"></div>
+    <div class="circuit-line" style="top:18%;left:0;width:22%;height:1px"></div>
+    <div class="circuit-line" style="top:18%;left:78%;width:22%;height:1px"></div>
+    <div class="circuit-line" style="top:82%;left:0;width:18%;height:1px"></div>
+    <div class="circuit-line" style="top:82%;left:82%;width:18%;height:1px"></div>
+    <div class="circuit-line" style="left:12%;top:0;height:18%;width:1px"></div>
+    <div class="circuit-line" style="left:88%;top:0;height:18%;width:1px"></div>
+</div>
+
+<div class="relative w-full max-w-sm mx-4">
+    <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+
+        <!-- Header -->
+        <div class="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 pt-8 pb-7 text-center overflow-hidden">
+            <div class="absolute inset-0 pointer-events-none">
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 bg-blue-600/15 blur-2xl rounded-full"></div>
+            </div>
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-500 to-transparent"></div>
+            <div class="relative">
+                <div class="w-16 h-16 mx-auto mb-3 rounded-2xl flex items-center justify-center text-white font-extrabold text-2xl select-none"
+                     style="background:linear-gradient(135deg,#3b82f6 0%,#6366f1 100%);box-shadow:0 8px 28px rgba(59,130,246,.55)">DS</div>
+                <h1 class="text-xl font-extrabold text-white tracking-tight">Создать аккаунт</h1>
+                <p class="text-blue-400/80 text-[11px] font-semibold tracking-[0.12em] uppercase mt-1">Без Telegram</p>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="px-8 py-6">
+
+            {% if error %}
+            <div class="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+                <span class="shrink-0 mt-0.5">⚠️</span><span>{{ error }}</span>
+            </div>
+            {% endif %}
+
+            <form method="post" action="/register" class="space-y-3">
+                <input type="hidden" name="login_nonce" value="{{ login_nonce or '' }}">
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Ваше имя</label>
+                    <input type="text" name="first_name" value="{{ first_name_value or '' }}"
+                           placeholder="Иван" autocomplete="given-name" required
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                    <input type="email" name="email" value="{{ email_value or '' }}"
+                           placeholder="you@example.com" autocomplete="email" required
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Пароль <span class="text-slate-400 font-normal">(мин. 8 символов)</span></label>
+                    <input type="password" name="password" autocomplete="new-password" required minlength="8"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Пароль ещё раз</label>
+                    <input type="password" name="password2" autocomplete="new-password" required minlength="8"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Инвайт-код организации</label>
+                    <input type="text" name="invite_code" value="{{ invite_code_value or '' }}"
+                           placeholder="XXXXXXXX" autocomplete="off" required
+                           style="text-transform:uppercase"
+                           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-slate-50 placeholder-slate-300">
+                    <p class="text-[11px] text-slate-400 mt-1">Код выдаёт руководитель вашей организации</p>
+                </div>
+
+                <button type="submit"
+                        onclick="this.disabled=true;this.innerHTML='⏳ Регистрация…'"
+                        class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors text-sm mt-1">
+                    Создать аккаунт
+                </button>
+            </form>
+
+            <div class="mt-5 text-center">
+                <a href="/login" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                    ← Уже есть аккаунт — войти
+                </a>
+            </div>
+        </div>
+    </div>
+    <p class="text-center text-slate-600 text-xs mt-4">© DailySales Web Interface</p>
+</div>
+</body>
+</html>

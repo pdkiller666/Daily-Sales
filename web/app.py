@@ -190,6 +190,7 @@ Disallow: /chat/search
 Disallow: /tasks
 Disallow: /api/
 Disallow: /login
+Disallow: /register
 Disallow: /auth/
 Disallow: /admin
 
@@ -383,6 +384,7 @@ def create_web_app() -> FastAPI:
     from web.routes.chat import router as chat_router
     from web.routes.admin import router as admin_router
     from web.routes.tasks import router as tasks_router
+    from web.routes.email_auth import router as email_auth_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -412,6 +414,7 @@ def create_web_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(admin_router)
     app.include_router(tasks_router)
+    app.include_router(email_auth_router)
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():

@@ -37,8 +37,21 @@ def _get_org_id_for_user(telegram_id: int) -> int | None:
         return None
 
 
+_EMAIL_ERROR_MSGS = {
+    "invalid_email":       "Некорректный email-адрес.",
+    "short_password":      "Пароль должен содержать не менее 8 символов.",
+    "passwords_mismatch":  "Пароли не совпадают.",
+    "email_taken":         "Этот email уже привязан к другому аккаунту.",
+    "wrong_old_password":  "Текущий пароль введён неверно.",
+    "no_cred":             "Email-аккаунт не найден. Сначала привяжите email.",
+    "server_error":        "Ошибка сервера. Попробуйте позже.",
+    "csrf":                "Ошибка безопасности. Обновите страницу.",
+}
+
+
 @router.get("/settings")
-def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
+def settings_page(request: Request, saved: str = "", profile_saved: str = "",
+                  email_saved: str = "", email_error: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -60,6 +73,8 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
         "user_db_id": None,
         "saved": saved == "1",
         "profile_saved": profile_saved == "1",
+        "email_saved": email_saved == "1",
+        "email_error": _EMAIL_ERROR_MSGS.get(email_error, ""),
         "error": None,
         "scheduled_notifications": [],
         "notification_history": [],
@@ -82,7 +97,16 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = ""):
         "current_tz": "Europe/Moscow",
         # profile
         "profile": {},
+        # web credentials
+        "web_cred": None,
     }
+
+    try:
+        from database import Database as _DB
+        _shop_db = _DB('data/shop_bot.db')
+        ctx["web_cred"] = _shop_db.get_web_credential_by_telegram_id(telegram_id)
+    except Exception:
+        pass
 
     try:
         db = get_web_db(telegram_id, org_db)
