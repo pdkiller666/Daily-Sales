@@ -159,25 +159,40 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
              id="topics-bar">
 
             <template x-for="t in topicsList" :key="t.id">
-                <div class="relative inline-block" x-data="{ menuOpen: false, _lpt: null }">
-                    <!-- Tab pill — long-press (mobile) or right-click (desktop) opens menu -->
+                <div class="relative inline-block"
+                     x-data="{ menuOpen: false, _lpt: null, _tx: 0, _ty: 0 }">
+
+                    <!-- Tab pill -->
+                    <!-- Long-press (mobile): $dispatch captured at touchstart, fired 550ms later
+                         as custom event → @open-topic-menu runs inside Alpine reactive context.
+                         Right-click (desktop): @contextmenu.prevent toggles menu directly. -->
                     <button
                         @click="t.id === currentTopicId ? null : switchTopic(t.id)"
-                        @contextmenu.prevent="isAdmin && t.id !== 1 ? (menuOpen = !menuOpen) : null"
-                        @touchstart.passive="if(isAdmin && t.id !== 1){ _lpt = setTimeout(()=>{ menuOpen = true }, 500) }"
-                        @touchend="clearTimeout(_lpt)"
-                        @touchmove="clearTimeout(_lpt)"
-                        @touchcancel="clearTimeout(_lpt)"
+                        @contextmenu.prevent="if(isAdmin && t.id !== 1) menuOpen = !menuOpen"
+                        @open-topic-menu.stop="menuOpen = true"
+                        @touchstart.passive="if(isAdmin && t.id !== 1){
+                            const fn = $dispatch;
+                            _tx = $event.touches[0].clientX;
+                            _ty = $event.touches[0].clientY;
+                            _lpt = setTimeout(() => fn('open-topic-menu'), 550);
+                        }"
+                        @touchmove.passive="if(_lpt){
+                            const dx = Math.abs($event.touches[0].clientX - _tx);
+                            const dy = Math.abs($event.touches[0].clientY - _ty);
+                            if(dx > 10 || dy > 10){ clearTimeout(_lpt); _lpt = null; }
+                        }"
+                        @touchend="clearTimeout(_lpt); _lpt = null"
+                        @touchcancel="clearTimeout(_lpt); _lpt = null"
                         :class="t.id === currentTopicId ? 'topic-tab-active' : 'topic-tab-idle'"
-                        class="topic-tab">
+                        class="topic-tab"
+                        style="touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none">
                         <span x-text="t.name"></span>
                         <span x-show="t.unread > 0" class="topic-unread" x-text="t.unread > 9 ? '9+' : t.unread"></span>
-                        <!-- subtle admin indicator: 3 tiny dots on non-General tabs -->
                         <span x-show="isAdmin && t.id !== 1"
-                              class="opacity-50 text-[9px] leading-none tracking-[1px] select-none">···</span>
+                              class="opacity-40 text-[8px] leading-none select-none tracking-[1.5px]">···</span>
                     </button>
 
-                    <!-- Context menu dropdown -->
+                    <!-- Dropdown menu -->
                     <div x-show="menuOpen" x-cloak
                          @click.outside="menuOpen = false"
                          class="topic-menu">
