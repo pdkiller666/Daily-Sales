@@ -741,6 +741,9 @@ if ('serviceWorker' in navigator) {
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
     const isInStandalone = window.matchMedia('(display-mode: standalone)').matches
                         || window.navigator.standalone === true;
+    /* Telegram in-app browser: Android WebView has "wv)" in UA;
+       Telegram Mini Apps expose TelegramWebviewProxy */
+    const isTgWebView = /wv\)/.test(navigator.userAgent) || !!window.TelegramWebviewProxy;
 
     /* Expose globally so manual button can always access */
     window._ds_pwa_deferred  = null;
@@ -800,17 +803,43 @@ if ('serviceWorker' in navigator) {
         localStorage.removeItem('ds_pwa_dismissed');
         if (window._ds_pwa_deferred) {
             dsPwaInstall();
+            return;
+        }
+        const el  = document.getElementById('ds-pwa-prompt');
+        const txt = document.getElementById('ds-pwa-prompt-text');
+        const btn = document.getElementById('ds-pwa-install-btn');
+        const copyBtn = document.getElementById('ds-pwa-copy-btn');
+        if (isTgWebView) {
+            /* Telegram in-app browser — beforeinstallprompt never fires here.
+               Guide user to open link in external browser via Telegram settings. */
+            if (txt) txt.textContent =
+                'Telegram → Настройки → Конфиденциальность → ' +
+                '«Открывать ссылки» → Внешний браузер. ' +
+                'Затем снова откройте ссылку — Chrome добавит приложение на экран.';
+            if (btn) btn.style.display = 'none';
+            if (copyBtn) copyBtn.style.display = '';
         } else {
-            /* iOS or deferred prompt not fired yet */
             const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-            const el  = document.getElementById('ds-pwa-prompt');
-            const txt = document.getElementById('ds-pwa-prompt-text');
-            const btn = document.getElementById('ds-pwa-install-btn');
             if (txt) txt.textContent = ios
                 ? 'Safari → кнопка «Поделиться» → «На экран «Домой»'
                 : 'Меню браузера ⋮ → «Установить приложение» или «Добавить на гл. экран»';
             if (btn) btn.style.display = 'none';
-            if (el)  el.classList.remove('hidden');
+            if (copyBtn) copyBtn.style.display = 'none';
+        }
+        if (el) el.classList.remove('hidden');
+    };
+
+    window.dsPwaCopyLink = function () {
+        const url = window.location.href;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(function () {
+                const copyBtn = document.getElementById('ds-pwa-copy-btn');
+                if (copyBtn) { copyBtn.textContent = 'Скопировано ✓'; setTimeout(() => { copyBtn.textContent = 'Скопировать ссылку'; }, 2000); }
+            }).catch(function () {
+                prompt('Скопируйте ссылку:', url);
+            });
+        } else {
+            prompt('Скопируйте ссылку:', url);
         }
     };
 
@@ -1634,10 +1663,13 @@ function mainApp() {
         </div>
 
         <!-- PWA install prompt -->
-        <div id="ds-pwa-prompt" class="hidden flex items-center gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-800">
+        <div id="ds-pwa-prompt" class="hidden flex items-start gap-2.5 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-800">
             <span class="text-lg shrink-0">📱</span>
             <span class="flex-1 leading-snug" id="ds-pwa-prompt-text">Добавить на экран смартфона — работает как приложение</span>
-            <button id="ds-pwa-install-btn" onclick="dsPwaInstall()" class="shrink-0 px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors">Добавить</button>
+            <div class="flex flex-col gap-1 shrink-0">
+                <button id="ds-pwa-install-btn" onclick="dsPwaInstall()" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors">Добавить</button>
+                <button id="ds-pwa-copy-btn" onclick="dsPwaCopyLink()" style="display:none" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors whitespace-nowrap">Скопировать ссылку</button>
+            </div>
             <button onclick="dsPwaDismiss()" class="shrink-0 text-emerald-400 hover:text-emerald-600 text-base leading-none px-1">×</button>
         </div>
 
