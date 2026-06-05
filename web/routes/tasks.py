@@ -105,7 +105,7 @@ def _get_staff_list(db) -> list:
         conn = db.get_connection()
         rows = conn.execute(
             "SELECT id, first_name, last_name, username, shop_name "
-            "FROM users WHERE is_active = 1 ORDER BY first_name, last_name"
+            "FROM users WHERE COALESCE(is_active, 1) != 0 ORDER BY first_name, last_name"
         ).fetchall()
         conn.close()
         result = []
@@ -123,7 +123,7 @@ def _get_shops_list(db) -> list:
         conn = db.get_connection()
         rows = conn.execute(
             "SELECT DISTINCT shop_name FROM users "
-            "WHERE is_active = 1 AND shop_name IS NOT NULL AND shop_name != '' "
+            "WHERE COALESCE(is_active, 1) != 0 AND shop_name IS NOT NULL AND shop_name != '' "
             "ORDER BY shop_name"
         ).fetchall()
         conn.close()
