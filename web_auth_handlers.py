@@ -69,7 +69,8 @@ async def process_setweblogin_email(message: Message, state: FSMContext):
         return
 
     if message.text.strip().lower() == '/cancel':
-        await state.clear()
+        from db_utils import clear_state_keep_org
+        await clear_state_keep_org(state)
         await message.answer("Отменено.")
         return
 
@@ -89,7 +90,8 @@ async def process_setweblogin_email(message: Message, state: FSMContext):
         logger.error("process_setweblogin_email: %s", exc)
         result = 'error'
 
-    await state.clear()
+    from db_utils import clear_state_keep_org
+    await clear_state_keep_org(state)
 
     if result == 'ok':
         await message.answer(
