@@ -21,6 +21,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ### Bot
 - `main.py` — bot entry, router registration, 10 APScheduler jobs
+- `web_auth_handlers.py` — `/setweblogin` команда: привязка email к Telegram-аккаунту прямо из бота
 - `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
@@ -40,15 +41,18 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ### Web Interface (`web/`)
 - `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals; `SecurityHeadersMiddleware` (5 security headers on every response); `/robots.txt` and `/sitemap.xml` routes; `_api_rate_ok()` rate limiter (60 req/min/IP)
-- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`, `generate_login_nonce()`, `verify_login_nonce()` (5-min HMAC stateless nonce for `/auth/code`)
-- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `(allowed, retry_after)`; survives restarts; used by `auth_routes.py`
+- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`, `generate_login_nonce()`, `verify_login_nonce()` (5-min HMAC stateless nonce for `/auth/code`); `hash_password()` / `verify_password()` (PBKDF2-SHA256, 390k iterations, stdlib only)
+- `web/email_utils.py` — `send_verification_email()`, `send_reset_email()`, `send_link_notification()`; SMTP via `smtp.yandex.ru:465` SSL; secrets `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; `is_configured()` guard — all routes degrade gracefully if SMTP not configured
+- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `bool`; survives restarts; used by `auth_routes.py` and `email_auth.py`
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
-- `web/routes/` — 23 route files: `auth_routes`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`
+- `web/routes/` — 24 route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`
+- `web/routes/email_auth.py` — 9 маршрутов: `GET/POST /register`, `GET/POST /auth/email`, `GET /auth/verify`, `POST /auth/resend-verify`, `GET/POST /auth/reset`, `GET/POST /auth/reset/confirm`, `POST /settings/email-change`, `POST /settings/password-change`, `POST /settings/email-unlink`; rate limit 5 req/10min/IP на login/register/reset
 - `web/routes/support.py` — `GET /support` (форма обратной связи), `POST /support/send` (отправка через Telegram Bot API с rate limit 3 req/hour/user; `urllib.request` stdlib)
 - `web/routes/pos.py` — GET `/pos`: передаёт `sales_limit_reached` + `sales_limit_msg` в шаблон; красный 🚫 баннер при достижении лимита продаж
 - `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; rate-limited 60 req/min/IP; returns sales by other users; каждый item содержит поле `url` через `_notif_url()` для навигации по клику)
 - `web/routes/notifications.py` — история уведомлений содержит поле `url` через `_notif_url(type)`; items с url — кликабельные ссылки (`<a>` в templates)
 - `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling; уведомления кликабельны (mobile sheet + desktop dropdown): `@click` → navigate по `url`; иконки по типу (📦 low_stock, 📊 daily_report, 💳 payment и др.)
+- `web/templates/auth/` — `login.html` (Telegram + email tabs), `register.html`, `reset_request.html`, `reset_confirm.html`, `verify_sent.html`
 - `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors); full SEO head: canonical, OG tags, Twitter card, JSON-LD SoftwareApplication schema, robots meta, keywords, favicon
 - `web/templates/products/form.html` — product add/edit form (admin only)
 - `web/templates/*/` — per-module Jinja2 templates
@@ -89,6 +93,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **sitemap.xml**: `/sitemap.xml` route — single entry `https://dailysales.app/` with `priority=1.0`, `changefreq=weekly`; submit to Google Search Console + Яндекс.Вебмастер for fast indexing
 - **SEO meta (landing.html)**: canonical `https://dailysales.app/`; `og:image/url/locale(ru_RU)/site_name`; `twitter:card=summary_large_image`; JSON-LD `SoftwareApplication` with offers (0–4000₽), aggregateRating, featureList; `<link rel="icon">` for favicon in browser tab; `keywords` meta; `robots: index, follow`
 - **OG image**: `web/static/og-image.jpg` (118KB, 1408×768 → served as 1200×630 crop by social platforms); source PNG at `web/static/og-image.png` (824KB); both in git repo (not excluded)
+- **Email auth (web_credentials)**: таблица в `shop_bot.db`; поля: `id, email, password_hash, telegram_id (nullable), synthetic_tg_id, org_db, first_name, email_verified, verify_token, verify_expires, reset_token, reset_expires, last_login, created_at`; synthetic_tg_id = `-(10_000_000 + cred_id)` для пользователей без Telegram; сессия создаётся так же как при Telegram-входе — одинаковый JWT с `tg_id`; для email-only юзеров `org_db` хранится прямо в `web_credentials`
+- **Email rate limiting**: `/auth/email` (login) + `/register` + `/auth/reset` — `check_rate_limit(f"email_auth:{ip}", 5, 600)` → 5 попыток / 10 мин / IP; persistent SQLite (выдерживает рестарты); отдельно от Telegram-auth rate limit
+- **SMTP graceful degradation**: `web/email_utils.is_configured()` проверяет `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; при отсутствии — `/register` и `/auth/reset` отдают HTTP 503; `/auth/verify` и `/auth/resend-verify` тоже disabled; login по паролю работает без SMTP
 
 ## Product
 
@@ -114,6 +121,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Trial upsell: `send_trial_expired_upsell` (ежечасно :05) + reminders at 14/7/3/1d (`send_payment_alerts`); dedup via `subscription_reminder_log` (threshold -1 = expired)
 - Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
 - Web feedback form: `/support` — форма обратной связи в веб-кабинете; категория + тема + сообщение; отправляет супер-админу в Telegram через Bot API; rate limit 3/час/user; доступна всем авторизованным пользователям через шторку «Ещё»
+- Email + пароль вход: `/register` (по инвайт-коду + email + пароль) + `/auth/email` (login); подтверждение email через письмо (`/auth/verify?token=…`); сброс пароля через письмо (`/auth/reset` → `/auth/reset/confirm`); привязка/отвязка email в `/settings`; смена пароля в `/settings`; привязка к Telegram через `/setweblogin` в боте; email-only пользователи получают synthetic_tg_id для совместимости с существующей сессионной системой
 
 ## User Preferences
 
@@ -141,6 +149,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 15. В `complete_sale` outer `except Exception` удаляет все `processed_sales` через `delete_sale` — любой необработанный exception ПОСЛЕ `add_sale` → потеря продажи. Все вызовы внутри outer try должны быть в `try/except`.
 16. **Invite back-button** — в `admin_handlers.py` кнопка «Назад» из формы редактирования инвайта ведёт на `personnel_hub` (НЕ `admin_management`); при изменениях в этом блоке проверять `back_button("personnel_hub")`
 17. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID в Google Cloud Console выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow (`https://oauth2.googleapis.com/device/code`). Скачанный JSON содержит ключ `"installed"` — это нормально. `client_id` и `client_secret` → в Replit Secrets как `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+18. **Email-only user identity**: `synthetic_tg_id = -(10_000_000 + cred_id)` хранится в `web_credentials.synthetic_tg_id`; используется как `tg_id` в JWT-сессии; `org_db` для email-only юзеров берётся из `web_credentials.org_db`, а не из `user_org_mapping` — не перепутывать. При привязке к Telegram (`/setweblogin`) `telegram_id` в `web_credentials` обновляется, synthetic_tg_id больше не используется для входа.
+19. **YANDEX_SMTP_PASSWORD** — это **пароль приложения** (16 символов без пробелов), а НЕ пароль от аккаунта Яндекс. Генерируется в → Яндекс ID → Безопасность → Пароли приложений. Обычный пароль Яндекс не работает через SMTP.
 
 ## Pointers
 

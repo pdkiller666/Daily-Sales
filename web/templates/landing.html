@@ -72,7 +72,9 @@
         "Уведомления о продажах",
         "Мультиорг поддержка",
         "Внутренний чат команды с темами",
-        "Тематические треды и бейджи непрочитанных"
+        "Тематические треды и бейджи непрочитанных",
+        "Вход по email и паролю без Telegram",
+        "Регистрация по инвайт-коду"
       ],
       "screenshot": "https://dailysales.app/static/og-image.jpg",
       "softwareVersion": "2.0",
@@ -705,7 +707,7 @@
                         <div class="flex flex-wrap gap-2">
                             <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">📱 Ярлык на экране</span>
                             <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">💻 ПК и планшет</span>
-                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">🔐 Вход без пароля</span>
+                            <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">🔐 Email или Telegram</span>
                             <span class="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg font-medium">✈️ + Telegram-бот</span>
                         </div>
                     </div>
@@ -1159,7 +1161,7 @@
                     <div class="absolute -inset-1 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 transition-opacity blur-sm"></div>
                 </div>
                 <h3 class="text-xl font-bold text-slate-900 mb-3">Откройте веб-кабинет</h3>
-                <p class="text-slate-500 text-sm leading-relaxed">Перейдите на dailysales.app и войдите через Telegram за 5 секунд — никакого пароля, никакой регистрации.</p>
+                <p class="text-slate-500 text-sm leading-relaxed">Перейдите на dailysales.app. Войдите через Telegram за 5 секунд — или по email и паролю, если Telegram не нужен.</p>
             </div>
 
             <div class="text-center group reveal d2">
@@ -1379,6 +1381,7 @@
                 <div class="text-slate-300 font-semibold text-sm mb-5">Доступ</div>
                 <ul class="space-y-3 text-sm text-slate-500">
                     <li><a href="/dashboard" class="hover:text-slate-200 transition-colors">Войти в кабинет</a></li>
+                    <li><a href="/register" class="hover:text-slate-200 transition-colors">Регистрация по email</a></li>
                     {% if bot_username %}
                     <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="hover:text-slate-200 transition-colors">Telegram-бот</a></li>
                     {% endif %}
