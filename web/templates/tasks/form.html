@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Редактировать задачу' if edit_task else 'Новая задача' }}{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-sm">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">{{ 'Редактировать' if edit_task else 'Создать' }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="flex items-center justify-between mb-5">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">
+      {{ 'Редактировать задачу' if edit_task else 'Новая задача' }}
+    </h1>
+    <a href="{{ '/tasks/' + (edit_task.id|string) if edit_task else '/tasks' }}"
+       class="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+      ✕ Отмена
+    </a>
+  </div>
+
+  {% set msg_map = {
+    'no_title':   '⚠️ Укажите название задачи.',
+    'csrf_error': '⚠️ Ошибка безопасности. Попробуйте снова.',
+    'error':      '⚠️ Произошла ошибка. Попробуйте снова.',
+  } %}
+  {% if msg and msg in msg_map %}
+  <div class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
+    <span>{{ msg_map[msg] }}</span>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ '/tasks/' + (edit_task.id|string) + '/edit' if edit_task else '/tasks/new' }}"
+        class="card p-6 dark:bg-slate-900 space-y-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- Title -->
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+        Название <span class="text-red-500">*</span>
+      </label>
+      <input type="text" name="title" required maxlength="200"
+             value="{{ edit_task.title if edit_task else '' }}"
+             placeholder="Кратко опишите задачу"
+             class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+
+    <!-- Description -->
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+        Описание <span class="text-slate-400 font-normal">(необязательно)</span>
+      </label>
+      <textarea name="description" rows="4" maxlength="2000"
+                placeholder="Подробное описание, инструкции, ссылки…"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ edit_task.description if edit_task else '' }}</textarea>
+    </div>
+
+    <!-- Row: topic + priority -->
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Тема</label>
+        <select name="topic_id"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— Без темы —</option>
+          {% for t in topics %}
+          <option value="{{ t.id }}" {{ 'selected' if edit_task and edit_task.topic_id == t.id else '' }}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Приоритет</label>
+        <select name="priority"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          {% for pk, pv in priority_labels.items() %}
+          <option value="{{ pk }}" {{ 'selected' if (edit_task and edit_task.priority == pk) or (not edit_task and pk == 'normal') else '' }}>{{ pv }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Assignee + Shop -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {% if staff_list %}
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Исполнитель</label>
+        <select name="assigned_to"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— Не назначено —</option>
+          {% for s in staff_list %}
+          <option value="{{ s.id }}" {{ 'selected' if edit_task and edit_task.assigned_to == s.id else '' }}>
+            {{ s.name }}{% if s.shop %} ({{ s.shop }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      {% if shops_list %}
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">Магазин</label>
+        <select name="shop_id"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— Без привязки —</option>
+          {% for sh in shops_list %}
+          <option value="{{ sh.id }}" {{ 'selected' if edit_task and edit_task.shop_id == sh.id else '' }}>{{ sh.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Deadline -->
+    <div class="max-w-xs">
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+        Срок выполнения
+      </label>
+      <input type="date" name="deadline"
+             value="{{ edit_task.deadline[:10] if edit_task and edit_task.deadline else '' }}"
+             class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+
+    {% if not edit_task %}
+    <!-- Checklist (only on create) -->
+    <div>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+        Чеклист <span class="text-slate-400 font-normal">(по одному пункту на строку)</span>
+      </label>
+      <textarea name="checklist_items" rows="4"
+                placeholder="Пересчитать остатки&#10;Обновить ценники&#10;Сделать фото полки"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"></textarea>
+    </div>
+
+    <!-- Chat topic -->
+    <div class="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+      <input type="checkbox" name="create_chat_topic" value="1" id="create_chat_topic"
+             class="mt-0.5 h-4 w-4 text-indigo-600 rounded border-slate-300">
+      <div>
+        <label for="create_chat_topic" class="text-sm font-medium text-slate-700 dark:text-slate-200 cursor-pointer">
+          💬 Создать тему в чате
+        </label>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          Автоматически создаст тему обсуждения в корпоративном чате
+        </p>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Submit -->
+    <div class="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+      <button type="submit"
+              class="inline-flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        {{ 'Сохранить' if edit_task else 'Создать задачу' }}
+      </button>
+      <a href="{{ '/tasks/' + (edit_task.id|string) if edit_task else '/tasks' }}"
+         class="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 transition-colors">
+        Отмена
+      </a>
+    </div>
+
+  </form>
+</div>
+{% endblock %}

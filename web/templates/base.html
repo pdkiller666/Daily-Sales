@@ -350,6 +350,15 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/contests') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
         </a>
+        {% set _tskcnt = open_tasks_count(request) %}
+        <a href="/tasks"
+           class="nav-link {% if request.url.path.startswith('/tasks') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">📋</span>
+            <span class="flex-1">Задачи</span>
+            {% if _tskcnt > 0 %}
+            <span class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-indigo-500 text-white">{{ _tskcnt }}</span>
+            {% endif %}
+        </a>
         {% if chat_enabled() %}
         <a href="/chat"
            class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
@@ -537,7 +546,7 @@ function toastMgr() {
                                  ]"
                                  @click="n.url && (notifDdOpen=false, window.location.href=n.url)">
                                 <span class="text-base shrink-0 mt-0.5"
-                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':'🔔'"></span>
+                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':'🔔'"></span>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-xs text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                                     <div class="flex items-center gap-1.5 mt-0.5">
@@ -1027,6 +1036,7 @@ const DS_NAV_ALL = [
     {key:'notifications', icon:'🔔', label:'Рассылки',     href:'/notifications', adminOnly:true},
     {key:'motivation',    icon:'💎', label:'Мотивация',    href:'/motivation',    adminOnly:true},
     {key:'absences',      icon:'📋', label:'Отсутствия',   href:'/absences'},
+    {key:'tasks',         icon:'📋', label:'Задачи',        href:'/tasks'},
     {key:'settings',      icon:'⚙️', label:'Настройки',   href:'/settings'},
 ];
 
@@ -1293,6 +1303,10 @@ function mainApp() {
             icon: '📋', title: 'Управление отсутствиями',
             text: 'Сотрудник подаёт заявку на отпуск, больничный или отгул прямо в боте. Администратор одобряет или отклоняет здесь. Оплачиваемые отсутствия учитываются в расчёте зарплаты автоматически.',
         },
+        tasks: {
+            icon: '📋', title: 'Задачи',
+            text: 'Создавай задачи, назначай исполнителей и отслеживай выполнение. Чеклисты, приоритеты, дедлайны и уведомления в Telegram — всё в одном месте.',
+        },
     };
 
     const PATH_MAP = [
@@ -1316,6 +1330,7 @@ function mainApp() {
         [p => p.startsWith('/categories'),                 'categories'],
         [p => p.startsWith('/shops'),                      'shops'],
         [p => p.startsWith('/absences'),                   'absences'],
+        [p => p.startsWith('/tasks'),                      'tasks'],
     ];
 
     function _seen() {
@@ -1507,6 +1522,11 @@ function mainApp() {
                     <span class="sht-icon">🎁</span>
                     <span class="sht-label">Конкурсы</span>
                 </a>
+                <a href="/tasks" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/tasks') %}sht-active{% endif %}">
+                    <span class="sht-icon">📋</span>
+                    <span class="sht-label">Задачи</span>
+                </a>
                 {% if user and user.role in ('owner','admin','super_admin') %}
                 <a href="/notifications" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/notifications') %}sht-active{% endif %}">
@@ -1663,7 +1683,7 @@ function mainApp() {
                  ]"
                  @click="n.url && (notifOpen=false, window.location.href=n.url)">
                 <span class="text-xl shrink-0 mt-0.5"
-                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':'🔔'"></span>
+                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':'🔔'"></span>
                 <div class="flex-1 min-w-0">
                     <p class="text-sm text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                     <div class="flex items-center gap-2 mt-1">

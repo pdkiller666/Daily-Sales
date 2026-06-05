@@ -77,6 +77,10 @@ def _notif_url(notification_type: str) -> str:
         "contest":           "/contests",
         "contest_winner":    "/contests",
         "salary_adjustment": "/salary/earnings",
+        "task_assigned":     "/tasks",
+        "task_status":       "/tasks",
+        "task_deadline":     "/tasks",
+        "task_overdue":      "/tasks",
         "admin":             "",
     }
     return _MAP.get(notification_type or "", "")

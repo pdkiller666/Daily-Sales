@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}{{ task.title if task else 'Задача' }}{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-sm">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm truncate max-w-[160px]">{{ task.title if task else '...' }}</span>
+{% endblock %}
+
+{% block content %}
+{% if not task %}
+<div class="card p-8 text-center dark:bg-slate-900">
+  <p class="text-slate-500">Задача не найдена. <a href="/tasks" class="text-indigo-600 hover:underline">К списку</a></p>
+</div>
+{% else %}
+
+{% set overdue = is_overdue(task.get('deadline'), task.get('status', '')) %}
+
+{% set msg_map = {
+  'saved':           '✅ Изменения сохранены.',
+  'status_updated':  '✅ Статус обновлён.',
+  'commented':       '✅ Комментарий добавлен.',
+  'created':         '✅ Задача создана.',
+  'csrf_error':      '⚠️ Ошибка безопасности.',
+  'error':           '⚠️ Произошла ошибка.',
+  'bad_status':      '⚠️ Неверный статус.',
+  'no_text':         '⚠️ Комментарий не может быть пустым.',
+} %}
+{% if msg and msg in msg_map %}
+<div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
+  {% if 'error' in msg or msg in ('csrf_error','bad_status','no_text') %}bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300
+  {% else %}bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300{% endif %}">
+  <span>{{ msg_map[msg] }}</span>
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+  <!-- LEFT: Main card -->
+  <div class="lg:col-span-2 space-y-4">
+
+    <!-- Header card -->
+    <div class="card p-5 dark:bg-slate-900">
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100 leading-tight">{{ task.title }}</h1>
+        {% if is_admin %}
+        <div class="flex items-center gap-2 shrink-0">
+          <a href="/tasks/{{ task.id }}/edit"
+             class="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            ✏️ Изменить
+          </a>
+          <form method="POST" action="/tasks/{{ task.id }}/delete"
+                onsubmit="return confirm('Удалить задачу? Это действие нельзя отменить.')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit"
+                    class="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-950 transition-colors">
+              🗑
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Status + priority badges -->
+      <div class="flex flex-wrap gap-2 mb-4">
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border
+          {{ status_css.get(task.status, 'bg-slate-100 text-slate-600 border-slate-300') }}">
+          {{ status_labels.get(task.status, task.status) }}
+        </span>
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border
+          {{ priority_css.get(task.priority, 'bg-slate-100 text-slate-600 border-slate-300') }}">
+          {{ priority_labels.get(task.priority, task.priority) }}
+        </span>
+        {% if overdue %}
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+          ⚠️ Просрочена
+        </span>
+        {% endif %}
+        {% if task.get('topic_name') %}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border
+          {{ topic_colors.get(task.get('topic_color', 'blue'), 'bg-blue-50 text-blue-700 border-blue-200') }}">
+          🏷 {{ task.topic_name }}
+        </span>
+        {% endif %}
+      </div>
+
+      {% if task.get('description') %}
+      <div class="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3 whitespace-pre-wrap leading-relaxed">{{ task.description }}</div>
+      {% endif %}
+    </div>
+
+    <!-- Checklist -->
+    {% if task.get('checklist') %}
+    <div class="card p-5 dark:bg-slate-900">
+      <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Чеклист</h2>
+      {% set done_count = task.checklist | selectattr('is_done') | list | length %}
+      {% set total_count = task.checklist | length %}
+      {% if total_count > 0 %}
+      <div class="mb-3">
+        <div class="flex justify-between text-xs text-slate-500 mb-1">
+          <span>Выполнено</span>
+          <span>{{ done_count }}/{{ total_count }}</span>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
+          <div class="bg-emerald-500 h-1.5 rounded-full transition-all"
+               style="width: {{ (done_count / total_count * 100)|int }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+      <div class="space-y-1.5">
+        {% for item in task.checklist %}
+        {% set can_toggle = is_admin or (task.assigned_to == my_db_id) %}
+        {% if can_toggle and task.status not in ('done', 'cancelled') %}
+        <form method="POST" action="/tasks/{{ task.id }}/checklist/{{ item.id }}/toggle" class="flex items-start gap-2.5">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"
+                  class="flex items-center gap-2.5 w-full text-left text-sm py-1 hover:opacity-80 transition-opacity">
+            <span class="w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center mt-0.5
+              {{ 'bg-emerald-500 border-emerald-500' if item.is_done else 'border-slate-300 dark:border-slate-600' }}">
+              {% if item.is_done %}<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>{% endif %}
+            </span>
+            <span class="{{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
+          </button>
+        </form>
+        {% else %}
+        <div class="flex items-start gap-2.5 py-1">
+          <span class="w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center mt-0.5
+            {{ 'bg-emerald-500 border-emerald-500' if item.is_done else 'border-slate-300 dark:border-slate-600' }}">
+            {% if item.is_done %}<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>{% endif %}
+          </span>
+          <span class="text-sm {{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Comments -->
+    <div class="card p-5 dark:bg-slate-900">
+      <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
+        Комментарии {% if comments %}<span class="text-slate-400 font-normal">({{ comments|length }})</span>{% endif %}
+      </h2>
+
+      {% if comments %}
+      <div class="space-y-3 mb-4">
+        {% for c in comments %}
+        <div class="flex gap-3">
+          <div class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+            {{ (c.author_name or '?')[0]|upper }}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-baseline gap-2 mb-0.5">
+              <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">{{ c.author_name or 'Сотрудник' }}</span>
+              <span class="text-[11px] text-slate-400">{{ c.created_at_fmt or c.created_at }}</span>
+            </div>
+            <div class="text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2 whitespace-pre-wrap">{{ c.text }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if task.status not in ('done', 'cancelled') or is_admin %}
+      <form method="POST" action="/tasks/{{ task.id }}/comment">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <textarea name="text" rows="3" placeholder="Напишите комментарий или отчёт о выполнении…"
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none mb-2"></textarea>
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+          Отправить
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Meta + Actions -->
+  <div class="space-y-4">
+
+    <!-- Status actions -->
+    {% if task.status not in ('done', 'cancelled') %}
+    <div class="card p-4 dark:bg-slate-900">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Изменить статус</p>
+      {% set status_flow = [('new', '🔄 Взять в работу', 'in_progress'), ('in_progress', '🔍 На проверку', 'review'), ('review', '✅ Выполнено', 'done')] %}
+      {% for from_s, label, to_s in status_flow %}
+      {% if task.status == from_s and (is_admin or task.assigned_to == my_db_id) %}
+      <form method="POST" action="/tasks/{{ task.id }}/status" class="mb-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="status" value="{{ to_s }}">
+        <button type="submit"
+                class="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+          {{ label }}
+        </button>
+      </form>
+      {% endif %}
+      {% endfor %}
+      {% if is_admin and task.status != 'cancelled' %}
+      <form method="POST" action="/tasks/{{ task.id }}/status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="status" value="cancelled">
+        <button type="submit"
+                class="w-full px-4 py-2 text-sm text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors mt-1">
+          🚫 Отменить задачу
+        </button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Meta info -->
+    <div class="card p-4 dark:bg-slate-900 space-y-3">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Детали</p>
+
+      {% if task.get('assigned_name') %}
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Исполнитель</p>
+        <p class="text-sm text-slate-700 dark:text-slate-200 font-medium">👤 {{ task.assigned_name }}</p>
+      </div>
+      {% endif %}
+
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Автор</p>
+        <p class="text-sm text-slate-700 dark:text-slate-200">✍️ {{ task.get('creator_name') or '—' }}</p>
+      </div>
+
+      {% if task.get('shop_name') %}
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Магазин</p>
+        <p class="text-sm text-slate-700 dark:text-slate-200">🏪 {{ task.shop_name }}</p>
+      </div>
+      {% endif %}
+
+      {% if task.get('deadline') %}
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Срок выполнения</p>
+        <p class="text-sm font-medium {{ 'text-red-600' if overdue else 'text-slate-700 dark:text-slate-200' }}">
+          📅 {{ fmt_deadline(task.deadline) }}
+          {% if overdue %}<span class="text-xs">⚠️</span>{% endif %}
+        </p>
+      </div>
+      {% endif %}
+
+      {% if task.get('created_at') %}
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Создана</p>
+        <p class="text-xs text-slate-500">{{ task.created_at[:16] | replace('T', ' ') }}</p>
+      </div>
+      {% endif %}
+
+      {% if task.get('linked_chat_topic_id') %}
+      <div class="pt-1 border-t border-slate-100 dark:border-slate-700">
+        <a href="/chat?topic_id={{ task.linked_chat_topic_id }}"
+           class="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+          💬 Обсудить в чате
+        </a>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endif %}
+{% endblock %}

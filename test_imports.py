@@ -58,6 +58,7 @@ MODULES = [
     'referral_handlers',
     'addon_handlers',
     'absence_handlers',
+    'tasks_handlers',
     'pdf_utils',
     'web.sale_events',
 ]

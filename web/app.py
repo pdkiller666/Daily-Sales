@@ -187,6 +187,7 @@ Disallow: /absences
 Disallow: /support
 Disallow: /chat
 Disallow: /chat/search
+Disallow: /tasks
 Disallow: /api/
 Disallow: /login
 Disallow: /auth/
@@ -320,6 +321,34 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['chat_enabled'] = _is_chat_enabled
 
+    def _open_tasks_count(request):
+        """Счётчик незакрытых задач для сайдбара."""
+        try:
+            from web.auth import get_session_user
+            from web.deps import get_web_db
+            user = get_session_user(request)
+            if not user:
+                return 0
+            telegram_id = int(user["sub"])
+            org_db = user.get("org_db")
+            if not org_db or org_db == "data/shop_bot.db":
+                return 0
+            is_admin = user.get("role") in ("owner", "admin", "super_admin")
+            db = get_web_db(telegram_id, org_db)
+            conn = db.get_connection()
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            conn.close()
+            my_db_id = my_row[0] if my_row else 0
+            if not my_db_id:
+                return 0
+            return db.get_open_tasks_count(my_db_id, is_admin)
+        except Exception:
+            return 0
+
+    templates.env.globals['open_tasks_count'] = _open_tasks_count
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -353,6 +382,7 @@ def create_web_app() -> FastAPI:
     from web.routes.support import router as support_router
     from web.routes.chat import router as chat_router
     from web.routes.admin import router as admin_router
+    from web.routes.tasks import router as tasks_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -381,6 +411,7 @@ def create_web_app() -> FastAPI:
     app.include_router(support_router)
     app.include_router(chat_router)
     app.include_router(admin_router)
+    app.include_router(tasks_router)
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():

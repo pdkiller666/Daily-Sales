@@ -42,6 +42,7 @@ from referral_handlers import referral_router
 from addon_handlers import addon_router
 from web_auth_handlers import router as web_auth_router
 from absence_handlers import absence_router
+from tasks_handlers import tasks_router as tasks_bot_router
 import scheduler_module
 from utils import he
 
@@ -139,6 +140,7 @@ dp.include_router(referral_router)
 dp.include_router(addon_router)
 dp.include_router(web_auth_router)
 dp.include_router(absence_router)
+dp.include_router(tasks_bot_router)
 
 # Создаем папку data если не существует
 if not os.path.exists('data'):
@@ -987,6 +989,58 @@ async def main():
         cleanup_fsm_storage,
         CronTrigger(day_of_week='sun', hour=4, minute=30),
         id='fsm_storage_cleanup',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Дедлайны задач — ежедневно в 09:10
+    async def check_task_deadlines():
+        """Напоминания о задачах с дедлайном сегодня и просроченных задачах."""
+        import os as _os
+        import json as _json
+        import urllib.request as _ureq
+        import threading as _th
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        def _push(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({"chat_id": tg_id, "text": text, "parse_mode": "HTML"}).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from database import Database
+            db_paths = _get_scheduler_db_paths()
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+                    # Дедлайн сегодня
+                    for t in db.get_tasks_with_deadline_today():
+                        title = t.get('title', '—')
+                        if t.get('assigned_tg'):
+                            _push(t['assigned_tg'],
+                                  f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
+                                  f"🌐 Откройте веб-кабинет для деталей.")
+                        if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg'):
+                            _push(t['creator_tg'],
+                                  f"📋 <b>Срок задачи сегодня</b>\n<b>{title}</b>")
+                except Exception as _de:
+                    logging.error(f"check_task_deadlines db={db_path}: {_de}")
+        except Exception as _e:
+            logging.error(f"check_task_deadlines: {_e}")
+
+    scheduler.add_job(
+        check_task_deadlines,
+        CronTrigger(hour=9, minute=10),
+        id='check_task_deadlines',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,

@@ -1079,6 +1079,61 @@ class Database:
         except Exception:
             pass
 
+        # ── Task topics (категории задач) ─────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_topics (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL,
+                color      TEXT    DEFAULT 'blue',
+                sort_order INTEGER DEFAULT 0,
+                created_by INTEGER DEFAULT 0,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # ── Tasks ──────────────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                title                TEXT    NOT NULL,
+                description          TEXT    DEFAULT '',
+                topic_id             INTEGER DEFAULT NULL,
+                created_by           INTEGER NOT NULL DEFAULT 0,
+                assigned_to          INTEGER DEFAULT NULL,
+                shop_id              INTEGER DEFAULT NULL,
+                priority             TEXT    DEFAULT 'normal',
+                status               TEXT    DEFAULT 'new',
+                deadline             TEXT    DEFAULT NULL,
+                linked_chat_topic_id INTEGER DEFAULT NULL,
+                created_at           TEXT    DEFAULT (datetime('now')),
+                updated_at           TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # ── Task checklist items ───────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_checklist (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                text       TEXT    NOT NULL,
+                is_done    INTEGER DEFAULT 0,
+                done_by    INTEGER DEFAULT NULL,
+                done_at    TEXT    DEFAULT NULL,
+                sort_order INTEGER DEFAULT 0
+            )
+        ''')
+
+        # ── Task comments ──────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                text       TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -1114,6 +1169,10 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_user  ON seller_earnings(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_absence_rec_user_dt   ON absence_records(user_id, status, start_date, end_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_sched_user_date  ON work_schedule(user_id, work_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assigned_status  ON tasks(assigned_to, status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_created_by       ON tasks(created_by, status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_checklist_task    ON task_checklist(task_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_comments_task     ON task_comments(task_id, created_at)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -8740,4 +8799,426 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TASKS MODULE
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def create_task_topic(self, name: str, color: str = 'blue',
+                          created_by: int = 0, sort_order: int = 0) -> int:
+        """Создать тему задач. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                "INSERT INTO task_topics (name, color, created_by, sort_order) VALUES (?, ?, ?, ?)",
+                (name, color, created_by, sort_order)
+            )
+            conn.commit()
+            topic_id = cur.lastrowid
+            conn.close()
+            return topic_id
+        except Exception as e:
+            logger.error("create_task_topic: %s", e)
+            return 0
+
+    def get_task_topics(self) -> list:
+        """Список всех тем задач с количеством задач."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.name, t.color, t.sort_order,
+                       COUNT(tk.id) AS task_count
+                FROM task_topics t
+                LEFT JOIN tasks tk ON tk.topic_id = t.id
+                GROUP BY t.id
+                ORDER BY t.sort_order, t.name
+                """
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "name": r[1], "color": r[2] or "blue",
+                 "sort_order": r[3], "task_count": r[4]}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_topics: %s", e)
+            return []
+
+    def delete_task_topic(self, topic_id: int) -> bool:
+        """Удалить тему; задачи темы получают topic_id=NULL."""
+        try:
+            conn = self.get_connection()
+            conn.execute("UPDATE tasks SET topic_id = NULL WHERE topic_id = ?", (topic_id,))
+            conn.execute("DELETE FROM task_topics WHERE id = ?", (topic_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("delete_task_topic: %s", e)
+            return False
+
+    def create_task(self, title: str, description: str = '',
+                    topic_id: int | None = None, created_by: int = 0,
+                    assigned_to: int | None = None, shop_id: int | None = None,
+                    priority: str = 'normal', deadline: str | None = None,
+                    linked_chat_topic_id: int | None = None,
+                    checklist: list | None = None) -> int:
+        """Создать задачу. Возвращает task_id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                """
+                INSERT INTO tasks
+                    (title, description, topic_id, created_by, assigned_to,
+                     shop_id, priority, deadline, linked_chat_topic_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (title, description, topic_id, created_by, assigned_to,
+                 shop_id, priority, deadline, linked_chat_topic_id)
+            )
+            task_id = cur.lastrowid
+            if checklist:
+                for idx, text in enumerate(checklist):
+                    conn.execute(
+                        "INSERT INTO task_checklist (task_id, text, sort_order) VALUES (?, ?, ?)",
+                        (task_id, text.strip(), idx)
+                    )
+            conn.commit()
+            conn.close()
+            return task_id
+        except Exception as e:
+            logger.error("create_task: %s", e)
+            return 0
+
+    def get_tasks(self, assigned_to: int | None = None,
+                  topic_id: int | None = None, status: str | None = None,
+                  created_by: int | None = None,
+                  is_admin: bool = False, my_user_id: int | None = None) -> list:
+        """Список задач с фильтрацией. Admin видит все, user — только свои."""
+        try:
+            conn = self.get_connection()
+            where = ["1=1"]
+            params = []
+            if not is_admin and my_user_id:
+                where.append("(t.assigned_to = ? OR t.created_by = ?)")
+                params += [my_user_id, my_user_id]
+            if assigned_to:
+                where.append("t.assigned_to = ?")
+                params.append(assigned_to)
+            if topic_id:
+                where.append("t.topic_id = ?")
+                params.append(topic_id)
+            if status:
+                where.append("t.status = ?")
+                params.append(status)
+            where_sql = " AND ".join(where)
+            rows = conn.execute(
+                f"""
+                SELECT t.id, t.title, t.description, t.topic_id, t.created_by,
+                       t.assigned_to, t.shop_id, t.priority, t.status, t.deadline,
+                       t.linked_chat_topic_id, t.created_at, t.updated_at,
+                       tt.name AS topic_name, tt.color AS topic_color,
+                       ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
+                       uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
+                       s.name AS shop_name,
+                       (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total,
+                       (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done
+                FROM tasks t
+                LEFT JOIN task_topics tt ON tt.id = t.topic_id
+                LEFT JOIN users ua ON ua.id = t.assigned_to
+                LEFT JOIN users uc ON uc.id = t.created_by
+                LEFT JOIN shops s  ON s.id  = t.shop_id
+                WHERE {where_sql}
+                ORDER BY
+                    CASE t.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1
+                                  WHEN 'review' THEN 2 WHEN 'done' THEN 3 ELSE 4 END,
+                    CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
+                                    WHEN 'normal' THEN 2 ELSE 3 END,
+                    t.deadline ASC NULLS LAST, t.id DESC
+                """,
+                params
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                a_name = f"{r[15] or ''} {r[16] or ''}".strip() or r[17] or ""
+                c_name = f"{r[18] or ''} {r[19] or ''}".strip() or r[20] or ""
+                result.append({
+                    "id": r[0], "title": r[1], "description": r[2],
+                    "topic_id": r[3], "created_by": r[4], "assigned_to": r[5],
+                    "shop_id": r[6], "priority": r[7] or "normal",
+                    "status": r[8] or "new", "deadline": r[9],
+                    "linked_chat_topic_id": r[10],
+                    "created_at": r[11], "updated_at": r[12],
+                    "topic_name": r[13], "topic_color": r[14] or "blue",
+                    "assigned_name": a_name, "creator_name": c_name,
+                    "shop_name": r[21],
+                    "checklist_total": r[22], "checklist_done": r[23],
+                })
+            return result
+        except Exception as e:
+            logger.error("get_tasks: %s", e)
+            return []
+
+    def get_task(self, task_id: int) -> dict | None:
+        """Получить задачу по id с чеклистом, темой, именами участников."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                """
+                SELECT t.id, t.title, t.description, t.topic_id, t.created_by,
+                       t.assigned_to, t.shop_id, t.priority, t.status, t.deadline,
+                       t.linked_chat_topic_id, t.created_at, t.updated_at,
+                       tt.name AS topic_name, tt.color AS topic_color,
+                       ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
+                       uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
+                       s.name AS shop_name
+                FROM tasks t
+                LEFT JOIN task_topics tt ON tt.id = t.topic_id
+                LEFT JOIN users ua ON ua.id = t.assigned_to
+                LEFT JOIN users uc ON uc.id = t.created_by
+                LEFT JOIN shops s  ON s.id  = t.shop_id
+                WHERE t.id = ?
+                """,
+                (task_id,)
+            ).fetchone()
+            if not row:
+                conn.close()
+                return None
+            a_name = f"{row[15] or ''} {row[16] or ''}".strip() or row[17] or ""
+            c_name = f"{row[18] or ''} {row[19] or ''}".strip() or row[20] or ""
+            checklist_rows = conn.execute(
+                "SELECT id, text, is_done, done_by, done_at, sort_order "
+                "FROM task_checklist WHERE task_id = ? ORDER BY sort_order, id",
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            checklist = [
+                {"id": cl[0], "text": cl[1], "is_done": bool(cl[2]),
+                 "done_by": cl[3], "done_at": cl[4]}
+                for cl in checklist_rows
+            ]
+            return {
+                "id": row[0], "title": row[1], "description": row[2],
+                "topic_id": row[3], "created_by": row[4], "assigned_to": row[5],
+                "shop_id": row[6], "priority": row[7] or "normal",
+                "status": row[8] or "new", "deadline": row[9],
+                "linked_chat_topic_id": row[10],
+                "created_at": row[11], "updated_at": row[12],
+                "topic_name": row[13], "topic_color": row[14] or "blue",
+                "assigned_name": a_name, "creator_name": c_name,
+                "shop_name": row[21], "checklist": checklist,
+            }
+        except Exception as e:
+            logger.error("get_task: %s", e)
+            return None
+
+    def update_task_status(self, task_id: int, status: str) -> bool:
+        """Обновить статус задачи."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE tasks SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                (status, task_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("update_task_status: %s", e)
+            return False
+
+    def update_task(self, task_id: int, title: str, description: str,
+                    topic_id: int | None, assigned_to: int | None,
+                    shop_id: int | None, priority: str,
+                    deadline: str | None) -> bool:
+        """Обновить поля задачи (редактирование admin)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                """
+                UPDATE tasks SET title=?, description=?, topic_id=?,
+                    assigned_to=?, shop_id=?, priority=?, deadline=?,
+                    updated_at=datetime('now')
+                WHERE id=?
+                """,
+                (title, description, topic_id, assigned_to,
+                 shop_id, priority, deadline, task_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("update_task: %s", e)
+            return False
+
+    def delete_task(self, task_id: int) -> bool:
+        """Удалить задачу вместе с чеклистом и комментариями."""
+        try:
+            conn = self.get_connection()
+            conn.execute("DELETE FROM task_checklist WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("delete_task: %s", e)
+            return False
+
+    def add_task_comment(self, task_id: int, user_id: int, text: str) -> int:
+        """Добавить комментарий к задаче. Возвращает id комментария."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                "INSERT INTO task_comments (task_id, user_id, text) VALUES (?, ?, ?)",
+                (task_id, user_id, text)
+            )
+            comment_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+            return comment_id
+        except Exception as e:
+            logger.error("add_task_comment: %s", e)
+            return 0
+
+    def get_task_comments(self, task_id: int) -> list:
+        """Список комментариев задачи с именами авторов."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT c.id, c.task_id, c.user_id, c.text, c.created_at,
+                       u.first_name, u.last_name, u.username
+                FROM task_comments c
+                LEFT JOIN users u ON u.id = c.user_id
+                WHERE c.task_id = ?
+                ORDER BY c.created_at ASC
+                """,
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                author = f"{r[5] or ''} {r[6] or ''}".strip() or r[7] or f"User#{r[2]}"
+                raw = str(r[4] or "")[:16].replace("T", " ")
+                try:
+                    d, t = raw.split(" ")
+                    y, mo, day = d.split("-")
+                    ts = f"{day}.{mo}.{y} {t}"
+                except Exception:
+                    ts = raw
+                result.append({
+                    "id": r[0], "task_id": r[1], "user_id": r[2],
+                    "text": r[3], "created_at": r[4],
+                    "created_at_fmt": ts, "author_name": author,
+                })
+            return result
+        except Exception as e:
+            logger.error("get_task_comments: %s", e)
+            return []
+
+    def toggle_task_checklist_item(self, item_id: int,
+                                   done_by: int | None = None) -> bool:
+        """Переключить is_done у пункта чеклиста."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT is_done FROM task_checklist WHERE id = ?", (item_id,)
+            ).fetchone()
+            if not row:
+                conn.close()
+                return False
+            new_done = 0 if row[0] else 1
+            if new_done:
+                conn.execute(
+                    "UPDATE task_checklist SET is_done=1, done_by=?, done_at=datetime('now') WHERE id=?",
+                    (done_by, item_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE task_checklist SET is_done=0, done_by=NULL, done_at=NULL WHERE id=?",
+                    (item_id,)
+                )
+            conn.commit()
+            conn.close()
+            return bool(new_done)
+        except Exception as e:
+            logger.error("toggle_task_checklist_item: %s", e)
+            return False
+
+    def get_open_tasks_count(self, user_id: int, is_admin: bool = False) -> int:
+        """Счётчик незакрытых задач для сайдбара (assigned + created, не done/cancelled)."""
+        try:
+            conn = self.get_connection()
+            if is_admin:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE status NOT IN ('done','cancelled')"
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE status NOT IN ('done','cancelled') "
+                    "AND (assigned_to = ? OR created_by = ?)",
+                    (user_id, user_id)
+                ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error("get_open_tasks_count: %s", e)
+            return 0
+
+    def get_tasks_with_deadline_today(self) -> list:
+        """Задачи с дедлайном сегодня (для APScheduler напоминаний)."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.title, t.assigned_to, t.created_by,
+                       ua.telegram_id AS assigned_tg,
+                       uc.telegram_id AS creator_tg
+                FROM tasks t
+                LEFT JOIN users ua ON ua.id = t.assigned_to
+                LEFT JOIN users uc ON uc.id = t.created_by
+                WHERE t.deadline = date('now')
+                  AND t.status NOT IN ('done', 'cancelled')
+                """
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "title": r[1], "assigned_to": r[2],
+                 "created_by": r[3], "assigned_tg": r[4], "creator_tg": r[5]}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_tasks_with_deadline_today: %s", e)
+            return []
+
+    def get_overdue_tasks(self) -> list:
+        """Просроченные незавершённые задачи (дедлайн < сегодня)."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT t.id, t.title, t.assigned_to, t.created_by,
+                       ua.telegram_id AS assigned_tg,
+                       uc.telegram_id AS creator_tg,
+                       t.deadline
+                FROM tasks t
+                LEFT JOIN users ua ON ua.id = t.assigned_to
+                LEFT JOIN users uc ON uc.id = t.created_by
+                WHERE t.deadline < date('now')
+                  AND t.status NOT IN ('done', 'cancelled')
+                """
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "title": r[1], "assigned_to": r[2],
+                 "created_by": r[3], "assigned_tg": r[4], "creator_tg": r[5],
+                 "deadline": r[6]}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_overdue_tasks: %s", e)
+            return []
 
