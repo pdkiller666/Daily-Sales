@@ -730,12 +730,18 @@ if ('serviceWorker' in navigator) {
             if (dragging) {
                 const dy = e.changedTouches[0].clientY - startY;
                 if (dy > 100) {
-                    /* animate out then close */
+                    /* animate out then close; do NOT reset transform before close()
+                       or Alpine re-animates from position 0 causing a visible flash.
+                       Instead: slide sheet out, call close() (Alpine sets display:none),
+                       then clean up inline styles so next open works correctly. */
                     el.style.transition = 'transform 0.22s ease-in';
                     el.style.transform = 'translateY(100%)';
                     setTimeout(() => {
-                        el.style.transform = '';
-                        close();
+                        close();                         /* Alpine hides element */
+                        setTimeout(() => {               /* clean up after Alpine's leave */
+                            el.style.transform = '';
+                            el.style.transition = '';
+                        }, 250);
                     }, 220);
                 } else {
                     el.style.transform = '';

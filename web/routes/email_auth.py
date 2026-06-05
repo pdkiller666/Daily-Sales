@@ -12,7 +12,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 SHOP_BOT_DB = 'data/shop_bot.db'
-TOKEN_EXPIRE_DAYS = 30
+# Keep in sync with web/auth.py TOKEN_EXPIRE_DAYS (7 days)
+# The JWT itself expires in 7 days — cookie must not outlive it
+TOKEN_EXPIRE_DAYS = 7
 
 
 def _rate_ok(ip: str, prefix: str = 'email_auth') -> bool:
