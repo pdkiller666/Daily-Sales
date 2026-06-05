@@ -180,36 +180,34 @@ if $WITH_AMVERA; then
   # Явно удаляем .md файлы которые не должны быть на Amvera
   rm -f AGENT_HANDOFF.md PROJECT_MAP.md README.md replit.md
 
+  # Подтягиваем историю с Amvera-remote чтобы наш новый коммит строился поверх
+  # предыдущего — иначе после --force Amvera не может найти старый хэш при сборке.
+  git remote set-url amvera "https://${AMVERA_USER}:${AMVERA_PASS}@git.msk0.amvera.ru/pdkiller666/dailysalesdeploy"
+  git fetch amvera master 2>/dev/null || true
+  # Если remote/master существует — выставляем HEAD поверх него (soft: файлы в stage остаются)
+  if git rev-parse amvera/master >/dev/null 2>&1; then
+    git reset --soft amvera/master
+  fi
+
   git add -A
 
-  # Проверяем: есть ли локальные изменения ИЛИ remote ушёл вперёд (diverged)
-  git remote set-url amvera "https://${AMVERA_USER}:${AMVERA_PASS}@git.msk0.amvera.ru/pdkiller666/dailysalesdeploy"
   REMOTE_HASH=$(git ls-remote amvera refs/heads/master 2>/dev/null | awk '{print $1}')
-  LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
-  REMOTE_DIVERGED=false
-  [ -n "$REMOTE_HASH" ] && [ -n "$LOCAL_HASH" ] && [ "$REMOTE_HASH" != "$LOCAL_HASH" ] && REMOTE_DIVERGED=true
-
   HAS_LOCAL_CHANGES=false
-  # If no commits yet, treat as always having changes
-  if [ -z "$LOCAL_HASH" ]; then
-    HAS_LOCAL_CHANGES=true
-  else
-    git diff --cached --quiet || HAS_LOCAL_CHANGES=true
-  fi
+  git diff --cached --quiet || HAS_LOCAL_CHANGES=true
+  # Если нет закоммиченных данных (первый запуск) — тоже считаем как изменение
+  git rev-parse HEAD >/dev/null 2>&1 || HAS_LOCAL_CHANGES=true
 
   if $HAS_LOCAL_CHANGES; then
     git commit -m "$COMMIT_MSG"
-    git push amvera HEAD:master --force
+    # Пушим без --force: коммит строится поверх предыдущего → история цела →
+    # Amvera всегда находит предыдущий хэш и не делает лишний full-clone.
+    git push amvera HEAD:master
     echo "   Amvera: ✅ отправлено!"
-  elif $REMOTE_DIVERGED; then
-    # Remote ушёл вперёд (лишние файлы, внешний пуш) — принудительно синхронизируем
-    git push amvera HEAD:master --force
-    echo "   Amvera: ✅ принудительная синхронизация (remote расходился)."
   else
     echo "   Amvera: нет изменений."
   fi
 
-  if $HAS_LOCAL_CHANGES || $REMOTE_DIVERGED; then
+  if $HAS_LOCAL_CHANGES; then
     # Верификация: проверяем что Amvera remote видит наш хэш
     LOCAL_HASH=$(git rev-parse HEAD)
     REMOTE_HASH=$(git ls-remote amvera refs/heads/master 2>/dev/null | awk '{print $1}')
