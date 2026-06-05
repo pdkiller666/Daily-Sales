@@ -339,6 +339,112 @@ def tasks_new_post(
         return RedirectResponse(url="/tasks/new?msg=error", status_code=303)
 
 
+# ─── TOPICS (must be BEFORE /{task_id} to avoid route shadowing) ─────────────
+
+@router.get("/tasks/topics")
+def tasks_topics(request: Request, msg: str = ""):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "topics": [], "topic_colors": TOPIC_COLORS,
+        "csrf_token": get_csrf_token(request),
+        "msg": msg, "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["topics"] = db.get_task_topics()
+    except Exception as e:
+        logger.error("tasks_topics: %s", e)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/topics.html", ctx
+    )
+
+
+@router.post("/tasks/topics/new")
+def tasks_topics_new(
+    request: Request,
+    csrf_token: str = Form(""),
+    name: str = Form(""),
+    color: str = Form("blue"),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks/topics", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/topics?msg=csrf_error", status_code=303)
+
+    name = name.strip()
+    if not name:
+        return RedirectResponse(url="/tasks/topics?msg=no_name", status_code=303)
+    if color not in TOPIC_COLORS:
+        color = "blue"
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        db.create_task_topic(name, color, my_db_id)
+    except Exception as e:
+        logger.error("tasks_topics_new: %s", e)
+        return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/topics?msg=created", status_code=303)
+
+
+@router.post("/tasks/topics/{tid}/delete")
+def tasks_topics_delete(
+    request: Request,
+    tid: int,
+    csrf_token: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks/topics", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/topics?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.delete_task_topic(tid)
+    except Exception as e:
+        logger.error("tasks_topics_delete: %s", e)
+        return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
+
+    return RedirectResponse(url="/tasks/topics?msg=deleted", status_code=303)
+
+
 # ─── DETAIL ──────────────────────────────────────────────────────────────────
 
 @router.get("/tasks/{task_id}")
@@ -740,109 +846,3 @@ def task_delete(
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
     return RedirectResponse(url="/tasks?msg=deleted", status_code=303)
-
-
-# ─── TOPICS ──────────────────────────────────────────────────────────────────
-
-@router.get("/tasks/topics")
-def tasks_topics(request: Request, msg: str = ""):
-    from web.auth import get_session_user, get_csrf_token
-    from web.deps import get_web_db
-
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return RedirectResponse(url="/tasks", status_code=302)
-
-    telegram_id = int(user["sub"])
-    org_db = user.get("org_db")
-
-    ctx = {
-        "request": request, "user": user, "is_admin": True,
-        "topics": [], "topic_colors": TOPIC_COLORS,
-        "csrf_token": get_csrf_token(request),
-        "msg": msg, "error": None,
-    }
-    try:
-        db = get_web_db(telegram_id, org_db)
-        ctx["topics"] = db.get_task_topics()
-    except Exception as e:
-        logger.error("tasks_topics: %s", e)
-
-    return request.app.state.templates.TemplateResponse(
-        request, "tasks/topics.html", ctx
-    )
-
-
-@router.post("/tasks/topics/new")
-def tasks_topics_new(
-    request: Request,
-    csrf_token: str = Form(""),
-    name: str = Form(""),
-    color: str = Form("blue"),
-):
-    from web.auth import get_session_user, verify_csrf_token
-    from web.deps import get_web_db
-
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return RedirectResponse(url="/tasks/topics", status_code=302)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse(url="/tasks/topics?msg=csrf_error", status_code=303)
-
-    name = name.strip()
-    if not name:
-        return RedirectResponse(url="/tasks/topics?msg=no_name", status_code=303)
-    if color not in TOPIC_COLORS:
-        color = "blue"
-
-    telegram_id = int(user["sub"])
-    org_db = user.get("org_db")
-
-    try:
-        db = get_web_db(telegram_id, org_db)
-        conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
-        my_db_id = my_row[0] if my_row else 0
-        db.create_task_topic(name, color, my_db_id)
-    except Exception as e:
-        logger.error("tasks_topics_new: %s", e)
-        return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
-
-    return RedirectResponse(url="/tasks/topics?msg=created", status_code=303)
-
-
-@router.post("/tasks/topics/{tid}/delete")
-def tasks_topics_delete(
-    request: Request,
-    tid: int,
-    csrf_token: str = Form(""),
-):
-    from web.auth import get_session_user, verify_csrf_token
-    from web.deps import get_web_db
-
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if user.get("role") not in ("owner", "admin", "super_admin"):
-        return RedirectResponse(url="/tasks/topics", status_code=302)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse(url="/tasks/topics?msg=csrf_error", status_code=303)
-
-    telegram_id = int(user["sub"])
-    org_db = user.get("org_db")
-
-    try:
-        db = get_web_db(telegram_id, org_db)
-        db.delete_task_topic(tid)
-    except Exception as e:
-        logger.error("tasks_topics_delete: %s", e)
-        return RedirectResponse(url="/tasks/topics?msg=error", status_code=303)
-
-    return RedirectResponse(url="/tasks/topics?msg=deleted", status_code=303)
