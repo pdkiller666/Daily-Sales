@@ -64,13 +64,6 @@ _CONTEST_TYPE_LABEL = {
 _REWARD_TYPE_LABEL = {'money': '💵', 'gift': '🎁', 'certificate': '🎟'}
 
 
-def _progress_bar(pct: float, width: int = 10) -> str:
-    """Текстовый прогресс-бар. pct — процент 0..100+."""
-    clamped = min(pct, 100.0)
-    filled = round(clamped / 100 * width)
-    return "█" * filled + "░" * (width - filled)
-
-
 async def _contest_block(contests: list, today_str: str,
                          current_db=None, telegram_id: int = None) -> str:
     """Развёрнутый блок конкурсов для дашборда.

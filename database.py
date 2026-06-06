@@ -2630,17 +2630,36 @@ class Database:
 
             # Создаем подписку (и сбрасываем старые напоминания — подписка продлена)
             success = self.create_subscription(user_id, plan_type)
-            if success:
-                self.clear_reminders(user_id)
+            if not success:
+                # Компенсирующая транзакция: откатываем статус payment_requests → pending,
+                # чтобы админ мог повторить подтверждение вместо "потери" оплаты
+                try:
+                    conn2 = self.get_connection()
+                    conn2.execute(
+                        "UPDATE payment_requests SET status='pending', processed_at=NULL, processed_by=NULL WHERE id=?",
+                        (request_id,)
+                    )
+                    conn2.commit()
+                    conn2.close()
+                    logger.error(
+                        f"confirm_payment_request: create_subscription вернул False для "
+                        f"request_id={request_id}, user_id={user_id}, plan={plan_type}. "
+                        f"Статус заявки сброшен в pending."
+                    )
+                except Exception as rb_err:
+                    logger.error(f"confirm_payment_request: не удалось откатить статус заявки {request_id}: {rb_err}")
+                return False
+
+            self.clear_reminders(user_id)
 
             # Применяем промокод только при успешном подтверждении оплаты
-            if success and promocode_id:
+            if promocode_id:
                 try:
                     self.apply_promocode(promocode_id, user_id)
                 except Exception as e:
                     logger.error(f"Ошибка применения промокода {promocode_id} при подтверждении заявки {request_id}: {e}")
 
-            return success
+            return True
 
         except sqlite3.OperationalError as e:
             logger.error(f"Ошибка базы данных в confirm_payment_request: {e}")
