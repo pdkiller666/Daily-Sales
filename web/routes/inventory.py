@@ -2,6 +2,7 @@ import io
 import logging
 import traceback
 from typing import Annotated
+from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 
@@ -194,7 +195,7 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         return StreamingResponse(
             buf,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_url_quote(filename)}"},
         )
 
     except Exception as exc:

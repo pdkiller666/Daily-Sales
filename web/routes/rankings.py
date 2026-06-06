@@ -1,6 +1,7 @@
 import io
 import logging
 import traceback
+from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 
@@ -259,7 +260,7 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
         wb.save(buf)
         buf.seek(0)
 
-        tab_names = {"sellers": "продавцы", "shops": "магазины", "cities": "города"}
+        tab_names = {"sellers": "sellers", "shops": "shops", "cities": "cities"}
         filename = f"ranking_{tab_names.get(tab, tab)}_{period}.xlsx"
         return StreamingResponse(
             buf,
