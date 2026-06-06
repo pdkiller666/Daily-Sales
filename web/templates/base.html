@@ -603,14 +603,53 @@ if ('serviceWorker' in navigator) {
 
 /* ══════════════════════════════════════════════════
    2. Swipe gestures (mobile)
+   • Swipe left/right anywhere → navigate between bottom nav sections
    • Swipe left/right on period selectors → navigate periods
    • Swipe right from left edge (< 40px) → browser back
    • Swipe down on bottom sheets → close them
    • Swipe up on bottom nav bar → open More sheet
+   • Visual hint pill shows destination while dragging
 ══════════════════════════════════════════════════ */
 (function () {
     let _ts = null;
-    const MIN_DIST = 70, MAX_VERT = 45;
+    const MIN_DIST = 50, MAX_VERT = 60;
+
+    /* ── Visual hint pill ── */
+    let _hintEl = null;
+    function _hint() {
+        if (!_hintEl) {
+            _hintEl = document.createElement('div');
+            _hintEl.style.cssText = [
+                'position:fixed', 'top:50%', 'transform:translateY(-50%)',
+                'z-index:9999', 'pointer-events:none',
+                'transition:opacity .12s ease', 'opacity:0',
+                'display:flex', 'align-items:center', 'gap:5px',
+                'background:rgba(37,99,235,.88)', 'color:#fff',
+                'padding:9px 16px', 'border-radius:99px',
+                'font-size:13px', 'font-weight:700',
+                'backdrop-filter:blur(8px)',
+                'box-shadow:0 4px 24px rgba(37,99,235,.4)',
+                'white-space:nowrap'
+            ].join(';');
+            document.body.appendChild(_hintEl);
+        }
+        return _hintEl;
+    }
+    function _showHint(dir, label) {
+        const h = _hint();
+        h.innerHTML = dir === 'left' ? ('→ ' + label) : (label + ' ←');
+        h.style.left  = dir === 'left'  ? 'auto' : '16px';
+        h.style.right = dir === 'left'  ? '16px' : 'auto';
+        h.style.opacity = '1';
+    }
+    function _hideHint() { if (_hintEl) _hintEl.style.opacity = '0'; }
+
+    /* ── Flash target nav item on navigate ── */
+    function _flash(el) {
+        el.style.transition = 'background .12s';
+        el.style.background = 'rgba(37,99,235,.18)';
+        setTimeout(() => { el.style.background = ''; el.style.transition = ''; }, 250);
+    }
 
     function _inScrollable(el) {
         while (el && el !== document.body) {
@@ -621,26 +660,53 @@ if ('serviceWorker' in navigator) {
         return false;
     }
 
+    /* Returns [allItems, activeIdx] from bottom nav (.bnav-item = both <a> and <button>) */
+    function _bnavState() {
+        const all = Array.from(document.querySelectorAll('nav.fixed.bottom-0 .bnav-item'));
+        const idx = all.findIndex(el => el.classList.contains('bn-active'));
+        return [all, idx];
+    }
+
+    function _bnavTarget(dir) {
+        const [all, idx] = _bnavState();
+        if (idx < 0 || all.length < 2) return null;
+        return all[dir === 'left' ? idx + 1 : idx - 1] || null;
+    }
+
     document.addEventListener('touchstart', e => {
         const t = e.touches[0];
         _ts = { x: t.clientX, y: t.clientY, target: e.target };
     }, { passive: true });
 
+    document.addEventListener('touchmove', e => {
+        if (!_ts) return;
+        const t = e.touches[0];
+        const dx = t.clientX - _ts.x;
+        const dy = t.clientY - _ts.y;
+        /* Show hint pill only for clearly horizontal gesture */
+        if (Math.abs(dx) > 32 && Math.abs(dy) < MAX_VERT &&
+            !_ts.target.closest('input,textarea,select,[contenteditable]') &&
+            !_inScrollable(_ts.target)) {
+            const dir = dx > 0 ? 'right' : 'left';
+            const tgt = _bnavTarget(dir);
+            if (tgt) {
+                _showHint(dir, tgt.querySelector('.bnav-label')?.textContent?.trim() || '');
+            } else { _hideHint(); }
+        } else if (Math.abs(dy) > 25) { _hideHint(); }
+    }, { passive: true });
+
     document.addEventListener('touchend', e => {
+        _hideHint();
         if (!_ts) return;
         const t = e.changedTouches[0];
         const dx = t.clientX - _ts.x;
-        const dy = t.clientY - _ts.y;          /* signed: positive = downward */
+        const dy = t.clientY - _ts.y;
         const startX = _ts.x;
-        const startY = _ts.y;
         const tgt = _ts.target;
         _ts = null;
 
         /* ── Swipe UP on bottom nav → open More sheet ── */
-        const nav = document.querySelector('nav.fixed.bottom-0');
-        if (nav && dy < -50 && Math.abs(dx) < 60 && tgt.closest('nav.fixed.bottom-0')) {
-            const alpine = document.querySelector('[x-data]').__x;
-            /* dispatch custom event; Alpine listener on body catches it */
+        if (dy < -50 && Math.abs(dx) < 60 && tgt.closest('nav.fixed.bottom-0')) {
             document.dispatchEvent(new CustomEvent('ds-open-more'));
             return;
         }
@@ -658,9 +724,7 @@ if ('serviceWorker' in navigator) {
                 a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
             );
             if (activeIdx >= 0) {
-                const target = dir === 'left'
-                    ? pLinks[activeIdx + 1]
-                    : pLinks[activeIdx - 1];
+                const target = dir === 'left' ? pLinks[activeIdx + 1] : pLinks[activeIdx - 1];
                 if (target) { target.click(); return; }
             }
         }
@@ -672,33 +736,22 @@ if ('serviceWorker' in navigator) {
                 a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
             );
             if (activeIdx >= 0) {
-                const target = dir === 'left'
-                    ? tLinks[activeIdx + 1]
-                    : tLinks[activeIdx - 1];
+                const target = dir === 'left' ? tLinks[activeIdx + 1] : tLinks[activeIdx - 1];
                 if (target) { target.click(); return; }
             }
         }
 
-        /* ── Bottom nav section navigation (swipe left/right anywhere on page) ── */
-        const bnavLinks = Array.from(document.querySelectorAll('nav.fixed.bottom-0 a.bnav-item'));
-        if (bnavLinks.length >= 2) {
-            const activeIdx = bnavLinks.findIndex(el => el.classList.contains('bn-active'));
-            if (activeIdx >= 0) {
-                const target = dir === 'left'
-                    ? bnavLinks[activeIdx + 1]   /* left swipe → next section */
-                    : bnavLinks[activeIdx - 1];  /* right swipe → prev section */
-                if (target) {
-                    target.click();
-                    return;
-                }
-            }
-        }
+        /* ── Bottom nav section navigation — includes <a> AND <button> (Ещё) ── */
+        const navTgt = _bnavTarget(dir);
+        if (navTgt) { _flash(navTgt); navTgt.click(); return; }
 
         /* Swipe right from left screen edge → go back */
         if (dir === 'right' && startX < 40 && window.history.length > 1) {
             window.history.back();
         }
     }, { passive: true });
+
+    document.addEventListener('touchcancel', () => { _hideHint(); _ts = null; }, { passive: true });
 })();
 
 /* ══════════════════════════════════════════════════
