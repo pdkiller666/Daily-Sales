@@ -7,7 +7,8 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="posApp()" x-init="init()" class="flex flex-col h-full">
+<div x-data="posApp()" x-init="init()" class="flex flex-col h-full"
+     @ds-close-pos-cart.window="mobileCartOpen = false">
 
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
@@ -355,6 +356,7 @@
      @click="mobileCartOpen = false"></div>
 
 <div x-show="mobileCartOpen" x-cloak
+     id="pos-cart-sh"
      x-transition:enter="transition ease-out duration-200"
      x-transition:enter-start="translate-y-full"
      x-transition:enter-end="translate-y-0"
@@ -461,7 +463,7 @@
 
 <!-- ── Фиксированная строка поиска + категорий (мобайл, снизу над навом) ── -->
 <div class="lg:hidden fixed inset-x-0 z-30 bg-white/97 dark:bg-slate-900/97 backdrop-blur-md border-t border-slate-100 dark:border-slate-700 px-3 py-2"
-     style="bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px))">
+     style="bottom: calc(4rem + 4px + env(safe-area-inset-bottom, 0px))">
     <div class="flex gap-2 items-center">
         <div class="relative flex-1">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -517,7 +519,7 @@
 
 <!-- Фиксированный бар корзины (мобайл) — над строкой поиска -->
 <div class="fixed inset-x-0 z-29 px-4 lg:hidden"
-     style="bottom: calc(3.5rem + 3.5rem + env(safe-area-inset-bottom, 0px))">
+     style="bottom: calc(4rem + 3.375rem + 4px + env(safe-area-inset-bottom, 0px))">
     <div x-show="cart.length === 0 && !loading && allProducts.length > 0" x-cloak
          class="bg-white/90 backdrop-blur border border-slate-200 rounded-2xl px-4 py-2.5 text-center text-xs text-slate-400 shadow-sm">
         Нажмите на товар, чтобы добавить в корзину
@@ -834,5 +836,54 @@ function posApp() {
         },
     };
 }
+
+/* Свайп вниз чтобы закрыть мобильную корзину */
+(function () {
+    document.addEventListener('DOMContentLoaded', function () {
+        const el = document.getElementById('pos-cart-sh');
+        if (!el) return;
+        let startY = null, dragging = false;
+        el.addEventListener('touchstart', function (e) {
+            startY = e.touches[0].clientY;
+            dragging = false;
+            el.style.transition = 'none';
+        }, { passive: true });
+        el.addEventListener('touchmove', function (e) {
+            if (startY === null) return;
+            const dy = e.touches[0].clientY - startY;
+            if (dy > 0 && el.scrollTop <= 0) {
+                dragging = true;
+                el.style.transform = 'translateY(' + Math.pow(dy, 0.75) + 'px)';
+            } else {
+                dragging = false;
+                el.style.transform = '';
+            }
+        }, { passive: true });
+        el.addEventListener('touchend', function (e) {
+            el.style.transition = '';
+            if (dragging) {
+                const dy = e.changedTouches[0].clientY - startY;
+                if (dy > 90) {
+                    el.style.transition = 'transform 0.22s ease-in';
+                    el.style.transform = 'translateY(100%)';
+                    setTimeout(function () {
+                        document.dispatchEvent(new CustomEvent('ds-close-pos-cart'));
+                        setTimeout(function () {
+                            el.style.transform = '';
+                            el.style.transition = '';
+                        }, 250);
+                    }, 220);
+                } else {
+                    el.style.transform = '';
+                }
+            }
+            startY = null; dragging = false;
+        }, { passive: true });
+        el.addEventListener('touchcancel', function () {
+            el.style.transition = ''; el.style.transform = '';
+            startY = null; dragging = false;
+        }, { passive: true });
+    });
+})();
 </script>
 {% endblock %}
