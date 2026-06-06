@@ -72,3 +72,13 @@ Use `get_salary_bulk_stats(year, month, start, end)` → returns `{user_id: {wor
 
 ### 14. Dependency pinning
 requirements.txt: `google-auth==2.53.0`, `gspread-asyncio==2.0.0`, `tenacity==9.1.4` — previously unpinned. `reportlab>=4.0` kept loose intentionally (no breaking changes expected). Pin all new deps on addition.
+
+### 15. Web Push subscribe input validation
+`POST /api/push/subscribe` must validate before calling `save_push_subscription`:
+1. `endpoint`: non-empty, starts with `https://`, max 2048 chars
+2. `p256dh`: non-empty, max 256 chars
+3. `auth`: non-empty, max 128 chars
+
+**Why:** Browser-provided values go to DB then are passed to pywebpush. Malformed/overlong values could cause silent errors or DB bloat. `https://` prefix ensures endpoint is a real push service URL.
+
+**How to apply:** Any route that accepts browser push subscription data must apply these three checks before DB write.

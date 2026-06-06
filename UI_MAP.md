@@ -8,6 +8,48 @@
 
 ## История изменений интерфейса
 
+### v6 — 2026-06-06: DM-чат + Web Push VAPID + App Badge + фикс поиска и FAB badge
+
+**Direct Messages (DM) в корпоративном чате:**
+- **Архитектура**: `direct_messages` table в org_*.db; 9 DB-методов (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 файловых метода
+- **Маршруты** (chat.py): `GET /chat/dm`, `GET /chat/dm/{peer_id}`, `GET /api/dm/contacts`, `GET /api/dm/members`, `GET /api/dm/conversation/{peer_id}`, `POST /chat/dm/send`, `POST /chat/dm/{msg_id}/delete`, `GET /chat/dm/file/{msg_id}`, `GET /chat/dm/file/attachment/{att_id}`
+- **WebSocket**: `WS /ws/chat/dm` — broadcast read-receipts + real-time доставка между участниками без polling
+- **Alpine.js DM state**: `dmMode` toggle, `switchToDm()` / `switchToGroup()`, `openDmConversation(contact)`, `dmContacts[]` (с unread count), `dmTotalUnread`, `dmMessages[]`, `dmWs` (WebSocket канал), `dmSend()` (POST + optimistic append)
+
+**Web Push VAPID:**
+- **`web/push_utils.py`**: `send_web_push(subscription, payload)` — pywebpush 2.3.0 + VAPID-подпись; graceful при KeyError/ConnectionError
+- **`push_subscriptions`** в shop_bot.db: `telegram_id, endpoint, p256dh, auth, created_at` UNIQUE(telegram_id, endpoint)
+- **4 DB-метода**: `save_push_subscription`, `get_push_subscriptions`, `delete_push_subscription`, `delete_all_push_subscriptions`
+- **API роуты** (api.py): `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`
+- **SW v4**: `push` event → `showNotification()` + `navigator.setAppBadge(count)`; `notificationclick` → `clients.openWindow(data.url)`
+- **Новые env vars**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_MAILTO`
+- **Интеграция**: `send_web_push()` вызывается из `pos.py` (новая продажа), `tasks.py` (алерты), `chat.py` (новое сообщение)
+
+**App Badge API:**
+- **`/api/unread-count`** новый эндпоинт → `{ok, notifications, dms, total}` — объединяет счётчики
+- **`/api/my-notifications`** теперь включает поле `dms` (непрочитанные DM)
+- **`_setAppBadge(count)`** в `base.html`: `navigator.setAppBadge()` / `clearAppBadge()` с try/catch
+- **`window.dsRefreshBadge()`** — публичная функция для принудительного обновления из любого модуля
+- **`visibilitychange`** listener: при фокусе вкладки → `_setAppBadge(0)` + refresh
+
+**Фикс: поиск «везде» теперь включает DM:**
+- **Было**: `GET /chat/search?topic_id=0` искал только в темах чата
+- **Стало**: объединяет topic + DM результаты, сортирует по дате, до 30 результатов
+- **`search_dm_messages(query, user_id, limit)`** в database.py — `LOWER(message) LIKE LOWER(?)` по обеим сторонам диалога
+- **`_fmt_search_result_dm(row, my_db_id)`** в chat.py — форматирует DM-результат с `result_type:'dm'`, `dm_peer_id`, `dm_peer_name`
+- **UI**: DM-результаты показывают фиолетовый бейдж «💬 Личное»; `goToResult(r)` при `result_type='dm'` → `switchToDm()` + `openDmConversation(contact)`
+
+**Фикс: FAB badge теперь учитывает DM unread:**
+- **Было**: FAB badge = только `topicNew` из `/chat/poll`
+- **Стало**: `topicNew + dmUnread`; `fetchDmUnread()` → `/api/unread-count .dms` при загрузке + каждые 60s
+- **`_maybeClearChatBadge()`**: на страницах `/chat*` сбрасывает оба счётчика в 0
+
+**Аудит-фиксы:**
+- **sw.js**: null-guard в `pushsubscriptionchange` — early return если `!e.oldSubscription`
+- **`POST /api/push/subscribe`**: валидация endpoint (≤2048, `https://`-prefix), p256dh (≤256), auth (≤128)
+
+---
+
 ### v5 — 2026-06-06: Email-auth + диагностика экспортов
 
 **Email + пароль аутентификация (web-интерфейс):**

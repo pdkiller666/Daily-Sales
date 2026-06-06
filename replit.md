@@ -9,6 +9,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Deploy только GitHub**: `bash deploy.sh "message" --no-amvera`
 - **Env vars required**: `BOT_TOKEN`, `ADMIN_CHAT_ID`, `GITHUB_TOKEN` (all in Replit Secrets)
 - **Google Sheets OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (in Replit Secrets)
+- **Web Push VAPID**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_MAILTO` (in Replit Secrets)
 
 ## Stack
 
@@ -78,9 +79,12 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Custom role titles**: `custom_title` in `user_org_mapping`; `get_role_display_label(..., custom_title)` uses it over computed label
 - **Shift templates**: `shift_templates` table UNIQUE(user_id, weekday 0=Пн..6=Вс); `work_schedule` has `start_time`/`end_time`; slr_tog auto-applies template
 - **Salary unified formula**: `Итого = Оклад (смены+оплач.отсутствия × ставка) + Мотивация (get_seller_total_earnings) + Корректировки (get_salary_adjustments_sum)`; применяется одинаково в боте `salary_summary`, веб admin `GET /salary`, Excel-экспорте; super_admin всегда исключается из всех зарплатных списков; detail-панель admin показывает построчные комиссии (`get_seller_earnings`); страница сотрудника `/salary/earnings` показывает построчные корректировки (`get_salary_adjustments`)
-- **PWA**: `web/static/manifest.json` + SW at `/sw.js` (served via FastAPI route with `Service-Worker-Allowed: /`); SW caches `/static/` assets cache-first, authenticated routes network-only
+- **PWA**: `web/static/manifest.json` + SW v4 at `/sw.js`; SW caches `/static/` assets cache-first, authenticated routes network-only; handles `push` events → `showNotification()` + `setAppBadge()`; `notificationclick` → `clients.openWindow(data.url)`
+- **Web Push VAPID**: `web/push_utils.py` — `send_web_push(subscription, payload)` via pywebpush 2.3.0; `push_subscriptions` table in `shop_bot.db` UNIQUE(telegram_id, endpoint); env vars `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_MAILTO`; triggered from pos.py/tasks.py/chat.py; subscribe validation: endpoint must start `https://`, ≤2048; p256dh ≤256; auth ≤128
+- **App Badge API**: `/api/unread-count` → `{ok, notifications, dms, total}`; `_setAppBadge(n)` + `window.dsRefreshBadge()` in base.html; SW sets badge on push; `visibilitychange` clears badge on tab focus
 - **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
 - **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
+- **Internal org chat (DM)**: `direct_messages` table in org_*.db; 9 DB-methods (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 file methods; WS /ws/chat/dm for real-time delivery; `chat_search?topic_id=0` merges topic+DM results; FAB badge = topicNew + dmUnread (`/api/unread-count .dms`)
 - **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
 - **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
 - **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod

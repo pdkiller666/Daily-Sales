@@ -10071,6 +10071,20 @@ class Database:
             logger.error("link_web_credential_to_telegram: %s", exc)
             return 'error'
 
+    def get_all_web_credentials(self) -> list:
+        """Return all email-registered users for super_admin overview."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, email, first_name, telegram_id, synthetic_tg_id, "
+                "email_verified, last_login, created_at, org_db "
+                "FROM web_credentials ORDER BY created_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.error("get_all_web_credentials: %s", exc)
+            return []
+
     def delete_web_credential_by_id(self, cred_id: int) -> bool:
         try:
             conn = self.get_connection()

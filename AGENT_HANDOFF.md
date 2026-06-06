@@ -30,6 +30,42 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `92e1a07` · Amvera `cc3f2c7` (2026-06-06, сессия 529). Оба хэша верифицированы через `git ls-remote`.
 
+**Новые секреты (Web Push VAPID):**
+- `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
+- `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
+- `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
+
+**Сессия 529 (2026-06-06) — Фикс: DM-поиск + FAB badge DM + аудит Web Push:**
+- **DM search**: `search_dm_messages(query, user_id, limit)` в `database.py` — поиск по `direct_messages` (15 колонок: id, from_uid, peer_id, msg, файлы, created_at, from_name, peer_name); `_fmt_search_result_dm(row, my_db_id)` formatter в `chat.py`
+- **Глобальный поиск**: `chat_search` route при `topic_id=0` теперь объединяет topic + DM результаты, сортирует по дате, отдаёт до 30; DM-результаты помечаются фиолетовым «💬 Личное»
+- **goToResult DM**: при `result_type='dm'` переключает в DM-режим (`switchToDm()`), ждёт загрузки контактов, открывает `openDmConversation(contact)`
+- **FAB badge**: разделён на `topicNew` + `dmUnread`; `fetchDmUnread()` — `/api/unread-count` поле `dms` при загрузке + каждые 60s; `_maybeClearChatBadge()` сбрасывает оба при `pathname.startsWith('/chat')`
+- **sw.js null-guard**: `pushsubscriptionchange` делает early return если `!e.oldSubscription`
+- **Push subscribe valидация**: endpoint ≤2048 символов и обязан начинаться с `https://`; p256dh ≤256; auth ≤128
+
+**Сессия 528 (2026-06-06) — Web Push VAPID + browser push notifications:**
+- **`push_subscriptions`** table в `shop_bot.db`: `telegram_id, endpoint, p256dh, auth, created_at` — UNIQUE(telegram_id, endpoint)
+- **4 DB-метода**: `save_push_subscription`, `get_push_subscriptions`, `delete_push_subscription`, `delete_all_push_subscriptions`
+- **`web/push_utils.py`**: `send_web_push(subscription, payload)` — pywebpush 2.3.0, VAPID-подпись; graceful при KeyError/ConnectionError; `_VAPID_PRIVATE` / `_VAPID_CLAIMS` инициализируются из env на импорте
+- **3 API маршрута**: `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`
+- **SW v4**: `push` event → `showNotification()` + `navigator.setAppBadge(count)`; `notificationclick` → `clients.openWindow(data.url)`
+- **Интеграция**: `send_web_push()` вызывается из `pos.py` (продажа), `tasks.py` (уведомления), `chat.py` (новое сообщение в теме)
+
+**Сессия 527 (2026-06-06) — App Badge API + unread-count endpoint:**
+- **`/api/my-notifications`** теперь возвращает поле `dms` (кол-во непрочитанных DM)
+- **`/api/unread-count`** новый эндпоинт → `{ok, notifications, dms, total}` — используется FAB badge и SW
+- **`_setAppBadge(count)`** в `base.html` — `navigator.setAppBadge(count)` / `clearAppBadge()` (с try/catch)
+- **`window.dsRefreshBadge()`** — публичная функция для принудительного обновления badge из любого модуля
+- **`visibilitychange`** listener: при возврате на вкладку — `_setAppBadge(0)` + refresh
+
+**Сессии 520-526 (2026-06-06) — Direct Messages (DM) в корпоративном чате:**
+- **`direct_messages`** table в org_*.db: `id, from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, created_at, is_read, is_deleted`
+- **DM DB-методы (9)**: `add_dm`, `get_dm_conversation`, `get_dm_contacts`, `get_dm_org_members`, `mark_dm_read`, `get_dm_unread_count`, `get_dm_message`, `soft_delete_dm`, `search_dm_messages`
+- **DM файлы**: `add_dm_files`, `get_dm_files_bulk`, `get_dm_file`, `delete_dm_files` (аналог chat_message_files)
+- **DM маршруты в chat.py** (9): `GET /chat/dm`, `GET /chat/dm/{peer_id}`, `GET /api/dm/contacts`, `GET /api/dm/members`, `GET /api/dm/conversation/{peer_id}`, `POST /chat/dm/send`, `POST /chat/dm/{msg_id}/delete`, `GET /chat/dm/file/{msg_id}`, `GET /chat/dm/file/attachment/{att_id}`
+- **WebSocket**: `WS /ws/chat/dm` — broadcast read-receipts + real-time новые сообщения между участниками
+- **Alpine.js DM**: `dmMode` toggle, `switchToDm()`/`switchToGroup()`, `openDmConversation(contact)`, `dmContacts[]` (с `unread`), `dmTotalUnread`, `dmMessages[]`, WS-канал `dmWs`
+
 **Сессия 519 (2026-06-06) — Traceback-диагностика Excel-экспортов + актуализация MD:**
 - **Traceback logging**: добавлен `exc_info=True` в `logging.error()` всех 4 Excel-экспортов (`web/routes/inventory.py`, `reports.py`, `rankings.py`, `salary.py`) — теперь полный стектрейс в логах Amvera при любой ошибке; поможет диагностировать ошибку экспорта остатков в продакшне (локально работает корректно — tenant БД только на Amvera)
 - **Email-auth верифицирована**: вся email+пароль аутентификация уже реализована (сессия 469) — `email_auth.py` 9 маршрутов, `email_utils.py`, шаблоны, `/setweblogin`, секреты `YANDEX_EMAIL`+`YANDEX_SMTP_PASSWORD` настроены; новой работы не потребовалось

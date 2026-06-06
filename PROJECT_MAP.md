@@ -105,6 +105,7 @@ Telegram API
 | `referrals` | id, referrer_id (telegram_id), referred_id (telegram_id), created_at, bonus_applied (0/1) |
 | `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at |
 | `web_credentials` | id, email UNIQUE, password_hash (PBKDF2-SHA256), telegram_id (nullable FK), synthetic_tg_id, org_db, first_name, email_verified (0/1), verify_token, verify_expires (unix ts), reset_token, reset_expires (unix ts), last_login, created_at — **email+пароль аутентификация** |
+| `push_subscriptions` | id, telegram_id, endpoint, p256dh, auth, created_at — UNIQUE(telegram_id, endpoint) — **Web Push VAPID подписки** |
 
 ### Индексы (create_tables, все IF NOT EXISTS)
 
@@ -792,9 +793,19 @@ web/
                          GET /absences/settings, POST /absences/settings/update
     chat.py           — GET /chat, POST /chat/send, GET /chat/poll,
                          GET /chat/topics/{id}/messages, GET /chat/file/{id},
+                         GET /chat/file/attachment/{id},
                          POST /chat/message/{id}/delete, POST /chat/topics/create,
                          POST /chat/topics/{id}/rename, POST /chat/topics/{id}/archive,
-                         GET /chat/search?q=&topic_id=  ← поиск (topic_id=0 = все темы)
+                         GET /chat/search?q=&topic_id=  ← поиск (topic_id=0 = темы+DM)
+                         ── DM (Direct Messages) ──
+                         GET /chat/dm, GET /chat/dm/{peer_id},
+                         GET /chat/dm/file/{msg_id}, GET /chat/dm/file/attachment/{att_id},
+                         POST /chat/dm/send, POST /chat/dm/{msg_id}/delete,
+                         GET /api/dm/contacts, GET /api/dm/members,
+                         GET /api/dm/conversation/{peer_id},
+                         WS  /ws/chat/dm  ← WebSocket (read-receipts + real-time)
+    push_utils.py     — send_web_push(subscription, payload): pywebpush 2.3.0 + VAPID;
+                         env: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_MAILTO
   sale_events.py    — async post_sale_effects(org_db_path, sale_id, shop_name, telegram_id)
                        вызывается через asyncio.run_coroutine_threadsafe из sales_create;
                        3 эффекта: GSheets trigger · shift-sale push · plan milestones

@@ -668,6 +668,107 @@
 </div>
 {% endif %}
 
+{% if smtp_configured is not none %}
+<!-- ══ SUPER ADMIN: Email Auth Settings ══ -->
+<div id="email-auth" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">
+    <div class="flex items-center gap-2 mb-4">
+        <span class="text-lg">📧</span>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Email-аутентификация</h2>
+        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
+    </div>
+
+    <!-- SMTP Status -->
+    <div class="flex items-center justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
+        <div class="flex-1">
+            <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Статус SMTP (Яндекс Почта)</p>
+            <p class="text-xs text-slate-500 mt-0.5">Для отправки писем верификации и сброса пароля. Настраивается через секреты <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_EMAIL</code> + <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">YANDEX_SMTP_PASSWORD</code>.</p>
+        </div>
+        {% if smtp_configured %}
+        <span class="shrink-0 bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-full text-xs font-semibold">✅ Настроен</span>
+        {% else %}
+        <span class="shrink-0 bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-full text-xs font-semibold">❌ Не настроен</span>
+        {% endif %}
+    </div>
+
+    <!-- Email registration toggle -->
+    <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100 dark:border-slate-700">
+        <div class="flex-1">
+            <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Регистрация через email</p>
+            <p class="text-xs text-slate-500 mt-0.5">Разрешает новым пользователям регистрироваться через <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">/register</code> по инвайт-коду + email + пароль. При отключении страница отдаёт 403.</p>
+            <p class="text-xs mt-1 font-medium {% if email_registration_enabled %}text-emerald-600{% else %}text-red-500{% endif %}">
+                {% if email_registration_enabled %}✅ Включена{% else %}🚫 Отключена{% endif %}
+            </p>
+        </div>
+        <form method="post" action="/settings/email-registration" class="flex-shrink-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="enabled" value="{{ '0' if email_registration_enabled else '1' }}">
+            <button type="submit"
+                    class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                           {% if email_registration_enabled %}bg-emerald-500 hover:bg-emerald-600{% else %}bg-slate-200 hover:bg-slate-300{% endif %}"
+                    title="{{ 'Отключить регистрацию по email' if email_registration_enabled else 'Включить регистрацию по email' }}">
+                <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform
+                             {% if email_registration_enabled %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
+            </button>
+        </form>
+    </div>
+
+    <!-- Email users list -->
+    <div class="mt-4">
+        <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Зарегистрированные email-пользователи</p>
+            <div class="flex items-center gap-2">
+                {% if email_users_unverified > 0 %}
+                <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">⏳ {{ email_users_unverified }} не верифицировано</span>
+                {% endif %}
+                <span class="text-xs bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-medium">Всего: {{ email_users|length }}</span>
+            </div>
+        </div>
+        {% if email_users %}
+        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                        <th class="text-left px-3 py-2 font-medium text-slate-500">Email</th>
+                        <th class="text-left px-3 py-2 font-medium text-slate-500">Имя</th>
+                        <th class="text-left px-3 py-2 font-medium text-slate-500">Статус email</th>
+                        <th class="text-left px-3 py-2 font-medium text-slate-500">Telegram</th>
+                        <th class="text-left px-3 py-2 font-medium text-slate-500">Последний вход</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                    {% for u in email_users %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 max-w-[180px] truncate" title="{{ u.email }}">{{ u.email }}</td>
+                        <td class="px-3 py-2 text-slate-600 dark:text-slate-400">{{ u.first_name or '—' }}</td>
+                        <td class="px-3 py-2">
+                            {% if u.email_verified %}
+                            <span class="text-emerald-600 font-medium">✅ Верифицирован</span>
+                            {% else %}
+                            <span class="text-amber-500 font-medium">⏳ Ожидает</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2">
+                            {% if u.telegram_id and u.telegram_id > 0 %}
+                            <span class="text-blue-600">🔗 Привязан</span>
+                            {% else %}
+                            <span class="text-slate-400">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2 text-slate-400">{{ u.last_login[:10] if u.last_login else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-xs text-slate-400 text-center py-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+            Нет пользователей, вошедших через email
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 {% if beta_mode_enabled is not none %}
 <!-- ══ SUPER ADMIN: System settings ══ -->
 <div id="system" class="card p-5 mt-6 scroll-mt-6 border-2 border-amber-200 dark:border-amber-500/30">

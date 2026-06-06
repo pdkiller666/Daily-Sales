@@ -58,20 +58,22 @@
 | **Отсутствия** | Одобрение/отклонение, история по пользователям |
 | **Мотивация** | Матрица комиссий, применение коэффициентов |
 | **Интеграция** | Google Sheets настройка, логи экспорта |
-| **Уведомления** | Browser Notifications (polling /api/sales-feed), запланированные |
+| **Уведомления** | Browser Notifications (polling + Web Push VAPID), App Badge API, запланированные рассылки |
 | **POS** | Кассовый интерфейс с Alpine.js |
 | **Магазины** | Управление, переименование (каскадное) |
 | **Промокоды** | Создание, использование, статистика |
 | **Поддержка** | Форма обратной связи → Telegram Bot API |
 | **Подписка** | Тарифы, оплата, аддоны (+магазины/+товары) |
-| **Чат** | Внутренний корп. чат с топиками, soft-delete |
+| **Чат** | Внутренний корп. чат с топиками + Direct Messages (DM), WebSocket, поиск по чату+DM |
 | **Рейтинги** | По продавцам/магазинам/городам, период 7д/месяц/прошлый |
 
 ### ⚙️ Технические характеристики
 
 | Параметр | Значение |
 |---|---|
-| **PWA** | manifest.json + Service Worker + offline-cache статики (cache-first) |
+| **PWA** | manifest.json + Service Worker v4 + offline-cache статики (cache-first) |
+| **Web Push** | VAPID (pywebpush 2.3.0): push_subscriptions в shop_bot.db; env VAPID_PUBLIC_KEY/PRIVATE_KEY/MAILTO; trigger из pos.py/tasks.py/chat.py |
+| **App Badge API** | `navigator.setAppBadge()` / `clearAppBadge()` — badge = notifications + DM unread; `/api/unread-count` |
 | **Тёмная тема** | Полная без flash, ранний скрипт в `<head>`, `localStorage.ds_dark` |
 | **Keyboard shortcuts** | Alt+D (dark), Alt+N (primary action), / (search), Escape (close), ? (hints) |
 | **Swipe-жесты** | Bottom-sheet на мобильных |

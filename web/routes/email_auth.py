@@ -144,12 +144,31 @@ async def email_login(
 
 # ── GET /register  (Phase 2 — new user without Telegram) ──────────────────────
 
+def _email_registration_enabled() -> bool:
+    """Check payment_settings.email_registration_enabled (default: True)."""
+    try:
+        import sqlite3 as _sl3
+        _c = _sl3.connect("data/shop_bot.db")
+        _r = _c.execute(
+            "SELECT value FROM payment_settings WHERE key='email_registration_enabled'"
+        ).fetchone()
+        _c.close()
+        return _r is None or _r[0] != "0"
+    except Exception:
+        return True
+
+
 @router.get("/register")
 async def register_page(request: Request):
     from web.auth import get_session_user, generate_login_nonce
     if get_session_user(request):
         return RedirectResponse(url="/dashboard", status_code=302)
     templates = request.app.state.templates
+    if not _email_registration_enabled():
+        return templates.TemplateResponse(request, "auth/register.html", {
+            "error": "Регистрация через email временно отключена администратором.",
+            "login_nonce": generate_login_nonce(),
+        }, status_code=403)
     return templates.TemplateResponse(request, "auth/register.html", {
         "error": request.query_params.get("error"),
         "login_nonce": generate_login_nonce(),
@@ -182,6 +201,9 @@ async def register_submit(
             "first_name_value": first_name,
             "invite_code_value": invite_code,
         })
+
+    if not _email_registration_enabled():
+        return _err("Регистрация через email временно отключена администратором.")
 
     if not verify_login_nonce(login_nonce):
         return _err("Форма устарела. Обновите страницу.")
