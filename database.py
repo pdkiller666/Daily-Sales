@@ -1210,6 +1210,21 @@ class Database:
             WHERE product_id NOT IN (SELECT id FROM products)
         ''')
 
+        # ── push_subscriptions (только shop_bot.db) ─────────────────────────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS push_subscriptions (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    endpoint    TEXT NOT NULL,
+                    p256dh      TEXT NOT NULL,
+                    auth        TEXT NOT NULL,
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    UNIQUE(user_id, endpoint)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id)')
+
         # ── web_credentials (только shop_bot.db) ────────────────────────────
         if 'shop_bot' in self.db_file:
             cursor.execute('''
@@ -10028,4 +10043,65 @@ class Database:
         except Exception as exc:
             logger.error("delete_web_credential_by_id: %s", exc)
             return False
+
+    # ── push_subscriptions methods (shop_bot.db only) ─────────────────────────
+
+    def save_push_subscription(self, user_id: int, endpoint: str, p256dh: str, auth: str) -> bool:
+        """Upsert a browser push subscription for user_id."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                """
+                INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, endpoint) DO UPDATE SET
+                    p256dh = excluded.p256dh,
+                    auth   = excluded.auth
+                """,
+                (user_id, endpoint, p256dh, auth),
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("save_push_subscription: %s", exc)
+            return False
+
+    def delete_push_subscription(self, user_id: int, endpoint: str) -> bool:
+        """Remove a specific push subscription (e.g. user unsubscribed)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?",
+                (user_id, endpoint),
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("delete_push_subscription: %s", exc)
+            return False
+
+    def delete_all_push_subscriptions(self, user_id: int) -> bool:
+        """Remove all push subscriptions for user_id."""
+        try:
+            conn = self.get_connection()
+            conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("delete_all_push_subscriptions: %s", exc)
+            return False
+
+    def get_push_subscriptions(self, user_id: int) -> list:
+        """Return list of {endpoint, p256dh, auth} for user_id."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+            conn.close()
+            return [{"endpoint": r[0], "p256dh": r[1], "auth": r[2]} for r in rows]
+        except Exception as exc:
+            logger.error("get_push_subscriptions: %s", exc)
+            return []
 

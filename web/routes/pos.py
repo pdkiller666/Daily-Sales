@@ -344,6 +344,11 @@ async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: s
                             db.add_notification_to_history(cw_uid, 'shift_sale', notif_text)
                         except Exception:
                             pass
+                        try:
+                            from web.push_utils import send_web_push
+                            send_web_push(int(cw_tgid), "💰 Продажа в смене", f"{shop_name} · новая продажа", "/sales")
+                        except Exception:
+                            pass
                     except Exception as _send_err:
                         logging.warning(f"web pos shift_sale notif to {cw_tgid}: {_send_err}")
     except Exception as _notif_err:

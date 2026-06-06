@@ -1,8 +1,14 @@
 """Lightweight JSON API endpoints (polling, feeds)."""
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+import os as _os
 
 router = APIRouter(prefix="/api")
+
+SHOP_BOT_DB = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))),
+    "data", "shop_bot.db",
+)
 
 
 @router.get("/sales-feed")
@@ -214,6 +220,69 @@ def unread_count(request: Request):
         return {"ok": True, "total": total, "notifs": notifs, "dms": dms}
     except Exception:
         return {"ok": False, "total": 0, "notifs": 0, "dms": 0}
+
+
+@router.get("/push/vapid-public-key")
+def push_vapid_key(request: Request):
+    """Return VAPID public key for browser subscription."""
+    from web.auth import get_session_user
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    key = _os.environ.get("VAPID_PUBLIC_KEY", "")
+    return {"ok": bool(key), "key": key}
+
+
+@router.post("/push/subscribe")
+async def push_subscribe(request: Request):
+    """Save browser push subscription (endpoint + keys) to shop_bot.db."""
+    from web.auth import get_session_user
+    from database import Database
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+
+    tg_id = int(user["sub"])
+    try:
+        body = await request.json()
+        endpoint = body.get("endpoint", "")
+        keys = body.get("keys", {})
+        p256dh = keys.get("p256dh", "")
+        auth   = keys.get("auth", "")
+        if not endpoint or not p256dh or not auth:
+            return JSONResponse({"ok": False, "error": "missing fields"}, status_code=400)
+        db = Database(SHOP_BOT_DB)
+        db.create_tables()
+        ok = db.save_push_subscription(tg_id, endpoint, p256dh, auth)
+        return {"ok": ok}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.post("/push/unsubscribe")
+async def push_unsubscribe(request: Request):
+    """Remove push subscription from shop_bot.db."""
+    from web.auth import get_session_user
+    from database import Database
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+
+    tg_id = int(user["sub"])
+    try:
+        body = await request.json()
+        endpoint = body.get("endpoint", "")
+        db = Database(SHOP_BOT_DB)
+        if endpoint:
+            db.delete_push_subscription(tg_id, endpoint)
+        else:
+            db.delete_all_push_subscriptions(tg_id)
+        return {"ok": True}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @router.get("/nav-config")

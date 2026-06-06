@@ -1337,11 +1337,22 @@ async def dm_send(
         try:
             first_name = user.get("name", "Кто-то")
             preview = text or (f"📎 {file_name}" if file_name else "")
+            dm_msg = f"💬 {first_name}: {preview[:80]}"
             db.add_notification_to_history(
                 user_id=to_user_id,
                 notification_type="dm",
-                message=f"💬 {first_name}: {preview[:80]}",
+                message=dm_msg,
             )
+            # Web Push для DM
+            try:
+                conn = db.get_connection()
+                _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_user_id,)).fetchone()
+                conn.close()
+                if _row and _row[0]:
+                    from web.push_utils import send_web_push
+                    send_web_push(int(_row[0]), "💬 Новое сообщение", dm_msg, "/chat/dm")
+            except Exception:
+                pass
         except Exception:
             pass
 

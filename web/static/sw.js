@@ -1,5 +1,5 @@
-/* DailySales Service Worker v3 */
-const CACHE_NAME = 'dailysales-v3';
+/* DailySales Service Worker v4 */
+const CACHE_NAME = 'dailysales-v4';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
@@ -56,6 +56,14 @@ self.addEventListener('push', e => {
     if (!e.data) return;
     let data;
     try { data = e.data.json(); } catch { data = { title: 'DailySales', body: e.data.text() }; }
+
+    const badge = typeof data.badge === 'number' ? data.badge : 1;
+
+    /* Set App Badge counter if supported */
+    if ('setAppBadge' in self.navigator) {
+        self.navigator.setAppBadge(badge).catch(() => {});
+    }
+
     e.waitUntil(
         self.registration.showNotification(data.title || 'DailySales', {
             body: data.body || '',
@@ -70,6 +78,31 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
     e.notification.close();
+    /* Clear badge when user taps notification */
+    if ('clearAppBadge' in self.navigator) {
+        self.navigator.clearAppBadge().catch(() => {});
+    }
     const target = (e.notification.data && e.notification.data.url) || '/dashboard';
-    e.waitUntil(clients.openWindow(target));
+    e.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
+            const existing = wins.find(w => w.url.includes(target));
+            if (existing) return existing.focus();
+            return clients.openWindow(target);
+        })
+    );
+});
+
+/* ── Push subscription change ── */
+self.addEventListener('pushsubscriptionchange', e => {
+    /* Re-subscribe automatically and send new subscription to server */
+    e.waitUntil(
+        self.registration.pushManager.subscribe(e.oldSubscription.options)
+            .then(sub => fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub.toJSON()),
+                credentials: 'same-origin',
+            }))
+            .catch(() => {})
+    );
 });

@@ -821,7 +821,7 @@ window.dsRefreshBadge = function() {
 })();
 
 /* ══════════════════════════════════════════════════
-   3. Browser notification prompt + polling
+   3. Browser notification prompt + polling + Web Push
 ══════════════════════════════════════════════════ */
 (function () {
     if (!('Notification' in window)) return;
@@ -836,7 +836,7 @@ window.dsRefreshBadge = function() {
     }
     setTimeout(_showPrompt, 800);
 
-    /* Polling loop */
+    /* Polling loop (sales-feed, background tab) */
     let _poll = null;
     window.dsStartNotifPolling = function () {
         if (_poll) return;
@@ -848,7 +848,6 @@ window.dsRefreshBadge = function() {
             try {
                 const res = await fetch('/api/sales-feed?since=' + encodeURIComponent(since));
                 const data = await res.json();
-                /* Update checkpoint to now regardless */
                 localStorage.setItem('ds_notif_since', new Date().toISOString());
                 if (data.ok && data.count > 0 && document.hidden) {
                     const item = data.items[0];
@@ -864,6 +863,64 @@ window.dsRefreshBadge = function() {
         }, 60000);
     };
 
+    /* ── Web Push (VAPID) helpers ── */
+    function _urlBase64ToUint8Array(b64) {
+        const padding = '='.repeat((4 - b64.length % 4) % 4);
+        const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(base64);
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+        return out;
+    }
+
+    window.dsSubscribeWebPush = async function () {
+        if (!('PushManager' in window) || !navigator.serviceWorker) return;
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            let sub = await reg.pushManager.getSubscription();
+            if (sub) {
+                /* Already subscribed — sync to server in case it was cleared */
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(sub.toJSON()),
+                    credentials: 'same-origin',
+                });
+                return;
+            }
+            const keyRes = await fetch('/api/push/vapid-public-key');
+            const keyData = await keyRes.json();
+            if (!keyData.ok || !keyData.key) return;
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: _urlBase64ToUint8Array(keyData.key),
+            });
+            await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub.toJSON()),
+                credentials: 'same-origin',
+            });
+        } catch (e) { /* PushManager.subscribe can throw if browser blocks */ }
+    };
+
+    window.dsUnsubscribeWebPush = async function () {
+        if (!('PushManager' in window) || !navigator.serviceWorker) return;
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const sub = await reg.pushManager.getSubscription();
+            if (sub) {
+                await fetch('/api/push/unsubscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ endpoint: sub.endpoint }),
+                    credentials: 'same-origin',
+                });
+                await sub.unsubscribe();
+            }
+        } catch (_) {}
+    };
+
     window.dsRequestNotif = function () {
         Notification.requestPermission().then(perm => {
             const el = document.getElementById('ds-notif-prompt');
@@ -871,6 +928,8 @@ window.dsRefreshBadge = function() {
             if (perm === 'granted') {
                 localStorage.setItem('ds_notif_since', new Date().toISOString());
                 window.dsStartNotifPolling();
+                /* Also subscribe to Web Push for background/closed-tab delivery */
+                window.dsSubscribeWebPush().catch(() => {});
             }
         });
     };
@@ -878,6 +937,8 @@ window.dsRefreshBadge = function() {
     /* Auto-start if already granted */
     if (Notification.permission === 'granted') {
         window.dsStartNotifPolling();
+        /* Re-sync Web Push subscription on every page load (handles SW updates) */
+        window.dsSubscribeWebPush().catch(() => {});
     }
 })();
 
