@@ -30,6 +30,12 @@ Workflow: "Start application" → python main.py
 
 **Последний деплой:** GitHub `13e53dc` · Amvera `e6c49da` (2026-06-06, сессия 519). Оба хэша верифицированы через `git ls-remote`.
 
+**Сессия 519 (2026-06-06) — Traceback-диагностика Excel-экспортов + актуализация MD:**
+- **Traceback logging**: добавлен `exc_info=True` в `logging.error()` всех 4 Excel-экспортов (`web/routes/inventory.py`, `reports.py`, `rankings.py`, `salary.py`) — теперь полный стектрейс в логах Amvera при любой ошибке; поможет диагностировать ошибку экспорта остатков в продакшне (локально работает корректно — tenant БД только на Amvera)
+- **Email-auth верифицирована**: вся email+пароль аутентификация уже реализована (сессия 469) — `email_auth.py` 9 маршрутов, `email_utils.py`, шаблоны, `/setweblogin`, секреты `YANDEX_EMAIL`+`YANDEX_SMTP_PASSWORD` настроены; новой работы не потребовалось
+- **MD-файлы актуализированы**: PROJECT_MAP.md (`f29b527→13e53dc`), README.md (`48→51 модуль`), UI_MAP.md (v5), COMPETITIVE_ANALYSIS.md (метрики: 321+ методов DB, 200+ web-маршрутов, 756+ callback-handlers, 58 911 строк Python)
+- **51/51 test_imports ✅ · 702 test_scenarios ✅**
+
 **Веб-интерфейс:** `http://localhost:5000` (порт 5000, работает параллельно с ботом). Аутентификация через Telegram Login Widget **или email+пароль** (регистрация по инвайт-коду). Доступен всем ролям: продажи, инвентарь — сотрудникам; управление командой и зарплатой — owner/admin.
 
 **Сессия 469 (2026-06-05) — Email + пароль аутентификация:**

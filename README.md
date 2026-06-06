@@ -203,7 +203,7 @@ bash deploy.sh "описание изменений" --no-amvera
 
 ## ✅ Качество кода
 
-- **48 модулей** — все импортируются без ошибок (`python test_imports.py`)
+- **51 модуль** — все импортируются без ошибок (`python test_imports.py`)
 - **702 сценария** — все проходят (`python test_scenarios.py`)
 - **0 bare except** — все исключения типизированы
 - **0 print()** — только `logging`

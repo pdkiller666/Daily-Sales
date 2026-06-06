@@ -2,11 +2,30 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-04
+> Обновлён: 2026-06-06
 
 ---
 
 ## История изменений интерфейса
+
+### v5 — 2026-06-06: Email-auth + диагностика экспортов
+
+**Email + пароль аутентификация (web-интерфейс):**
+- **Вход**: `/auth/email` — вкладка «Email» в `auth/login.html`; форма email + пароль; rate limit 5 req/10min/IP
+- **Регистрация**: `/register` — по инвайт-коду + email + пароль; отправляет письмо с токеном верификации
+- **Верификация**: `/auth/verify?token=…` — подтверждение email; `/auth/resend-verify` — повторная отправка
+- **Сброс пароля**: `/auth/reset` → письмо → `/auth/reset/confirm?token=…`; токен 1 час
+- **Настройки**: раздел «Email и пароль» в `/settings`; привязка/смена/отвязка email; смена пароля; привязка к Telegram через `/setweblogin` в боте
+- **Новые маршруты**: `web/routes/email_auth.py` (9 маршрутов); `web_auth_handlers.py` `/setweblogin`
+- **Новые шаблоны**: `auth/register.html`, `auth/reset_request.html`, `auth/reset_confirm.html`, `auth/verify_sent.html`; `auth/login.html` — добавлена вкладка «Email»
+- **SMTP**: `web/email_utils.py`; `smtp.yandex.ru:465` SSL; секреты `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; graceful degradation — HTTP 503 если SMTP не настроен
+
+**Traceback-диагностика Excel-экспортов:**
+- **Было**: все 4 Excel-экспорта (`inventory`, `reports`, `rankings`, `salary`) при ошибке логировали только строку `str(e)` — невозможно отладить в продакшне
+- **Стало**: `except Exception as e: logging.error(..., exc_info=True)` → полный стектрейс в логах Amvera; `import traceback` + `traceback.format_exc()` в fallback-строках
+- **Затронуты**: `web/routes/inventory.py`, `web/routes/reports.py`, `web/routes/rankings.py`, `web/routes/salary.py`
+
+---
 
 ### v4 — 2026-06-04: Security fixes + UX improvements
 
