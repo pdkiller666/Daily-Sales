@@ -4,7 +4,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Form, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, JSONResponse, Response, FileResponse
@@ -792,6 +792,11 @@ def _fmt_contact(row, my_id: int) -> dict:
 
 @router.get("/chat/dm")
 def dm_contacts_page(request: Request):
+    return RedirectResponse(url="/chat?dm=1", status_code=301)
+
+
+@router.get("/chat/dm/_legacy")
+def dm_contacts_page_legacy(request: Request):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -853,6 +858,11 @@ def dm_contacts_page(request: Request):
 
 @router.get("/chat/dm/{peer_id}")
 def dm_conversation_page(request: Request, peer_id: int):
+    return RedirectResponse(url=f"/chat?dm=1&peer={peer_id}", status_code=301)
+
+
+@router.get("/chat/dm/_legacy/{peer_id}")
+def dm_conversation_page_legacy(request: Request, peer_id: int):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -1115,7 +1125,7 @@ async def dm_send(
         if not new_id:
             return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
-        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         payload = {
             "type": "message",
             "id": new_id,
@@ -1284,7 +1294,7 @@ async def ws_dm(websocket: WebSocket):
                 if not new_id:
                     await websocket.send_json({"type": "error", "message": "Ошибка сервера"})
                     continue
-                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
                 payload = {
                     "type": "message",
                     "id": new_id,
