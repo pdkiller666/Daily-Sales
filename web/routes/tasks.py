@@ -728,7 +728,7 @@ async def task_upload_attachment(
                 break
             try:
                 raw_data = await f.read()
-                if len(raw_data) > MAX_TASK_FILE_SIZE:
+                if len(raw_data) == 0 or len(raw_data) > MAX_TASK_FILE_SIZE:
                     continue
                 mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
                 safe_name = _safe_filename_tasks(f.filename)
@@ -779,11 +779,17 @@ def task_serve_attachment(request: Request, att_id: int):
             task = db.get_task(task_id)
             conn = db.get_connection()
             my_row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
             ).fetchone()
             conn.close()
             my_db_id = my_row[0] if my_row else 0
-            if not task or (task.get("assigned_to") != my_db_id and not task.get("assign_all")):
+            my_shop = (my_row[1] or "") if my_row else ""
+            shop_ok = bool(my_shop and task and task.get("assigned_shop") == my_shop)
+            if not task or (
+                task.get("assigned_to") != my_db_id
+                and not task.get("assign_all")
+                and not shop_ok
+            ):
                 return Response(content="Доступ запрещён", status_code=403)
 
         if not os.path.isfile(fpath):

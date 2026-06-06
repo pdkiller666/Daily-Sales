@@ -245,6 +245,14 @@ def _load_msg_files_bulk(db, message_ids: list) -> dict:
         return {}
 
 
+def _load_dm_files_bulk(db, dm_ids: list) -> dict:
+    """Батч-загрузка файлов для списка DM-сообщений. Возвращает {dm_id: [file_dicts]}."""
+    try:
+        return db.get_dm_files_bulk(dm_ids)
+    except Exception:
+        return {}
+
+
 def _fmt_topic(row) -> dict:
     tid, name, created_by, created_at, sort_order, msg_count = row
     return {
@@ -359,7 +367,7 @@ async def _save_uploaded_files(files_list, uploads_dir: str) -> list:
         try:
             raw_data = await f.read()
             fsize = len(raw_data)
-            if fsize > MAX_FILE_SIZE:
+            if fsize == 0 or fsize > MAX_FILE_SIZE:
                 continue
             mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
             safe_name = _safe_filename(f.filename)
@@ -863,25 +871,51 @@ def _fmt_ts(raw) -> str:
         return s
 
 
-def _fmt_dm(row, my_db_id: int = 0) -> dict:
+def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
+    """Форматировать строку direct_messages.
+    files=None  → legacy single-file из колонок
+    files=[]    → нет вложений
+    files=[...] → список dicts из dm_message_files
+    """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
      fn, ln, uname) = row
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{from_id}"
     is_mine = (from_id == my_db_id)
-    has_file = bool(file_path)
-    is_image = (file_type or "").startswith("image/")
+
+    if files is not None:
+        files_list = [
+            {
+                "id": f["id"], "file_name": f["file_name"],
+                "file_type": f["file_type"], "file_size": f["file_size"],
+                "is_image": (f["file_type"] or "").startswith("image/"),
+                "file_url": f"/chat/dm/file/attachment/{f['id']}",
+            }
+            for f in files
+        ]
+    elif file_path:
+        files_list = [{
+            "id": 0, "file_name": file_name or "",
+            "file_type": file_type or "", "file_size": file_size or 0,
+            "is_image": bool(file_type and file_type.startswith("image/")),
+            "file_url": f"/chat/dm/file/{mid}",
+        }]
+    else:
+        files_list = []
+
+    first = files_list[0] if files_list else {}
     return {
         "id": mid,
         "from_user_id": from_id,
         "to_user_id": to_id,
         "message": message or "",
-        "file_name": file_name or "",
-        "file_type": file_type or "",
-        "file_size": file_size or 0,
-        "has_file": has_file,
-        "is_image": is_image,
-        "file_url": f"/chat/dm/file/{mid}" if has_file else "",
+        "file_name": first.get("file_name", ""),
+        "file_type": first.get("file_type", ""),
+        "file_size": first.get("file_size", 0),
+        "has_file": bool(files_list),
+        "is_image": first.get("is_image", False),
+        "file_url": first.get("file_url", ""),
+        "files": files_list,
         "created_at": _fmt_ts(created_at),
         "is_read": bool(is_read),
         "is_mine": is_mine,
@@ -1045,7 +1079,9 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     pname = f"{peer_row[1] or ''} {peer_row[2] or ''}".strip() or peer_row[3] or f"User#{peer_id}"
                     ctx["peer"] = {"id": peer_id, "display_name": pname, "initial": pname[0].upper()}
                     rows = db.get_dm_conversation(user_db_id, peer_id, limit=50)
-                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id) for r in rows]
+                    dm_ids = [r[0] for r in rows]
+                    dm_files_map = _load_dm_files_bulk(db, dm_ids)
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0])) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
     except Exception as exc:
         logger.error(f"dm_conversation_page error: {exc}")
@@ -1161,7 +1197,10 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
             return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=400)
         rows = db.get_dm_conversation(user_db_id, peer_id, limit=51, before_id=before_id)
         has_more = len(rows) > 50
-        msgs = [_fmt_dm(r, my_db_id=user_db_id) for r in rows[:50]]
+        page = rows[:50]
+        dm_ids = [r[0] for r in page]
+        dm_files_map = _load_dm_files_bulk(db, dm_ids)
+        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0])) for r in page]
         return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
     except Exception as exc:
         logger.error(f"api_dm_conversation error: {exc}")
@@ -1306,11 +1345,14 @@ async def dm_send(
         except Exception:
             pass
 
+        # Загружаем только что сохранённые файлы чтобы вернуть корректные att_id
+        fresh_files = _load_dm_files_bulk(db, [new_id]).get(new_id, [])
         msg = _fmt_dm(
-            (new_id, user_db_id, to_user_id, text, file_path, file_name,
-             file_type, file_size, now_str, 0,
+            (new_id, user_db_id, to_user_id, text, "", "",
+             "", 0, now_str, 0,
              user.get("name", ""), "", ""),
             my_db_id=user_db_id,
+            files=fresh_files,
         )
         return JSONResponse({"ok": True, "message": msg})
 
@@ -1345,15 +1387,25 @@ def dm_delete(
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         row = db.get_dm_message(msg_id)
         ok = db.soft_delete_dm(msg_id, user_db_id, is_admin)
-        if ok and row and row[4]:
-            fpath = row[4]
+        if ok:
             exp_uploads = os.path.abspath(_uploads_dir_dm(org_db))
-            real_fpath = os.path.abspath(fpath)
-            if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
-                try:
-                    os.remove(real_fpath)
-                except OSError as e:
-                    logger.warning(f"dm_delete: не удалось удалить файл {real_fpath}: {e}")
+            # Legacy single-file
+            if row and row[4]:
+                fpath = row[4]
+                real_fpath = os.path.abspath(fpath)
+                if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                    try:
+                        os.remove(real_fpath)
+                    except OSError as e:
+                        logger.warning(f"dm_delete legacy file: {e}")
+            # Новые multi-file вложения
+            for fpath in db.delete_dm_files(msg_id):
+                real_fpath = os.path.abspath(fpath)
+                if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                    try:
+                        os.remove(real_fpath)
+                    except OSError as e:
+                        logger.warning(f"dm_delete new file: {e}")
         return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
         logger.error(f"dm_delete error: {exc}")

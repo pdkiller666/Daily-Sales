@@ -8904,6 +8904,19 @@ class Database:
         finally:
             conn.close()
 
+    def delete_dm_files(self, dm_id: int) -> list:
+        """Удалить все записи dm_message_files для dm_id. Возвращает список file_path удалённых записей."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT file_path FROM dm_message_files WHERE dm_id = ?", (dm_id,)
+            ).fetchall()
+            conn.execute("DELETE FROM dm_message_files WHERE dm_id = ?", (dm_id,))
+            conn.commit()
+            return [r[0] for r in rows if r[0]]
+        finally:
+            conn.close()
+
     def get_chat_topics(self) -> list:
         """Все не-архивные темы чата, отсортированные по sort_order."""
         conn = self.get_connection()

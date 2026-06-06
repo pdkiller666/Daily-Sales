@@ -27,10 +27,13 @@
   'error':           '⚠️ Произошла ошибка.',
   'bad_status':      '⚠️ Неверный статус.',
   'no_text':         '⚠️ Комментарий не может быть пустым.',
+  'too_many_files':  '⚠️ Достигнут лимит вложений (10 файлов).',
+  'access_denied':   '⚠️ Нет доступа к этому действию.',
+  'not_found':       '⚠️ Файл не найден.',
 } %}
 {% if msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
-  {% if 'error' in msg or msg in ('csrf_error','bad_status','no_text') %}bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300
+  {% if 'error' in msg or msg in ('csrf_error','bad_status','no_text','too_many_files','access_denied','not_found') %}bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300
   {% else %}bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300{% endif %}">
   <span>{{ msg_map[msg] }}</span>
 </div>
