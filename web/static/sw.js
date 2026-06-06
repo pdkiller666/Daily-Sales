@@ -1,9 +1,12 @@
-/* DailySales Service Worker v2 */
-const CACHE_NAME = 'dailysales-v2';
+/* DailySales Service Worker v3 */
+const CACHE_NAME = 'dailysales-v3';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
     '/static/icon-maskable.svg',
+    '/static/icon-192.png',
+    '/static/icon-512.png',
+    '/static/apple-touch-icon.png',
     '/static/manifest.json',
 ];
 
@@ -29,7 +32,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
 
-    /* Cache-first for static assets */
+    /* Cache-first for /static/ assets */
     if (url.pathname.startsWith('/static/')) {
         e.respondWith(
             caches.match(e.request).then(cached => {
@@ -48,7 +51,7 @@ self.addEventListener('fetch', e => {
     /* All authenticated routes: network-only (never cache sensitive data) */
 });
 
-/* ── Push notifications (future VAPID) ── */
+/* ── Push notifications ── */
 self.addEventListener('push', e => {
     if (!e.data) return;
     let data;
@@ -56,8 +59,8 @@ self.addEventListener('push', e => {
     e.waitUntil(
         self.registration.showNotification(data.title || 'DailySales', {
             body: data.body || '',
-            icon: '/static/icon.svg',
-            badge: '/static/icon.svg',
+            icon: '/static/icon-192.png',
+            badge: '/static/icon-192.png',
             tag: data.tag || 'dailysales',
             renotify: true,
             data: { url: data.url || '/dashboard' },

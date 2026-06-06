@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 BASE_DIR = Path(__file__).parent
 _SHOP_BOT_DB = "data/shop_bot.db"
@@ -224,6 +225,7 @@ def create_web_app() -> FastAPI:
     )
 
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     templates.env.filters['fmt_date'] = _fmt_date
