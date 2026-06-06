@@ -247,12 +247,14 @@ async def push_subscribe(request: Request):
     tg_id = int(user["sub"])
     try:
         body = await request.json()
-        endpoint = body.get("endpoint", "")
-        keys = body.get("keys", {})
-        p256dh = keys.get("p256dh", "")
-        auth   = keys.get("auth", "")
+        endpoint = (body.get("endpoint") or "")[:2048]
+        keys = body.get("keys") or {}
+        p256dh = (keys.get("p256dh") or "")[:256]
+        auth   = (keys.get("auth")   or "")[:128]
         if not endpoint or not p256dh or not auth:
             return JSONResponse({"ok": False, "error": "missing fields"}, status_code=400)
+        if not endpoint.startswith("https://"):
+            return JSONResponse({"ok": False, "error": "invalid endpoint"}, status_code=400)
         db = Database(SHOP_BOT_DB)
         db.create_tables()
         ok = db.save_push_subscription(tg_id, endpoint, p256dh, auth)

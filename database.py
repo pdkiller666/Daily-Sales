@@ -9052,6 +9052,43 @@ class Database:
         conn.close()
         return rows
 
+    def search_dm_messages(self, query: str, user_id: int, limit: int = 10) -> list:
+        """Поиск в личных сообщениях где user_id — отправитель или получатель.
+
+        Возвращает строки из 15 колонок:
+          (id, from_user_id, peer_id, message, file_path, file_name,
+           file_type, file_size, created_at,
+           from_fname, from_lname, from_uname,
+           peer_fname, peer_lname, peer_uname)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        pattern = f"%{query}%"
+        cursor.execute('''
+            SELECT
+                d.id,
+                d.from_user_id,
+                CASE WHEN d.from_user_id = ? THEN d.to_user_id ELSE d.from_user_id END AS peer_id,
+                d.message,
+                d.file_path, d.file_name, d.file_type, d.file_size,
+                d.created_at,
+                fu.first_name, fu.last_name, fu.username,
+                pu.first_name, pu.last_name, pu.username
+            FROM direct_messages d
+            JOIN users fu ON fu.id = d.from_user_id
+            LEFT JOIN users pu ON pu.id = (
+                CASE WHEN d.from_user_id = ? THEN d.to_user_id ELSE d.from_user_id END
+            )
+            WHERE d.is_deleted = 0
+              AND (d.from_user_id = ? OR d.to_user_id = ?)
+              AND LOWER(d.message) LIKE LOWER(?)
+            ORDER BY d.id DESC
+            LIMIT ?
+        ''', (user_id, user_id, user_id, user_id, pattern, limit))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
     # ══════════════════════════════════════════════════════════════════════════
     # DIRECT MESSAGES MODULE
     # ══════════════════════════════════════════════════════════════════════════

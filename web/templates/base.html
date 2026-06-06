@@ -2232,14 +2232,16 @@ function mainApp() {
     window.addEventListener('touchmove', pointerMove, { passive: false });
     window.addEventListener('touchend', pointerUp);
 
-    /* ── unread badge via /chat/poll ── */
+    /* ── unread badge: topic new msgs (/chat/poll) + DM unread (/api/unread-count) ── */
     const LS_KEY = 'ds_chat_last_id';
-    let lastId = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
-    let unread = 0;
+    let lastId   = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
+    let topicNew = 0;   /* new topic messages since last visit */
+    let dmUnread = 0;   /* DM unread count from server */
 
     function updateBadge() {
-        if (unread > 0) {
-            badge.textContent = unread > 9 ? '9+' : unread;
+        const total = topicNew + dmUnread;
+        if (total > 0) {
+            badge.textContent = total > 9 ? '9+' : total;
             badge.classList.remove('hidden');
             badge.classList.add('flex');
         } else {
@@ -2248,29 +2250,41 @@ function mainApp() {
         }
     }
 
-    async function pollUnread() {
+    async function fetchDmUnread() {
         try {
-            const res = await fetch('/chat/poll?since_id=' + lastId);
+            const res  = await fetch('/api/unread-count');
             const data = await res.json();
-            if (data.ok && data.messages && data.messages.length > 0) {
-                unread += data.messages.length;
-                lastId = data.latest_id;
-                try { localStorage.setItem(LS_KEY, lastId); } catch (e) {}
-                updateBadge();
-            }
-        } catch (e) {}
+            if (data.ok) { dmUnread = data.dms || 0; updateBadge(); }
+        } catch (_) {}
     }
 
-    /* reset badge when user visits chat */
-    window.addEventListener('focus', function () {
-        if (window.location.pathname.startsWith('/chat')) {
-            unread = 0;
-            updateBadge();
-        }
-    });
+    async function pollUnread() {
+        try {
+            const res  = await fetch('/chat/poll?since_id=' + lastId);
+            const data = await res.json();
+            if (data.ok && data.messages && data.messages.length > 0) {
+                topicNew += data.messages.length;
+                lastId = data.latest_id;
+                try { localStorage.setItem(LS_KEY, lastId); } catch (_) {}
+                updateBadge();
+            }
+        } catch (_) {}
+    }
 
-    setInterval(pollUnread, 10000);
+    /* Reset when user visits chat (focus or already on page) */
+    function _maybeClearChatBadge() {
+        if (window.location.pathname.startsWith('/chat')) {
+            topicNew = 0; dmUnread = 0; updateBadge();
+        }
+    }
+    window.addEventListener('focus', _maybeClearChatBadge);
+    /* Also clear immediately if page loads while already on /chat */
+    _maybeClearChatBadge();
+
+    setInterval(pollUnread,    10000);
+    setInterval(fetchDmUnread, 60000);
     pollUnread();
+    fetchDmUnread();   /* Fetch DM unread immediately on load */
 })();
 </script>
 {% endif %}

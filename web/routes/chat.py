@@ -266,9 +266,47 @@ def _fmt_topic(row) -> dict:
 def _fmt_search_result(row, my_db_id: int = 0, is_admin: bool = False) -> dict:
     """Как _fmt_msg, но строка содержит 13 колонок (добавлены topic_id, topic_name)."""
     base = _fmt_msg(row[:11], my_db_id=my_db_id, is_admin=is_admin)
+    base["result_type"]       = "topic"
     base["result_topic_id"]   = row[11] or 1
     base["result_topic_name"] = row[12] or "Общий"
+    base["dm_peer_id"]        = None
+    base["dm_peer_name"]      = None
     return base
+
+
+def _fmt_search_result_dm(row, my_db_id: int = 0) -> dict:
+    """Форматирует строку из search_dm_messages (15 колонок) в поисковый результат."""
+    # (id, from_uid, peer_id, message, file_path, file_name, file_type, file_size,
+    #  created_at, from_fname, from_lname, from_uname, peer_fname, peer_lname, peer_uname)
+    msg_id   = row[0]
+    from_uid = row[1]
+    peer_id  = row[2]
+    message  = row[3] or ""
+    file_path = row[4] or ""
+    file_name = row[5] or ""
+    file_type = row[6] or ""
+    created_at = str(row[8] or "")[:16].replace("T", " ")
+
+    from_name = f"{row[9] or ''} {row[10] or ''}".strip() or row[11] or f"User#{from_uid}"
+    peer_name = f"{row[12] or ''} {row[13] or ''}".strip() or row[14] or f"User#{peer_id}"
+
+    return {
+        "id":               msg_id,
+        "result_type":      "dm",
+        "user_id":          from_uid,
+        "display_name":     from_name,
+        "initial":          (from_name[0].upper()) if from_name else "?",
+        "message":          message,
+        "created_at":       created_at,
+        "has_file":         bool(file_path),
+        "file_name":        file_name,
+        "is_image":         (file_type or "").startswith("image/"),
+        "is_mine":          (from_uid == my_db_id),
+        "result_topic_id":  None,
+        "result_topic_name": None,
+        "dm_peer_id":       peer_id,
+        "dm_peer_name":     peer_name,
+    }
 
 
 def _ensure_access(db, telegram_id: int) -> tuple[bool, str]:
@@ -823,13 +861,21 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
-        limit = 25 if topic_id else 30
-        rows = db.search_chat_messages(
-            query=q,
-            topic_id=topic_id if topic_id else None,
-            limit=limit,
-        )
-        results = [_fmt_search_result(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+        if topic_id:
+            # Поиск только в конкретной теме
+            rows = db.search_chat_messages(query=q, topic_id=topic_id, limit=25)
+            results = [_fmt_search_result(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+        else:
+            # Глобальный поиск: темы + личные сообщения
+            rows = db.search_chat_messages(query=q, topic_id=None, limit=20)
+            results = [_fmt_search_result(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+            if user_db_id:
+                dm_rows = db.search_dm_messages(query=q, user_id=user_db_id, limit=10)
+                dm_results = [_fmt_search_result_dm(r, my_db_id=user_db_id) for r in dm_rows]
+                results = results + dm_results
+                results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+                results = results[:30]
+
         return JSONResponse({
             "ok": True,
             "results": results,

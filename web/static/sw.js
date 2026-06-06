@@ -95,6 +95,7 @@ self.addEventListener('notificationclick', e => {
 /* ── Push subscription change ── */
 self.addEventListener('pushsubscriptionchange', e => {
     /* Re-subscribe automatically and send new subscription to server */
+    if (!e.oldSubscription) return;   /* guard: old sub may be null */
     e.waitUntil(
         self.registration.pushManager.subscribe(e.oldSubscription.options)
             .then(sub => fetch('/api/push/subscribe', {
