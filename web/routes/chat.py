@@ -82,10 +82,16 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
 def _get_org_active_plan(telegram_id: int) -> str:
     """Return active plan name for this user's org.
 
-    Priority:
+    Priority (mirrors subscription_utils.get_plan_limits logic):
     1. super_admin → Премиум always
-    2. shop_bot.db subscriptions by user_id (org owner's own record)
-    3. main.db organizations.subscription_plan (covers non-owner members)
+    2. Active trial in shop_bot.db (is_trial=1)
+    3. Org-level plan from main.db (covers ALL members: owners + invited admins/users)
+    4. Individual paid subscription in shop_bot.db (fallback for standalone users / owners)
+
+    BUG FIXED: previously shop_bot.db was checked first. Every Telegram user gets a
+    'Бесплатный' subscription with end_date='9999-12-31' on first bot interaction
+    (database.py create_subscription). This made invited org members always appear as
+    'Бесплатный', blocking the org plan check in main.db.
     """
     try:
         from env_manager import env_manager
@@ -93,27 +99,31 @@ def _get_org_active_plan(telegram_id: int) -> str:
             return "Премиум"
     except Exception:
         pass
+
+    # ── 2. Trial check (is_trial=1 in shop_bot.db) ───────────────────────────
     try:
         import sqlite3
-        # Owner path: correct columns are user_id + plan_type
         conn = sqlite3.connect(_SHOP_BOT_DB)
         user_row = conn.execute(
             "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         if user_row:
-            sub_row = conn.execute(
-                "SELECT plan_type FROM subscriptions WHERE user_id = ? AND datetime(end_date) > datetime('now') ORDER BY end_date DESC LIMIT 1",
+            trial_row = conn.execute(
+                "SELECT plan_type FROM subscriptions "
+                "WHERE user_id = ? AND is_trial = 1 AND datetime(end_date) > datetime('now') "
+                "ORDER BY end_date DESC LIMIT 1",
                 (user_row[0],)
             ).fetchone()
-            if sub_row and sub_row[0]:
+            if trial_row and trial_row[0]:
                 conn.close()
-                return sub_row[0]
+                return trial_row[0]
         conn.close()
     except Exception:
         pass
+
+    # ── 3. Org plan from main.db — works for ALL members incl. invited admins ─
     try:
         import sqlite3
-        # Non-owner member path: org-level subscription stored in main.db
         conn = sqlite3.connect("data/main.db")
         org_row = conn.execute(
             """SELECT o.subscription_plan, o.subscription_end
@@ -129,6 +139,31 @@ def _get_org_active_plan(telegram_id: int) -> str:
             return org_row[0]
     except Exception:
         pass
+
+    # ── 4. Individual paid subscription (non-trial, non-free) in shop_bot.db ──
+    # Explicit plan_type != 'Бесплатный' guard: all users get a perpetual
+    # 'Бесплатный' row on first bot interaction, so we only surface paid plans here.
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_SHOP_BOT_DB)
+        user_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if user_row:
+            sub_row = conn.execute(
+                "SELECT plan_type FROM subscriptions "
+                "WHERE user_id = ? AND is_trial = 0 AND plan_type != 'Бесплатный' "
+                "AND datetime(end_date) > datetime('now') "
+                "ORDER BY end_date DESC LIMIT 1",
+                (user_row[0],)
+            ).fetchone()
+            if sub_row and sub_row[0]:
+                conn.close()
+                return sub_row[0]
+        conn.close()
+    except Exception:
+        pass
+
     return "Бесплатный"
 
 

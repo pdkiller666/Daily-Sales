@@ -20,3 +20,5 @@
 - [Email auth architecture](email-auth.md) — web_credentials в shop_bot.db; PBKDF2-SHA256 stdlib; synthetic_tg_id = -(10M + cred_id); YANDEX_SMTP_PASSWORD = пароль приложения (не аккаунта)
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
 - [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt
+- [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
+- [Chat plan check bug](chat-plan-bug.md) — _get_org_active_plan() в chat.py: org plan из main.db должен быть ПЕРЕД shop_bot.db; иначе вечный 'Бесплатный' ряд блокирует Премиум у приглашённых членов
