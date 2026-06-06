@@ -129,6 +129,8 @@ def my_notifications(request: Request, limit: int = 20):
 
         conn.close()
 
+        dms = db.get_dm_unread_count(user_db_id)
+
         items = [
             {
                 "id": r[0],
@@ -140,9 +142,9 @@ def my_notifications(request: Request, limit: int = 20):
             }
             for r in rows
         ]
-        return {"ok": True, "unread": unread, "items": items}
+        return {"ok": True, "unread": unread, "dms": dms, "items": items}
     except Exception:
-        return {"ok": False, "unread": 0, "items": []}
+        return {"ok": False, "unread": 0, "dms": 0, "items": []}
 
 
 @router.post("/my-notifications/read-all")
@@ -173,6 +175,45 @@ def my_notifications_read_all(request: Request):
         return {"ok": True}
     except Exception:
         return {"ok": False}
+
+
+@router.get("/unread-count")
+def unread_count(request: Request):
+    """Lightweight endpoint: непрочитанные уведомления + DM. Используется App Badge API и будущим Web Push SW."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from web.app import _api_rate_ok
+
+    ip = request.client.host if request.client else "unknown"
+    if not _api_rate_ok(ip):
+        return JSONResponse({"ok": False, "total": 0, "notifs": 0, "dms": 0}, status_code=429)
+
+    user = get_session_user(request)
+    if not user:
+        return {"ok": False, "total": 0, "notifs": 0, "dms": 0}
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"ok": True, "total": 0, "notifs": 0, "dms": 0}
+        user_db_id = row[0]
+        notifs = conn.execute(
+            "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
+            (user_db_id,),
+        ).fetchone()[0]
+        conn.close()
+        dms = db.get_dm_unread_count(user_db_id)
+        total = notifs + dms
+        return {"ok": True, "total": total, "notifs": notifs, "dms": dms}
+    except Exception:
+        return {"ok": False, "total": 0, "notifs": 0, "dms": 0}
 
 
 @router.get("/nav-config")

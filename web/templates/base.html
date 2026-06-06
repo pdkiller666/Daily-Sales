@@ -607,6 +607,18 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+/* Global: вызывается из DM-страницы и других модулей для
+   немедленного обновления App Badge без ожидания 60-секундного поллинга */
+window.dsRefreshBadge = function() {
+    try {
+        const root = document.querySelector('[x-data]');
+        if (root && window.Alpine) {
+            const comp = Alpine.$data(root);
+            if (comp && typeof comp._pollNotif === 'function') comp._pollNotif();
+        }
+    } catch(_) {}
+};
+
 /* ══════════════════════════════════════════════════
    2. Swipe gestures (mobile)
    • Swipe left/right anywhere → navigate between bottom nav sections
@@ -1224,6 +1236,7 @@ function mainApp() {
         notifDdOpen: false,
         notifCount: 0,
         notifItems: [],
+        _dmCount: 0,
         navCfg: DS_NAV_DEFAULTS.slice(),
         editSlots: [],
         selectedSlot: null,
@@ -1253,6 +1266,11 @@ function mainApp() {
             /* 3. Notification badge — initial poll + interval */
             this._pollNotif();
             setInterval(() => this._pollNotif(), 60000);
+
+            /* 3b. Re-poll immediately when user returns to tab → badge актуален */
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') this._pollNotif();
+            });
 
             /* 4. bfcache fallback: if the page IS restored from bfcache
                despite the unload guard, force-close all sheets.
@@ -1354,16 +1372,26 @@ function mainApp() {
         },
 
         /* ── Notification helpers ── */
+        _setAppBadge(total) {
+            if (!('setAppBadge' in navigator)) return;
+            try {
+                total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
+            } catch (_) {}
+        },
+
         _pollNotif() {
             fetch('/api/my-notifications?limit=20')
                 .then(r => r.json())
                 .then(data => {
                     if (data.ok) {
                         this.notifCount = data.unread;
+                        this._dmCount = data.dms || 0;
                         /* Update items silently so badge stays fresh */
                         if (!this.notifOpen && !this.notifDdOpen) {
                             this.notifItems = data.items;
                         }
+                        /* App Badge API: notifs + DMs */
+                        this._setAppBadge((data.unread || 0) + (data.dms || 0));
                     }
                 })
                 .catch(() => {});
@@ -1373,7 +1401,14 @@ function mainApp() {
             /* Load fresh items and mark as read */
             fetch('/api/my-notifications?limit=20')
                 .then(r => r.json())
-                .then(data => { if (data.ok) { this.notifItems = data.items; this.notifCount = 0; } })
+                .then(data => {
+                    if (data.ok) {
+                        this.notifItems = data.items;
+                        this.notifCount = 0;
+                        /* Badge now = DMs only (notifications just read) */
+                        this._setAppBadge(data.dms || this._dmCount);
+                    }
+                })
                 .catch(() => {});
             fetch('/api/my-notifications/read-all', { method: 'POST' }).catch(() => {});
             this.notifCount = 0;
