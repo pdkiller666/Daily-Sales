@@ -113,28 +113,36 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         db = get_web_db(telegram_id, org_db)
 
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
-        # Determine allowed shops for scope filtering
         if not is_admin:
             from web.routes.sales import _get_user_allowed_shops
             allowed = _get_user_allowed_shops(telegram_id, db)
-            # If user specified a shop, validate it's in scope
             if shop and shop not in allowed:
                 shop = allowed[0] if allowed else shop
         else:
             allowed = None
 
-        # get_all_inventory_for_export: shop_name[0] name[1] category[2] quantity[3] last_updated[4]
+        def _fmt_inv_dt(raw):
+            try:
+                s = str(raw or "")[:16].replace("T", " ")
+                d, t = s.split(" ")
+                y, mo, dd = d.split("-")
+                return f"{dd}.{mo}.{y} {t}"
+            except Exception:
+                return str(raw or "")[:16]
+
+        # get_all_inventory: id[0] product_id[1] shop_name[2] quantity[3] last_updated[4]
+        #                    updated_by[5] p.name[6] p.category[7] p.price[8] updated_by_name[9]
         if shop:
             raw = db.get_all_inventory(shop_name=shop) or []
-            data = [(r[2], r[6], r[7], r[3], (r[4] or "")[:16]) for r in raw]
+            data = [(r[2], r[6], r[7], float(r[8] or 0), int(r[3] or 0), _fmt_inv_dt(r[4])) for r in raw]
         elif not is_admin and allowed is not None:
-            # Export only allowed shops for non-admin scope
             data = []
             for s in allowed:
                 raw = db.get_all_inventory(shop_name=s) or []
-                data.extend((r[2], r[6], r[7], r[3], (r[4] or "")[:16]) for r in raw)
+                data.extend((r[2], r[6], r[7], float(r[8] or 0), int(r[3] or 0), _fmt_inv_dt(r[4])) for r in raw)
         else:
-            data = db.get_all_inventory_for_export() or []
+            raw = db.get_all_inventory() or []
+            data = [(r[2], r[6], r[7], float(r[8] or 0), int(r[3] or 0), _fmt_inv_dt(r[4])) for r in raw]
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -147,9 +155,11 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         even_fill = PatternFill("solid", fgColor="F0F4FF")
         zero_fill = PatternFill("solid", fgColor="FFF1F2")
         low_fill = PatternFill("solid", fgColor="FFFBEB")
+        tot_fill = PatternFill("solid", fgColor="DBEAFE")
 
-        headers = ["Магазин", "Товар", "Категория", "Остаток (шт.)", "Обновлено"]
-        col_widths = [22, 32, 20, 14, 18]
+        # 7 колонок: добавлены Цена и Стоимость
+        headers = ["Магазин", "Товар", "Категория", "Цена (₽)", "Остаток (шт.)", "Стоимость (₽)", "Обновлено"]
+        col_widths = [22, 32, 20, 14, 14, 16, 18]
 
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
             cell = ws.cell(row=1, column=i, value=h)
@@ -161,31 +171,54 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         ws.row_dimensions[1].height = 28
         ws.freeze_panes = "A2"
 
+        total_value = 0.0
+        zero_count = 0
+        low_count = 0
         for row_idx, row in enumerate(data, 2):
-            qty = int(row[3] or 0)
+            shop_n, name, cat, price, qty, updated = row
+            stock_value = price * qty
+            total_value += stock_value
             is_zero = qty <= 0
             is_low = 0 < qty <= 5
+            if is_zero:
+                zero_count += 1
+            elif is_low:
+                low_count += 1
             row_fill = zero_fill if is_zero else low_fill if is_low else (even_fill if row_idx % 2 == 0 else None)
 
-            for col_idx, val in enumerate(row, 1):
+            for col_idx, val in enumerate([shop_n, name, cat, price, qty, stock_value, updated], 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=val)
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx == 4:
+                if col_idx in (4, 6):
+                    cell.number_format = '#,##0.00 ₽'
+                    cell.alignment = Alignment(horizontal="right")
+                    if is_zero and col_idx == 6:
+                        cell.font = Font(color="DC2626")
+                elif col_idx == 5:
                     cell.alignment = Alignment(horizontal="center")
                     if is_zero:
                         cell.font = Font(bold=True, color="DC2626")
                     elif is_low:
                         cell.font = Font(bold=True, color="D97706")
 
-        # Totals
+        # ── Итого: 3 строки-сводки ────────────────────────────────────────────
         tr = len(data) + 2
-        ws.cell(row=tr, column=1, value="ИТОГО позиций").font = Font(bold=True)
-        ws.cell(row=tr, column=4, value=sum(int(r[3] or 0) for r in data)).font = Font(bold=True)
-        for col in range(1, 6):
+        for col in range(1, 8):
             ws.cell(row=tr, column=col).border = border
-            ws.cell(row=tr, column=col).fill = PatternFill("solid", fgColor="DBEAFE")
+            ws.cell(row=tr, column=col).fill = tot_fill
+        ws.cell(row=tr, column=1, value=f"ИТОГО позиций: {len(data)}").font = Font(bold=True)
+        ws.cell(row=tr, column=5, value=sum(r[4] for r in data)).font = Font(bold=True)
+        tv_cell = ws.cell(row=tr, column=6, value=round(total_value, 2))
+        tv_cell.font = Font(bold=True)
+        tv_cell.number_format = '#,##0.00 ₽'
+        tv_cell.alignment = Alignment(horizontal="right")
+
+        tr2 = tr + 1
+        ws.cell(row=tr2, column=1,
+                value=f"Нулевые остатки: {zero_count}  |  Малые (≤5 шт.): {low_count}"
+                ).font = Font(italic=True, color="6B7280", size=9)
 
         buf = io.BytesIO()
         wb.save(buf)

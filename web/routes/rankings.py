@@ -200,44 +200,77 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
         wb = openpyxl.Workbook()
         ws = wb.active
 
+        period_labels = {"week": "7 дней", "month": "Месяц", "prev_month": "Прошлый месяц", "all": "Всё время"}
+        period_label = period_labels.get(period, period)
+
+        # ── Строка с периодом над таблицей ───────────────────────────────────
+        ws.cell(row=1, column=1, value=f"Период: {period_label}").font = Font(bold=True, size=11)
+        HDR_ROW = 3
+
         if tab == "shops":
             raw = db.get_shop_ranking(**kwargs) or []
             ws.title = "Рейтинг магазинов"
-            headers = ["#", "Магазин", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)"]
-            col_widths = [5, 28, 12, 14, 14, 18]
-            rows = [(i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), int(r[4] or 0), float(r[2] or 0))
-                    for i, r in enumerate(raw)]
+            # добавлены Ср.чек и Доля%
+            headers = ["#", "Магазин", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)", "Ср. чек (₽)", "Доля (%)"]
+            col_widths = [5, 28, 12, 14, 14, 18, 14, 10]
+            total_rev = sum(float(r[2] or 0) for r in raw)
+            rows = []
+            for i, r in enumerate(raw):
+                rev = float(r[2] or 0)
+                tx = int(r[4] or 0)
+                avg = round(rev / tx, 2) if tx else 0.0
+                pct = round(rev / total_rev * 100, 1) if total_rev else 0.0
+                rows.append((i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), tx, rev, avg, pct))
         elif tab == "cities":
             raw = db.get_city_ranking(**kwargs) or []
             ws.title = "Рейтинг городов"
-            headers = ["#", "Город", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)"]
-            col_widths = [5, 24, 12, 14, 14, 18]
-            rows = [(i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), int(r[4] or 0), float(r[2] or 0))
-                    for i, r in enumerate(raw) if r[0]]
+            headers = ["#", "Город", "Продавцов", "Продано (шт.)", "Транзакций", "Выручка (₽)", "Ср. чек (₽)", "Доля (%)"]
+            col_widths = [5, 24, 12, 14, 14, 18, 14, 10]
+            total_rev = sum(float(r[2] or 0) for r in raw if r[0])
+            rows = []
+            for i, r in enumerate(raw):
+                if not r[0]:
+                    continue
+                rev = float(r[2] or 0)
+                tx = int(r[4] or 0)
+                avg = round(rev / tx, 2) if tx else 0.0
+                pct = round(rev / total_rev * 100, 1) if total_rev else 0.0
+                rows.append((i + 1, r[0] or "—", int(r[3] or 0), int(r[1] or 0), tx, rev, avg, pct))
         else:
             raw = db.get_sales_ranking(**kwargs) or []
             ws.title = "Рейтинг продавцов"
-            headers = ["#", "Продавец", "Магазин", "Продано (шт.)", "Транзакций", "Выручка (₽)", "З/П (₽)"]
-            col_widths = [5, 28, 22, 14, 14, 18, 14]
+            # «З/П» → «Мотивация», добавлены Ср.чек и Доля%
+            headers = ["#", "Продавец", "Магазин", "Продано (шт.)", "Транзакций",
+                       "Выручка (₽)", "Мотивация (₽)", "Ср. чек (₽)", "Доля (%)"]
+            col_widths = [5, 28, 22, 14, 14, 18, 16, 14, 10]
+            total_rev = sum(float(r[4] or 0) for r in raw)
             rows = []
             for i, r in enumerate(raw):
                 fname = (r[0] or "").strip()
                 lname = (r[1] or "").strip()
-                name = f"{fname} {lname}".strip() or f"@{r[8]}" if len(r) > 8 and r[8] else f"{fname} {lname}".strip()
-                rows.append((i + 1, name, r[2] or "—", int(r[3] or 0), int(r[5] or 0), float(r[4] or 0), float(r[6] or 0)))
+                name = f"{fname} {lname}".strip() or (f"@{r[8]}" if len(r) > 8 and r[8] else "—")
+                rev = float(r[4] or 0)
+                tx = int(r[5] or 0)
+                avg = round(rev / tx, 2) if tx else 0.0
+                pct = round(rev / total_rev * 100, 1) if total_rev else 0.0
+                rows.append((i + 1, name, r[2] or "—", int(r[3] or 0), tx, rev,
+                              float(r[6] or 0), avg, pct))
 
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
-            cell = ws.cell(row=1, column=i, value=h)
+            cell = ws.cell(row=HDR_ROW, column=i, value=h)
             cell.font = hdr_font
             cell.fill = hdr_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = border
             ws.column_dimensions[get_column_letter(i)].width = w
-        ws.row_dimensions[1].height = 26
-        ws.freeze_panes = "A2"
+        ws.row_dimensions[HDR_ROW].height = 26
+        ws.freeze_panes = f"A{HDR_ROW + 1}"
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        for row_idx, row in enumerate(rows, 2):
+        money_cols_sellers = {6, 7, 8}
+        money_cols_other = {6, 7}
+        pct_col = len(headers)
+        for row_idx, row in enumerate(rows, HDR_ROW + 1):
             row_fill = even_fill if row_idx % 2 == 0 else None
             for col_idx, val in enumerate(row, 1):
                 display_val = val
@@ -247,14 +280,31 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx >= len(headers) - (1 if tab == "sellers" else 0):
-                    cell.number_format = '#,##0.00'
+                money_cols = money_cols_sellers if tab == "sellers" else money_cols_other
+                if col_idx in money_cols:
+                    cell.number_format = '#,##0.00 ₽'
                     cell.alignment = Alignment(horizontal="right")
+                elif col_idx == pct_col:
+                    cell.number_format = '0.0"%"'
+                    cell.alignment = Alignment(horizontal="center")
+                elif col_idx in (3, 4, 5):
+                    cell.alignment = Alignment(horizontal="center")
 
-        # Period note
-        period_labels = {"week": "7 дней", "month": "Месяц", "prev_month": "Прошлый месяц", "all": "Всё время"}
-        note_row = len(rows) + 3
-        ws.cell(row=note_row, column=1, value=f"Период: {period_labels.get(period, period)}").font = Font(italic=True, color="94A3B8", size=9)
+        # ── ИТОГО ─────────────────────────────────────────────────────────────
+        tot_fill_r = PatternFill("solid", fgColor="DBEAFE")
+        tr = len(rows) + HDR_ROW + 1
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=tr, column=col).border = border
+            ws.cell(row=tr, column=col).fill = tot_fill_r
+        ws.cell(row=tr, column=1, value="ИТОГО").font = Font(bold=True)
+        ws.cell(row=tr, column=4, value=sum(r[3] for r in rows)).font = Font(bold=True)
+        ws.cell(row=tr, column=5, value=sum(r[4] for r in rows)).font = Font(bold=True)
+        rev_idx = 6
+        total_rev_sum = sum(r[rev_idx - 1] for r in rows)
+        rev_tot = ws.cell(row=tr, column=rev_idx, value=round(total_rev_sum, 2))
+        rev_tot.font = Font(bold=True)
+        rev_tot.number_format = '#,##0.00 ₽'
+        rev_tot.alignment = Alignment(horizontal="right")
 
         buf = io.BytesIO()
         wb.save(buf)

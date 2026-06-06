@@ -310,57 +310,85 @@ def sales_export_xlsx(
         hdr_font = Font(bold=True, color="FFFFFF", size=11)
         even_fill = PatternFill("solid", fgColor="F0F4FF")
         tot_fill = PatternFill("solid", fgColor="DBEAFE")
+        meta_font = Font(italic=True, color="4B5563", size=10)
 
-        headers = ["Дата", "Товар", "Категория", "Магазин", "Кол-во", "Цена", "Сумма", "Продавец"]
-        col_widths = [14, 30, 18, 20, 8, 12, 14, 22]
+        # ── Мета-заголовок (строки 1-3) ──────────────────────────────────────
+        ws["A1"] = f"Период: {date_from} — {date_to}"
+        ws["A1"].font = meta_font
+        ws["A2"] = f"Магазин: {shop or 'Все'}"
+        ws["A2"].font = meta_font
+        ws["A3"] = f"Экспортировано: {today.strftime('%d.%m.%Y')}"
+        ws["A3"].font = meta_font
 
+        # ── Заголовки таблицы (строка 5) ─────────────────────────────────────
+        # 9 колонок: добавлена «Время» и переименована «Цена»
+        headers = ["Дата", "Время", "Товар", "Категория", "Магазин",
+                   "Кол-во", "Цена (₽)", "Сумма (₽)", "Продавец"]
+        col_widths = [12, 10, 30, 18, 20, 8, 14, 14, 22]
+        HDR_ROW = 5
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
-            cell = ws.cell(row=1, column=i, value=h)
+            cell = ws.cell(row=HDR_ROW, column=i, value=h)
             cell.font = hdr_font
             cell.fill = hdr_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = border
             ws.column_dimensions[get_column_letter(i)].width = w
-        ws.row_dimensions[1].height = 28
-        ws.freeze_panes = "A2"
+        ws.row_dimensions[HDR_ROW].height = 28
+        ws.freeze_panes = f"A{HDR_ROW + 1}"
 
         total_amount = 0.0
         total_qty = 0
-        for row_idx, s in enumerate(sales, 2):
+        tx_count = 0
+        for row_idx, s in enumerate(sales, HDR_ROW + 1):
             qty = int(s[3] or 0)
             price = float(s[4] or 0)
             amount = qty * price
             total_amount += amount
             total_qty += qty
+            tx_count += 1
             seller = f"{s[9] or ''} {s[10] or ''}".strip()
             row_fill = even_fill if row_idx % 2 == 0 else None
 
+            raw_dt = str(s[6] or "")
+            date_part = raw_dt[:10]
+            time_part = raw_dt[11:16] if len(raw_dt) > 10 else ""
+
             for col_idx, val in enumerate(
-                [(s[6] or "")[:10], s[7] or "", s[8] or "", s[2] or "",
+                [date_part, time_part, s[7] or "", s[8] or "", s[2] or "",
                  qty, price, amount, seller], 1
             ):
                 cell = ws.cell(row=row_idx, column=col_idx, value=val)
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx in (6, 7):
+                if col_idx in (7, 8):
                     cell.number_format = '#,##0.00 ₽'
                     cell.alignment = Alignment(horizontal="right")
-                elif col_idx == 5:
+                elif col_idx == 6:
+                    cell.alignment = Alignment(horizontal="center")
+                elif col_idx in (1, 2):
                     cell.alignment = Alignment(horizontal="center")
 
-        # Totals row
+        # ── Итого ────────────────────────────────────────────────────────────
         if sales:
-            tr = len(sales) + 2
-            for col in range(1, 9):
+            tr = len(sales) + HDR_ROW + 1
+            for col in range(1, 10):
                 ws.cell(row=tr, column=col).border = border
                 ws.cell(row=tr, column=col).fill = tot_fill
             ws.cell(row=tr, column=1, value="ИТОГО").font = Font(bold=True)
-            ws.cell(row=tr, column=5, value=total_qty).font = Font(bold=True)
-            total_cell = ws.cell(row=tr, column=7, value=total_amount)
+            ws.cell(row=tr, column=6, value=total_qty).font = Font(bold=True)
+            total_cell = ws.cell(row=tr, column=8, value=total_amount)
             total_cell.font = Font(bold=True)
             total_cell.number_format = '#,##0.00 ₽'
             total_cell.alignment = Alignment(horizontal="right")
+
+            avg_check = total_amount / tx_count if tx_count else 0
+            tr2 = tr + 1
+            ws.cell(row=tr2, column=1, value="Ср. чек").font = Font(italic=True, color="6B7280")
+            avg_cell = ws.cell(row=tr2, column=8, value=avg_check)
+            avg_cell.number_format = '#,##0.00 ₽'
+            avg_cell.font = Font(italic=True, color="6B7280")
+            avg_cell.alignment = Alignment(horizontal="right")
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -374,7 +402,8 @@ def sales_export_xlsx(
         )
 
     except Exception as exc:
-        return RedirectResponse(url=f"/sales?error={exc}", status_code=302)
+        logging.getLogger(__name__).error(f"sales_export error: {exc}", exc_info=True)
+        return RedirectResponse(url=f"/sales?error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)
 
 
 @router.post("/sales/create")

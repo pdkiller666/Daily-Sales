@@ -478,6 +478,7 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
 
         rows: list = []
         total_fund = 0.0
+        motivation_details: dict = {}
         for row in all_rates:
             if env_manager.is_super_admin(row[4]):
                 continue
@@ -492,12 +493,16 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             base = rate * (worked + paid_abs)
             total = base + adj + motivation + contest_r
             total_fund += total
-            rows.append((
-                f"{row[1] or ''} {row[2] or ''}".strip(),
-                rate, worked, base, motivation, adj, contest_r, total
-            ))
+            name = f"{row[1] or ''} {row[2] or ''}".strip()
+            rows.append((name, rate, worked, paid_abs, base, motivation, adj, contest_r, total, uid))
+            try:
+                earnings_detail = db.get_seller_earnings(uid, start_date=start_date, end_date=end_date) or []
+                if earnings_detail:
+                    motivation_details[name] = earnings_detail
+            except Exception:
+                pass
 
-        rows.sort(key=lambda r: -r[7])
+        rows.sort(key=lambda r: -r[8])
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -510,46 +515,117 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         hdr_font = Font(bold=True, color="FFFFFF", size=11)
         even_fill = PatternFill("solid", fgColor="F0F8FF")
         tot_fill = PatternFill("solid", fgColor="DCFCE7")
+        meta_font = Font(italic=True, color="4B5563", size=10)
 
-        headers = ["Сотрудник", "Ставка/день", "Смен", "Оклад", "Мотивация", "Корр.", "Конкурсы", "Итого"]
-        col_widths = [28, 14, 9, 16, 14, 14, 14, 16]
+        # ── Заголовок ведомости ───────────────────────────────────────────────
+        ws["A1"] = f"Зарплатная ведомость — {mn} {year}"
+        ws["A1"].font = Font(bold=True, size=13)
+        ws["A2"] = f"Формула: Оклад = Ставка × (Смен + Оплач. отсутствия)  |  Итого = Оклад + Мотивация + Корректировки + Конкурсы"
+        ws["A2"].font = meta_font
+        ws.merge_cells("A2:I2")
 
+        # ── 9 колонок: добавлен «Оплач. отсутств.», расшифровано «Корр.» ─────
+        headers = ["Сотрудник", "Ставка/день", "Смен (раб.)", "Оплач. отсутств.",
+                   "Оклад", "Мотивация", "Корректировки", "Конкурсы", "Итого"]
+        col_widths = [28, 14, 12, 16, 16, 14, 16, 14, 16]
+        HDR_ROW = 4
         for i, (h, w) in enumerate(zip(headers, col_widths), 1):
-            cell = ws.cell(row=1, column=i, value=h)
+            cell = ws.cell(row=HDR_ROW, column=i, value=h)
             cell.font = hdr_font
             cell.fill = hdr_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = border
             ws.column_dimensions[get_column_letter(i)].width = w
-        ws.row_dimensions[1].height = 28
-        ws.freeze_panes = "A2"
+        ws.row_dimensions[HDR_ROW].height = 28
+        ws.freeze_panes = f"A{HDR_ROW + 1}"
 
-        for row_idx, r in enumerate(rows, 2):
+        for row_idx, r in enumerate(rows, HDR_ROW + 1):
             row_fill = even_fill if row_idx % 2 == 0 else None
-            for col_idx, val in enumerate(r, 1):
+            for col_idx, val in enumerate(r[:9], 1):
                 cell = ws.cell(row=row_idx, column=col_idx, value=val)
                 cell.border = border
                 if row_fill:
                     cell.fill = row_fill
-                if col_idx in (2, 4, 5, 6, 7, 8):
+                if col_idx in (2, 5, 6, 7, 8, 9):
                     cell.number_format = '#,##0.00 ₽'
                     cell.alignment = Alignment(horizontal="right")
-                elif col_idx == 3:
+                elif col_idx in (3, 4):
                     cell.alignment = Alignment(horizontal="center")
-                if col_idx == 8:
+                if col_idx == 9:
                     cell.font = Font(bold=True, color="166534")
 
-        # Total row
-        tr = len(rows) + 2
-        for col in range(1, 9):
+        # ── ИТОГО с разбивкой по компонентам ─────────────────────────────────
+        tr = len(rows) + HDR_ROW + 1
+        for col in range(1, 10):
             ws.cell(row=tr, column=col).border = border
             ws.cell(row=tr, column=col).fill = tot_fill
+
+        def _bold_money(row, col, val):
+            c = ws.cell(row=row, column=col, value=round(val, 2))
+            c.font = Font(bold=True)
+            c.number_format = '#,##0.00 ₽'
+            c.alignment = Alignment(horizontal="right")
+
         ws.cell(row=tr, column=1, value="ИТОГО").font = Font(bold=True)
         ws.cell(row=tr, column=3, value=sum(r[2] for r in rows)).font = Font(bold=True)
-        tot = ws.cell(row=tr, column=8, value=total_fund)
-        tot.font = Font(bold=True)
-        tot.number_format = '#,##0.00 ₽'
-        tot.alignment = Alignment(horizontal="right")
+        ws.cell(row=tr, column=4, value=sum(r[3] for r in rows)).font = Font(bold=True)
+        _bold_money(tr, 5, sum(r[4] for r in rows))
+        _bold_money(tr, 6, sum(r[5] for r in rows))
+        _bold_money(tr, 7, sum(r[6] for r in rows))
+        _bold_money(tr, 8, sum(r[7] for r in rows))
+        _bold_money(tr, 9, total_fund)
+
+        # ── Лист 2: Мотивация (детализация комиссий по продавцам) ────────────
+        if motivation_details:
+            ws_m = wb.create_sheet("Мотивация")
+            ws_m["A1"] = f"Детализация мотивации — {mn} {year}"
+            ws_m["A1"].font = Font(bold=True, size=13)
+            m_hdr_fill = PatternFill("solid", fgColor="166534")
+            m_hdr_font = Font(bold=True, color="FFFFFF", size=10)
+            m_headers = ["Сотрудник", "Дата", "Товар", "Магазин", "Кол-во", "Цена (₽)", "Комиссия (₽)"]
+            m_widths = [28, 12, 30, 20, 8, 12, 16]
+            for i, (h, w) in enumerate(zip(m_headers, m_widths), 1):
+                cell = ws_m.cell(row=3, column=i, value=h)
+                cell.font = m_hdr_font
+                cell.fill = m_hdr_fill
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = border
+                ws_m.column_dimensions[get_column_letter(i)].width = w
+            ws_m.freeze_panes = "A4"
+            m_row = 4
+            m_even = PatternFill("solid", fgColor="F0FFF4")
+            for seller_name, detail_rows in sorted(motivation_details.items()):
+                for dr in detail_rows:
+                    # commission[0] type[1] value[2] product[3] qty[4] price[5] date[6] shop[7]
+                    commission = float(dr[0] or 0)
+                    if commission == 0:
+                        continue
+                    row_fill = m_even if m_row % 2 == 0 else None
+                    for col_idx, val in enumerate(
+                        [seller_name, str(dr[6] or "")[:10], dr[3] or "—",
+                         dr[7] or "—", int(dr[4] or 0), float(dr[5] or 0), commission], 1
+                    ):
+                        cell = ws_m.cell(row=m_row, column=col_idx, value=val)
+                        cell.border = border
+                        if row_fill:
+                            cell.fill = row_fill
+                        if col_idx in (6, 7):
+                            cell.number_format = '#,##0.00 ₽'
+                            cell.alignment = Alignment(horizontal="right")
+                        elif col_idx in (2, 5):
+                            cell.alignment = Alignment(horizontal="center")
+                    m_row += 1
+            # Итого по мотивации
+            if m_row > 4:
+                for col in range(1, 8):
+                    ws_m.cell(row=m_row, column=col).border = border
+                    ws_m.cell(row=m_row, column=col).fill = PatternFill("solid", fgColor="DCFCE7")
+                ws_m.cell(row=m_row, column=1, value="ИТОГО").font = Font(bold=True)
+                tot_m = ws_m.cell(row=m_row, column=7,
+                                   value=round(sum(r[5] for r in rows), 2))
+                tot_m.font = Font(bold=True)
+                tot_m.number_format = '#,##0.00 ₽'
+                tot_m.alignment = Alignment(horizontal="right")
 
         buf = io.BytesIO()
         wb.save(buf)

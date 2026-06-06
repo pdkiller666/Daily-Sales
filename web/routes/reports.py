@@ -236,62 +236,164 @@ def reports_export_xlsx(
         groups = _aggregate(all_sales, group_by)
 
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from openpyxl.chart import BarChart, Reference
         wb = openpyxl.Workbook()
 
-        # Sheet 1: Summary
+        thin = Side(style="thin", color="D1D5DB")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        hdr_fill = PatternFill("solid", fgColor="DC2626")
+        hdr_font = Font(color="FFFFFF", bold=True, size=11)
+        even_fill = PatternFill("solid", fgColor="FFF5F5")
+        tot_fill = PatternFill("solid", fgColor="FEE2E2")
+
+        # ── Лист 1: Сводка ────────────────────────────────────────────────────
         ws1 = wb.active
         ws1.title = "Сводка"
-        hdr_fill = PatternFill("solid", fgColor="DC2626")
-        hdr_font = Font(color="FFFFFF", bold=True)
+        meta_rows = [
+            ("Период", f"{date_from} — {date_to}"),
+            ("Магазин", shop or "Все"),
+            ("Кол-во продаж", summary[0] or 0),
+            ("Общее кол-во ед.", summary[1] or 0),
+            ("Выручка (₽)", round(float(summary[2] or 0), 2)),
+            ("Средний чек (₽)", round(float(summary[3] or 0), 2)),
+        ]
         ws1.append(["Показатель", "Значение"])
         for cell in ws1[1]:
             cell.fill = hdr_fill
             cell.font = hdr_font
-        ws1.append(["Период", f"{date_from} — {date_to}"])
-        ws1.append(["Магазин", shop or "Все"])
-        ws1.append(["Кол-во продаж", summary[0] or 0])
-        ws1.append(["Общее кол-во ед.", summary[1] or 0])
-        ws1.append(["Выручка (₽)", round(float(summary[2] or 0), 2)])
-        ws1.append(["Средний чек (₽)", round(float(summary[3] or 0), 2)])
+            cell.border = border
+        for label, val in meta_rows:
+            ws1.append([label, val])
+        for row in ws1.iter_rows(min_row=2, max_row=ws1.max_row):
+            for cell in row:
+                cell.border = border
+            if isinstance(row[1].value, float):
+                row[1].number_format = '#,##0.00 ₽'
+                row[1].alignment = Alignment(horizontal="right")
         ws1.column_dimensions["A"].width = 22
-        ws1.column_dimensions["B"].width = 20
+        ws1.column_dimensions["B"].width = 22
 
-        # Sheet 2: Groups
+        # ── Лист 2: По группам (с рамками, заморозкой, чередованием, графиком)
         ws2 = wb.create_sheet("По группам")
         grp_labels = {
             "product": "Товар", "category": "Категория",
             "shop": "Магазин", "seller": "Продавец",
         }
-        ws2.append([grp_labels.get(group_by, "Группа"), "Продажи (шт)", "Кол-во", "Выручка (₽)", "Доля (%)"])
-        for cell in ws2[1]:
+        g2_headers = [grp_labels.get(group_by, "Группа"), "Транзакций", "Кол-во ед.", "Выручка (₽)", "Доля (%)"]
+        g2_widths = [30, 14, 14, 18, 12]
+        for i, (h, w) in enumerate(zip(g2_headers, g2_widths), 1):
+            cell = ws2.cell(row=1, column=i, value=h)
             cell.fill = hdr_fill
             cell.font = hdr_font
-        for g in groups:
-            ws2.append([g["label"], g["qty"], g["count"], round(g["revenue"], 2), g["pct"]])
-        for col in ["A", "B", "C", "D", "E"]:
-            ws2.column_dimensions[col].width = 18
-        ws2.column_dimensions["A"].width = 30
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+            ws2.column_dimensions[get_column_letter(i)].width = w
+        ws2.row_dimensions[1].height = 26
+        ws2.freeze_panes = "A2"
 
-        # Sheet 3: Raw sales
+        total_rev = sum(g["revenue"] for g in groups)
+        for row_idx, g in enumerate(groups, 2):
+            row_fill = even_fill if row_idx % 2 == 0 else None
+            pct = round(g["revenue"] / total_rev * 100, 1) if total_rev else 0
+            for col_idx, val in enumerate(
+                [g["label"], g["qty"], g["count"], round(g["revenue"], 2), pct], 1
+            ):
+                cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+                cell.border = border
+                if row_fill:
+                    cell.fill = row_fill
+                if col_idx == 4:
+                    cell.number_format = '#,##0.00 ₽'
+                    cell.alignment = Alignment(horizontal="right")
+                elif col_idx == 5:
+                    cell.number_format = '0.0"%"'
+                    cell.alignment = Alignment(horizontal="center")
+                elif col_idx in (2, 3):
+                    cell.alignment = Alignment(horizontal="center")
+
+        # ИТОГО строка
+        tr2 = len(groups) + 2
+        for col in range(1, 6):
+            ws2.cell(row=tr2, column=col).border = border
+            ws2.cell(row=tr2, column=col).fill = tot_fill
+        ws2.cell(row=tr2, column=1, value="ИТОГО").font = Font(bold=True)
+        ws2.cell(row=tr2, column=2, value=sum(g["qty"] for g in groups)).font = Font(bold=True)
+        ws2.cell(row=tr2, column=3, value=sum(g["count"] for g in groups)).font = Font(bold=True)
+        rev_cell = ws2.cell(row=tr2, column=4, value=round(total_rev, 2))
+        rev_cell.font = Font(bold=True)
+        rev_cell.number_format = '#,##0.00 ₽'
+        rev_cell.alignment = Alignment(horizontal="right")
+
+        # BarChart на листе 2
+        if 1 < len(groups) <= 30:
+            chart2 = BarChart()
+            chart2.type = "col"
+            chart2.title = f"Выручка по {grp_labels.get(group_by, 'группам').lower()}"
+            chart2.y_axis.title = "Выручка (₽)"
+            chart2.style = 10
+            chart2.width = 18
+            chart2.height = 12
+            data_ref2 = Reference(ws2, min_col=4, min_row=1, max_row=tr2 - 1)
+            cats_ref2 = Reference(ws2, min_col=1, min_row=2, max_row=tr2 - 1)
+            chart2.add_data(data_ref2, titles_from_data=True)
+            chart2.set_categories(cats_ref2)
+            ws2.add_chart(chart2, "G2")
+
+        # ── Лист 3: Детализация (с рамками, заморозкой, чередованием) ────────
         ws3 = wb.create_sheet("Детализация")
-        ws3.append(["Дата", "Товар", "Категория", "Магазин", "Кол-во", "Цена (₽)", "Сумма (₽)", "Продавец"])
-        for cell in ws3[1]:
+        d3_headers = ["Дата", "Товар", "Категория", "Магазин", "Кол-во", "Цена (₽)", "Сумма (₽)", "Продавец"]
+        d3_widths = [12, 28, 18, 20, 8, 12, 12, 22]
+        for i, (h, w) in enumerate(zip(d3_headers, d3_widths), 1):
+            cell = ws3.cell(row=1, column=i, value=h)
             cell.fill = hdr_fill
             cell.font = hdr_font
-        for s in all_sales:
-            fname = (s[9] or "").strip()
-            lname = (s[10] or "").strip()
-            seller = f"{fname} {lname}".strip() or "—"
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+            ws3.column_dimensions[get_column_letter(i)].width = w
+        ws3.row_dimensions[1].height = 26
+        ws3.freeze_panes = "A2"
+
+        even_fill3 = PatternFill("solid", fgColor="FFF5F5")
+        d3_total_qty = 0
+        d3_total_rev = 0.0
+        for row_idx, s in enumerate(all_sales, 2):
+            fname_ = (s[9] or "").strip()
+            lname_ = (s[10] or "").strip()
+            seller = f"{fname_} {lname_}".strip() or "—"
             qty = int(s[3] or 0)
             price = float(s[4] or 0)
-            ws3.append([
-                str(s[6] or "")[:10],
-                s[7] or "—", s[8] or "—", s[2] or "—",
-                qty, round(price, 2), round(qty * price, 2), seller,
-            ])
-        for col, w in zip(["A", "B", "C", "D", "E", "F", "G", "H"], [12, 28, 18, 20, 8, 12, 12, 22]):
-            ws3.column_dimensions[col].width = w
+            amount = round(qty * price, 2)
+            d3_total_qty += qty
+            d3_total_rev += amount
+            row_fill3 = even_fill3 if row_idx % 2 == 0 else None
+            for col_idx, val in enumerate(
+                [str(s[6] or "")[:10], s[7] or "—", s[8] or "—", s[2] or "—",
+                 qty, round(price, 2), amount, seller], 1
+            ):
+                cell = ws3.cell(row=row_idx, column=col_idx, value=val)
+                cell.border = border
+                if row_fill3:
+                    cell.fill = row_fill3
+                if col_idx in (6, 7):
+                    cell.number_format = '#,##0.00 ₽'
+                    cell.alignment = Alignment(horizontal="right")
+                elif col_idx == 5:
+                    cell.alignment = Alignment(horizontal="center")
+
+        # ИТОГО детализации
+        if all_sales:
+            tr3 = len(all_sales) + 2
+            for col in range(1, 9):
+                ws3.cell(row=tr3, column=col).border = border
+                ws3.cell(row=tr3, column=col).fill = tot_fill
+            ws3.cell(row=tr3, column=1, value="ИТОГО").font = Font(bold=True)
+            ws3.cell(row=tr3, column=5, value=d3_total_qty).font = Font(bold=True)
+            rc = ws3.cell(row=tr3, column=7, value=round(d3_total_rev, 2))
+            rc.font = Font(bold=True)
+            rc.number_format = '#,##0.00 ₽'
+            rc.alignment = Alignment(horizontal="right")
 
         buf = io.BytesIO()
         wb.save(buf)

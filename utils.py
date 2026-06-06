@@ -358,7 +358,8 @@ def generate_excel_report(data, title, period, shop_filter=None):
             chart = BarChart()
             chart.type    = "col"
             chart.title   = "Продажи по категориям"
-            chart.y_axis.title = "Сумма"
+            chart.y_axis.title = "Сумма (₽)"
+            chart.y_axis.numFmt = '#,##0'
             chart.x_axis.title = "Категория"
             chart.style   = 10
             chart.width   = 20
@@ -379,7 +380,8 @@ def generate_excel_report(data, title, period, shop_filter=None):
             ws3['A1'] = "Статистика по продавцам"
             ws3['A1'].font = TITLE_FONT
 
-            sel_headers = ['Продавец', 'Магазин', 'Кол-во', 'Сумма', 'Доля%']
+            # добавлен «Ср. чек»
+            sel_headers = ['Продавец', 'Магазин', 'Кол-во', 'Сумма', 'Ср. чек', 'Доля%']
             for col, hdr in enumerate(sel_headers, 1):
                 cell = ws3.cell(row=3, column=col, value=hdr)
                 cell.font = HDR_FONT
@@ -389,21 +391,27 @@ def generate_excel_report(data, title, period, shop_filter=None):
             sel_row = 4
             for (name, shop), stats in sorted(seller_stats.items(), key=lambda x: x[1]['sum'], reverse=True):
                 pct = (stats['sum'] / total_sum * 100) if total_sum > 0 else 0
+                avg_chk = (stats['sum'] / stats['quantity']) if stats['quantity'] > 0 else 0
                 ws3.cell(row=sel_row, column=1, value=name)
                 ws3.cell(row=sel_row, column=2, value=shop)
                 c3a = ws3.cell(row=sel_row, column=3, value=stats['quantity'])
                 c3b = ws3.cell(row=sel_row, column=4, value=stats['sum'])
+                c3c = ws3.cell(row=sel_row, column=5, value=round(avg_chk, 2))
                 c3a.number_format = FMT_INT
                 c3b.number_format = FMT_MONEY
-                ws3.cell(row=sel_row, column=5, value=round(pct, 1))
+                c3c.number_format = FMT_MONEY
+                ws3.cell(row=sel_row, column=6, value=round(pct, 1))
                 sel_row += 1
 
             ws3.cell(row=sel_row, column=1, value='ИТОГО')
             c3t1 = ws3.cell(row=sel_row, column=3, value=total_qty)
             c3t2 = ws3.cell(row=sel_row, column=4, value=total_sum)
+            avg_total = (total_sum / total_qty) if total_qty > 0 else 0
+            c3t3 = ws3.cell(row=sel_row, column=5, value=round(avg_total, 2))
             c3t1.number_format = FMT_INT
             c3t2.number_format = FMT_MONEY
-            for col in range(1, 6):
+            c3t3.number_format = FMT_MONEY
+            for col in range(1, 7):
                 ws3.cell(row=sel_row, column=col).fill = TOTAL_FILL
                 ws3.cell(row=sel_row, column=col).font = TOTAL_FONT
 
@@ -447,7 +455,8 @@ def generate_excel_report(data, title, period, shop_filter=None):
                 chart2 = BarChart()
                 chart2.type   = "col"
                 chart2.title  = "Продажи по дням"
-                chart2.y_axis.title = "Сумма"
+                chart2.y_axis.title = "Сумма (₽)"
+                chart2.y_axis.numFmt = '#,##0'
                 chart2.x_axis.title = "Дата"
                 chart2.style  = 10
                 chart2.width  = 20
@@ -461,6 +470,49 @@ def generate_excel_report(data, title, period, shop_filter=None):
             for col_cells in ws4.columns:
                 length = max((len(str(cell.value or '')) for cell in col_cells), default=10)
                 ws4.column_dimensions[col_cells[0].column_letter].width = min(length + 2, 50)
+
+        # ── Лист KPI: ключевые показатели ────────────────────────────────────
+        ws_kpi = wb.create_sheet("KPI")
+        ws_kpi['A1'] = "Ключевые показатели"
+        ws_kpi['A1'].font = TITLE_FONT
+        ws_kpi.cell(row=2, column=1, value=f"Период: {period}").font = Font(italic=True, size=10, color="6B7280")
+
+        kpi_hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        for i, h in enumerate(["Показатель", "Значение"], 1):
+            c = ws_kpi.cell(row=4, column=i, value=h)
+            c.font = HDR_FONT
+            c.fill = kpi_hdr_fill
+            c.alignment = Alignment(horizontal='center')
+
+        avg_check = (total_sum / total_qty) if total_qty > 0 else 0
+        best_cat_name, best_cat_rev = ("—", 0)
+        if sorted_cats:
+            best_cat_name, best_cat_stats = sorted_cats[0]
+            best_cat_rev = best_cat_stats['sum']
+        best_seller_name, best_seller_rev = ("—", 0)
+        if seller_stats:
+            best_seller_key = max(seller_stats.items(), key=lambda x: x[1]['sum'])
+            best_seller_name = best_seller_key[0][0]
+            best_seller_rev = best_seller_key[1]['sum']
+
+        kpi_rows = [
+            ("Выручка (₽)", round(total_sum, 2)),
+            ("Продано единиц", total_qty),
+            ("Средний чек (₽)", round(avg_check, 2)),
+            ("Лучшая категория", f"{best_cat_name} — {best_cat_rev:,.2f} ₽"),
+            ("Лучший продавец", f"{best_seller_name} — {best_seller_rev:,.2f} ₽" if best_seller_name != "—" else "—"),
+        ]
+        for r_idx, (label, val) in enumerate(kpi_rows, 5):
+            ws_kpi.cell(row=r_idx, column=1, value=label)
+            cell_v = ws_kpi.cell(row=r_idx, column=2, value=val)
+            if isinstance(val, float):
+                cell_v.number_format = '#,##0.00'
+                cell_v.alignment = Alignment(horizontal='right')
+            if r_idx % 2 == 0:
+                for c in range(1, 3):
+                    ws_kpi.cell(row=r_idx, column=c).fill = TOTAL_FILL
+        ws_kpi.column_dimensions['A'].width = 24
+        ws_kpi.column_dimensions['B'].width = 36
 
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
         wb.save(temp_file.name)
