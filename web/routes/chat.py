@@ -925,6 +925,46 @@ def dm_conversation_page(request: Request, peer_id: int):
     return request.app.state.templates.TemplateResponse(request, "chat/dm.html", ctx)
 
 
+# ── API: org members (for "new conversation" list) ───────────────────────────
+
+@router.get("/api/dm/members")
+def api_dm_members(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "members": []}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        min_plan = _get_chat_min_plan()
+        if min_plan == "Отключён":
+            return JSONResponse({"ok": True, "members": []})
+        db = get_web_db(telegram_id, org_db)
+        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+            return JSONResponse({"ok": True, "members": []})
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return JSONResponse({"ok": True, "members": []})
+        rows = db.get_dm_org_members(exclude_user_id=user_db_id)
+        members = [
+            {
+                "id": r[0],
+                "display_name": f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or f"User#{r[0]}",
+                "initial": ((f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or "?")[0]).upper(),
+                "shop_name": r[4] or "",
+            }
+            for r in rows
+        ]
+        return JSONResponse({"ok": True, "members": members})
+    except Exception as exc:
+        logger.error(f"api_dm_members error: {exc}")
+        return JSONResponse({"ok": False, "members": []})
+
+
 # ── API: contacts (JSON) ──────────────────────────────────────────────────────
 
 @router.get("/api/dm/contacts")

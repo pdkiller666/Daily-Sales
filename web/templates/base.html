@@ -373,8 +373,8 @@ function toastMgr() {
             <span class="flex-1">Чат</span>
         </a>
         {% set _dmcnt = dm_unread_count(request) %}
-        <a href="/chat/dm"
-           class="nav-link {% if request.url.path.startswith('/chat/dm') %}nav-active{% endif %}">
+        <a href="/chat?dm=1"
+           class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">✉️</span>
             <span class="flex-1">Сообщения</span>
             {% if _dmcnt > 0 %}
@@ -1742,8 +1742,8 @@ function mainApp() {
                     <span class="sht-icon">💬</span>
                     <span class="sht-label">Чат</span>
                 </a>
-                <a href="/chat/dm" @click="moreOpen=false"
-                   class="sht-item {% if _p.startswith('/chat/dm') %}sht-active{% endif %}">
+                <a href="/chat?dm=1" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/chat') %}sht-active{% endif %}">
                     <span class="sht-icon">✉️</span>
                     <span class="sht-label">Сообщения</span>
                 </a>

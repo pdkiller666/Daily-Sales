@@ -91,6 +91,31 @@ html.dark .topic-menu-item:hover { background:#374151; }
 .spin { animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
+/* ── Mode toggle ── */
+.chat-mode-btn { display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:9999px;
+                 font-size:0.8125rem;font-weight:500;cursor:pointer;transition:background .15s,color .15s;user-select:none; }
+.chat-mode-active { background:#2563eb;color:#fff; }
+.chat-mode-idle   { background:#f1f5f9;color:#475569; }
+html.dark .chat-mode-idle { background:#1e293b;color:#94a3b8; }
+.chat-mode-idle:hover { background:#e2e8f0; }
+html.dark .chat-mode-idle:hover { background:#2d3748; }
+
+/* ── DM contacts list ── */
+#dm-contacts-col { width:260px;flex-shrink:0;border-right:1px solid #e2e8f0; }
+html.dark #dm-contacts-col { border-color:#1e293b; }
+.dm-contact-row { display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;transition:background .12s; }
+.dm-contact-row:hover { background:#f8fafc; }
+html.dark .dm-contact-row:hover { background:#1e293b; }
+.dm-contact-row.active { background:#eff6ff; }
+html.dark .dm-contact-row.active { background:#1e3a5f; }
+.dm-avatar { width:36px;height:36px;border-radius:50%;background:#2563eb;color:#fff;
+             display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;flex-shrink:0; }
+
+/* ── DM conversation ── */
+.dm-bubble-mine  { background:#2563eb;color:#fff;border-radius:1rem 1rem 0.25rem 1rem; }
+.dm-bubble-other { background:#fff;color:#1e293b;border-radius:1rem 1rem 1rem 0.25rem;border:1px solid #e2e8f0; }
+html.dark .dm-bubble-other { background:#1e293b;color:#e2e8f0;border-color:#334155; }
+
 /* ── Search panel ── */
 #search-panel {
     position:absolute; inset:0; z-index:20;
@@ -156,19 +181,37 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
 
     <!-- ══ Header ══ -->
     <div class="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
-        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0">💬</div>
+        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0"
+             x-text="dmMode ? '✉️' : '💬'"></div>
         <div class="flex-1 min-w-0">
-            <h1 class="font-bold text-slate-800 dark:text-slate-100 text-base leading-none">Чат команды</h1>
-            <p class="text-xs text-slate-400 mt-0.5 truncate" x-text="'#' + currentTopicName"></p>
+            <h1 class="font-bold text-slate-800 dark:text-slate-100 text-base leading-none"
+                x-text="dmMode ? 'Личные сообщения' : 'Чат команды'"></h1>
+            <p class="text-xs text-slate-400 mt-0.5 truncate"
+               x-text="dmMode ? (dmPeerName || 'Выберите диалог') : ('#' + currentTopicName)"></p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span class="text-xs text-slate-400 hidden sm:inline">онлайн</span>
-            <!-- Search button -->
-            <button @click="openSearch()"
+            <!-- Mode toggle -->
+            <div class="flex items-center gap-1 mr-1">
+                <button @click="switchToGroup()"
+                        :class="!dmMode ? 'chat-mode-active' : 'chat-mode-idle'"
+                        class="chat-mode-btn" title="Общий чат">
+                    💬 <span class="hidden sm:inline">Общий</span>
+                </button>
+                <button @click="switchToDm()"
+                        :class="dmMode ? 'chat-mode-active' : 'chat-mode-idle'"
+                        class="chat-mode-btn" title="Личные сообщения">
+                    ✉️ <span class="hidden sm:inline">Личные</span>
+                    <span x-show="dmTotalUnread > 0"
+                          class="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold bg-red-500 text-white"
+                          x-text="dmTotalUnread > 9 ? '9+' : dmTotalUnread"></span>
+                </button>
+            </div>
+            <span x-show="!dmMode" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <!-- Search button (group mode only) -->
+            <button x-show="!dmMode" @click="openSearch()"
                     :class="searchOpen ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400' : 'text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700'"
                     class="p-2 rounded-xl transition-colors" title="Поиск (Ctrl+F)">
-                <svg class="w-4.5 h-4.5 w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
                 </svg>
@@ -177,7 +220,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     </div>
 
     <!-- ══ Topic tabs ══ -->
-    <div class="shrink-0 px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+    <div x-show="!dmMode" class="shrink-0 px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
         <div class="flex items-center gap-2 overflow-x-auto scroll-smooth"
              style="scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px"
              id="topics-bar">
@@ -362,7 +405,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     </div>
 
     <!-- ══ Messages area ══ -->
-    <div id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-4 sm:px-6 relative">
+    <div x-show="!dmMode" id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-4 sm:px-6 relative">
 
         <!-- Loading overlay when switching topics -->
         <div x-show="loadingTopic" x-cloak
@@ -432,7 +475,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     </div>
 
     <!-- ══ Input area ══ -->
-    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
+    <div x-show="!dmMode" class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
 
         <!-- File preview -->
         <div x-show="attachedFile" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
@@ -486,6 +529,235 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
         </form>
         <p class="text-[10px] text-slate-400 mt-1.5 px-1">Макс. 20 МБ · Изображения, PDF, Word, Excel, CSV, TXT · Shift+Enter — перенос</p>
     </div>
+
+    <!-- ══ DM Panel ══ -->
+    <div x-show="dmMode" x-cloak class="flex flex-1 min-h-0 overflow-hidden">
+
+        <!-- Left: Contacts list -->
+        <div id="dm-contacts-col"
+             class="flex flex-col bg-white dark:bg-slate-900"
+             :class="dmMobileShowConv ? 'hidden md:flex' : 'flex'">
+
+            <!-- Search + new button -->
+            <div class="flex items-center gap-2 p-2.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <input x-model="dmSearch" type="search" placeholder="Поиск…" autocomplete="off"
+                       class="flex-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-200 px-2.5 py-1.5 outline-none focus:border-blue-400">
+                <button @click="dmNewMode = !dmNewMode; dmSearch = ''"
+                        :class="dmNewMode ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                        class="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-base font-bold transition-colors"
+                        :title="dmNewMode ? 'Мои диалоги' : 'Написать'">
+                    <span x-text="dmNewMode ? '←' : '＋'"></span>
+                </button>
+            </div>
+
+            <!-- Contact rows -->
+            <div class="flex-1 overflow-y-auto">
+                <!-- Loading -->
+                <div x-show="dmLoading" class="flex justify-center items-center py-10">
+                    <svg class="w-5 h-5 spin text-blue-400" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                </div>
+
+                <!-- Existing contacts -->
+                <template x-if="!dmNewMode">
+                    <div>
+                        <template x-for="c in dmFilteredContacts" :key="c.id">
+                            <div class="dm-contact-row"
+                                 :class="c.id === dmPeerId ? 'active' : ''"
+                                 @click="openDmConversation(c)">
+                                <div class="dm-avatar" x-text="c.initial"></div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex justify-between items-baseline gap-1">
+                                        <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate" x-text="c.display_name"></span>
+                                        <span class="text-[10px] text-slate-400 shrink-0" x-text="c.last_at"></span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="c.last_msg"></p>
+                                </div>
+                                <span x-show="c.unread > 0"
+                                      class="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ml-1"
+                                      x-text="c.unread > 9 ? '9+' : c.unread"></span>
+                            </div>
+                        </template>
+                        <div x-show="!dmLoading && dmContacts.length === 0"
+                             class="flex flex-col items-center justify-center py-10 text-slate-400 text-center px-4">
+                            <div class="text-3xl mb-2">✉️</div>
+                            <p class="text-sm">Нет диалогов</p>
+                            <p class="text-xs mt-1">Нажмите «＋» чтобы написать</p>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- New conversation: all org members -->
+                <template x-if="dmNewMode">
+                    <div>
+                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1">Сотрудники</p>
+                        <template x-for="m in dmFilteredMembers" :key="m.id">
+                            <div class="dm-contact-row" @click="openDmConversation(m)">
+                                <div class="dm-avatar" style="background:#64748b" x-text="m.initial"></div>
+                                <div class="flex-1 min-w-0">
+                                    <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate block" x-text="m.display_name"></span>
+                                    <p x-show="m.shop_name" class="text-xs text-slate-400 truncate" x-text="m.shop_name"></p>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="dmMembers.length === 0"
+                             class="text-center text-xs text-slate-400 py-6">Нет других сотрудников</div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Right: Conversation -->
+        <div class="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900"
+             :class="(!dmMobileShowConv && !dmPeerId) ? 'hidden md:flex' : 'flex'">
+
+            <!-- No peer selected -->
+            <div x-show="!dmPeerId"
+                 class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2">
+                <div class="text-5xl">✉️</div>
+                <p class="font-medium text-slate-600 dark:text-slate-300">Выберите диалог</p>
+                <p class="text-sm">или нажмите «＋» чтобы написать</p>
+            </div>
+
+            <!-- Active conversation -->
+            <template x-if="dmPeerId">
+                <div class="flex flex-col h-full">
+
+                    <!-- Conversation header -->
+                    <div class="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
+                        <button @click="dmMobileShowConv = false; dmPeerId = 0; history.replaceState(null,'','/chat?dm=1')"
+                                class="md:hidden text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded -ml-1">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                        <div class="dm-avatar shrink-0" style="width:32px;height:32px;font-size:.8rem"
+                             x-text="dmPeerInitial"></div>
+                        <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate"
+                              x-text="dmPeerName"></span>
+                        <div class="w-2 h-2 rounded-full shrink-0"
+                             :class="dmWsOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"
+                             :title="dmWsOnline ? 'Подключено' : 'Переподключение…'"></div>
+                    </div>
+
+                    <!-- Messages scroll -->
+                    <div id="dm-conv-scroll" class="flex-1 overflow-y-auto p-4 flex flex-col gap-2"
+                         style="scrollbar-width:thin">
+                        <!-- Load more -->
+                        <div x-show="dmHasMore" class="text-center py-1 shrink-0">
+                            <button @click="dmLoadMore()" :disabled="dmLoadingMore"
+                                    class="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                                    x-text="dmLoadingMore ? 'Загрузка…' : 'Загрузить ранее'"></button>
+                        </div>
+
+                        <!-- Messages -->
+                        <template x-for="m in dmMessages" :key="m.id">
+                            <div class="flex items-end gap-1.5"
+                                 :class="m.is_mine ? 'flex-row-reverse' : ''"
+                                 :data-dmid="m.id">
+                                <template x-if="!m.is_mine">
+                                    <div class="dm-avatar shrink-0"
+                                         style="width:28px;height:28px;font-size:.75rem"
+                                         x-text="dmPeerInitial"></div>
+                                </template>
+                                <div :class="m.is_mine ? 'items-end' : 'items-start'"
+                                     class="flex flex-col max-w-[72%]">
+                                    <div class="px-3 py-2 text-sm leading-relaxed shadow-sm"
+                                         :class="m.is_mine ? 'dm-bubble-mine' : 'dm-bubble-other'">
+                                        <!-- Image -->
+                                        <template x-if="m.has_file && m.is_image">
+                                            <a :href="m.file_url" target="_blank">
+                                                <img :src="m.file_url" :alt="m.file_name" class="file-preview-img mb-1">
+                                            </a>
+                                        </template>
+                                        <!-- File -->
+                                        <template x-if="m.has_file && !m.is_image">
+                                            <a :href="m.file_url" target="_blank" class="attach-chip mb-1">
+                                                <span>📎</span>
+                                                <span class="truncate" x-text="m.file_name"></span>
+                                            </a>
+                                        </template>
+                                        <!-- Text -->
+                                        <span x-show="m.message" x-text="m.message"></span>
+                                        <!-- Delete -->
+                                        <button x-show="m.can_delete"
+                                                @click="dmDeleteMsg(m.id)"
+                                                class="msg-del-btn ml-1.5 text-[11px]"
+                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
+                                                title="Удалить">✕</button>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 mt-0.5 px-1"
+                                       :class="m.is_mine ? 'text-right' : ''"
+                                       x-text="m.created_at"></p>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Empty state -->
+                        <div x-show="dmMessages.length === 0 && !dmLoadingMore"
+                             class="flex-1 flex items-center justify-center text-slate-400 text-sm py-10">
+                            Нет сообщений. Напишите первым! 👋
+                        </div>
+
+                        <!-- Typing indicator -->
+                        <p x-show="dmTypingText" x-text="dmTypingText"
+                           class="text-xs text-slate-400 px-1 h-4 shrink-0"></p>
+                        <div id="dm-conv-bottom"></div>
+                    </div>
+
+                    <!-- Input -->
+                    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 pb-[3.875rem] lg:pb-3 bg-white dark:bg-slate-900">
+                        <!-- File preview -->
+                        <div x-show="dmAttachedFile" x-cloak class="mb-2 flex items-center gap-2">
+                            <template x-if="dmAttachedFile">
+                                <div class="attach-chip">
+                                    <span x-text="dmAttachedFile.type.startsWith('image/') ? '🖼️' : '📎'"></span>
+                                    <span class="truncate" x-text="dmAttachedFile.name"></span>
+                                    <button @click="dmClearFile()" class="ml-1 text-slate-400 hover:text-red-500 text-base">×</button>
+                                </div>
+                            </template>
+                        </div>
+                        <form @submit.prevent="dmSend()" class="flex items-end gap-2">
+                            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файл">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                                </svg>
+                                <input type="file" class="hidden"
+                                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                                       @change="onDmFileChange($event)">
+                            </label>
+                            <textarea
+                                x-model="dmText"
+                                @keydown.enter.exact.prevent="dmSend()"
+                                @keydown.enter.shift.exact="dmText += '\n'"
+                                @input="onDmTyping($event.target)"
+                                rows="1"
+                                :placeholder="'Написать ' + dmPeerName + '… (Enter — отправить)'"
+                                :disabled="dmSending"
+                                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
+                                style="min-height:42px;max-height:120px"
+                            ></textarea>
+                            <button type="submit"
+                                    :disabled="dmSending || (!dmText.trim() && !dmAttachedFile)"
+                                    :class="(dmSending || (!dmText.trim() && !dmAttachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
+                                    class="shrink-0 w-11 h-11 bg-blue-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-sm">
+                                <svg x-show="!dmSending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
+                                </svg>
+                                <svg x-show="dmSending" style="display:none" class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -536,6 +808,46 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── polling ── */
         pollTimer: null,
 
+        /* ── DM mode ── */
+        dmMode:            false,
+        dmContacts:        [],
+        dmMembers:         [],
+        dmPeerId:          0,
+        dmPeerName:        '',
+        dmPeerInitial:     '?',
+        dmMessages:        [],
+        dmText:            '',
+        dmSending:         false,
+        dmSearch:          '',
+        dmNewMode:         false,
+        dmAttachedFile:    null,
+        dmHasMore:         false,
+        dmLoadingMore:     false,
+        dmLoading:         false,
+        dmTypingText:      '',
+        dmTypingTimer:     null,
+        dmTypingHideTimer: null,
+        dmWs:              null,
+        dmWsRetry:         1000,
+        dmWsRetryTimer:    null,
+        dmWsOnline:        false,
+        dmMobileShowConv:  false,
+        dmTotalUnread:     {{ dm_unread_count(request) if dm_unread_count is defined else 0 }},
+        _dmInitPeer:       0,
+        _dmKeepalive:      null,
+
+        /* ── DM computed ── */
+        get dmFilteredContacts() {
+            const q = (this.dmSearch || '').toLowerCase();
+            return q ? this.dmContacts.filter(c => (c.display_name||'').toLowerCase().includes(q)) : this.dmContacts;
+        },
+        get dmFilteredMembers() {
+            const existIds = new Set(this.dmContacts.map(c => c.id));
+            const q = (this.dmSearch || '').toLowerCase();
+            const all = this.dmMembers.filter(m => !existIds.has(m.id));
+            return q ? all.filter(m => (m.display_name||'').toLowerCase().includes(q)) : all;
+        },
+
         /* ════════════════════════════════════════════ */
         init() {
             /* pre-populate with server-side messages so they show immediately */
@@ -549,9 +861,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     const active = document.activeElement;
                     if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return;
                     e.preventDefault();
-                    this.openSearch();
+                    if (!this.dmMode) this.openSearch();
                 }
             });
+            /* Auto-switch to DM mode from URL */
+            this.dmAutoModeFromUrl();
         },
 
         scrollBottom(force = false) {
@@ -803,6 +1117,247 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 }
             }, targetTopicId !== this.currentTopicId ? 400 : 50);
         },
+
+        /* ══ DM METHODS ══════════════════════════════════════════════════════ */
+
+        /* ── Switch modes ── */
+        switchToDm() {
+            this.dmMode = true;
+            if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+            this.dmLoadContacts();
+            this.dmWsConnect();
+            history.replaceState(null, '', '/chat?dm=1');
+        },
+        switchToGroup() {
+            this.dmMode = false;
+            this.dmWsDisconnect();
+            this.startPolling();
+            const suffix = this.currentTopicId !== 1 ? '?topic=' + this.currentTopicId : '';
+            history.replaceState(null, '', '/chat' + suffix);
+        },
+
+        /* ── Load contacts ── */
+        async dmLoadContacts() {
+            this.dmLoading = true;
+            try {
+                const res = await fetch('/api/dm/contacts');
+                const data = await res.json();
+                if (data.ok) {
+                    this.dmContacts = data.contacts || [];
+                    this.dmTotalUnread = data.unread_total || 0;
+                }
+            } catch(e) {}
+            await this.dmLoadMembers();
+            /* Auto-open peer from URL */
+            if (this._dmInitPeer) {
+                const pid = this._dmInitPeer;
+                this._dmInitPeer = 0;
+                const c = this.dmContacts.find(x => x.id === pid)
+                       || this.dmMembers.find(x => x.id === pid);
+                if (c) await this.openDmConversation(c);
+            }
+            this.dmLoading = false;
+        },
+        async dmLoadMembers() {
+            try {
+                const res = await fetch('/api/dm/members');
+                const data = await res.json();
+                if (data.ok) this.dmMembers = data.members || [];
+            } catch(e) {}
+        },
+
+        /* ── Open conversation ── */
+        async openDmConversation(contact) {
+            this.dmPeerId       = contact.id;
+            this.dmPeerName     = contact.display_name || ('User#' + contact.id);
+            this.dmPeerInitial  = contact.initial || (this.dmPeerName[0] || '?').toUpperCase();
+            this.dmMessages     = [];
+            this.dmHasMore      = false;
+            this.dmMobileShowConv = true;
+            this.dmNewMode      = false;
+            /* clear unread badge */
+            const c = this.dmContacts.find(x => x.id === contact.id);
+            if (c) { this.dmTotalUnread -= (c.unread || 0); c.unread = 0; if (this.dmTotalUnread < 0) this.dmTotalUnread = 0; }
+            history.replaceState(null, '', '/chat?dm=1&peer=' + contact.id);
+            await this._dmFetchMessages(0);
+            this._dmScrollBottom(true);
+            this._dmWsSend({type: 'read', peer_id: contact.id});
+        },
+        async _dmFetchMessages(beforeId) {
+            try {
+                const url = '/api/dm/conversation/' + this.dmPeerId + (beforeId ? '?before_id=' + beforeId : '');
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.ok) {
+                    this.dmMessages = beforeId
+                        ? [...(data.messages || []), ...this.dmMessages]
+                        : (data.messages || []);
+                    this.dmHasMore = !!data.has_more;
+                }
+            } catch(e) {}
+        },
+        async dmLoadMore() {
+            if (this.dmLoadingMore || !this.dmHasMore || !this.dmMessages.length) return;
+            this.dmLoadingMore = true;
+            const firstId = this.dmMessages[0]?.id || 0;
+            const scroll  = document.getElementById('dm-conv-scroll');
+            const prevH   = scroll?.scrollHeight || 0;
+            if (firstId) await this._dmFetchMessages(firstId);
+            this.$nextTick(() => { if (scroll) scroll.scrollTop += scroll.scrollHeight - prevH; });
+            this.dmLoadingMore = false;
+        },
+        _dmScrollBottom(force = false) {
+            this.$nextTick(() => {
+                const el = document.getElementById('dm-conv-bottom');
+                if (el) el.scrollIntoView({ behavior: force ? 'auto' : 'smooth' });
+            });
+        },
+
+        /* ── Send DM ── */
+        async dmSend() {
+            if (this.dmSending || !this.dmPeerId) return;
+            const txt = (this.dmText || '').trim();
+            if (!txt && !this.dmAttachedFile) return;
+            this.dmSending = true;
+
+            /* WS fast path — text only */
+            if (!this.dmAttachedFile && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
+                this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt}));
+                const now = new Date();
+                const ts = String(now.getDate()).padStart(2,'0') + '.'
+                         + String(now.getMonth()+1).padStart(2,'0') + '.'
+                         + now.getFullYear() + ' '
+                         + String(now.getHours()).padStart(2,'0') + ':'
+                         + String(now.getMinutes()).padStart(2,'0');
+                this.dmMessages.push({id: 'tmp_' + Date.now(), message: txt, has_file: false,
+                    is_image: false, file_url: '', file_name: '', is_mine: true,
+                    can_delete: false, created_at: ts});
+                this.dmText = '';
+                this._dmScrollBottom();
+                this.dmSending = false;
+                return;
+            }
+
+            /* HTTP fallback (always for files) */
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('to_user_id', this.dmPeerId);
+                fd.append('message', txt);
+                if (this.dmAttachedFile) fd.append('file', this.dmAttachedFile);
+                const res  = await fetch('/chat/dm/send', {method: 'POST', body: fd});
+                const data = await res.json();
+                if (data.ok) {
+                    this.dmMessages.push({...data.message, is_mine: true, can_delete: true});
+                    this.dmText = '';
+                    this.dmClearFile();
+                    this._dmScrollBottom();
+                    this.dmLoadContacts();
+                } else { alert(data.error || 'Ошибка отправки'); }
+            } catch(e) { alert('Ошибка соединения'); }
+            this.dmSending = false;
+        },
+        async dmDeleteMsg(msgId) {
+            if (!confirm('Удалить сообщение?')) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                const res  = await fetch('/chat/dm/' + msgId + '/delete', {method: 'POST', body: fd});
+                const data = await res.json();
+                if (data.ok) this.dmMessages = this.dmMessages.filter(m => m.id !== msgId);
+            } catch(e) {}
+        },
+
+        /* ── File ── */
+        onDmFileChange(e) { const f = e.target.files[0]; if (f) this.dmAttachedFile = f; },
+        dmClearFile()     { this.dmAttachedFile = null; },
+
+        /* ── Typing ── */
+        onDmTyping(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+            clearTimeout(this.dmTypingTimer);
+            this.dmTypingTimer = setTimeout(() => {
+                this._dmWsSend({type: 'typing', to_user_id: this.dmPeerId});
+            }, 400);
+        },
+
+        /* ── WebSocket ── */
+        dmWsConnect() {
+            if (this.dmWs) return;
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const ws = new WebSocket(`${proto}://${location.host}/ws/dm`);
+            ws.onopen = () => { this.dmWsOnline = true; this.dmWsRetry = 1000; };
+            ws.onmessage = e => { try { this.handleDmWsMsg(JSON.parse(e.data)); } catch(_) {} };
+            ws.onclose = () => {
+                this.dmWsOnline = false; this.dmWs = null;
+                if (this.dmMode) {
+                    this.dmWsRetryTimer = setTimeout(() => {
+                        this.dmWsRetry = Math.min(this.dmWsRetry * 1.5, 30000);
+                        this.dmWsConnect();
+                    }, this.dmWsRetry);
+                }
+            };
+            ws.onerror = () => { this.dmWsOnline = false; };
+            this.dmWs = ws;
+            if (!this._dmKeepalive) {
+                this._dmKeepalive = setInterval(() => {
+                    if (this.dmWs && this.dmWs.readyState === WebSocket.OPEN)
+                        this.dmWs.send(JSON.stringify({type: 'ping'}));
+                }, 25000);
+            }
+        },
+        dmWsDisconnect() {
+            if (this.dmWs) { try { this.dmWs.close(); } catch(_) {} this.dmWs = null; }
+            if (this.dmWsRetryTimer) { clearTimeout(this.dmWsRetryTimer); this.dmWsRetryTimer = null; }
+            if (this._dmKeepalive)   { clearInterval(this._dmKeepalive); this._dmKeepalive = null; }
+            this.dmWsOnline = false;
+        },
+        _dmWsSend(obj) {
+            if (this.dmWs && this.dmWs.readyState === WebSocket.OPEN)
+                this.dmWs.send(JSON.stringify(obj));
+        },
+        handleDmWsMsg(data) {
+            if (data.type === 'message') {
+                const isMine = (data.from_user_id === this.myUserId);
+                if (isMine && data.confirmed) {
+                    /* Replace tmp message with confirmed id */
+                    const idx = this.dmMessages.findIndex(m => String(m.id).startsWith('tmp_'));
+                    if (idx >= 0) { this.dmMessages[idx] = {...this.dmMessages[idx], id: data.id, can_delete: true}; }
+                    return;
+                }
+                if (!isMine && data.from_user_id === this.dmPeerId) {
+                    this.dmMessages.push({
+                        id: data.id, message: data.message || '',
+                        has_file: !!data.has_file, is_image: !!data.is_image,
+                        file_url: data.file_url || '', file_name: data.file_name || '',
+                        created_at: data.created_at || '', is_mine: false, can_delete: false,
+                    });
+                    this._dmScrollBottom();
+                    this._dmWsSend({type: 'read', peer_id: this.dmPeerId});
+                }
+                if (!isMine) {
+                    /* Refresh contacts to get updated last_msg + unread */
+                    this.dmLoadContacts();
+                }
+            } else if (data.type === 'typing' && data.from_user_id === this.dmPeerId) {
+                this.dmTypingText = this.dmPeerName + ' печатает…';
+                clearTimeout(this.dmTypingHideTimer);
+                this.dmTypingHideTimer = setTimeout(() => { this.dmTypingText = ''; }, 3000);
+            }
+        },
+
+        /* ── URL auto-mode ── */
+        dmAutoModeFromUrl() {
+            const p = new URLSearchParams(location.search);
+            if (p.get('dm')) {
+                const peer = parseInt(p.get('peer') || '0');
+                if (peer) this._dmInitPeer = peer;
+                this.switchToDm();
+            }
+        },
+
+        /* ══ END DM METHODS ══════════════════════════════════════════════════ */
 
         /* ── Delete message ── */
         async deleteMsg(msgId) {
