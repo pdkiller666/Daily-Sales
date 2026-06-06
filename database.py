@@ -7938,19 +7938,22 @@ class Database:
     # ─── Корректировки зарплат ────────────────────────────────────────────────
 
     def add_salary_adjustment(self, user_id, year, month, amount, comment=None, created_by=None):
-        """Добавить ручную корректировку зарплаты (бонус > 0, штраф < 0)."""
+        """Добавить ручную корректировку зарплаты (бонус > 0, штраф < 0).
+        Возвращает id новой записи или None при ошибке."""
         try:
             conn = self.get_connection()
-            conn.execute(
+            cursor = conn.cursor()
+            cursor.execute(
                 'INSERT INTO salary_adjustments (user_id, year, month, amount, comment, created_by) VALUES (?, ?, ?, ?, ?, ?)',
                 (user_id, year, month, amount, comment, created_by)
             )
+            row_id = cursor.lastrowid
             conn.commit()
             conn.close()
-            return True
+            return row_id
         except Exception as e:
             logger.error(f"add_salary_adjustment: {e}")
-            return False
+            return None
 
     def get_salary_adjustments(self, user_id, year, month):
         """Вернуть все корректировки сотрудника за месяц (id, amount, comment, created_by, created_at, creator_name)."""
