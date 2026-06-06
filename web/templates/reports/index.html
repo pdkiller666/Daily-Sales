@@ -41,6 +41,7 @@
                 <div class="flex gap-1">
                     {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
                     <a href="/reports?period={{ p }}&shop={{ shop }}&group_by={{ group_by }}"
+                       data-period-tab
                        class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
                               {{ 'bg-blue-600 text-white' if period == p else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         {{ lbl }}

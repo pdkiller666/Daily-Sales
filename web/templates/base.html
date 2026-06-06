@@ -723,8 +723,8 @@ if ('serviceWorker' in navigator) {
 
         const dir = dx > 0 ? 'right' : 'left';
 
-        /* Period navigation (dashboard, rankings, reports…) */
-        const pLinks = Array.from(document.querySelectorAll('a[href*="period="]'));
+        /* Period navigation — only [data-period-tab] links, not every a[href*="period="] */
+        const pLinks = Array.from(document.querySelectorAll('a[data-period-tab]'));
         if (pLinks.length >= 2) {
             const activeIdx = pLinks.findIndex(a =>
                 a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
@@ -735,8 +735,8 @@ if ('serviceWorker' in navigator) {
             }
         }
 
-        /* Tab navigation (rankings tabs, etc.) */
-        const tLinks = Array.from(document.querySelectorAll('a[href*="tab="]'));
+        /* Tab navigation — only [data-tab-nav] links, not every a[href*="tab="] */
+        const tLinks = Array.from(document.querySelectorAll('a[data-tab-nav]'));
         if (tLinks.length >= 2) {
             const activeIdx = tLinks.findIndex(a =>
                 a.classList.contains('bg-blue-600') || a.classList.contains('border-blue-600')
