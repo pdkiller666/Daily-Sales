@@ -191,6 +191,8 @@ Disallow: /absences
 Disallow: /support
 Disallow: /chat
 Disallow: /chat/search
+Disallow: /chat/dm
+Disallow: /ws/dm
 Disallow: /tasks
 Disallow: /api/
 Disallow: /login
@@ -355,6 +357,32 @@ def create_web_app() -> FastAPI:
             return 0
 
     templates.env.globals['open_tasks_count'] = _open_tasks_count
+
+    def _dm_unread_count(request):
+        """Счётчик непрочитанных ЛС для сайдбара."""
+        try:
+            from web.auth import get_session_user
+            from web.deps import get_web_db
+            user = get_session_user(request)
+            if not user:
+                return 0
+            telegram_id = int(user["sub"])
+            org_db = user.get("org_db")
+            if not org_db or org_db == "data/shop_bot.db":
+                return 0
+            db = get_web_db(telegram_id, org_db)
+            conn = db.get_connection()
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            conn.close()
+            if not my_row:
+                return 0
+            return db.get_dm_unread_count(my_row[0])
+        except Exception:
+            return 0
+
+    templates.env.globals['dm_unread_count'] = _dm_unread_count
 
     app.state.templates = templates
 

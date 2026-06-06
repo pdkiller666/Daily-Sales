@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Form, Request, UploadFile, File
+from fastapi import APIRouter, Form, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, JSONResponse, Response, FileResponse
 
 logger = logging.getLogger(__name__)
@@ -713,3 +713,583 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
     except Exception as exc:
         logger.error(f"chat_search error: {exc}")
         return JSONResponse({"ok": False, "results": [], "error": "Ошибка сервера"}, status_code=500)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DIRECT MESSAGES — routes, WebSocket, file serving
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DM_SEND_RATE:   dict[int, list[float]] = {}
+_DM_POLL_RATE:   dict[str, list[float]] = {}
+
+
+def _dm_send_ok(tid: int)  -> bool: return _rate_ok(_DM_SEND_RATE, tid, 30, 60.0)
+def _dm_poll_ok(ip: str)   -> bool: return _rate_ok(_DM_POLL_RATE, ip,  60, 60.0)
+
+
+def _uploads_dir_dm(org_db: str) -> str:
+    base = os.path.splitext(org_db)[0]
+    d = base + "_uploads/dm"
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _fmt_ts(raw) -> str:
+    s = str(raw or "")[:16].replace("T", " ")
+    try:
+        d, t = s.split(" ")
+        y, mo, day = d.split("-")
+        return f"{day}.{mo}.{y} {t}"
+    except Exception:
+        return s
+
+
+def _fmt_dm(row, my_db_id: int = 0) -> dict:
+    (mid, from_id, to_id, message, file_path, file_name,
+     file_type, file_size, created_at, is_read,
+     fn, ln, uname) = row
+    display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{from_id}"
+    is_mine = (from_id == my_db_id)
+    has_file = bool(file_path)
+    is_image = (file_type or "").startswith("image/")
+    return {
+        "id": mid,
+        "from_user_id": from_id,
+        "to_user_id": to_id,
+        "message": message or "",
+        "file_name": file_name or "",
+        "file_type": file_type or "",
+        "file_size": file_size or 0,
+        "has_file": has_file,
+        "is_image": is_image,
+        "file_url": f"/chat/dm/file/{mid}" if has_file else "",
+        "created_at": _fmt_ts(created_at),
+        "is_read": bool(is_read),
+        "is_mine": is_mine,
+        "display_name": display,
+        "can_delete": is_mine,
+    }
+
+
+def _fmt_contact(row, my_id: int) -> dict:
+    peer_id, fn, ln, uname, last_msg, last_from, last_file_name, last_at, unread = row
+    display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{peer_id}"
+    initial = (display[0] if display else "?").upper()
+    preview = last_msg or (f"📎 {last_file_name}" if last_file_name else "")
+    if last_from == my_id and preview:
+        preview = "Вы: " + preview
+    return {
+        "id": peer_id,
+        "display_name": display,
+        "initial": initial,
+        "last_msg": (preview or "")[:80],
+        "last_at": _fmt_ts(last_at),
+        "unread": int(unread or 0),
+    }
+
+
+# ── Page: contacts list ───────────────────────────────────────────────────────
+
+@router.get("/chat/dm")
+def dm_contacts_page(request: Request):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    min_plan = _get_chat_min_plan()
+
+    ctx = {
+        "request": request,
+        "user": user,
+        "csrf_token": get_csrf_token(request),
+        "contacts": [],
+        "members": [],
+        "chat_allowed": False,
+        "min_plan": min_plan,
+        "my_db_id": 0,
+        "error": None,
+    }
+
+    if min_plan == "Отключён":
+        ctx["error"] = "disabled"
+        return request.app.state.templates.TemplateResponse(request, "chat/dm.html", ctx)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_plan = _get_org_active_plan(telegram_id)
+        allowed = _plan_allowed(org_plan, min_plan)
+        ctx["chat_allowed"] = allowed
+
+        if allowed:
+            user_db_id = _get_user_db_id(db, telegram_id) or 0
+            ctx["my_db_id"] = user_db_id
+            if user_db_id:
+                raw_contacts = db.get_dm_contacts(user_db_id)
+                ctx["contacts"] = [_fmt_contact(r, user_db_id) for r in raw_contacts]
+                raw_members = db.get_dm_org_members(exclude_user_id=user_db_id)
+                existing_ids = {c["id"] for c in ctx["contacts"]}
+                ctx["members"] = [
+                    {
+                        "id": r[0],
+                        "display_name": f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or f"User#{r[0]}",
+                        "initial": ((f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or "?")[0]).upper(),
+                        "shop_name": r[4] or "",
+                    }
+                    for r in raw_members if r[0] not in existing_ids
+                ]
+    except Exception as exc:
+        logger.error(f"dm_contacts_page error: {exc}")
+        ctx["error"] = "Внутренняя ошибка. Попробуйте позже."
+
+    return request.app.state.templates.TemplateResponse(request, "chat/dm.html", ctx)
+
+
+# ── Page: conversation ────────────────────────────────────────────────────────
+
+@router.get("/chat/dm/{peer_id}")
+def dm_conversation_page(request: Request, peer_id: int):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    min_plan = _get_chat_min_plan()
+
+    ctx = {
+        "request": request,
+        "user": user,
+        "csrf_token": get_csrf_token(request),
+        "contacts": [],
+        "members": [],
+        "peer": None,
+        "messages": [],
+        "chat_allowed": False,
+        "min_plan": min_plan,
+        "my_db_id": 0,
+        "peer_id": peer_id,
+        "error": None,
+    }
+
+    if min_plan == "Отключён":
+        ctx["error"] = "disabled"
+        return request.app.state.templates.TemplateResponse(request, "chat/dm.html", ctx)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_plan = _get_org_active_plan(telegram_id)
+        allowed = _plan_allowed(org_plan, min_plan)
+        ctx["chat_allowed"] = allowed
+
+        if allowed:
+            user_db_id = _get_user_db_id(db, telegram_id) or 0
+            ctx["my_db_id"] = user_db_id
+            if user_db_id:
+                raw_contacts = db.get_dm_contacts(user_db_id)
+                ctx["contacts"] = [_fmt_contact(r, user_db_id) for r in raw_contacts]
+                raw_members = db.get_dm_org_members(exclude_user_id=user_db_id)
+                existing_ids = {c["id"] for c in ctx["contacts"]}
+                ctx["members"] = [
+                    {
+                        "id": r[0],
+                        "display_name": f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or f"User#{r[0]}",
+                        "initial": ((f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or "?")[0]).upper(),
+                        "shop_name": r[4] or "",
+                    }
+                    for r in raw_members if r[0] not in existing_ids
+                ]
+                conn = db.get_connection()
+                peer_row = conn.execute(
+                    "SELECT id, first_name, last_name, username FROM users WHERE id = ?",
+                    (peer_id,)
+                ).fetchone()
+                conn.close()
+                if peer_row:
+                    pname = f"{peer_row[1] or ''} {peer_row[2] or ''}".strip() or peer_row[3] or f"User#{peer_id}"
+                    ctx["peer"] = {"id": peer_id, "display_name": pname, "initial": pname[0].upper()}
+                    rows = db.get_dm_conversation(user_db_id, peer_id, limit=50)
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id) for r in rows]
+                    db.mark_dm_read(user_db_id, peer_id)
+    except Exception as exc:
+        logger.error(f"dm_conversation_page error: {exc}")
+        ctx["error"] = "Внутренняя ошибка. Попробуйте позже."
+
+    return request.app.state.templates.TemplateResponse(request, "chat/dm.html", ctx)
+
+
+# ── API: contacts (JSON) ──────────────────────────────────────────────────────
+
+@router.get("/api/dm/contacts")
+def api_dm_contacts(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "contacts": [], "unread_total": 0}, status_code=401)
+
+    ip = request.client.host if request.client else "unknown"
+    if not _dm_poll_ok(ip):
+        return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        min_plan = _get_chat_min_plan()
+        if min_plan == "Отключён":
+            return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
+        db = get_web_db(telegram_id, org_db)
+        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+            return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
+        raw = db.get_dm_contacts(user_db_id)
+        contacts = [_fmt_contact(r, user_db_id) for r in raw]
+        unread_total = sum(c["unread"] for c in contacts)
+        return JSONResponse({"ok": True, "contacts": contacts, "unread_total": unread_total})
+    except Exception as exc:
+        logger.error(f"api_dm_contacts error: {exc}")
+        return JSONResponse({"ok": False, "contacts": [], "unread_total": 0})
+
+
+# ── API: conversation history (JSON, paged) ───────────────────────────────────
+
+@router.get("/api/dm/conversation/{peer_id}")
+def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=401)
+
+    ip = request.client.host if request.client else "unknown"
+    if not _dm_poll_ok(ip):
+        return JSONResponse({"ok": True, "messages": [], "has_more": False})
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        min_plan = _get_chat_min_plan()
+        if min_plan == "Отключён":
+            return JSONResponse({"ok": False, "messages": [], "has_more": False})
+        db = get_web_db(telegram_id, org_db)
+        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+            return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=400)
+        rows = db.get_dm_conversation(user_db_id, peer_id, limit=51, before_id=before_id)
+        has_more = len(rows) > 50
+        msgs = [_fmt_dm(r, my_db_id=user_db_id) for r in rows[:50]]
+        return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
+    except Exception as exc:
+        logger.error(f"api_dm_conversation error: {exc}")
+        return JSONResponse({"ok": False, "messages": [], "has_more": False})
+
+
+# ── HTTP send (with optional file) ────────────────────────────────────────────
+
+@router.post("/chat/dm/send")
+async def dm_send(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    to_user_id: int = Form(default=0),
+    message: str = Form(default=""),
+    file: UploadFile = File(default=None),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from web.ws_manager import dm_manager
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    if not _dm_send_ok(telegram_id):
+        return JSONResponse({"ok": False, "error": "Слишком много сообщений"}, status_code=429)
+
+    min_plan = _get_chat_min_plan()
+    if min_plan == "Отключён":
+        return JSONResponse({"ok": False, "error": "Чат отключён"}, status_code=403)
+
+    if not to_user_id:
+        return JSONResponse({"ok": False, "error": "Получатель не указан"}, status_code=400)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        org_plan = _get_org_active_plan(telegram_id)
+        if not _plan_allowed(org_plan, min_plan):
+            return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
+
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if not user_db_id:
+            return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
+
+        text = message.strip()[:2000]
+        file_path = file_name = file_type = ""
+        file_size = 0
+
+        if file and file.filename:
+            raw_data = await file.read()
+            fsize = len(raw_data)
+            if fsize > MAX_FILE_SIZE:
+                return JSONResponse({"ok": False, "error": "Файл слишком большой (макс. 20 МБ)"}, status_code=400)
+            mime = file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+            if not any(mime.startswith(p) for p in ALLOWED_MIME_PREFIXES):
+                return JSONResponse({"ok": False, "error": "Тип файла не разрешён"}, status_code=400)
+            safe_name = _safe_filename(file.filename)
+            uid = uuid.uuid4().hex[:12]
+            month_dir = datetime.now().strftime("%Y-%m")
+            uploads = _uploads_dir_dm(org_db)
+            month_path = os.path.join(uploads, month_dir)
+            os.makedirs(month_path, exist_ok=True)
+            dest = os.path.join(month_path, f"{uid}_{safe_name}")
+            with open(dest, "wb") as f_out:
+                f_out.write(raw_data)
+            file_path = dest
+            file_name = file.filename[:255]
+            file_type = mime
+            file_size = fsize
+
+        if not text and not file_path:
+            return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
+
+        new_id = db.add_dm(user_db_id, to_user_id, text, file_path, file_name, file_type, file_size)
+        if not new_id:
+            return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        payload = {
+            "type": "message",
+            "id": new_id,
+            "from_user_id": user_db_id,
+            "to_user_id": to_user_id,
+            "message": text,
+            "file_name": file_name,
+            "file_type": file_type,
+            "file_size": file_size,
+            "has_file": bool(file_path),
+            "is_image": file_type.startswith("image/") if file_type else False,
+            "file_url": f"/chat/dm/file/{new_id}" if file_path else "",
+            "created_at": now_str,
+            "is_read": False,
+        }
+        await dm_manager.send_to_user(org_db, to_user_id, payload)
+        try:
+            first_name = user.get("name", "Кто-то")
+            preview = text or (f"📎 {file_name}" if file_name else "")
+            db.add_notification_to_history(
+                user_id=to_user_id,
+                notification_type="dm",
+                message=f"💬 {first_name}: {preview[:80]}",
+            )
+        except Exception:
+            pass
+
+        msg = _fmt_dm(
+            (new_id, user_db_id, to_user_id, text, file_path, file_name,
+             file_type, file_size, now_str, 0,
+             user.get("name", ""), "", ""),
+            my_db_id=user_db_id,
+        )
+        return JSONResponse({"ok": True, "message": msg})
+
+    except Exception as exc:
+        logger.error(f"dm_send error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+# ── Delete DM ─────────────────────────────────────────────────────────────────
+
+@router.post("/chat/dm/{msg_id}/delete")
+def dm_delete(
+    request: Request,
+    msg_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        row = db.get_dm_message(msg_id)
+        ok = db.soft_delete_dm(msg_id, user_db_id, is_admin)
+        if ok and row and row[4]:
+            fpath = row[4]
+            exp_uploads = os.path.abspath(_uploads_dir_dm(org_db))
+            real_fpath = os.path.abspath(fpath)
+            if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                try:
+                    os.remove(real_fpath)
+                except OSError as e:
+                    logger.warning(f"dm_delete: не удалось удалить файл {real_fpath}: {e}")
+        return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
+    except Exception as exc:
+        logger.error(f"dm_delete error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+# ── File download ─────────────────────────────────────────────────────────────
+
+@router.get("/chat/dm/file/{msg_id}")
+def dm_file(request: Request, msg_id: int):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        row = db.get_dm_message(msg_id)
+        if not row or row[10]:
+            return Response(content="Файл не найден", status_code=404)
+        _, from_id, to_id, _, fpath, fname, ftype, _, _, _, _ = row
+        if not fpath or user_db_id not in (from_id, to_id):
+            return Response(content="Доступ запрещён", status_code=403)
+        if not os.path.isfile(fpath):
+            return Response(content="Файл не найден на диске", status_code=404)
+        exp_uploads = os.path.abspath(_uploads_dir_dm(org_db))
+        if not os.path.abspath(fpath).startswith(exp_uploads):
+            return Response(content="Доступ запрещён", status_code=403)
+        return FileResponse(fpath, media_type=ftype or "application/octet-stream",
+                            filename=fname or os.path.basename(fpath))
+    except Exception as exc:
+        logger.error(f"dm_file error: {exc}")
+        return Response(content="Ошибка", status_code=500)
+
+
+# ── WebSocket endpoint ────────────────────────────────────────────────────────
+
+@router.websocket("/ws/dm")
+async def ws_dm(websocket: WebSocket):
+    from web.auth import decode_session_token, COOKIE_NAME
+    from web.deps import get_web_db
+    from web.ws_manager import dm_manager
+
+    token = websocket.cookies.get(COOKIE_NAME, "")
+    user = decode_session_token(token) if token else None
+    if not user:
+        await websocket.close(code=4001)
+        return
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    min_plan = _get_chat_min_plan()
+    if min_plan == "Отключён" or not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        await websocket.close(code=4003)
+        return
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+    except Exception:
+        await websocket.close(code=4004)
+        return
+
+    user_db_id = _get_user_db_id(db, telegram_id)
+    if not user_db_id:
+        await websocket.close(code=4004)
+        return
+
+    await dm_manager.connect(org_db, user_db_id, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+
+            if msg_type == "message":
+                to_id = int(data.get("to_user_id", 0))
+                text = str(data.get("message", "")).strip()[:2000]
+                if not to_id or not text:
+                    continue
+                if not _dm_send_ok(telegram_id):
+                    await websocket.send_json({"type": "error", "message": "Слишком много сообщений"})
+                    continue
+                new_id = db.add_dm(user_db_id, to_id, text)
+                if not new_id:
+                    await websocket.send_json({"type": "error", "message": "Ошибка сервера"})
+                    continue
+                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                payload = {
+                    "type": "message",
+                    "id": new_id,
+                    "from_user_id": user_db_id,
+                    "to_user_id": to_id,
+                    "message": text,
+                    "has_file": False,
+                    "created_at": now_str,
+                    "is_read": False,
+                }
+                await websocket.send_json({**payload, "confirmed": True})
+                await dm_manager.send_to_user(org_db, to_id, payload)
+                try:
+                    first_name = user.get("name", "Кто-то")
+                    db.add_notification_to_history(
+                        user_id=to_id,
+                        notification_type="dm",
+                        message=f"💬 {first_name}: {text[:80]}",
+                    )
+                except Exception:
+                    pass
+
+            elif msg_type == "typing":
+                to_id = int(data.get("to_user_id", 0))
+                if to_id:
+                    await dm_manager.send_to_user(org_db, to_id, {
+                        "type": "typing",
+                        "from_user_id": user_db_id,
+                    })
+
+            elif msg_type == "read":
+                peer_id = int(data.get("peer_id", 0))
+                if peer_id:
+                    db.mark_dm_read(user_db_id, peer_id)
+                    await dm_manager.send_to_user(org_db, peer_id, {
+                        "type": "read",
+                        "by_user_id": user_db_id,
+                    })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("ws_dm error uid=%s: %s", user_db_id, e)
+    finally:
+        dm_manager.disconnect(org_db, user_db_id)

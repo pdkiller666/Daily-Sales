@@ -1,0 +1,637 @@
+{% extends "base.html" %}
+{% block title %}Сообщения{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Личные сообщения</span>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+main.ds-main { padding:0 !important; overflow:hidden; }
+footer { display:none !important; }
+
+#dm-wrapper {
+    height: calc(100vh - 3.5rem);
+    height: calc(100dvh - 3.5rem);
+    display: flex;
+}
+
+/* ── Left panel (contacts) ── */
+#dm-contacts {
+    width: 320px; flex-shrink: 0;
+    border-right: 1px solid #e2e8f0;
+    display: flex; flex-direction: column;
+    background: #fff;
+    transition: transform .2s;
+}
+html.dark #dm-contacts { background:#0f172a; border-color:#1e293b; }
+
+@media (max-width: 767px) {
+    #dm-contacts { position:absolute; inset:0; z-index:10; width:100%; }
+    #dm-contacts.hidden-mobile { transform: translateX(-100%); pointer-events:none; }
+    #dm-conversation { width:100%; }
+}
+
+.contact-item {
+    display:flex; align-items:center; gap:10px;
+    padding:10px 14px; cursor:pointer; border-radius:0;
+    transition:background .12s; border-bottom:1px solid transparent;
+}
+.contact-item:hover { background:#f1f5f9; }
+html.dark .contact-item:hover { background:#1e293b; }
+.contact-item.active { background:#eff6ff; border-bottom-color:#bfdbfe; }
+html.dark .contact-item.active { background:#1e3a5f; border-bottom-color:#3b82f6; }
+
+.contact-avatar {
+    width:40px; height:40px; border-radius:50%;
+    background:#2563eb; color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-size:.95rem; font-weight:700; flex-shrink:0;
+}
+
+/* ── Right panel (conversation) ── */
+#dm-conversation {
+    flex:1; display:flex; flex-direction:column;
+    background:#f8fafc; min-width:0;
+}
+html.dark #dm-conversation { background:#0f172a; }
+
+#dm-header {
+    height:3.25rem; padding:0 1rem;
+    display:flex; align-items:center; gap:10px;
+    border-bottom:1px solid #e2e8f0;
+    background:#fff; flex-shrink:0;
+}
+html.dark #dm-header { background:#0f172a; border-color:#1e293b; }
+
+#dm-scroll {
+    flex:1; overflow-y:auto; padding:1rem;
+    display:flex; flex-direction:column; gap:6px;
+}
+#dm-scroll::-webkit-scrollbar { width:4px; }
+#dm-scroll::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:2px; }
+
+/* ── Bubbles ── */
+.dm-row { display:flex; align-items:flex-end; gap:6px; }
+.dm-row.mine { flex-direction:row-reverse; }
+.dm-bubble { max-width:72%; word-break:break-word; border-radius:1rem; padding:8px 12px; font-size:.875rem; line-height:1.4; }
+@media(max-width:640px) { .dm-bubble { max-width:88%; } }
+.dm-row.mine  .dm-bubble { background:#2563eb; color:#fff; border-radius:1rem 1rem .25rem 1rem; }
+.dm-row.other .dm-bubble { background:#fff; color:#1e293b; border-radius:1rem 1rem 1rem .25rem; border:1px solid #e2e8f0; }
+html.dark .dm-row.other .dm-bubble { background:#1e293b; color:#e2e8f0; border-color:#334155; }
+.dm-meta { font-size:.65rem; opacity:.55; margin-top:3px; white-space:nowrap; }
+.dm-row.mine .dm-meta { text-align:right; }
+.dm-del-btn { opacity:0; transition:opacity .15s; cursor:pointer; }
+.dm-bubble:hover .dm-del-btn { opacity:.55; }
+@media(hover:none) { .dm-del-btn { opacity:.3; } }
+
+/* ── Input area ── */
+#dm-input-wrap {
+    padding:.75rem 1rem; border-top:1px solid #e2e8f0;
+    background:#fff; flex-shrink:0;
+    display:flex; flex-direction:column; gap:8px;
+}
+html.dark #dm-input-wrap { background:#0f172a; border-color:#1e293b; }
+
+/* ── WS status dot ── */
+.ws-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.ws-dot.on  { background:#22c55e; }
+.ws-dot.off { background:#f59e0b; animation:pulse .8s ease-in-out infinite alternate; }
+.ws-dot.err { background:#ef4444; }
+@keyframes pulse { to { opacity:.3; } }
+
+/* ── Empty state ── */
+#dm-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; }
+
+/* ── Typing indicator ── */
+#dm-typing { font-size:.7rem; color:#64748b; height:16px; padding:0 1rem; flex-shrink:0; }
+html.dark #dm-typing { color:#94a3b8; }
+
+/* ── New conversation modal ── */
+#dm-new-modal { position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; }
+#dm-new-modal.hidden { display:none; }
+.dm-modal-box { background:#fff; border-radius:1rem; padding:1.25rem; width:360px; max-width:calc(100vw - 2rem); max-height:80vh; display:flex; flex-direction:column; }
+html.dark .dm-modal-box { background:#1e293b; }
+
+/* ── Load more ── */
+#dm-load-more-wrap { text-align:center; padding:4px 0 8px; }
+
+/* ── File preview chip ── */
+.dm-file-chip { display:inline-flex; align-items:center; gap:6px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:4px 10px; font-size:.75rem; color:#1d4ed8; max-width:100%; overflow:hidden; }
+html.dark .dm-file-chip { background:#1e3a5f; border-color:#3b82f6; color:#93c5fd; }
+.dm-img-preview { max-height:200px; border-radius:.5rem; cursor:pointer; }
+
+/* ── No peer selected ── */
+#dm-no-peer { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="dm-wrapper">
+
+  <!-- ══ LEFT: Contacts ══ -->
+  <aside id="dm-contacts" id="dm-contacts-panel">
+    <div class="p-3 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+      <input id="dm-search" type="search" placeholder="Поиск..." autocomplete="off"
+             class="flex-1 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-200 px-3 py-1.5 outline-none focus:border-blue-400">
+      <button id="dm-new-btn" title="Новое сообщение"
+              class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg hover:bg-blue-700 transition-colors">＋</button>
+    </div>
+
+    <div id="dm-contact-list" class="flex-1 overflow-y-auto">
+      {% if not chat_allowed %}
+        <div class="p-4 text-sm text-slate-500 text-center">
+          {% if error == "disabled" %}Чат отключён{% else %}Доступно с тарифа «{{ min_plan }}»{% endif %}
+        </div>
+      {% elif contacts %}
+        {% for c in contacts %}
+        <div class="contact-item {% if peer and peer.id == c.id %}active{% endif %}"
+             data-id="{{ c.id }}" data-name="{{ c.display_name|e }}">
+          <div class="contact-avatar">{{ c.initial }}</div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-1">
+              <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate">{{ c.display_name }}</span>
+              <span class="text-[10px] text-slate-400 whitespace-nowrap flex-shrink-0">{{ c.last_at }}</span>
+            </div>
+            <p class="text-xs text-slate-500 truncate">{{ c.last_msg }}</p>
+          </div>
+          {% if c.unread > 0 %}
+          <span class="flex-shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">{{ c.unread }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="p-6 text-center text-slate-400 text-sm">
+          <div class="text-3xl mb-2">✉️</div>
+          <p>Нет переписок</p>
+          <p class="text-xs mt-1">Нажмите «＋» чтобы начать</p>
+        </div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- ══ RIGHT: Conversation ══ -->
+  <section id="dm-conversation">
+    {% if peer %}
+    <!-- Header -->
+    <div id="dm-header">
+      <button id="dm-back-btn" class="md:hidden mr-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded" title="Назад">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="contact-avatar" style="width:32px;height:32px;font-size:.8rem">{{ peer.initial }}</div>
+      <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate">{{ peer.display_name }}</span>
+      <div id="dm-ws-dot" class="ws-dot off" title="Соединение"></div>
+    </div>
+
+    <!-- Scroll area -->
+    <div id="dm-scroll">
+      <div id="dm-load-more-wrap" class="hidden">
+        <button id="dm-load-more-btn" class="text-xs text-blue-600 hover:underline py-1">Загрузить ранее</button>
+      </div>
+
+      {% for m in messages %}
+      <div class="dm-row {% if m.is_mine %}mine{% else %}other{% endif %}" data-id="{{ m.id }}">
+        {% if not m.is_mine %}
+        <div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{{ peer.initial }}</div>
+        {% endif %}
+        <div>
+          <div class="dm-bubble">
+            {% if m.has_file %}
+              {% if m.is_image %}
+              <a href="{{ m.file_url }}" target="_blank"><img src="{{ m.file_url }}" alt="{{ m.file_name|e }}" class="dm-img-preview"></a>
+              {% else %}
+              <a href="{{ m.file_url }}" target="_blank" class="dm-file-chip">📎 {{ m.file_name|e }}</a>
+              {% endif %}
+            {% endif %}
+            {% if m.message %}
+            <span>{{ m.message }}</span>
+            {% endif %}
+            {% if m.can_delete %}
+            <button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg({{ m.id }}, this)">✕</button>
+            {% endif %}
+          </div>
+          <div class="dm-meta">{{ m.created_at }}</div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <div id="dm-typing"></div>
+    </div>
+
+    <!-- Input area -->
+    <div id="dm-input-wrap">
+      <div id="dm-attach-preview" class="hidden items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+        <span id="dm-attach-name" class="truncate max-w-[200px]"></span>
+        <button onclick="dmClearFile()" class="text-red-500 font-bold">✕</button>
+      </div>
+      <div class="flex items-end gap-2">
+        <label class="flex-shrink-0 cursor-pointer text-slate-400 hover:text-blue-500 transition-colors" title="Прикрепить файл">
+          <input id="dm-file-input" type="file" class="hidden"
+                 accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.64 16.34a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        </label>
+        <textarea id="dm-input" rows="1" placeholder="Написать…"
+                  class="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400 max-h-28 overflow-y-auto"
+                  style="line-height:1.4"></textarea>
+        <button id="dm-send-btn"
+                class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-40"
+                title="Отправить (Enter)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    {% else %}
+    <!-- No peer selected -->
+    <div id="dm-no-peer">
+      <div class="text-5xl">✉️</div>
+      <p class="text-base font-medium text-slate-600 dark:text-slate-300">Выберите диалог</p>
+      <p class="text-sm">или нажмите «＋» чтобы начать новый</p>
+    </div>
+    {% endif %}
+  </section>
+
+</div>
+
+<!-- ══ New conversation modal ══ -->
+<div id="dm-new-modal" class="hidden">
+  <div class="dm-modal-box">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Новое сообщение</h2>
+      <button onclick="document.getElementById('dm-new-modal').classList.add('hidden')" class="text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
+    </div>
+    <input id="dm-member-search" type="search" placeholder="Поиск сотрудника…" autocomplete="off"
+           class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-slate-200 px-3 py-2 outline-none focus:border-blue-400 mb-2">
+    <div id="dm-member-list" class="overflow-y-auto flex-1" style="max-height:320px">
+      {% set all_people = contacts + members %}
+      {% for p in all_people %}
+      <div class="contact-item" data-id="{{ p.id }}" data-name="{{ p.display_name|e }}"
+           onclick="dmOpenConversation({{ p.id }}, '{{ p.display_name|replace("'","\\'")|e }}')">
+        <div class="contact-avatar">{{ p.initial }}</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate">{{ p.display_name }}</div>
+          {% if p.shop_name is defined and p.shop_name %}<div class="text-xs text-slate-400 truncate">{{ p.shop_name }}</div>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      <p class="p-4 text-sm text-slate-400 text-center">Нет других сотрудников</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF_TOKEN  = {{ csrf_token | tojson }};
+const MY_DB_ID    = {{ my_db_id | tojson }};
+const PEER_ID     = {{ (peer.id if peer else 0) | tojson }};
+const PEER_NAME   = {{ (peer.display_name if peer else "") | tojson }};
+const PEER_INITIAL = {{ (peer.initial if peer else "?") | tojson }};
+
+// ── WS ─────────────────────────────────────────────────────────────────────
+let ws = null;
+let wsRetryDelay = 1000;
+let wsRetryTimer = null;
+let typingTimer   = null;
+let typingHideTimer = null;
+
+function wsDot(state) {
+    const d = document.getElementById('dm-ws-dot');
+    if (!d) return;
+    d.className = 'ws-dot ' + state;
+    d.title = state === 'on' ? 'Подключено' : (state === 'off' ? 'Переподключение…' : 'Ошибка');
+}
+
+function wsConnect() {
+    if (!PEER_ID) return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/dm`);
+    ws.onopen = () => {
+        wsDot('on');
+        wsRetryDelay = 1000;
+        // Send read receipt
+        ws.send(JSON.stringify({type: 'read', peer_id: PEER_ID}));
+    };
+    ws.onmessage = e => {
+        try { handleWsMessage(JSON.parse(e.data)); } catch (_) {}
+    };
+    ws.onclose = () => {
+        wsDot('off');
+        wsRetryTimer = setTimeout(() => {
+            wsRetryDelay = Math.min(wsRetryDelay * 1.5, 30000);
+            wsConnect();
+        }, wsRetryDelay);
+    };
+    ws.onerror = () => wsDot('err');
+}
+
+function handleWsMessage(data) {
+    if (data.type === 'message') {
+        const isMine = data.from_user_id === MY_DB_ID;
+        const relevant = (data.from_user_id === PEER_ID && data.to_user_id === MY_DB_ID)
+                      || (data.from_user_id === MY_DB_ID && data.to_user_id === PEER_ID);
+        if (!relevant) return;
+        if (data.confirmed) {
+            // Find temp message and confirm it
+            const tmp = document.querySelector('[data-id="tmp"]');
+            if (tmp) { tmp.dataset.id = data.id; return; }
+        }
+        if (!isMine) {
+            appendMessage({
+                id: data.id,
+                message: data.message || '',
+                has_file: data.has_file || false,
+                file_url: data.file_url || '',
+                file_name: data.file_name || '',
+                file_type: data.file_type || '',
+                is_image: data.is_image || false,
+                created_at: data.created_at || '',
+                is_mine: false,
+                can_delete: false,
+            });
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'read', peer_id: PEER_ID}));
+            }
+        }
+    } else if (data.type === 'typing') {
+        if (data.from_user_id === PEER_ID) showTyping();
+    } else if (data.type === 'read') {
+        // could add double-tick UI
+    } else if (data.type === 'pong') {
+        // keepalive ok
+    }
+}
+
+// ── Messages ───────────────────────────────────────────────────────────────
+function appendMessage(m) {
+    const scroll = document.getElementById('dm-scroll');
+    if (!scroll) return;
+    const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
+    const typing = document.getElementById('dm-typing');
+    const row = document.createElement('div');
+    row.className = 'dm-row ' + (m.is_mine ? 'mine' : 'other');
+    row.dataset.id = m.id;
+
+    let avatarHtml = '';
+    if (!m.is_mine) {
+        avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${PEER_INITIAL}</div>`;
+    }
+
+    let bodyHtml = '';
+    if (m.has_file && m.is_image) {
+        bodyHtml += `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" alt="${escHtml(m.file_name)}" class="dm-img-preview"></a>`;
+    } else if (m.has_file) {
+        bodyHtml += `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>`;
+    }
+    if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
+    if (m.can_delete) {
+        bodyHtml += `<button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg(${m.id}, this)">✕</button>`;
+    }
+
+    row.innerHTML = `
+        ${avatarHtml}
+        <div>
+          <div class="dm-bubble">${bodyHtml}</div>
+          <div class="dm-meta">${escHtml(m.created_at)}</div>
+        </div>`;
+    scroll.insertBefore(row, typing);
+    if (atBottom) scroll.scrollTop = scroll.scrollHeight;
+}
+
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Send ────────────────────────────────────────────────────────────────────
+async function dmSend() {
+    if (!PEER_ID) return;
+    const input = document.getElementById('dm-input');
+    const fileInput = document.getElementById('dm-file-input');
+    const text = (input.value || '').trim();
+    const file = fileInput.files[0];
+    if (!text && !file) return;
+
+    const btn = document.getElementById('dm-send-btn');
+    btn.disabled = true;
+
+    // Try WS first (text only, no file)
+    if (!file && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'message', to_user_id: PEER_ID, message: text}));
+        const now = new Date();
+        const nowStr = String(now.getDate()).padStart(2,'0') + '.'
+                     + String(now.getMonth()+1).padStart(2,'0') + '.'
+                     + now.getFullYear() + ' '
+                     + String(now.getHours()).padStart(2,'0') + ':'
+                     + String(now.getMinutes()).padStart(2,'0');
+        appendMessage({id:'tmp', message:text, has_file:false, is_image:false, file_url:'', file_name:'', file_type:'', created_at:nowStr, is_mine:true, can_delete:false});
+        input.value = '';
+        input.style.height = 'auto';
+        btn.disabled = false;
+        return;
+    }
+
+    // HTTP fallback (always for files)
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF_TOKEN);
+    fd.append('to_user_id', PEER_ID);
+    fd.append('message', text);
+    if (file) fd.append('file', file);
+
+    try {
+        const res = await fetch('/chat/dm/send', {method:'POST', body:fd});
+        const data = await res.json();
+        if (data.ok) {
+            appendMessage({...data.message, is_mine:true, can_delete:true});
+            input.value = '';
+            input.style.height = 'auto';
+            dmClearFile();
+        } else {
+            alert(data.error || 'Ошибка отправки');
+        }
+    } catch(_) {
+        alert('Ошибка сети');
+    }
+    btn.disabled = false;
+}
+
+async function dmDeleteMsg(msgId, btn) {
+    if (!confirm('Удалить сообщение?')) return;
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF_TOKEN);
+    try {
+        const res = await fetch(`/chat/dm/${msgId}/delete`, {method:'POST', body:fd});
+        const data = await res.json();
+        if (data.ok) {
+            const row = document.querySelector(`.dm-row[data-id="${msgId}"]`);
+            if (row) row.remove();
+        }
+    } catch(_) {}
+}
+
+// ── Typing indicator ────────────────────────────────────────────────────────
+function showTyping() {
+    const el = document.getElementById('dm-typing');
+    if (!el) return;
+    el.textContent = `${PEER_NAME} печатает…`;
+    clearTimeout(typingHideTimer);
+    typingHideTimer = setTimeout(() => { if (el) el.textContent = ''; }, 3000);
+}
+
+function onInputTyping() {
+    if (ws && ws.readyState === WebSocket.OPEN && PEER_ID) {
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(() => {
+            ws.send(JSON.stringify({type:'typing', to_user_id:PEER_ID}));
+        }, 400);
+    }
+    // Auto-resize textarea
+    const ta = document.getElementById('dm-input');
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 112) + 'px';
+}
+
+// ── Load more messages ──────────────────────────────────────────────────────
+let loadingMore = false;
+let hasMore = false;
+
+async function dmLoadMore() {
+    if (loadingMore || !PEER_ID) return;
+    const scroll = document.getElementById('dm-scroll');
+    const firstRow = scroll.querySelector('.dm-row[data-id]');
+    const beforeId = firstRow ? parseInt(firstRow.dataset.id) : 0;
+    if (!beforeId) return;
+    loadingMore = true;
+    const btn = document.getElementById('dm-load-more-btn');
+    if (btn) btn.textContent = 'Загрузка…';
+    try {
+        const res = await fetch(`/api/dm/conversation/${PEER_ID}?before_id=${beforeId}`);
+        const data = await res.json();
+        if (data.ok && data.messages.length) {
+            const prevH = scroll.scrollHeight;
+            const typing = document.getElementById('dm-typing');
+            data.messages.forEach(m => {
+                const row = document.createElement('div');
+                row.className = 'dm-row ' + (m.is_mine ? 'mine' : 'other');
+                row.dataset.id = m.id;
+                let avatarHtml = !m.is_mine ? `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${PEER_INITIAL}</div>` : '';
+                let bodyHtml = m.has_file && m.is_image ? `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" class="dm-img-preview"></a>`
+                             : m.has_file ? `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>` : '';
+                if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
+                if (m.can_delete) bodyHtml += `<button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg(${m.id},this)">✕</button>`;
+                row.innerHTML = `${avatarHtml}<div><div class="dm-bubble">${bodyHtml}</div><div class="dm-meta">${escHtml(m.created_at)}</div></div>`;
+                scroll.insertBefore(row, scroll.querySelector('.dm-row'));
+            });
+            scroll.scrollTop += scroll.scrollHeight - prevH;
+            hasMore = data.has_more;
+            const wrap = document.getElementById('dm-load-more-wrap');
+            if (!hasMore && wrap) wrap.classList.add('hidden');
+        }
+    } catch(_) {}
+    loadingMore = false;
+    if (btn) btn.textContent = 'Загрузить ранее';
+}
+
+// ── Contact search (sidebar) ────────────────────────────────────────────────
+document.getElementById('dm-search')?.addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#dm-contact-list .contact-item').forEach(el => {
+        el.style.display = (el.dataset.name || '').toLowerCase().includes(q) ? '' : 'none';
+    });
+});
+
+// ── Contact click ───────────────────────────────────────────────────────────
+document.querySelectorAll('#dm-contact-list .contact-item').forEach(el => {
+    el.addEventListener('click', () => {
+        dmOpenConversation(parseInt(el.dataset.id), el.dataset.name || '');
+    });
+});
+
+function dmOpenConversation(peerId, peerName) {
+    document.getElementById('dm-new-modal')?.classList.add('hidden');
+    window.location.href = `/chat/dm/${peerId}`;
+}
+
+// ── New conversation modal ──────────────────────────────────────────────────
+document.getElementById('dm-new-btn')?.addEventListener('click', () => {
+    document.getElementById('dm-new-modal').classList.remove('hidden');
+    document.getElementById('dm-member-search')?.focus();
+});
+document.getElementById('dm-new-modal')?.addEventListener('click', function(e) {
+    if (e.target === this) this.classList.add('hidden');
+});
+document.getElementById('dm-member-search')?.addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#dm-member-list .contact-item').forEach(el => {
+        el.style.display = (el.dataset.name || '').toLowerCase().includes(q) ? '' : 'none';
+    });
+});
+
+// ── File attach ─────────────────────────────────────────────────────────────
+document.getElementById('dm-file-input')?.addEventListener('change', function() {
+    const f = this.files[0];
+    if (!f) return;
+    const wrap = document.getElementById('dm-attach-preview');
+    const name = document.getElementById('dm-attach-name');
+    if (wrap && name) {
+        name.textContent = f.name;
+        wrap.classList.remove('hidden');
+        wrap.classList.add('flex');
+    }
+});
+function dmClearFile() {
+    const fi = document.getElementById('dm-file-input');
+    if (fi) fi.value = '';
+    const wrap = document.getElementById('dm-attach-preview');
+    if (wrap) { wrap.classList.add('hidden'); wrap.classList.remove('flex'); }
+}
+
+// ── Back button (mobile) ────────────────────────────────────────────────────
+document.getElementById('dm-back-btn')?.addEventListener('click', () => {
+    window.location.href = '/chat/dm';
+});
+
+// ── Send button / Enter ─────────────────────────────────────────────────────
+document.getElementById('dm-send-btn')?.addEventListener('click', dmSend);
+document.getElementById('dm-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dmSend(); }
+});
+document.getElementById('dm-input')?.addEventListener('input', onInputTyping);
+
+// ── Load more button ─────────────────────────────────────────────────────────
+document.getElementById('dm-load-more-btn')?.addEventListener('click', dmLoadMore);
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+(function init() {
+    // Scroll to bottom
+    const scroll = document.getElementById('dm-scroll');
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+
+    // Show load more if there are messages
+    const rows = scroll?.querySelectorAll('.dm-row') || [];
+    if (rows.length >= 50) {
+        hasMore = true;
+        const wrap = document.getElementById('dm-load-more-wrap');
+        if (wrap) wrap.classList.remove('hidden');
+    }
+
+    // Connect WS
+    if (PEER_ID) wsConnect();
+
+    // Keepalive ping every 25s
+    setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type:'ping'}));
+        }
+    }, 25000);
+
+    // Mobile: hide contacts panel if peer is selected
+    const contacts = document.getElementById('dm-contacts');
+    if (PEER_ID && contacts && window.innerWidth < 768) {
+        contacts.classList.add('hidden-mobile');
+    }
+})();
+</script>
+{% endblock %}

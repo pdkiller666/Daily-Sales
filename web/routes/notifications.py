@@ -29,6 +29,7 @@ def _notif_url(notification_type: str) -> str:
         "task_status":       "/tasks",
         "task_deadline":     "/tasks",
         "task_overdue":      "/tasks",
+        "dm":                "/chat/dm",
         "admin":             "",
     }
     return _MAP.get(notification_type or "", "")

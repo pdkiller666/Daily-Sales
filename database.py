@@ -1079,6 +1079,23 @@ class Database:
         except Exception:
             pass
 
+        # ── Direct messages (личные сообщения) ───────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS direct_messages (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_user_id INTEGER NOT NULL,
+                to_user_id   INTEGER NOT NULL,
+                message      TEXT    DEFAULT '',
+                file_path    TEXT    DEFAULT '',
+                file_name    TEXT    DEFAULT '',
+                file_type    TEXT    DEFAULT '',
+                file_size    INTEGER DEFAULT 0,
+                created_at   TEXT    DEFAULT (datetime('now')),
+                is_read      INTEGER DEFAULT 0,
+                is_deleted   INTEGER DEFAULT 0
+            )
+        ''')
+
         # ── Task topics (категории задач) ─────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS task_topics (
@@ -1194,6 +1211,8 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id      ON chat_messages(id, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_topic   ON chat_messages(topic_id, id, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_topics_archived  ON chat_topics(is_archived, sort_order)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dm_from_to    ON direct_messages(from_user_id, to_user_id, id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dm_to_unread  ON direct_messages(to_user_id, is_read, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_salary_adj_user_ym   ON salary_adjustments(user_id, year, month)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_user  ON seller_earnings(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_absence_rec_user_dt   ON absence_records(user_id, status, start_date, end_date)')
@@ -8851,6 +8870,200 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # DIRECT MESSAGES MODULE
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def add_dm(self, from_user_id: int, to_user_id: int,
+               message: str = '', file_path: str = '',
+               file_name: str = '', file_type: str = '',
+               file_size: int = 0) -> int:
+        """Сохранить личное сообщение. Возвращает id записи."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                '''INSERT INTO direct_messages
+                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size)
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error("add_dm: %s", e)
+            return 0
+
+    def get_dm_conversation(self, user_a: int, user_b: int,
+                             limit: int = 50, before_id: int = 0) -> list:
+        """История переписки между двумя пользователями (ASC по id).
+
+        before_id > 0 — пагинация назад: сообщения с id < before_id.
+        Возвращает список в хронологическом порядке (старые → новые).
+        """
+        try:
+            conn = self.get_connection()
+            params: list = [user_a, user_b, user_b, user_a]
+            extra = ''
+            if before_id > 0:
+                extra = ' AND d.id < ?'
+                params.append(before_id)
+            params.append(limit)
+            rows = conn.execute(
+                f'''SELECT d.id, d.from_user_id, d.to_user_id,
+                           d.message, d.file_path, d.file_name, d.file_type, d.file_size,
+                           d.created_at, d.is_read,
+                           uf.first_name, uf.last_name, uf.username
+                    FROM direct_messages d
+                    LEFT JOIN users uf ON uf.id = d.from_user_id
+                    WHERE ((d.from_user_id = ? AND d.to_user_id = ?)
+                        OR (d.from_user_id = ? AND d.to_user_id = ?))
+                      AND d.is_deleted = 0{extra}
+                    ORDER BY d.id DESC
+                    LIMIT ?''',
+                params
+            ).fetchall()
+            conn.close()
+            return list(reversed(rows))
+        except Exception as e:
+            logger.error("get_dm_conversation: %s", e)
+            return []
+
+    def get_dm_contacts(self, user_id: int) -> list:
+        """Список контактов: последнее сообщение + непрочитанные.
+
+        Возвращает строки:
+        (peer_id, first_name, last_name, username, last_msg, last_from, last_file_name, last_at, unread_count)
+        Сортировка: DESC по id последнего сообщения.
+        """
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT
+                       last_dm.peer_id,
+                       u.first_name, u.last_name, u.username,
+                       d.message      AS last_msg,
+                       d.from_user_id AS last_from,
+                       d.file_name    AS last_file_name,
+                       d.created_at   AS last_at,
+                       COALESCE(unread.cnt, 0) AS unread_count
+                   FROM (
+                       SELECT
+                           CASE WHEN from_user_id = ? THEN to_user_id
+                                ELSE from_user_id END AS peer_id,
+                           MAX(id) AS last_id
+                       FROM direct_messages
+                       WHERE (from_user_id = ? OR to_user_id = ?)
+                         AND is_deleted = 0
+                       GROUP BY peer_id
+                   ) last_dm
+                   JOIN direct_messages d ON d.id = last_dm.last_id
+                   JOIN users u ON u.id = last_dm.peer_id
+                   LEFT JOIN (
+                       SELECT from_user_id AS peer_id, COUNT(*) AS cnt
+                       FROM direct_messages
+                       WHERE to_user_id = ? AND is_read = 0 AND is_deleted = 0
+                       GROUP BY from_user_id
+                   ) unread ON unread.peer_id = last_dm.peer_id
+                   ORDER BY last_dm.last_id DESC''',
+                (user_id, user_id, user_id, user_id)
+            ).fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error("get_dm_contacts: %s", e)
+            return []
+
+    def get_dm_org_members(self, exclude_user_id: int) -> list:
+        """Все пользователи орга для выбора собеседника.
+
+        Возвращает (id, first_name, last_name, username, shop_name).
+        """
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT id, first_name, last_name, username, shop_name
+                   FROM users
+                   WHERE id != ? AND is_active = 1
+                   ORDER BY first_name, last_name''',
+                (exclude_user_id,)
+            ).fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error("get_dm_org_members: %s", e)
+            return []
+
+    def mark_dm_read(self, viewer_id: int, from_user_id: int) -> None:
+        """Пометить все сообщения от from_user_id к viewer_id как прочитанные."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''UPDATE direct_messages
+                   SET is_read = 1
+                   WHERE to_user_id = ? AND from_user_id = ? AND is_read = 0 AND is_deleted = 0''',
+                (viewer_id, from_user_id)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error("mark_dm_read: %s", e)
+
+    def get_dm_unread_count(self, user_id: int) -> int:
+        """Общее количество непрочитанных ЛС для пользователя."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT COUNT(*) FROM direct_messages
+                   WHERE to_user_id = ? AND is_read = 0 AND is_deleted = 0''',
+                (user_id,)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error("get_dm_unread_count: %s", e)
+            return 0
+
+    def get_dm_message(self, msg_id: int) -> tuple | None:
+        """Получить одно ЛС по id (для скачивания файлов)."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT id, from_user_id, to_user_id,
+                          message, file_path, file_name, file_type, file_size,
+                          created_at, is_read, is_deleted
+                   FROM direct_messages WHERE id = ?''',
+                (msg_id,)
+            ).fetchone()
+            conn.close()
+            return row
+        except Exception as e:
+            logger.error("get_dm_message: %s", e)
+            return None
+
+    def soft_delete_dm(self, msg_id: int, user_id: int, is_admin: bool = False) -> bool:
+        """Мягкое удаление ЛС. Владелец или admin может удалить."""
+        try:
+            conn = self.get_connection()
+            if is_admin:
+                conn.execute(
+                    'UPDATE direct_messages SET is_deleted = 1 WHERE id = ?',
+                    (msg_id,)
+                )
+            else:
+                conn.execute(
+                    'UPDATE direct_messages SET is_deleted = 1 WHERE id = ? AND from_user_id = ?',
+                    (msg_id, user_id)
+                )
+            affected = conn.execute('SELECT changes()').fetchone()[0]
+            conn.commit()
+            conn.close()
+            return affected > 0
+        except Exception as e:
+            logger.error("soft_delete_dm: %s", e)
+            return False
 
     # ══════════════════════════════════════════════════════════════════════════
     # TASKS MODULE
