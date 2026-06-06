@@ -131,14 +131,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
             )
-        # Disable HTTP caching for HTML responses (security + freshness).
-        # Static assets keep their own caching headers unchanged.
-        ct = response.headers.get("content-type", "")
         path = request.url.path
-        if "text/html" in ct or (
-            not path.startswith("/static/") and not path.startswith("/sw.js")
-            and not path.startswith("/api/") and not path.endswith((".js", ".css", ".png", ".jpg", ".ico", ".webp", ".woff2"))
+        ct = response.headers.get("content-type", "")
+        if path.startswith("/static/"):
+            # Long-lived cache for immutable static assets (versioned by deploy)
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif "text/html" in ct or (
+            not path.startswith("/sw.js")
+            and not path.startswith("/api/")
+            and not path.endswith((".js", ".css", ".png", ".jpg", ".ico", ".webp", ".woff2"))
         ):
+            # No caching for HTML and dynamic responses
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -228,6 +231,7 @@ def create_web_app() -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+    templates.env.auto_reload = False
     templates.env.filters['fmt_date'] = _fmt_date
     templates.env.filters['fmt_datetime'] = _fmt_datetime
     templates.env.filters['fmt_currency'] = _fmt_currency

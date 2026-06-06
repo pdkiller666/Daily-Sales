@@ -104,7 +104,7 @@
 </div>
 
 {% if chart %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 const chartData = {{ chart | tojson }};
 const isDark = document.documentElement.classList.contains('dark');
