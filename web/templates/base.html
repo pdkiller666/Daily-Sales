@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}DailySales{% endblock %} — DailySales</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%232563eb'/><text x='50' y='68' text-anchor='middle' font-size='58' font-family='Arial Black,sans-serif' font-weight='900' fill='white'>D</text></svg>">
+    <link rel="icon" href="/static/icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <!-- PWA -->
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#2563eb">
@@ -675,6 +676,21 @@ if ('serviceWorker' in navigator) {
                     ? tLinks[activeIdx + 1]
                     : tLinks[activeIdx - 1];
                 if (target) { target.click(); return; }
+            }
+        }
+
+        /* ── Bottom nav section navigation (swipe left/right anywhere on page) ── */
+        const bnavLinks = Array.from(document.querySelectorAll('nav.fixed.bottom-0 a.bnav-item'));
+        if (bnavLinks.length >= 2) {
+            const activeIdx = bnavLinks.findIndex(el => el.classList.contains('bn-active'));
+            if (activeIdx >= 0) {
+                const target = dir === 'left'
+                    ? bnavLinks[activeIdx + 1]   /* left swipe → next section */
+                    : bnavLinks[activeIdx - 1];  /* right swipe → prev section */
+                if (target) {
+                    target.click();
+                    return;
+                }
             }
         }
 

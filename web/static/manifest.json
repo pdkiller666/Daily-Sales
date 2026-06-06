@@ -11,21 +11,33 @@
   "lang": "ru",
   "icons": [
     {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
       "src": "/static/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
-    },
-    {
-      "src": "/static/icon-maskable.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
     }
   ],
   "shortcuts": [
-    { "name": "Касса POS", "url": "/pos", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] },
-    { "name": "Дашборд",   "url": "/dashboard", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] },
-    { "name": "Продажи",   "url": "/sales", "icons": [{"src": "/static/icon.svg", "sizes": "any"}] }
+    { "name": "Касса POS", "url": "/pos", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] },
+    { "name": "Дашборд",   "url": "/dashboard", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] },
+    { "name": "Продажи",   "url": "/sales", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] }
   ]
 }
