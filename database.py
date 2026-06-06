@@ -8986,7 +8986,7 @@ class Database:
             rows = conn.execute(
                 '''SELECT id, first_name, last_name, username, shop_name
                    FROM users
-                   WHERE id != ? AND is_active = 1
+                   WHERE id != ?
                    ORDER BY first_name, last_name''',
                 (exclude_user_id,)
             ).fetchall()

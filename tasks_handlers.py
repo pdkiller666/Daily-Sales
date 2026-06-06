@@ -185,6 +185,7 @@ async def tasks_menu_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_page_"))
 async def tasks_page_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
+    await callback.answer()
     await _show_tasks_list(callback, state, page=page)
 
 
@@ -351,4 +352,5 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_list_"))
 async def tasks_list_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
+    await callback.answer()
     await _show_tasks_list(callback, state, page=page)

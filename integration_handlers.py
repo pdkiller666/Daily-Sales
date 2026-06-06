@@ -992,12 +992,12 @@ async def gs_hub_data(callback: CallbackQuery, state: FSMContext):
 async def gs_hub_diag(callback: CallbackQuery, state: FSMContext):
     """Hub: Диагностика — тест, журнал, переавторизация."""
     conn_id = int(callback.data.split("_")[3])
-    await callback.answer()
     current_db = await get_db(callback.from_user.id, state)
     conn = await current_db.get_integration_connection(conn_id)
     if not conn:
         await callback.answer("❌ Подключение не найдено", show_alert=True)
         return
+    await callback.answer()
     cfg = json.loads(conn[3] or '{}')
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔍 Тест подключения",
