@@ -1,5 +1,6 @@
 import io
 import logging
+import traceback
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 
@@ -266,5 +267,5 @@ def rankings_export_xlsx(request: Request, tab: str = "sellers", period: str = "
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as exc:
-        logger.error(f"rankings_export error: {exc}")
+        logger.error(f"rankings_export error: {exc}\n{traceback.format_exc()}")
         return RedirectResponse(url=f"/rankings?tab={tab}&period={period}&error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)

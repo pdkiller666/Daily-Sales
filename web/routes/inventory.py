@@ -1,5 +1,6 @@
 import io
 import logging
+import traceback
 from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
@@ -197,7 +198,7 @@ def inventory_export_xlsx(request: Request, shop: str = ""):
         )
 
     except Exception as exc:
-        logger.error(f"inventory_export error: {exc}")
+        logger.error(f"inventory_export error: {exc}\n{traceback.format_exc()}")
         return RedirectResponse(url="/inventory?error=Ошибка+при+экспорте.+Попробуйте+позже.", status_code=302)
 
 
