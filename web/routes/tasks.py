@@ -15,16 +15,45 @@ POST /tasks/topics/{tid}/delete          — удалить тему
 """
 import json
 import logging
+import mimetypes
 import os
+import re
 import threading
 import urllib.request
+import uuid
 from datetime import date, datetime
+from typing import List
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Form, Request, UploadFile, File
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+MAX_TASK_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
+MAX_TASK_FILES     = 10                 # до 10 файлов на задачу
+
+
+def _uploads_dir_tasks(org_db: str) -> str:
+    base = os.path.splitext(org_db)[0]
+    d = base + "_uploads/tasks"
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _safe_filename_tasks(original: str) -> str:
+    name = os.path.basename(original)
+    name = re.sub(r'[^\w.\-]', '_', name)
+    return name[:120] or "file"
+
+
+def _fmt_filesize(size: int) -> str:
+    if size < 1024:
+        return f"{size} Б"
+    if size < 1024 * 1024:
+        return f"{size // 1024} КБ"
+    return f"{size / 1024 / 1024:.1f} МБ"
+
 
 PRIORITY_LABELS = {
     'low':    '🟢 Низкий',
@@ -613,6 +642,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         my_db_id = my_row[0] if my_row else 0
         my_shop = (my_row[1] or "") if my_row else ""
         ctx["my_db_id"] = my_db_id
+        ctx["fmt_filesize"] = _fmt_filesize
 
         task = db.get_task(task_id)
         if not task:
@@ -631,6 +661,10 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         ctx["task"] = task
         ctx["my_shop"] = my_shop
         ctx["comments"] = db.get_task_comments(task_id)
+        try:
+            ctx["attachments"] = db.get_task_attachments(task_id)
+        except Exception:
+            ctx["attachments"] = []
     except Exception as e:
         logger.error("task_detail: %s", e)
         ctx["error"] = "Ошибка загрузки задачи."
@@ -638,6 +672,186 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     return request.app.state.templates.TemplateResponse(
         request, "tasks/detail.html", ctx
     )
+
+
+# ─── TASK ATTACHMENTS ─────────────────────────────────────────────────────────
+
+@router.post("/tasks/{task_id}/upload")
+async def task_upload_attachment(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(default=""),
+    files: List[UploadFile] = File(default=[]),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        if not is_admin and task.get("assigned_to") != my_db_id and not task.get("assign_all"):
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=access_denied", status_code=303)
+
+        existing_count = db.get_task_attachments_count(task_id)
+        if existing_count >= MAX_TASK_FILES:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=too_many_files", status_code=303)
+
+        uploads_dir = _uploads_dir_tasks(org_db)
+        month_dir = datetime.now().strftime("%Y-%m")
+        month_path = os.path.join(uploads_dir, month_dir)
+        os.makedirs(month_path, exist_ok=True)
+        saved = []
+        for f in files:
+            if not f or not f.filename:
+                continue
+            if existing_count + len(saved) >= MAX_TASK_FILES:
+                break
+            try:
+                raw_data = await f.read()
+                if len(raw_data) > MAX_TASK_FILE_SIZE:
+                    continue
+                mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
+                safe_name = _safe_filename_tasks(f.filename)
+                uid = uuid.uuid4().hex[:12]
+                dest = os.path.join(month_path, f"{uid}_{safe_name}")
+                with open(dest, "wb") as fout:
+                    fout.write(raw_data)
+                saved.append({
+                    "file_path": dest, "file_name": f.filename[:255],
+                    "file_type": mime, "file_size": len(raw_data),
+                    "uploaded_by": my_db_id,
+                })
+            except Exception as exc:
+                logger.warning(f"task_upload skip: {exc}")
+
+        if saved:
+            db.add_task_attachments(task_id, my_db_id, saved)
+
+    except Exception as e:
+        logger.error("task_upload_attachment: %s", e)
+
+    return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
+
+
+@router.get("/tasks/attachment/{att_id}")
+def task_serve_attachment(request: Request, att_id: int):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_task_attachment(att_id)
+        if not row:
+            return Response(content="Файл не найден", status_code=404)
+
+        # row = (file_path, file_name, file_type, task_id, user_id)
+        fpath, fname, ftype, task_id, _ = row
+
+        if not is_admin:
+            task = db.get_task(task_id)
+            conn = db.get_connection()
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            conn.close()
+            my_db_id = my_row[0] if my_row else 0
+            if not task or (task.get("assigned_to") != my_db_id and not task.get("assign_all")):
+                return Response(content="Доступ запрещён", status_code=403)
+
+        if not os.path.isfile(fpath):
+            return Response(content="Файл не найден на диске", status_code=404)
+
+        exp_uploads = os.path.abspath(_uploads_dir_tasks(org_db))
+        real_fpath = os.path.abspath(fpath)
+        if not real_fpath.startswith(exp_uploads):
+            return Response(content="Доступ запрещён", status_code=403)
+
+        return FileResponse(fpath, media_type=ftype or "application/octet-stream",
+                            filename=fname or os.path.basename(fpath))
+    except Exception as exc:
+        logger.error(f"task_serve_attachment error: {exc}")
+        return Response(content="Ошибка", status_code=500)
+
+
+@router.post("/tasks/attachment/{att_id}/delete")
+def task_delete_attachment(
+    request: Request,
+    att_id: int,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+    task_id = 0
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_task_attachment(att_id)
+        if not row:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        # row = (file_path, file_name, file_type, task_id, user_id)
+        _, _, _, task_id, _ = row
+
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        # delete_task_attachment returns (success, file_path)
+        ok, fpath = db.delete_task_attachment(att_id, my_db_id, is_admin=is_admin)
+        if ok and fpath and os.path.isfile(fpath):
+            exp_uploads = os.path.abspath(_uploads_dir_tasks(org_db))
+            real_fpath = os.path.abspath(fpath)
+            if real_fpath.startswith(exp_uploads):
+                try:
+                    os.remove(fpath)
+                except OSError as e:
+                    logger.warning(f"task_delete_attachment fs: {e}")
+
+        return RedirectResponse(url=f"/tasks/{task_id or ''}", status_code=303)
+    except Exception as exc:
+        logger.error(f"task_delete_attachment: {exc}")
+        return RedirectResponse(url=f"/tasks/{task_id or ''}", status_code=303)
 
 
 # ─── CHANGE STATUS ───────────────────────────────────────────────────────────

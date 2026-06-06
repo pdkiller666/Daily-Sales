@@ -6,15 +6,16 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from typing import List
+
 from fastapi import APIRouter, Form, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, JSONResponse, Response, FileResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword",
-                         "application/vnd.", "text/plain", "text/csv")
-MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
+MAX_FILES_PER_MSG = 10            # до 10 файлов в одном сообщении
 PLAN_ORDER = ["Бесплатный", "Базовый", "Стандарт", "Премиум"]
 
 _SHOP_BOT_DB = "data/shop_bot.db"
@@ -180,12 +181,15 @@ def _safe_filename(original: str) -> str:
     return name[:120] or "file"
 
 
-def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False) -> dict:
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict:
+    """Форматировать строку chat_messages.
+    files=None  → использовать legacy-колонки file_path/file_name/... из row
+    files=[]    → новое сообщение без вложений
+    files=[...] → список dicts из chat_message_files
+    """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname = row
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{user_id}"
     initial = (display[0] if display else "?").upper()
-    has_file = bool(file_path)
-    is_image = file_type.startswith("image/") if file_type else False
     raw = str(created_at or "")[:16].replace("T", " ")
     try:
         d, t = raw.split(" ")
@@ -193,21 +197,52 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False) -> dict:
         ts = f"{day}.{mo}.{y} {t}"
     except Exception:
         ts = raw
+
+    if files is not None:
+        files_list = [
+            {
+                "id": f["id"], "file_name": f["file_name"],
+                "file_type": f["file_type"], "file_size": f["file_size"],
+                "is_image": (f["file_type"] or "").startswith("image/"),
+                "file_url": f"/chat/file/attachment/{f['id']}",
+            }
+            for f in files
+        ]
+    elif file_path:
+        files_list = [{
+            "id": 0, "file_name": file_name or "",
+            "file_type": file_type or "", "file_size": file_size or 0,
+            "is_image": bool(file_type and file_type.startswith("image/")),
+            "file_url": f"/chat/file/{mid}",
+        }]
+    else:
+        files_list = []
+
+    first = files_list[0] if files_list else {}
     return {
         "id": mid,
         "user_id": user_id,
         "message": message or "",
-        "file_name": file_name or "",
-        "file_type": file_type or "",
-        "file_size": file_size or 0,
-        "has_file": has_file,
-        "is_image": is_image,
-        "file_url": f"/chat/file/{mid}" if has_file else "",
+        "file_name": first.get("file_name", ""),
+        "file_type": first.get("file_type", ""),
+        "file_size": first.get("file_size", 0),
+        "has_file": bool(files_list),
+        "is_image": first.get("is_image", False),
+        "file_url": first.get("file_url", ""),
+        "files": files_list,
         "display_name": display,
         "initial": initial,
         "created_at": ts,
         "can_delete": is_admin or (my_db_id > 0 and user_id == my_db_id),
     }
+
+
+def _load_msg_files_bulk(db, message_ids: list) -> dict:
+    """Батч-загрузка файлов для списка сообщений. Возвращает {msg_id: [file_dicts]}."""
+    try:
+        return db.get_chat_message_files_bulk(message_ids)
+    except Exception:
+        return {}
 
 
 def _fmt_topic(row) -> dict:
@@ -310,13 +345,44 @@ def chat_page(request: Request, topic: int = 1):
     return request.app.state.templates.TemplateResponse(request, "chat/index.html", ctx)
 
 
+async def _save_uploaded_files(files_list, uploads_dir: str) -> list:
+    """Сохранить до MAX_FILES_PER_MSG файлов на диск. Возвращает список dict."""
+    saved = []
+    month_dir = datetime.now().strftime("%Y-%m")
+    month_path = os.path.join(uploads_dir, month_dir)
+    os.makedirs(month_path, exist_ok=True)
+    for f in files_list:
+        if not f or not f.filename:
+            continue
+        if len(saved) >= MAX_FILES_PER_MSG:
+            break
+        try:
+            raw_data = await f.read()
+            fsize = len(raw_data)
+            if fsize > MAX_FILE_SIZE:
+                continue
+            mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
+            safe_name = _safe_filename(f.filename)
+            uid = uuid.uuid4().hex[:12]
+            dest = os.path.join(month_path, f"{uid}_{safe_name}")
+            with open(dest, "wb") as fout:
+                fout.write(raw_data)
+            saved.append({
+                "file_path": dest, "file_name": f.filename[:255],
+                "file_type": mime, "file_size": fsize,
+            })
+        except Exception as exc:
+            logger.warning(f"_save_uploaded_files skip: {exc}")
+    return saved
+
+
 @router.post("/chat/send")
 async def chat_send(
     request: Request,
     csrf_token: str = Form(default=""),
     message: str = Form(default=""),
     topic_id: int = Form(default=1),
-    file: UploadFile = File(default=None),
+    files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -347,7 +413,6 @@ async def chat_send(
         if not user_db_id:
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
 
-        # Проверяем что тема существует
         valid_topics = {r[0] for r in db.get_chat_topics()}
         if not valid_topics:
             valid_topics = {1}
@@ -355,50 +420,20 @@ async def chat_send(
             topic_id = 1
 
         text = message.strip()[:2000]
-        file_path = file_name = file_type = ""
-        file_size = 0
+        saved_files = await _save_uploaded_files(files, _uploads_dir(org_db))
 
-        if file and file.filename:
-            raw_data = await file.read()
-            fsize = len(raw_data)
-            if fsize > MAX_FILE_SIZE:
-                return JSONResponse({"ok": False, "error": "Файл слишком большой (макс. 20 МБ)"}, status_code=400)
-
-            mime = file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
-            if not any(mime.startswith(p) for p in ALLOWED_MIME_PREFIXES):
-                return JSONResponse({"ok": False, "error": "Тип файла не разрешён"}, status_code=400)
-
-            safe_name = _safe_filename(file.filename)
-            uid = uuid.uuid4().hex[:12]
-            month_dir = datetime.now().strftime("%Y-%m")
-            uploads = _uploads_dir(org_db)
-            month_path = os.path.join(uploads, month_dir)
-            os.makedirs(month_path, exist_ok=True)
-            dest = os.path.join(month_path, f"{uid}_{safe_name}")
-            with open(dest, "wb") as f_out:
-                f_out.write(raw_data)
-
-            file_path = dest
-            file_name = file.filename[:255]
-            file_type = mime
-            file_size = fsize
-
-        if not text and not file_path:
+        if not text and not saved_files:
             return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
 
-        new_id = db.add_chat_message(
-            user_id=user_db_id,
-            message=text,
-            file_path=file_path,
-            file_name=file_name,
-            file_type=file_type,
-            file_size=file_size,
-            topic_id=topic_id,
-        )
+        new_id = db.add_chat_message(user_id=user_db_id, message=text, topic_id=topic_id)
+        if saved_files:
+            db.add_chat_message_files(new_id, saved_files)
 
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
         new_msgs = db.get_chat_messages_since(new_id - 1, topic_id=topic_id)
-        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in new_msgs]
+        msg_ids = [r[0] for r in new_msgs]
+        files_map = _load_msg_files_bulk(db, msg_ids)
+        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in new_msgs]
         return JSONResponse({"ok": True, "messages": result, "latest_id": new_id})
 
     except Exception as exc:
@@ -435,7 +470,9 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
         rows = db.get_chat_messages_since(since_id, topic_id=topic_id)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+        msg_ids = [r[0] for r in rows]
+        files_map = _load_msg_files_bulk(db, msg_ids)
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
         return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
 
@@ -473,7 +510,9 @@ def chat_topic_messages(request: Request, topic_id: int):
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
         rows = db.get_chat_messages(limit=50, topic_id=topic_id)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin) for r in rows]
+        msg_ids = [r[0] for r in rows]
+        files_map = _load_msg_files_bulk(db, msg_ids)
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
 
@@ -482,8 +521,44 @@ def chat_topic_messages(request: Request, topic_id: int):
         return JSONResponse({"ok": True, "messages": [], "latest_id": 0})
 
 
+@router.get("/chat/file/attachment/{att_id}")
+def chat_file_attachment(request: Request, att_id: int):
+    """Отдать файл из chat_message_files (новый мультифайловый маршрут)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_chat_message_file(att_id)
+        if not row or not row[0]:
+            return Response(content="Файл не найден", status_code=404)
+
+        fpath, fname, ftype, _ = row
+        if not os.path.isfile(fpath):
+            return Response(content="Файл не найден на диске", status_code=404)
+
+        exp_uploads = os.path.abspath(_uploads_dir(org_db))
+        real_fpath = os.path.abspath(fpath)
+        if not real_fpath.startswith(exp_uploads):
+            return Response(content="Доступ запрещён", status_code=403)
+
+        return FileResponse(fpath, media_type=ftype or "application/octet-stream",
+                            filename=fname or os.path.basename(fpath))
+    except Exception as exc:
+        logger.error(f"chat_file_attachment error: {exc}")
+        return Response(content="Ошибка", status_code=500)
+
+
 @router.get("/chat/file/{msg_id}")
 def chat_file(request: Request, msg_id: int):
+    """Legacy: отдать одиночный файл из chat_messages.file_path (старый формат)."""
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -558,16 +633,25 @@ def chat_delete_message(
 
         ok = db.soft_delete_chat_message(msg_id, user_db_id or 0, is_admin)
 
-        # Физически удаляем файл если сообщение успешно удалено
-        if ok and msg_row and msg_row[0]:
-            fpath = msg_row[0]
+        if ok:
             exp_uploads = os.path.abspath(_uploads_dir(org_db))
-            real_fpath = os.path.abspath(fpath)
-            if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
-                try:
-                    os.remove(real_fpath)
-                except OSError as e:
-                    logger.warning(f"chat_delete: не удалось удалить файл {real_fpath}: {e}")
+            # Удаляем legacy single-file
+            if msg_row and msg_row[0]:
+                fpath = msg_row[0]
+                real_fpath = os.path.abspath(fpath)
+                if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                    try:
+                        os.remove(real_fpath)
+                    except OSError as e:
+                        logger.warning(f"chat_delete legacy file: {e}")
+            # Удаляем новые multi-file вложения
+            for fpath in db.delete_chat_message_files(msg_id):
+                real_fpath = os.path.abspath(fpath)
+                if real_fpath.startswith(exp_uploads) and os.path.isfile(real_fpath):
+                    try:
+                        os.remove(real_fpath)
+                    except OSError as e:
+                        logger.warning(f"chat_delete new file: {e}")
 
         return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
@@ -1086,13 +1170,48 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
 
 # ── HTTP send (with optional file) ────────────────────────────────────────────
 
+@router.get("/chat/dm/file/attachment/{att_id}")
+def dm_file_attachment(request: Request, att_id: int):
+    """Отдать файл из dm_message_files (новый мультифайловый маршрут для DM)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_dm_file(att_id)
+        if not row or not row[0]:
+            return Response(content="Файл не найден", status_code=404)
+
+        fpath, fname, ftype, dm_id = row
+        if not os.path.isfile(fpath):
+            return Response(content="Файл не найден на диске", status_code=404)
+
+        exp_uploads = os.path.abspath(_uploads_dir_dm(org_db))
+        real_fpath = os.path.abspath(fpath)
+        if not real_fpath.startswith(exp_uploads):
+            return Response(content="Доступ запрещён", status_code=403)
+
+        return FileResponse(fpath, media_type=ftype or "application/octet-stream",
+                            filename=fname or os.path.basename(fpath))
+    except Exception as exc:
+        logger.error(f"dm_file_attachment error: {exc}")
+        return Response(content="Ошибка", status_code=500)
+
+
 @router.post("/chat/dm/send")
 async def dm_send(
     request: Request,
     csrf_token: str = Form(default=""),
     to_user_id: int = Form(default=0),
     message: str = Form(default=""),
-    file: UploadFile = File(default=None),
+    files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -1128,37 +1247,35 @@ async def dm_send(
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
 
         text = message.strip()[:2000]
-        file_path = file_name = file_type = ""
-        file_size = 0
+        saved_files = await _save_uploaded_files(files, _uploads_dir_dm(org_db))
 
-        if file and file.filename:
-            raw_data = await file.read()
-            fsize = len(raw_data)
-            if fsize > MAX_FILE_SIZE:
-                return JSONResponse({"ok": False, "error": "Файл слишком большой (макс. 20 МБ)"}, status_code=400)
-            mime = file.content_type or mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
-            if not any(mime.startswith(p) for p in ALLOWED_MIME_PREFIXES):
-                return JSONResponse({"ok": False, "error": "Тип файла не разрешён"}, status_code=400)
-            safe_name = _safe_filename(file.filename)
-            uid = uuid.uuid4().hex[:12]
-            month_dir = datetime.now().strftime("%Y-%m")
-            uploads = _uploads_dir_dm(org_db)
-            month_path = os.path.join(uploads, month_dir)
-            os.makedirs(month_path, exist_ok=True)
-            dest = os.path.join(month_path, f"{uid}_{safe_name}")
-            with open(dest, "wb") as f_out:
-                f_out.write(raw_data)
-            file_path = dest
-            file_name = file.filename[:255]
-            file_type = mime
-            file_size = fsize
-
-        if not text and not file_path:
+        if not text and not saved_files:
             return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
 
-        new_id = db.add_dm(user_db_id, to_user_id, text, file_path, file_name, file_type, file_size)
+        # Для DM legacy-колонки оставляем пустыми, файлы идут в dm_message_files
+        new_id = db.add_dm(user_db_id, to_user_id, text, "", "", "", 0)
         if not new_id:
             return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+        if saved_files:
+            db.add_dm_files(new_id, saved_files)
+
+        first_file = saved_files[0] if saved_files else {}
+        file_name = first_file.get("file_name", "")
+        file_type = first_file.get("file_type", "")
+        file_size = first_file.get("file_size", 0)
+
+        # Список файлов для WS-payload
+        ws_files = [
+            {
+                "id": 0,  # будет загружен при получении через poll
+                "file_name": f["file_name"], "file_type": f["file_type"],
+                "file_size": f["file_size"],
+                "is_image": f["file_type"].startswith("image/") if f["file_type"] else False,
+                "file_url": "",  # заполнится при рефреше
+            }
+            for f in saved_files
+        ]
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         payload = {
@@ -1170,9 +1287,10 @@ async def dm_send(
             "file_name": file_name,
             "file_type": file_type,
             "file_size": file_size,
-            "has_file": bool(file_path),
+            "has_file": bool(saved_files),
             "is_image": file_type.startswith("image/") if file_type else False,
-            "file_url": f"/chat/dm/file/{new_id}" if file_path else "",
+            "file_url": f"/chat/dm/file/attachment/{new_id}" if saved_files else "",
+            "files": ws_files,
             "created_at": now_str,
             "is_read": False,
         }

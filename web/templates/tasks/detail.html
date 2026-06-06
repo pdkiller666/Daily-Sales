@@ -143,6 +143,48 @@
     </div>
     {% endif %}
 
+    <!-- Attachments -->
+    {% set can_upload = is_admin or (task.assigned_to == my_db_id) or task.get('assign_all') or (task.get('assigned_shop') and task.assigned_shop == my_shop) %}
+    <div class="card p-5 dark:bg-slate-900">
+      <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
+        Вложения {% if attachments %}<span class="text-slate-400 font-normal">({{ attachments|length }}/10)</span>{% endif %}
+      </h2>
+
+      {% if attachments %}
+      <div class="space-y-1.5 mb-4">
+        {% for att in attachments %}
+        <div class="flex items-center gap-2.5 py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-slate-800 group">
+          <span class="text-base shrink-0">{{ '🖼️' if att.file_type and att.file_type.startswith('image/') else '📄' }}</span>
+          <a href="/tasks/attachment/{{ att.id }}" target="_blank"
+             class="flex-1 min-w-0 text-sm text-indigo-600 dark:text-indigo-400 hover:underline truncate">{{ att.file_name }}</a>
+          <span class="text-xs text-slate-400 shrink-0">{{ fmt_filesize(att.file_size) }}</span>
+          {% if is_admin or att.user_id == my_db_id %}
+          <form method="POST" action="/tasks/attachment/{{ att.id }}/delete" class="shrink-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" onclick="return confirm('Удалить вложение?')"
+                    class="text-slate-300 hover:text-red-500 transition-colors leading-none text-base">×</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if can_upload and (not attachments or attachments|length < 10) %}
+      <form method="POST" action="/tasks/{{ task.id }}/upload" enctype="multipart/form-data" class="flex items-center gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 transition-colors px-3 py-1.5 border border-indigo-200 dark:border-indigo-700 rounded-lg bg-indigo-50 dark:bg-slate-800 select-none">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Прикрепить файлы
+          <input type="file" name="files" multiple class="hidden" onchange="this.form.submit()">
+        </label>
+        <span class="text-xs text-slate-400">до 10 файлов · 20 МБ каждый</span>
+      </form>
+      {% endif %}
+    </div>
+
     <!-- Comments -->
     <div class="card p-5 dark:bg-slate-900">
       <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">

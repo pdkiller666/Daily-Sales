@@ -194,6 +194,7 @@ Disallow: /chat/search
 Disallow: /chat/dm
 Disallow: /ws/dm
 Disallow: /tasks
+Disallow: /tasks/attachment/
 Disallow: /api/
 Disallow: /login
 Disallow: /register

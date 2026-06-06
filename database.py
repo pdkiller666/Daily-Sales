@@ -1096,6 +1096,34 @@ class Database:
             )
         ''')
 
+        # ── Chat message files (multi-file support, до 10 файлов на сообщение) ──
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_message_files (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                file_path  TEXT    NOT NULL DEFAULT '',
+                file_name  TEXT    NOT NULL DEFAULT '',
+                file_type  TEXT    NOT NULL DEFAULT '',
+                file_size  INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_msg_files_msg ON chat_message_files(message_id)')
+
+        # ── DM message files (multi-file support) ──────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dm_message_files (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                dm_id      INTEGER NOT NULL,
+                file_path  TEXT    NOT NULL DEFAULT '',
+                file_name  TEXT    NOT NULL DEFAULT '',
+                file_type  TEXT    NOT NULL DEFAULT '',
+                file_size  INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dm_msg_files_dm ON dm_message_files(dm_id)')
+
         # ── Task topics (категории задач) ─────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS task_topics (
@@ -1158,6 +1186,21 @@ class Database:
                 created_at TEXT    DEFAULT (datetime('now'))
             )
         ''')
+
+        # ── Task attachments (до 10 файлов любого формата на задачу) ──────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_attachments (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL DEFAULT 0,
+                file_path  TEXT    NOT NULL DEFAULT '',
+                file_name  TEXT    NOT NULL DEFAULT '',
+                file_type  TEXT    NOT NULL DEFAULT '',
+                file_size  INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_attach_task ON task_attachments(task_id)')
 
         conn.commit()
 
@@ -8754,6 +8797,113 @@ class Database:
         conn.close()
         return affected > 0
 
+    def add_chat_message_files(self, message_id: int, files: list) -> None:
+        """Сохранить список файлов для сообщения чата (chat_message_files)."""
+        if not files:
+            return
+        conn = self.get_connection()
+        try:
+            for i, f in enumerate(files):
+                conn.execute(
+                    "INSERT INTO chat_message_files (message_id, file_path, file_name, file_type, file_size, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+                    (message_id, f.get("file_path", ""), f.get("file_name", ""), f.get("file_type", ""), f.get("file_size", 0), i)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_chat_message_files_bulk(self, message_ids: list) -> dict:
+        """Вернуть {msg_id: [file_dict, ...]} для списка id сообщений."""
+        if not message_ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(message_ids))
+            rows = conn.execute(
+                f"SELECT id, message_id, file_path, file_name, file_type, file_size FROM chat_message_files WHERE message_id IN ({ph}) ORDER BY message_id, sort_order",
+                message_ids
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for fid, mid, fpath, fname, ftype, fsize in rows:
+            result.setdefault(mid, []).append({
+                "id": fid, "file_path": fpath, "file_name": fname,
+                "file_type": ftype, "file_size": fsize,
+            })
+        return result
+
+    def get_chat_message_file(self, file_id: int) -> tuple | None:
+        """Вернуть (file_path, file_name, file_type, message_id) по id вложения."""
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                "SELECT file_path, file_name, file_type, message_id FROM chat_message_files WHERE id = ?",
+                (file_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+
+    def delete_chat_message_files(self, message_id: int) -> list:
+        """Удалить все вложения сообщения. Возвращает список file_path для удаления с диска."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT file_path FROM chat_message_files WHERE message_id = ?", (message_id,)
+            ).fetchall()
+            conn.execute("DELETE FROM chat_message_files WHERE message_id = ?", (message_id,))
+            conn.commit()
+            return [r[0] for r in rows if r[0]]
+        finally:
+            conn.close()
+
+    def add_dm_files(self, dm_id: int, files: list) -> None:
+        """Сохранить список файлов для личного сообщения (dm_message_files)."""
+        if not files:
+            return
+        conn = self.get_connection()
+        try:
+            for i, f in enumerate(files):
+                conn.execute(
+                    "INSERT INTO dm_message_files (dm_id, file_path, file_name, file_type, file_size, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+                    (dm_id, f.get("file_path", ""), f.get("file_name", ""), f.get("file_type", ""), f.get("file_size", 0), i)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_dm_files_bulk(self, dm_ids: list) -> dict:
+        """Вернуть {dm_id: [file_dict, ...]} для списка id DM."""
+        if not dm_ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(dm_ids))
+            rows = conn.execute(
+                f"SELECT id, dm_id, file_path, file_name, file_type, file_size FROM dm_message_files WHERE dm_id IN ({ph}) ORDER BY dm_id, sort_order",
+                dm_ids
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for fid, did, fpath, fname, ftype, fsize in rows:
+            result.setdefault(did, []).append({
+                "id": fid, "file_path": fpath, "file_name": fname,
+                "file_type": ftype, "file_size": fsize,
+            })
+        return result
+
+    def get_dm_file(self, file_id: int) -> tuple | None:
+        """Вернуть (file_path, file_name, file_type, dm_id) по id DM-вложения."""
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                "SELECT file_path, file_name, file_type, dm_id FROM dm_message_files WHERE id = ?",
+                (file_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+
     def get_chat_topics(self) -> list:
         """Все не-архивные темы чата, отсортированные по sort_order."""
         conn = self.get_connection()
@@ -9419,6 +9569,110 @@ class Database:
         except Exception as e:
             logger.error("get_task_comments: %s", e)
             return []
+
+    def add_task_attachments(self, task_id: int, user_id: int, files: list) -> int:
+        """Добавить вложения к задаче. Возвращает количество сохранённых файлов."""
+        if not files:
+            return 0
+        conn = self.get_connection()
+        saved = 0
+        try:
+            for f in files:
+                conn.execute(
+                    "INSERT INTO task_attachments (task_id, user_id, file_path, file_name, file_type, file_size) VALUES (?, ?, ?, ?, ?, ?)",
+                    (task_id, user_id, f.get("file_path", ""), f.get("file_name", ""), f.get("file_type", ""), f.get("file_size", 0))
+                )
+                saved += 1
+            conn.commit()
+        except Exception as e:
+            logger.error("add_task_attachments: %s", e)
+        finally:
+            conn.close()
+        return saved
+
+    def get_task_attachments(self, task_id: int) -> list:
+        """Список вложений задачи с именем автора."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT a.id, a.task_id, a.user_id, a.file_path, a.file_name,
+                          a.file_type, a.file_size, a.created_at,
+                          u.first_name, u.last_name, u.username
+                   FROM task_attachments a
+                   LEFT JOIN users u ON u.id = a.user_id
+                   WHERE a.task_id = ?
+                   ORDER BY a.created_at ASC""",
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                author = f"{r[8] or ''} {r[9] or ''}".strip() or r[10] or f"User#{r[2]}"
+                raw = str(r[7] or "")[:16].replace("T", " ")
+                try:
+                    d, t = raw.split(" ")
+                    y, mo, day = d.split("-")
+                    ts = f"{day}.{mo}.{y} {t}"
+                except Exception:
+                    ts = raw
+                is_image = (r[5] or "").startswith("image/")
+                result.append({
+                    "id": r[0], "task_id": r[1], "user_id": r[2],
+                    "file_name": r[4], "file_type": r[5], "file_size": r[6],
+                    "created_at_fmt": ts, "author_name": author,
+                    "is_image": is_image,
+                    "file_url": f"/tasks/attachment/{r[0]}",
+                })
+            return result
+        except Exception as e:
+            logger.error("get_task_attachments: %s", e)
+            return []
+
+    def get_task_attachment(self, att_id: int) -> tuple | None:
+        """Вернуть (file_path, file_name, file_type, task_id, user_id) по id вложения."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT file_path, file_name, file_type, task_id, user_id FROM task_attachments WHERE id = ?",
+                (att_id,)
+            ).fetchone()
+            conn.close()
+            return row
+        except Exception as e:
+            logger.error("get_task_attachment: %s", e)
+            return None
+
+    def delete_task_attachment(self, att_id: int, user_id: int, is_admin: bool = False) -> tuple[bool, str]:
+        """Удалить вложение задачи. Возвращает (success, file_path)."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT file_path, user_id FROM task_attachments WHERE id = ?", (att_id,)
+            ).fetchone()
+            if not row:
+                conn.close()
+                return False, ""
+            fpath, owner_id = row
+            if not is_admin and owner_id != user_id:
+                conn.close()
+                return False, ""
+            conn.execute("DELETE FROM task_attachments WHERE id = ?", (att_id,))
+            conn.commit()
+            conn.close()
+            return True, fpath or ""
+        except Exception as e:
+            logger.error("delete_task_attachment: %s", e)
+            return False, ""
+
+    def get_task_attachments_count(self, task_id: int) -> int:
+        """Количество вложений у задачи."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute("SELECT COUNT(*) FROM task_attachments WHERE task_id = ?", (task_id,)).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception:
+            return 0
 
     def toggle_task_checklist_item(self, item_id: int,
                                    done_by: int | None = None) -> bool:

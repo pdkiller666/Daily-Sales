@@ -438,14 +438,30 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                     <template x-if="msg.message">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
                     </template>
-                    <!-- Image file -->
-                    <template x-if="msg.has_file && msg.is_image">
+                    <!-- Files (multi-file support) -->
+                    <template x-if="msg.files && msg.files.length > 0">
+                        <div class="mt-1.5 flex flex-col gap-1">
+                            <template x-for="f in msg.files" :key="f.id + '_' + f.file_name">
+                                <template x-if="f.is_image">
+                                    <a :href="f.file_url" target="_blank">
+                                        <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
+                                    </a>
+                                </template>
+                                <template x-if="!f.is_image">
+                                    <a :href="f.file_url" target="_blank" class="attach-chip">
+                                        <span>📎</span><span class="truncate" x-text="f.file_name"></span>
+                                    </a>
+                                </template>
+                            </template>
+                        </div>
+                    </template>
+                    <!-- Legacy single-file fallback (old messages without files array) -->
+                    <template x-if="msg.has_file && (!msg.files || !msg.files.length) && msg.is_image">
                         <a :href="msg.file_url" target="_blank">
                             <img :src="msg.file_url" :alt="msg.file_name" class="file-preview-img mt-1.5">
                         </a>
                     </template>
-                    <!-- Non-image file -->
-                    <template x-if="msg.has_file && !msg.is_image">
+                    <template x-if="msg.has_file && (!msg.files || !msg.files.length) && !msg.is_image">
                         <a :href="msg.file_url" target="_blank" class="attach-chip mt-1.5">
                             <span>📎</span><span class="truncate" x-text="msg.file_name"></span>
                         </a>
@@ -477,13 +493,13 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     <!-- ══ Input area ══ -->
     <div x-show="!dmMode" class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
 
-        <!-- File preview -->
-        <div x-show="attachedFile" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
-            <template x-if="attachedFile">
+        <!-- File previews (multi-file) -->
+        <div x-show="attachedFiles.length > 0" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
+            <template x-for="(f, idx) in attachedFiles" :key="idx">
                 <div class="attach-chip">
-                    <span x-text="attachedFile.type.startsWith('image/') ? '🖼️' : '📎'"></span>
-                    <span class="truncate" x-text="attachedFile.name"></span>
-                    <button @click="clearFile()" class="ml-1 text-slate-400 hover:text-red-500 leading-none text-base">×</button>
+                    <span x-text="f.type.startsWith('image/') ? '🖼️' : '📎'"></span>
+                    <span class="truncate max-w-[120px]" x-text="f.name"></span>
+                    <button @click="removeFile(idx)" class="ml-1 text-slate-400 hover:text-red-500 leading-none text-base">×</button>
                 </div>
             </template>
             <template x-if="imagePreview">
@@ -492,13 +508,12 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
         </div>
 
         <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
-            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файл">
+            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
-                <input type="file" class="hidden"
-                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                <input type="file" class="hidden" multiple
                        @change="onFileChange($event)">
             </label>
 
@@ -515,8 +530,8 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             ></textarea>
 
             <button type="submit"
-                    :disabled="sending || (!text.trim() && !attachedFile)"
-                    :class="(sending || (!text.trim() && !attachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
+                    :disabled="sending || (!text.trim() && !attachedFiles.length)"
+                    :class="(sending || (!text.trim() && !attachedFiles.length)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
                     class="shrink-0 w-11 h-11 bg-blue-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-sm">
                 <svg x-show="!sending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
@@ -709,24 +724,23 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
 
                     <!-- Input -->
                     <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 pb-[3.875rem] lg:pb-3 bg-white dark:bg-slate-900">
-                        <!-- File preview -->
-                        <div x-show="dmAttachedFile" x-cloak class="mb-2 flex items-center gap-2">
-                            <template x-if="dmAttachedFile">
+                        <!-- File previews (multi-file) -->
+                        <div x-show="dmAttachedFiles.length > 0" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
+                            <template x-for="(f, idx) in dmAttachedFiles" :key="idx">
                                 <div class="attach-chip">
-                                    <span x-text="dmAttachedFile.type.startsWith('image/') ? '🖼️' : '📎'"></span>
-                                    <span class="truncate" x-text="dmAttachedFile.name"></span>
-                                    <button @click="dmClearFile()" class="ml-1 text-slate-400 hover:text-red-500 text-base">×</button>
+                                    <span x-text="f.type.startsWith('image/') ? '🖼️' : '📎'"></span>
+                                    <span class="truncate max-w-[100px]" x-text="f.name"></span>
+                                    <button @click="dmRemoveFile(idx)" class="ml-1 text-slate-400 hover:text-red-500 text-base">×</button>
                                 </div>
                             </template>
                         </div>
                         <form @submit.prevent="dmSend()" class="flex items-end gap-2">
-                            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файл">
+                            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                           d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                                 </svg>
-                                <input type="file" class="hidden"
-                                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                                <input type="file" class="hidden" multiple
                                        @change="onDmFileChange($event)">
                             </label>
                             <textarea
@@ -741,8 +755,8 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 style="min-height:42px;max-height:120px"
                             ></textarea>
                             <button type="submit"
-                                    :disabled="dmSending || (!dmText.trim() && !dmAttachedFile)"
-                                    :class="(dmSending || (!dmText.trim() && !dmAttachedFile)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
+                                    :disabled="dmSending || (!dmText.trim() && !dmAttachedFiles.length)"
+                                    :class="(dmSending || (!dmText.trim() && !dmAttachedFiles.length)) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-700 active:scale-95'"
                                     class="shrink-0 w-11 h-11 bg-blue-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-sm">
                                 <svg x-show="!dmSending" class="w-5 h-5 -translate-x-px" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
@@ -784,7 +798,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── send form ── */
         text: '',
         sending: false,
-        attachedFile: null,
+        attachedFiles: [],
         imagePreview: null,
 
         /* ── topic create ── */
@@ -820,7 +834,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         dmSending:         false,
         dmSearch:          '',
         dmNewMode:         false,
-        dmAttachedFile:    null,
+        dmAttachedFiles:   [],
         dmHasMore:         false,
         dmLoadingMore:     false,
         dmLoading:         false,
@@ -995,18 +1009,30 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) { alert('Ошибка'); }
         },
 
-        /* ── File attach ── */
+        /* ── File attach (multi-file) ── */
         onFileChange(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            this.attachedFile = file;
-            if (file.type.startsWith('image/')) {
+            const newFiles = Array.from(e.target.files || []);
+            if (!newFiles.length) return;
+            const remaining = 10 - this.attachedFiles.length;
+            const toAdd = newFiles.slice(0, remaining);
+            this.attachedFiles.push(...toAdd);
+            // preview for first image
+            const firstImg = toAdd.find(f => f.type.startsWith('image/'));
+            if (firstImg && !this.imagePreview) {
                 const reader = new FileReader();
                 reader.onload = ev => { this.imagePreview = ev.target.result; };
-                reader.readAsDataURL(file);
-            } else { this.imagePreview = null; }
+                reader.readAsDataURL(firstImg);
+            }
+            // reset so same files can be re-selected
+            e.target.value = '';
         },
-        clearFile() { this.attachedFile = null; this.imagePreview = null; },
+        removeFile(idx) {
+            this.attachedFiles.splice(idx, 1);
+            if (!this.attachedFiles.some(f => f.type.startsWith('image/'))) {
+                this.imagePreview = null;
+            }
+        },
+        clearFile() { this.attachedFiles = []; this.imagePreview = null; },
         autoResize(el) {
             el.style.height = 'auto';
             el.style.height = Math.min(el.scrollHeight, 120) + 'px';
@@ -1016,14 +1042,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         async sendMessage() {
             if (this.sending) return;
             const txt = this.text.trim();
-            if (!txt && !this.attachedFile) return;
+            if (!txt && !this.attachedFiles.length) return;
             this.sending = true;
             try {
                 const fd = new FormData();
                 fd.append('csrf_token', this.csrfToken);
                 fd.append('message', txt);
                 fd.append('topic_id', this.currentTopicId);
-                if (this.attachedFile) fd.append('file', this.attachedFile);
+                for (const f of this.attachedFiles) fd.append('files', f);
 
                 const res = await fetch('/chat/send', { method: 'POST', body: fd });
                 const data = await res.json();
@@ -1217,11 +1243,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         async dmSend() {
             if (this.dmSending || !this.dmPeerId) return;
             const txt = (this.dmText || '').trim();
-            if (!txt && !this.dmAttachedFile) return;
+            if (!txt && !this.dmAttachedFiles.length) return;
             this.dmSending = true;
 
-            /* WS fast path — text only */
-            if (!this.dmAttachedFile && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
+            /* WS fast path — text only, no files */
+            if (!this.dmAttachedFiles.length && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
                 this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt}));
                 const now = new Date();
                 const ts = String(now.getDate()).padStart(2,'0') + '.'
@@ -1230,7 +1256,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                          + String(now.getHours()).padStart(2,'0') + ':'
                          + String(now.getMinutes()).padStart(2,'0');
                 this.dmMessages.push({id: 'tmp_' + Date.now(), message: txt, has_file: false,
-                    is_image: false, file_url: '', file_name: '', is_mine: true,
+                    files: [], is_image: false, file_url: '', file_name: '', is_mine: true,
                     can_delete: false, created_at: ts});
                 this.dmText = '';
                 this._dmScrollBottom();
@@ -1244,7 +1270,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 fd.append('csrf_token', this.csrfToken);
                 fd.append('to_user_id', this.dmPeerId);
                 fd.append('message', txt);
-                if (this.dmAttachedFile) fd.append('file', this.dmAttachedFile);
+                for (const f of this.dmAttachedFiles) fd.append('files', f);
                 const res  = await fetch('/chat/dm/send', {method: 'POST', body: fd});
                 const data = await res.json();
                 if (data.ok) {
@@ -1268,9 +1294,16 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) {}
         },
 
-        /* ── File ── */
-        onDmFileChange(e) { const f = e.target.files[0]; if (f) this.dmAttachedFile = f; },
-        dmClearFile()     { this.dmAttachedFile = null; },
+        /* ── DM File (multi-file) ── */
+        onDmFileChange(e) {
+            const newFiles = Array.from(e.target.files || []);
+            if (!newFiles.length) return;
+            const toAdd = newFiles.slice(0, 10 - this.dmAttachedFiles.length);
+            this.dmAttachedFiles.push(...toAdd);
+            e.target.value = '';
+        },
+        dmRemoveFile(idx) { this.dmAttachedFiles.splice(idx, 1); },
+        dmClearFile()     { this.dmAttachedFiles = []; },
 
         /* ── Typing ── */
         onDmTyping(el) {
