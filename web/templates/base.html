@@ -1736,6 +1736,18 @@ function mainApp() {
                     <span class="sht-icon">📋</span>
                     <span class="sht-label">Задачи</span>
                 </a>
+                {% if chat_enabled() %}
+                <a href="/chat" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/chat') and not _p.startswith('/chat/dm') %}sht-active{% endif %}">
+                    <span class="sht-icon">💬</span>
+                    <span class="sht-label">Чат</span>
+                </a>
+                <a href="/chat/dm" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/chat/dm') %}sht-active{% endif %}">
+                    <span class="sht-icon">✉️</span>
+                    <span class="sht-label">Сообщения</span>
+                </a>
+                {% endif %}
                 {% if user and user.role in ('owner','admin','super_admin') %}
                 <a href="/notifications" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/notifications') %}sht-active{% endif %}">
