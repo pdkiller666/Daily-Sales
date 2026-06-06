@@ -315,7 +315,7 @@ def tasks_new_form(request: Request):
 
 
 @router.post("/tasks/new")
-def tasks_new_post(
+async def tasks_new_post(
     request: Request,
     csrf_token: str = Form(""),
     title: str = Form(""),
@@ -328,6 +328,7 @@ def tasks_new_post(
     deadline: str = Form(""),
     create_chat_topic: str = Form(""),
     checklist_items: str = Form(""),
+    files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -452,6 +453,38 @@ def tasks_new_post(
             if my_db_id and not any(uid == my_db_id for uid, _ in members):
                 _safe_add_notif(my_db_id, "task_assigned",
                                 f"📋 Задача создана: «{title}» → вся команда")
+
+        # Вложения при создании задачи
+        if files:
+            uploads_dir = _uploads_dir_tasks(org_db)
+            month_dir = datetime.now().strftime("%Y-%m")
+            month_path = os.path.join(uploads_dir, month_dir)
+            os.makedirs(month_path, exist_ok=True)
+            saved = []
+            for f in files:
+                if not f or not f.filename:
+                    continue
+                if len(saved) >= MAX_TASK_FILES:
+                    break
+                try:
+                    raw_data = await f.read()
+                    if len(raw_data) == 0 or len(raw_data) > MAX_TASK_FILE_SIZE:
+                        continue
+                    mime = f.content_type or mimetypes.guess_type(f.filename)[0] or "application/octet-stream"
+                    safe_name = _safe_filename_tasks(f.filename)
+                    uid = uuid.uuid4().hex[:12]
+                    dest = os.path.join(month_path, f"{uid}_{safe_name}")
+                    with open(dest, "wb") as fout:
+                        fout.write(raw_data)
+                    saved.append({
+                        "file_path": dest, "file_name": f.filename[:255],
+                        "file_type": mime, "file_size": len(raw_data),
+                        "uploaded_by": my_db_id,
+                    })
+                except Exception as fe:
+                    logger.warning("tasks_new_post: file skip: %s", fe)
+            if saved:
+                db.add_task_attachments(task_id, my_db_id, saved)
 
         return RedirectResponse(url=f"/tasks/{task_id}?msg=created", status_code=303)
     except Exception as e:
