@@ -57,23 +57,28 @@ self.addEventListener('push', e => {
     let data;
     try { data = e.data.json(); } catch { data = { title: 'DailySales', body: e.data.text() }; }
 
-    const badge = typeof data.badge === 'number' ? data.badge : 1;
+    const showNotif = self.registration.showNotification(data.title || 'DailySales', {
+        body: data.body || '',
+        icon: '/static/icon-192.png',
+        badge: '/static/icon-192.png',
+        tag: data.tag || 'dailysales',
+        renotify: true,
+        data: { url: data.url || '/dashboard' },
+    });
 
-    /* Set App Badge counter if supported */
-    if ('setAppBadge' in self.navigator) {
-        self.navigator.setAppBadge(badge).catch(() => {});
-    }
-
-    e.waitUntil(
-        self.registration.showNotification(data.title || 'DailySales', {
-            body: data.body || '',
-            icon: '/static/icon-192.png',
-            badge: '/static/icon-192.png',
-            tag: data.tag || 'dailysales',
-            renotify: true,
-            data: { url: data.url || '/dashboard' },
+    /* Fetch real unread count for accurate App Badge */
+    const updateBadge = fetch('/api/unread-count', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+            const total = (d && typeof d.total === 'number') ? d.total : 1;
+            if ('setAppBadge' in self.navigator) self.navigator.setAppBadge(total).catch(() => {});
         })
-    );
+        .catch(() => {
+            /* Fallback: set badge to 1 if fetch fails (app closed / offline) */
+            if ('setAppBadge' in self.navigator) self.navigator.setAppBadge(1).catch(() => {});
+        });
+
+    e.waitUntil(Promise.all([showNotif, updateBadge]));
 });
 
 self.addEventListener('notificationclick', e => {

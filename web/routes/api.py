@@ -237,6 +237,28 @@ def push_vapid_key(request: Request):
     return {"ok": bool(key), "key": key}
 
 
+@router.post("/push/test")
+async def push_test(request: Request):
+    """Send a test push to the current user (for QA / debugging)."""
+    from web.auth import get_session_user
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    tg_id = int(user["sub"])
+    try:
+        from web.push_utils import send_web_push
+        import asyncio
+        await asyncio.to_thread(
+            send_web_push, tg_id,
+            "🔔 Тестовое уведомление",
+            "Push-уведомления работают корректно ✅",
+            "/dashboard",
+        )
+        return {"ok": True, "msg": "Тестовый push отправлен"}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
 @router.post("/push/subscribe")
 async def push_subscribe(request: Request):
     """Save browser push subscription (endpoint + keys) to shop_bot.db.

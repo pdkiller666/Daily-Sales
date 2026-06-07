@@ -827,18 +827,37 @@ window.dsRefreshBadge = function() {
 (function () {
     if (!('Notification' in window)) return;
 
-    /* Show prompt in the More-sheet based on current permission state */
+    /* Show correct notification state block in More-sheet */
     function _showPrompt() {
-        const elDefault = document.getElementById('ds-notif-prompt');
-        const elDenied  = document.getElementById('ds-notif-denied');
-        if (!elDefault && !elDenied) return;
+        const elDefault  = document.getElementById('ds-notif-prompt');
+        const elDenied   = document.getElementById('ds-notif-denied');
+        const elGranted  = document.getElementById('ds-notif-granted');
+        if (!elDefault && !elDenied && !elGranted) return;
         const perm = Notification.permission;
-        if (elDefault) elDefault.classList.toggle('hidden', perm !== 'default');
-        if (elDenied)  elDenied.classList.toggle('hidden',  perm !== 'denied');
+        if (elDefault)  elDefault.classList.toggle('hidden',  perm !== 'default');
+        if (elDenied)   elDenied.classList.toggle('hidden',   perm !== 'denied');
+        if (elGranted)  elGranted.classList.toggle('hidden',  perm !== 'granted');
     }
     setTimeout(_showPrompt, 800);
     /* Re-check when user opens the More sheet */
     document.addEventListener('ds-open-more', function () { setTimeout(_showPrompt, 50); });
+
+    /* Test push (called from More sheet "Проверить" button) */
+    window.dsPushTest = async function () {
+        const btn = document.getElementById('ds-push-test-btn');
+        if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+        try {
+            /* Ensure subscription is active first */
+            await window.dsSubscribeWebPush();
+            const res = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
+            const d = await res.json();
+            if (btn) { btn.textContent = d.ok ? '✅ Отправлено' : '❌ Ошибка'; btn.disabled = false; }
+            setTimeout(() => { if (btn) btn.textContent = 'Проверить'; }, 4000);
+        } catch (err) {
+            if (btn) { btn.textContent = '❌ Ошибка'; btn.disabled = false; }
+            setTimeout(() => { if (btn) btn.textContent = 'Проверить'; }, 4000);
+        }
+    };
 
     /* Polling loop (sales-feed, background tab) */
     let _poll = null;
@@ -1924,6 +1943,13 @@ function mainApp() {
             <span class="text-lg shrink-0">🔕</span>
             <span class="flex-1 leading-snug">Уведомления заблокированы в браузере. Чтобы включить — откройте <b>Настройки сайта</b> в браузере и разрешите уведомления для этого сайта.</span>
             <button onclick="document.getElementById('ds-notif-denied').classList.add('hidden')" class="shrink-0 text-amber-400 hover:text-amber-600 text-base leading-none px-1">×</button>
+        </div>
+        <!-- Notification granted: test push button -->
+        <div id="ds-notif-granted"
+             class="hidden flex items-center gap-2.5 p-3 bg-green-50 border border-green-100 rounded-xl text-xs text-green-800">
+            <span class="text-lg shrink-0">🔔</span>
+            <span class="flex-1 leading-snug">Push-уведомления <b>включены</b></span>
+            <button id="ds-push-test-btn" onclick="dsPushTest()" class="shrink-0 px-2.5 py-1 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors">Проверить</button>
         </div>
 
         <!-- PWA install prompt -->
