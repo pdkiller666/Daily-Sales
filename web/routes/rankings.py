@@ -67,6 +67,7 @@ def rankings_page(
         "ranking": [], "medals": MEDALS, "error": None,
         "date_from": date_from, "date_to": date_to,
         "own_rank": None,
+        "prev_revenue": None, "growth_pct": None, "cur_revenue": None,
     }
 
     try:
@@ -150,6 +151,34 @@ def rankings_page(
                 if is_me:
                     ctx["own_rank"] = entry
             ctx["ranking"] = ranking
+
+        # Period comparison vs previous period
+        try:
+            if df and dt:
+                import datetime as _dt_r
+                from datetime import timedelta as _tdelta
+                cur_start = _dt_r.date.fromisoformat(df)
+                cur_end = _dt_r.date.fromisoformat(dt)
+                span = (cur_end - cur_start).days
+                prev_end = cur_start - _tdelta(days=1)
+                prev_start = prev_end - _tdelta(days=span)
+                prev_s = db.get_sales_summary(
+                    start_date=prev_start.isoformat(), end_date=prev_end.isoformat()
+                ) or (0, 0, 0, 0)
+                cur_s = db.get_sales_summary(start_date=df, end_date=dt) or (0, 0, 0, 0)
+                prev_rev = float(prev_s[2] or 0)
+                cur_rev = float(cur_s[2] or 0)
+                if prev_rev > 0:
+                    gpct = round((cur_rev - prev_rev) / prev_rev * 100, 1)
+                elif cur_rev > 0:
+                    gpct = 100.0
+                else:
+                    gpct = 0.0
+                ctx["prev_revenue"] = int(prev_rev)
+                ctx["cur_revenue"] = int(cur_rev)
+                ctx["growth_pct"] = gpct
+        except Exception:
+            pass
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

@@ -69,11 +69,61 @@ def _aggregate(all_sales, group_by: str):
     return result
 
 
+def _add_abc_badges(groups: list) -> None:
+    """Annotate each group dict with abc='A'|'B'|'C' based on cumulative revenue share."""
+    total_rev = sum(g["revenue"] for g in groups)
+    if not total_rev:
+        for g in groups:
+            g["abc"] = ""
+        return
+    cumulative = 0.0
+    for g in groups:
+        cumulative += g["revenue"]
+        pct = cumulative / total_rev
+        g["abc"] = "A" if pct <= 0.80 else ("B" if pct <= 0.95 else "C")
+
+
+def _compute_sparklines(groups: list, all_sales: list, group_by: str) -> list:
+    """Add spark (list[float 0..1], last ≤7 dates) to each group. Returns last7 date strings."""
+    from collections import defaultdict
+
+    dates_set = sorted({(s[6] or "")[:10] for s in all_sales if s[6]})
+    last7 = dates_set[-7:]
+    if len(last7) < 2:
+        for g in groups:
+            g["spark"] = []
+        return last7
+
+    key_daily: dict = defaultdict(lambda: defaultdict(float))
+    for s in all_sales:
+        d = (s[6] or "")[:10]
+        if d not in last7:
+            continue
+        rev = float((s[3] or 0) * (s[4] or 0))
+        if group_by == "product":
+            k = s[1]
+        elif group_by == "category":
+            k = s[8] or "Без категории"
+        elif group_by == "shop":
+            k = s[2] or "—"
+        else:
+            k = s[5]
+        key_daily[k][d] += rev
+
+    for g in groups:
+        gk = g["id"] if group_by in ("product", "seller") else g["label"]
+        vals = [key_daily[gk].get(d, 0.0) for d in last7]
+        mx = max(vals) if vals else 0
+        g["spark"] = [round(v / mx, 3) if mx > 0 else 0.0 for v in vals]
+    return last7
+
+
 @router.get("/reports")
 def reports_page(
     request: Request,
     period: str = "month",
     category: str = "",
+    seller_id: int = 0,
     date_from: str = "",
     date_to: str = "",
     shop: str = "",
@@ -94,7 +144,7 @@ def reports_page(
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "period": period, "shop": shop, "group_by": group_by,
         "date_from": date_from, "date_to": date_to,
-        "category": category,
+        "category": category, "seller_id": seller_id, "seller_name": "",
         "shops": [], "summary": (0, 0, 0, 0),
         "groups": [], "all_sales": [], "error": None,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
@@ -143,6 +193,13 @@ def reports_page(
         # Category drill-down: filter by selected category
         if category:
             all_sales = [s for s in all_sales if (s[8] or "Без категории") == category]
+        # Seller drill-down: filter by user_db_id
+        if seller_id:
+            all_sales = [s for s in all_sales if int(s[5] or 0) == seller_id]
+            if all_sales:
+                fname = (all_sales[0][9] or "").strip()
+                lname = (all_sales[0][10] or "").strip()
+                ctx["seller_name"] = f"{fname} {lname}".strip() or f"Продавец #{seller_id}"
         ctx["all_sales"] = all_sales
         summary_kwargs: dict = {"start_date": df, "end_date": dt}
         if shop:
@@ -151,6 +208,8 @@ def reports_page(
             summary_kwargs["shop_names"] = kwargs["shop_names"]
         ctx["summary"] = db.get_sales_summary(**summary_kwargs) or (0, 0, 0, 0)
         ctx["groups"] = _aggregate(all_sales, group_by)
+        _add_abc_badges(ctx["groups"])
+        _compute_sparklines(ctx["groups"], all_sales, group_by)
 
         # Daily chart: aggregate all_sales by date
         try:

@@ -32,21 +32,26 @@
 {% endif %}
 
 <!-- Filters -->
-<div class="card p-4 mb-5">
+<div class="card p-4 mb-5" x-data="{ customOpen: {{ 'true' if period == 'custom' else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }">
     <form method="get" action="/reports">
         <div class="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:items-end">
             <!-- Period pills -->
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-slate-500">Период</label>
-                <div class="flex gap-1">
+                <div class="flex flex-wrap gap-1">
                     {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
-                    <a href="/reports?period={{ p }}&shop={{ shop }}&group_by={{ group_by }}"
+                    <a href="/reports?period={{ p }}&shop={{ shop|urlencode }}&group_by={{ group_by }}"
                        data-period-tab
                        class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
-                              {{ 'bg-blue-600 text-white' if period == p else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                              {{ 'bg-blue-600 text-white' if period == p and period != 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                         {{ lbl }}
                     </a>
                     {% endfor %}
+                    <button type="button" @click="customOpen = !customOpen"
+                            class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                                   {{ 'bg-blue-600 text-white' if period == 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        📅 Период
+                    </button>
                 </div>
             </div>
 
@@ -65,6 +70,30 @@
 
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="group_by" value="{{ group_by }}">
+        </div>
+
+        <!-- Custom date range picker -->
+        <div x-show="customOpen" x-cloak x-transition class="mt-3 flex flex-wrap items-end gap-3">
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">От</label>
+                <input type="date" x-model="df"
+                       class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-500 mb-1">До</label>
+                <input type="date" x-model="dt"
+                       class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
+            </div>
+            <button type="button"
+                    @click="if(df && dt) window.location='/reports?period=custom&date_from='+df+'&date_to='+dt+'&shop={{ shop|urlencode }}&group_by={{ group_by }}'"
+                    :disabled="!df || !dt"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                Применить
+            </button>
+            {% if period == 'custom' %}
+            <a href="/reports?period=month&shop={{ shop|urlencode }}&group_by={{ group_by }}"
+               class="text-xs text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
+            {% endif %}
         </div>
     </form>
 </div>
@@ -228,6 +257,20 @@
     <span class="text-xs font-semibold text-slate-700">{{ category }}</span>
 </div>
 {% endif %}
+{% if seller_id %}
+<!-- Seller drill-down breadcrumb -->
+<div class="flex items-center gap-2 mb-3">
+    <a href="/reports?period={{ period }}&shop={{ shop|urlencode }}&group_by=seller&date_from={{ date_from }}&date_to={{ date_to }}"
+       class="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        По продавцам
+    </a>
+    <span class="text-slate-300 text-xs">/</span>
+    <span class="text-xs font-semibold text-slate-700">{{ seller_name }}</span>
+</div>
+{% endif %}
 
 <!-- Grouped breakdown -->
 <div class="card overflow-hidden">
@@ -248,9 +291,14 @@
     {% if groups %}
     <div class="divide-y divide-slate-50">
         {% for g in groups %}
-        {# Category row → drill-down link; other rows → use g.link #}
+        {# Build row_link based on group_by context #}
+        {% set _base = '/reports?period=' ~ period ~ '&shop=' ~ (shop|urlencode) ~ '&date_from=' ~ date_from ~ '&date_to=' ~ date_to %}
         {% if group_by == 'category' and not category %}
-        {% set row_link = '/reports?period=' ~ period ~ '&shop=' ~ (shop|urlencode) ~ '&group_by=product&date_from=' ~ date_from ~ '&date_to=' ~ date_to ~ '&category=' ~ (g.label|urlencode) %}
+        {% set row_link = _base ~ '&group_by=product&category=' ~ (g.label|urlencode) %}
+        {% elif group_by == 'shop' and not shop %}
+        {% set row_link = _base ~ '&group_by=product&shop=' ~ (g.label|urlencode) %}
+        {% elif group_by == 'seller' and not seller_id and g.id %}
+        {% set row_link = _base ~ '&group_by=product&seller_id=' ~ g.id %}
         {% elif g.link %}
         {% set row_link = g.link %}
         {% else %}
@@ -262,19 +310,26 @@
         <div class="px-5 py-4 flex items-start gap-4 hover:bg-slate-50/60 transition-colors">
         {% endif %}
             <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium text-slate-800 truncate {{ 'group-hover:text-blue-600' if row_link else '' }}">
-                        {% if loop.index <= 3 %}
-                        {{ ['🥇','🥈','🥉'][loop.index-1] }}
-                        {% else %}
-                        <span class="text-xs text-slate-400 mr-0.5">{{ loop.index }}.</span>
-                        {% endif %}
+                        {% if loop.index <= 3 %}{{ ['🥇','🥈','🥉'][loop.index-1] }}
+                        {% else %}<span class="text-xs text-slate-400 mr-0.5">{{ loop.index }}.</span>{% endif %}
                         {{ g.label }}
                     </span>
                     {% if g.sub %}
                     <span class="text-xs text-slate-400 shrink-0">{{ g.sub }}</span>
                     {% endif %}
-                    {% if group_by == 'category' and not category %}
+                    {# ABC badge #}
+                    {% if g.abc %}
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0
+                        {% if g.abc == 'A' %}bg-emerald-100 text-emerald-700
+                        {% elif g.abc == 'B' %}bg-amber-100 text-amber-700
+                        {% else %}bg-rose-100 text-rose-600{% endif %}">
+                        {{ g.abc }}
+                    </span>
+                    {% endif %}
+                    {# Chevron for drill-down rows #}
+                    {% if group_by in ('category','shop','seller') and row_link %}
                     <svg class="w-3 h-3 text-slate-300 group-hover:text-blue-400 shrink-0 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
@@ -289,6 +344,19 @@
                                 {% else %}bg-blue-300{% endif %}"
                          style="width: {{ g.pct }}%"></div>
                 </div>
+                {# Sparkline — last 7 days trend #}
+                {% if g.spark|length >= 2 %}
+                {% set ns = namespace(pts='') %}
+                {% set n = g.spark|length %}
+                {% for v in g.spark %}
+                {% set px = (loop.index0 * 60 / (n - 1))|round|int %}
+                {% set py = ((1.0 - v) * 17 + 1.5)|round|int %}
+                {% set ns.pts = ns.pts ~ px|string ~ ',' ~ py|string ~ ' ' %}
+                {% endfor %}
+                <svg class="mt-1 w-16 h-5 shrink-0 text-blue-400 dark:text-indigo-400 opacity-70" viewBox="0 0 60 20" preserveAspectRatio="none">
+                    <polyline points="{{ ns.pts }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                {% endif %}
             </div>
             <div class="text-right shrink-0">
                 <p class="text-sm font-bold text-emerald-600">{{ g.revenue|int|fmt_currency }}</p>
