@@ -324,6 +324,21 @@ def absences_add(
                 status_code=302
             )
 
+        # Проверить корректность дат
+        try:
+            sd_check = date.fromisoformat(start_date[:10])
+            ed_check = date.fromisoformat(end_date[:10])
+            if ed_check < sd_check:
+                return RedirectResponse(
+                    url=f"/absences?year={year}&month={month}&msg=invalid_dates",
+                    status_code=302
+                )
+        except ValueError:
+            return RedirectResponse(
+                url=f"/absences?year={year}&month={month}&msg=invalid_dates",
+                status_code=302
+            )
+
         # Проверить лимит
         settings = db.get_absence_type_settings()
         limit = settings.get(atype, {}).get('annual_limit', 0)

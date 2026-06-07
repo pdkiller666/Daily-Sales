@@ -269,34 +269,30 @@ def inventory_adjust(
             if shop_name not in allowed:
                 return JSONResponse({"success": False, "error": "Нет доступа к этому магазину"}, status_code=403)
 
+        # Read current quantity for all modes
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+            (product_id, shop_name),
+        )
+        row = cur.fetchone()
+        conn.close()
+        current = int(row[0] or 0) if row else 0
+
         if mode == "set":
-            # Read current qty to compute delta
-            conn = db.get_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
-                (product_id, shop_name),
-            )
-            row = cur.fetchone()
-            conn.close()
-            current = int(row[0] or 0) if row else 0
+            if int(value) < 0:
+                return JSONResponse({"success": False, "error": "Количество не может быть отрицательным"}, status_code=400)
             delta = int(value) - current
         elif mode == "subtract":
             delta = -abs(int(value))
+            if current + delta < 0:
+                return JSONResponse({"success": False, "error": f"Недостаточно товара. В наличии: {current} шт."}, status_code=400)
         else:
             delta = abs(int(value))
 
         if delta == 0:
-            # Read current qty and return
-            conn = db.get_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
-                (product_id, shop_name),
-            )
-            row = cur.fetchone()
-            conn.close()
-            return JSONResponse({"success": True, "new_qty": int(row[0] or 0) if row else 0})
+            return JSONResponse({"success": True, "new_qty": current})
 
         db.update_inventory(
             shop_name=shop_name,
