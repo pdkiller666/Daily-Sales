@@ -116,9 +116,11 @@ async def _notify_user(state, telegram_id: int, text: str):
     """Отправить уведомление пользователю по telegram_id."""
     try:
         import bot_holder as _bh
+        from notif_utils import add_read_btn
         bot = _bh.get_bot()
         if bot:
-            await bot.send_message(telegram_id, text, parse_mode='HTML')
+            await bot.send_message(telegram_id, text, parse_mode='HTML',
+                                   reply_markup=add_read_btn())
     except Exception as e:
         logger.warning(f"_notify_user: {e}")
 

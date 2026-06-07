@@ -102,6 +102,9 @@ def _send_tg_task_notify(telegram_id: int, text: str) -> None:
             "chat_id": telegram_id,
             "text": text,
             "parse_mode": "HTML",
+            "reply_markup": {
+                "inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]
+            },
         }).encode("utf-8")
         req = urllib.request.Request(
             url, data=payload,
@@ -441,7 +444,7 @@ async def tasks_new_post(
             logger.info("tasks notify: shop=%s members=%s", _assigned_shop, len(members))
             for uid, tg_id in members:
                 _safe_add_notif(uid, "task_assigned", notif_msg)
-                if uid != my_db_id:
+                if tg_id:
                     _send_tg_task_notify(tg_id, notify_text)
                     try:
                         from web.push_utils import send_web_push
@@ -457,14 +460,13 @@ async def tasks_new_post(
             logger.info("tasks notify: all members=%s", len(members))
             for uid, tg_id in members:
                 _safe_add_notif(uid, "task_assigned", notif_msg)
-                if uid != my_db_id and tg_id:
+                if tg_id:
+                    _send_tg_task_notify(tg_id, notify_text)
                     try:
                         from web.push_utils import send_web_push
                         send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
                     except Exception:
                         pass
-                if uid != my_db_id:
-                    _send_tg_task_notify(tg_id, notify_text)
             # Notify creator if somehow not in members list
             if my_db_id and not any(uid == my_db_id for uid, _ in members):
                 _safe_add_notif(my_db_id, "task_assigned",

@@ -565,6 +565,7 @@ class IntegrationManager:
     async def _notify_admins(self, db, text: str):
         try:
             from bot_holder import get_bot
+            from notif_utils import add_read_btn
             bot = get_bot()
             if not bot:
                 return
@@ -572,7 +573,8 @@ class IntegrationManager:
             admins = db.get_all_admins_telegram_ids()
             for tg_id in admins:
                 try:
-                    await bot.send_message(int(tg_id), text, parse_mode="HTML")
+                    await bot.send_message(int(tg_id), text, parse_mode="HTML",
+                                           reply_markup=add_read_btn())
                 except Exception:
                     pass
         except Exception as e:
