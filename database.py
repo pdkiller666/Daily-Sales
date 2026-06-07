@@ -3305,7 +3305,8 @@ class Database:
 
     def get_sales_report(self, start_date=None, end_date=None,
                          shop_name=None, city=None, trade_network=None,
-                         shop_names=None, cities=None, trade_networks=None):
+                         shop_names=None, cities=None, trade_networks=None,
+                         category=None):
         """Получение детального отчета по продажам.
         Поддерживает одиночные и множественные (list) фильтры зоны."""
         conn = self.get_connection()
@@ -3352,6 +3353,10 @@ class Database:
             query += f' AND u.trade_network IN ({ph})'
             params.extend(trade_networks)
 
+        if category:
+            query += ' AND p.category = ?'
+            params.append(category)
+
         query += ' ORDER BY s.sale_date DESC'
 
         cursor.execute(query, params)
@@ -3362,18 +3367,20 @@ class Database:
     def get_sales_summary(self, start_date=None, end_date=None,
                           shop_name=None, city=None, trade_network=None,
                           shop_names=None, cities=None, trade_networks=None,
-                          user_id=None):
+                          user_id=None, category=None):
         """Получение сводного отчета по продажам.
 
         Поддерживает одиночные (shop_name/city/trade_network) и
         множественные (shop_names/cities/trade_networks — list[str]) фильтры зоны.
         При city/trade_network-фильтрах добавляется JOIN с users.
         user_id — внутренний users.id для фильтрации по конкретному продавцу.
+        category — фильтр по категории товара (JOIN products).
         """
         conn = self.get_connection()
         cursor = conn.cursor()
 
         need_user_join = any([city, trade_network, cities, trade_networks])
+        need_product_join = bool(category)
 
         if need_user_join:
             query = '''
@@ -3384,18 +3391,22 @@ class Database:
                     AVG(s.quantity_sold * s.sale_price) as avg_sale
                 FROM sales s
                 JOIN users u ON s.user_id = u.id
-                WHERE 1=1
             '''
+            if need_product_join:
+                query += ' JOIN products p ON s.product_id = p.id'
+            query += ' WHERE 1=1'
         else:
             query = '''
                 SELECT
                     COUNT(*) as total_sales,
-                    SUM(quantity_sold) as total_quantity,
-                    SUM(quantity_sold * sale_price) as total_revenue,
-                    AVG(quantity_sold * sale_price) as avg_sale
+                    SUM(s.quantity_sold) as total_quantity,
+                    SUM(s.quantity_sold * s.sale_price) as total_revenue,
+                    AVG(s.quantity_sold * s.sale_price) as avg_sale
                 FROM sales s
-                WHERE 1=1
             '''
+            if need_product_join:
+                query += ' JOIN products p ON s.product_id = p.id'
+            query += ' WHERE 1=1'
         params = []
 
         if start_date:
@@ -3430,6 +3441,10 @@ class Database:
         if user_id is not None:
             query += ' AND s.user_id = ?'
             params.append(user_id)
+
+        if category:
+            query += ' AND p.category = ?'
+            params.append(category)
 
         cursor.execute(query, params)
         summary = cursor.fetchone()

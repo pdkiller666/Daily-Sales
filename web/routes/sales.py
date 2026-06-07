@@ -146,6 +146,7 @@ def sales_page(
     date_to: str = "",
     shop: str = "",
     seller_id: int = 0,
+    category: str = "",
     page: int = 1,
 ):
     from web.auth import get_session_user, get_csrf_token
@@ -160,9 +161,9 @@ def sales_page(
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
-        "sales": [], "shops": [], "sellers": [],
+        "sales": [], "shops": [], "sellers": [], "categories": [],
         "date_from": date_from, "date_to": date_to, "selected_shop": shop,
-        "selected_seller_id": seller_id,
+        "selected_seller_id": seller_id, "selected_category": category,
         "page": 1, "total_pages": 1, "total_count": 0,
         "summary": _summary_empty(), "error": None,
         "csrf_token": get_csrf_token(request),
@@ -207,6 +208,13 @@ def sales_page(
         except Exception:
             pass
 
+        # Build categories list for dropdown
+        try:
+            cats = db.get_all_categories() or []
+            ctx["categories"] = [c for c in cats if c]
+        except Exception:
+            pass
+
         # Determine if this user has a restricted shop scope
         # Applies to non-admin AND scoped admin (admin with limited shop list)
         _all_shops_set = set(ctx.get("all_shops", ctx["shops"]))
@@ -228,6 +236,10 @@ def sales_page(
             # Auto-apply scope: user only sees sales from their allowed shops
             kwargs["shop_names"] = ctx["shops"]
             sum_kwargs["shop_names"] = ctx["shops"]
+
+        if category:
+            kwargs["category"] = category
+            sum_kwargs["category"] = category
 
         all_sales = db.get_sales_report(**kwargs) or []
 

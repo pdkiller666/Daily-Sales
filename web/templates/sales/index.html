@@ -293,6 +293,19 @@
             {% endif %}
         </div>
         {% endif %}
+        <!-- Category row -->
+        {% if categories %}
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Категория</label>
+            <select name="category"
+                    class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                <option value="">Все категории</option>
+                {% for c in categories %}
+                <option value="{{ c }}" {% if c == selected_category %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
         <!-- Actions row -->
         <div class="flex items-center gap-3">
             <button type="submit"
