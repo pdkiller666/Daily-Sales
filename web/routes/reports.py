@@ -73,6 +73,7 @@ def _aggregate(all_sales, group_by: str):
 def reports_page(
     request: Request,
     period: str = "month",
+    category: str = "",
     date_from: str = "",
     date_to: str = "",
     shop: str = "",
@@ -93,6 +94,7 @@ def reports_page(
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "period": period, "shop": shop, "group_by": group_by,
         "date_from": date_from, "date_to": date_to,
+        "category": category,
         "shops": [], "summary": (0, 0, 0, 0),
         "groups": [], "all_sales": [], "error": None,
         "chart_labels": [], "chart_data": [], "chart_dates": [],
@@ -138,6 +140,9 @@ def reports_page(
             kwargs["shop_names"] = allowed_shops
 
         all_sales = db.get_sales_report(**kwargs) or []
+        # Category drill-down: filter by selected category
+        if category:
+            all_sales = [s for s in all_sales if (s[8] or "Без категории") == category]
         ctx["all_sales"] = all_sales
         summary_kwargs: dict = {"start_date": df, "end_date": dt}
         if shop:
