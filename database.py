@@ -3435,7 +3435,7 @@ class Database:
                         ELSE CAST(strftime('%w', s.sale_date) AS INTEGER) - 1
                     END AS weekday,
                     CAST(strftime('%H', s.sale_date) AS INTEGER) AS hour,
-                    SUM(s.quantity * s.price) AS revenue,
+                    SUM(s.quantity_sold * s.sale_price) AS revenue,
                     COUNT(*) AS cnt
                 FROM sales s
                 {where}

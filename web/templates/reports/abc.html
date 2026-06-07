@@ -58,37 +58,37 @@
 </div>
 
 {% if abc_items %}
-<!-- ABC summary cards -->
-<div class="grid grid-cols-3 gap-4 mb-5">
+<!-- ABC summary cards — горизонтальный flex, не grid -->
+<div class="flex gap-3 mb-5 overflow-x-auto pb-1">
     <!-- A -->
-    <div class="card p-4 border-l-4 border-emerald-500">
-        <div class="flex items-center gap-2 mb-2">
-            <span class="text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded">A</span>
-            <span class="text-xs text-slate-500">до 80% выручки</span>
+    <div class="card flex-1 min-w-0 p-3 sm:p-4 border-t-4 border-emerald-500">
+        <div class="flex items-center gap-1.5 mb-2">
+            <span class="text-xs font-bold px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded">A</span>
+            <span class="text-xs text-slate-500 hidden sm:inline">до 80%</span>
         </div>
-        <p class="text-2xl font-bold text-slate-800">{{ a_count }}</p>
-        <p class="text-xs text-slate-400 mt-0.5">товаров</p>
-        <p class="text-sm font-semibold text-emerald-600 mt-1">{{ a_rev|int|fmt_currency }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ a_count }}</p>
+        <p class="text-xs text-slate-400">тов.</p>
+        <p class="text-xs sm:text-sm font-semibold text-emerald-600 mt-1 truncate">{{ a_rev|int|fmt_currency }}</p>
     </div>
     <!-- B -->
-    <div class="card p-4 border-l-4 border-amber-400">
-        <div class="flex items-center gap-2 mb-2">
-            <span class="text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded">B</span>
-            <span class="text-xs text-slate-500">80–95% выручки</span>
+    <div class="card flex-1 min-w-0 p-3 sm:p-4 border-t-4 border-amber-400">
+        <div class="flex items-center gap-1.5 mb-2">
+            <span class="text-xs font-bold px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">B</span>
+            <span class="text-xs text-slate-500 hidden sm:inline">80–95%</span>
         </div>
-        <p class="text-2xl font-bold text-slate-800">{{ b_count }}</p>
-        <p class="text-xs text-slate-400 mt-0.5">товаров</p>
-        <p class="text-sm font-semibold text-amber-600 mt-1">{{ b_rev|int|fmt_currency }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ b_count }}</p>
+        <p class="text-xs text-slate-400">тов.</p>
+        <p class="text-xs sm:text-sm font-semibold text-amber-600 mt-1 truncate">{{ b_rev|int|fmt_currency }}</p>
     </div>
     <!-- C -->
-    <div class="card p-4 border-l-4 border-slate-300">
-        <div class="flex items-center gap-2 mb-2">
-            <span class="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded">C</span>
-            <span class="text-xs text-slate-500">95–100% выручки</span>
+    <div class="card flex-1 min-w-0 p-3 sm:p-4 border-t-4 border-slate-300">
+        <div class="flex items-center gap-1.5 mb-2">
+            <span class="text-xs font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">C</span>
+            <span class="text-xs text-slate-500 hidden sm:inline">95–100%</span>
         </div>
-        <p class="text-2xl font-bold text-slate-800">{{ c_count }}</p>
-        <p class="text-xs text-slate-400 mt-0.5">товаров</p>
-        <p class="text-sm font-semibold text-slate-500 mt-1">{{ c_rev|int|fmt_currency }}</p>
+        <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ c_count }}</p>
+        <p class="text-xs text-slate-400">тов.</p>
+        <p class="text-xs sm:text-sm font-semibold text-slate-500 mt-1 truncate">{{ c_rev|int|fmt_currency }}</p>
     </div>
 </div>
 

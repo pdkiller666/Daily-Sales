@@ -19,6 +19,7 @@
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
 - [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt
+- [Web analytics features](web-analytics.md) — dark mode Chart.js (MutationObserver), drill-down (onClick→/reports?date), ABC /reports/abc, heatmap /reports/heatmap, forecast in plans_dash, sparklines SVG inline
 - [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
 - [Chat plan check bug](chat-plan-bug.md) — _get_org_active_plan() в chat.py: org plan из main.db должен быть ПЕРЕД shop_bot.db; иначе вечный 'Бесплатный' ряд блокирует Премиум у приглашённых членов
 - [Web Push VAPID setup](web-push-vapid.md) — pywebpush==2.3.0; VAPID_PUBLIC_KEY/PRIVATE_KEY/MAILTO в env vars; push_subscriptions в shop_bot.db; send_web_push в web/push_utils.py; SW v4 с badge; robots уже закрывает /api/

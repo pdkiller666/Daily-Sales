@@ -206,12 +206,23 @@
                     <input type="password" name="action_password2" required minlength="8" autocomplete="new-password"
                            class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800">
                 </div>
-                <button type="submit"
-                        onclick="this.disabled=true;this.innerHTML='⏳ Сохранение…'"
+                <button type="submit" id="emailSetupBtn"
                         class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
                     🔗 Привязать email
                 </button>
             </form>
+            <script>
+            (function(){
+                const form = document.querySelector('form[action="/settings/email-setup"]');
+                const btn  = document.getElementById('emailSetupBtn');
+                if (!form || !btn) return;
+                form.addEventListener('submit', function(e) {
+                    if (!form.checkValidity()) return;
+                    btn.disabled = true;
+                    btn.textContent = '⏳ Сохранение…';
+                });
+            })();
+            </script>
             {% endif %}
         </div>
 
