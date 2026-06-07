@@ -30,7 +30,9 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
             if filtered:
                 return filtered
         elif scope_type in ("city", "network", "trade_network"):
+            # Whitelist: col is only ever "city" or "trade_network" — no user input reaches here
             col = "city" if scope_type == "city" else "trade_network"
+            assert col in ("city", "trade_network"), f"Unexpected col: {col}"
             placeholders = ",".join("?" * len(scope_values))
             conn = db.get_connection()
             cur = conn.cursor()
