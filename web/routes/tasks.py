@@ -92,9 +92,10 @@ TOPIC_COLORS = {
 
 
 def _send_tg_task_notify(telegram_id: int, text: str) -> None:
-    """Push-уведомление в Telegram пользователю (fire-and-forget)."""
+    """Push-уведомление в Telegram пользователю (fire-and-forget с логированием ошибок)."""
     token = os.environ.get("BOT_TOKEN", "")
     if not token or not telegram_id:
+        logger.warning("task notify SKIP: token=%s tg_id=%s", bool(token), telegram_id)
         return
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -110,12 +111,19 @@ def _send_tg_task_notify(telegram_id: int, text: str) -> None:
             url, data=payload,
             headers={"Content-Type": "application/json"},
         )
-        threading.Thread(
-            target=lambda: urllib.request.urlopen(req, timeout=10),
-            daemon=True,
-        ).start()
+
+        def _do_send():
+            try:
+                resp = urllib.request.urlopen(req, timeout=10)
+                body = resp.read(512)
+                logger.info("task notify OK tg_id=%s status=%s body=%s",
+                            telegram_id, resp.status, body[:200])
+            except Exception as err:
+                logger.error("task notify FAIL tg_id=%s: %s", telegram_id, err)
+
+        threading.Thread(target=_do_send, daemon=True).start()
     except Exception as e:
-        logger.error("task web notify: %s", e)
+        logger.error("task web notify setup: %s", e)
 
 
 def _get_user_tg_id(db, user_db_id: int) -> int | None:
@@ -417,9 +425,12 @@ async def tasks_new_post(
             except Exception as _ne:
                 logger.warning("tasks: add_notification_to_history uid=%s: %s", uid, _ne)
 
+        logger.info("tasks notify: mode=%s assigned_to=%s my_db_id=%s",
+                    assign_mode, _assigned_to, my_db_id)
         if assign_mode == "person" and _assigned_to:
             tg_id = _get_user_tg_id(db, _assigned_to)
-            logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
+            logger.info("tasks notify: person uid=%s tg_id=%s type=%s",
+                        _assigned_to, tg_id, type(tg_id).__name__)
             _safe_add_notif(_assigned_to, "task_assigned", notif_msg)
             if tg_id:
                 _send_tg_task_notify(tg_id, notify_text)
@@ -429,7 +440,15 @@ async def tasks_new_post(
                 except Exception:
                     pass
             else:
-                logger.warning("tasks notify: no tg_id for uid=%s", _assigned_to)
+                logger.warning("tasks notify: no tg_id for uid=%s — checking DB directly",
+                               _assigned_to)
+                try:
+                    _c = db.get_connection()
+                    _r = _c.execute("SELECT id, telegram_id FROM users WHERE id=?",
+                                    (_assigned_to,)).fetchone()
+                    logger.warning("tasks notify: raw DB row for uid=%s → %s", _assigned_to, _r)
+                except Exception as _de:
+                    logger.error("tasks notify: DB check failed: %s", _de)
             # Уведомление создателю в историю (если он не тот же, кто исполнитель)
             if my_db_id and my_db_id != _assigned_to:
                 assignee_name = next(
