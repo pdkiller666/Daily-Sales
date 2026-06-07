@@ -13,7 +13,18 @@ if not BOT_TOKEN:
         "BOT_TOKEN environment variable is not set. "
         "Set it in Replit Secrets before starting the application."
     )
-_SECRET = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()
+# Prefer an independently-configured secret so web sessions are not derivable
+# from BOT_TOKEN alone. Set WEB_SECRET_KEY in Replit Secrets for max security.
+# Fallback: domain-bound HMAC so the secret is not equal to SHA256(BOT_TOKEN).
+_WEB_SECRET_RAW = os.getenv('WEB_SECRET_KEY', '')
+if _WEB_SECRET_RAW:
+    _SECRET = hashlib.sha256(_WEB_SECRET_RAW.encode()).hexdigest()
+else:
+    _SECRET = hmac.new(
+        BOT_TOKEN.encode(),
+        b"dailysales:web:sessions:v1",
+        hashlib.sha256,
+    ).hexdigest()
 
 _PBKDF2_ITERS = 390_000
 

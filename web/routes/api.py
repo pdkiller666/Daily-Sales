@@ -156,12 +156,16 @@ def my_notifications(request: Request, limit: int = 20):
 @router.post("/my-notifications/read-all")
 def my_notifications_read_all(request: Request):
     """Mark all notification_history entries as read for the current user."""
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
     user = get_session_user(request)
     if not user:
         return {"ok": False}
+
+    token = request.headers.get("X-CSRF-Token", "")
+    if not verify_csrf_token(request, token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -318,7 +322,7 @@ def get_nav_config(request: Request):
 @router.post("/nav-config")
 async def set_nav_config(request: Request):
     """Save user's mobile nav config."""
-    from web.auth import get_session_user
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     import json as _json
 
@@ -326,6 +330,11 @@ async def set_nav_config(request: Request):
     if not user:
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False}, status_code=401)
+
+    token = request.headers.get("X-CSRF-Token", "")
+    if not verify_csrf_token(request, token):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")

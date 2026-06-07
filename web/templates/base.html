@@ -1432,7 +1432,7 @@ function mainApp() {
             /* Background server sync */
             fetch('/api/nav-config', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': _getCsrfToken()},
                 body: 'nav_json=' + encodeURIComponent(JSON.stringify(cfg)),
             }).catch(() => {});
         },
@@ -1476,7 +1476,7 @@ function mainApp() {
                     }
                 })
                 .catch(() => {});
-            fetch('/api/my-notifications/read-all', { method: 'POST' }).catch(() => {});
+            fetch('/api/my-notifications/read-all', { method: 'POST', headers: {'X-CSRF-Token': _getCsrfToken()} }).catch(() => {});
             this.notifCount = 0;
             this.moreOpen = false;
             if (window.innerWidth < 1024) {

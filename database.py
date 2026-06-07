@@ -3063,27 +3063,56 @@ class Database:
 
     # Методы для работы с остатками
     def add_inventory(self, shop_name, product_id, quantity, user_id=None, change_type='manual', change_reason=None):
-        """Добавление остатков товара"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        """Установка абсолютного остатка товара (атомарно — BEGIN IMMEDIATE исключает TOCTOU race)."""
         from datetime import datetime
-        cursor.execute('SELECT quantity FROM inventory WHERE shop_name = ? AND product_id = ?', (shop_name, product_id))
-        _old_row = cursor.fetchone()
-        _old_qty = _old_row[0] if _old_row else 0
-        cursor.execute('''
-            INSERT OR REPLACE INTO inventory (shop_name, product_id, quantity, updated_by, last_updated, change_type, change_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (shop_name, product_id, quantity, user_id, datetime.now().isoformat(), change_type, change_reason))
-        conn.commit()
+        conn = None
         try:
-            cursor.execute(
-                'INSERT INTO inventory_log (shop_name, product_id, old_quantity, new_quantity, delta, change_type, change_reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (shop_name, product_id, _old_qty, quantity, quantity - _old_qty, change_type, change_reason, user_id)
-            )
+            conn = self.get_connection()
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT quantity FROM inventory WHERE shop_name=? AND product_id=?",
+                (shop_name, product_id)
+            ).fetchone()
+            _old_qty = row[0] if row else 0
+            now = datetime.now().isoformat()
+            if row:
+                conn.execute(
+                    """UPDATE inventory
+                       SET quantity=?, updated_by=?, last_updated=?,
+                           change_type=?, change_reason=?
+                       WHERE shop_name=? AND product_id=?""",
+                    (quantity, user_id, now, change_type, change_reason, shop_name, product_id)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO inventory
+                           (shop_name, product_id, quantity, updated_by,
+                            last_updated, change_type, change_reason)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (shop_name, product_id, quantity, user_id, now, change_type, change_reason)
+                )
+            try:
+                conn.execute(
+                    """INSERT INTO inventory_log
+                           (shop_name, product_id, old_quantity, new_quantity,
+                            delta, change_type, change_reason, changed_by)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (shop_name, product_id, _old_qty, quantity,
+                     quantity - _old_qty, change_type, change_reason, user_id)
+                )
+            except Exception as _le:
+                logger.warning(f"inventory_log insert failed: {_le}")
             conn.commit()
-        except Exception as _le:
-            logger.warning(f"inventory_log insert failed: {_le}")
-        conn.close()
+            conn.close()
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                conn.close()
+            logger.error(f"Error in add_inventory: {e}")
+            raise
 
     def get_inventory(self, shop_name, product_id):
         """Получение остатков товара в магазине"""
