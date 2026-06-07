@@ -896,9 +896,10 @@ window.dsRefreshBadge = function() {
         return out;
     }
 
-    function _getCsrfToken() {
+    /* Global helper — used by Alpine component methods (separate script scope) */
+    window._getCsrfToken = function () {
         return document.querySelector('meta[name="x-csrf-token"]')?.content || '';
-    }
+    };
 
     window.dsSubscribeWebPush = async function () {
         if (!('PushManager' in window) || !navigator.serviceWorker) return;
