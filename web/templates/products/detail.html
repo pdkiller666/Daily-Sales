@@ -199,7 +199,14 @@
                 {% for s in recent_sales %}
                 {# id[0] shop[1] qty[2] price[3] date[4] first_name[5] last_name[6] user_id[7] #}
                 <tr class="hover:bg-slate-50/70">
-                    <td class="px-5 py-2.5 text-slate-500">{{ (s[4] or '')[:10]|fmt_date }}</td>
+                    <td class="px-5 py-2.5 text-slate-500">
+                        {{ (s[4] or '')[:10]|fmt_date }}
+                        {% if s[5] %}
+                        <p class="sm:hidden text-[10px] text-slate-400 mt-0.5">
+                            {{ s[5] }}{% if s[6] %} {{ s[6][0] }}.{% endif %}
+                        </p>
+                        {% endif %}
+                    </td>
                     <td class="px-3 py-2.5 text-slate-700">{{ s[1] }}</td>
                     <td class="px-3 py-2.5 text-right font-medium text-slate-800">{{ s[2] }}</td>
                     <td class="px-3 py-2.5 text-right text-slate-500">{{ s[3]|int|fmt_currency }}</td>
