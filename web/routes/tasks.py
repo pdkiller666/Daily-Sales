@@ -131,11 +131,26 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
     try:
         conn = db.get_connection()
         row = conn.execute(
-            "SELECT telegram_id FROM users WHERE id = ?", (user_db_id,)
+            "SELECT id, telegram_id FROM users WHERE id = ?", (user_db_id,)
         ).fetchone()
+        logger.info("_get_user_tg_id: uid=%s row=%s", user_db_id, row)
         conn.close()
-        return row[0] if row else None
-    except Exception:
+        if row and row[1] is not None:
+            return row[1]
+        # Фоллбэк: возможно id не совпадает, пробуем поиск среди всех пользователей
+        # (защита на случай несоответствия id в staff_list и users table)
+        logger.warning("_get_user_tg_id: tg_id is None for uid=%s, fallback to all-users scan",
+                       user_db_id)
+        conn2 = db.get_connection()
+        all_rows = conn2.execute(
+            "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
+        ).fetchall()
+        logger.warning("_get_user_tg_id: all users with tg_id: %s",
+                       [(r[0], r[1]) for r in all_rows])
+        conn2.close()
+        return None
+    except Exception as e:
+        logger.error("_get_user_tg_id error uid=%s: %s", user_db_id, e)
         return None
 
 
