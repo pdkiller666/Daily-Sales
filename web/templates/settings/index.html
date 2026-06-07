@@ -103,6 +103,11 @@
                 <span>✅</span><span>Сохранено</span>
             </div>
             {% endif %}
+            {% if email_sent %}
+            <div class="mb-4 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                <span>📧</span><span>Письмо отправлено — проверьте почту (и папку «Спам»)</span>
+            </div>
+            {% endif %}
             {% if email_error %}
             <div class="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
                 <span class="shrink-0 mt-0.5">⚠️</span><span>{{ email_error }}</span>

@@ -47,12 +47,13 @@ _EMAIL_ERROR_MSGS = {
     "server_error":        "Ошибка сервера. Попробуйте позже.",
     "csrf":                "Ошибка безопасности. Обновите страницу.",
     "cannot_unlink":       "Нельзя отвязать email — это единственный способ входа в аккаунт.",
+    "smtp_failed":         "Не удалось отправить письмо. Проверьте позже или обратитесь к администратору.",
 }
 
 
 @router.get("/settings")
 def settings_page(request: Request, saved: str = "", profile_saved: str = "",
-                  email_saved: str = "", email_error: str = ""):
+                  email_saved: str = "", email_error: str = "", email_sent: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -75,6 +76,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "saved": saved == "1",
         "profile_saved": profile_saved == "1",
         "email_saved": email_saved == "1",
+        "email_sent": email_sent == "1",
         "email_error": _EMAIL_ERROR_MSGS.get(email_error, ""),
         "error": None,
         "scheduled_notifications": [],

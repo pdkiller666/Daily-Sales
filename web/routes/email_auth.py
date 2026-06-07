@@ -554,14 +554,17 @@ async def settings_resend_verify(request: Request, csrf_token: str = Form(defaul
         return RedirectResponse(url="/settings#security", status_code=302)
 
     tg_id = int(user["sub"])
+    sent = False
     try:
         db = _shop_db()
         cred = db.get_web_credential_by_telegram_id(tg_id)
         if cred and email_ok():
             tok = str(uuid.uuid4())
             db.set_web_verify_token(cred['id'], tok, int(time.time()) + 86400)
-            send_verification_email(cred['email'], f"{_base_url(request)}/auth/verify?t={tok}")
+            sent = send_verification_email(cred['email'], f"{_base_url(request)}/auth/verify?t={tok}")
     except Exception as exc:
         logger.error("resend_verify: %s", exc)
 
-    return RedirectResponse(url="/settings?email_saved=1#security", status_code=302)
+    if sent:
+        return RedirectResponse(url="/settings?email_sent=1#security", status_code=302)
+    return RedirectResponse(url="/settings?email_error=smtp_failed#security", status_code=302)
