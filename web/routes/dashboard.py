@@ -160,15 +160,15 @@ def dashboard(request: Request):
                         "label": label,
                         "actual": float(actual or 0),
                         "target": target,
-                        "pct": min(100, int(pct or 0)),
+                        "pct": int(pct or 0),
                         "shop_name": plan[6] or "",
                         "target_type": target_type,
                         "period_label": period_label,
                         "filter_type": filter_type,
                         "filter_value": filter_value,
                     })
-                # Sort: least complete first (most urgent)
-                plans_dash.sort(key=lambda x: x["pct"])
+                # Sort: least complete first (most urgent); completed plans (≥100%) go last
+                plans_dash.sort(key=lambda x: x["pct"] if x["pct"] < 100 else 10000)
                 # Group by label (shop or seller) — one group per entity
                 ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
@@ -195,7 +195,7 @@ def dashboard(request: Request):
                         "label": label,
                         "actual": float(actual or 0),
                         "target": target,
-                        "pct": min(100, int(pct or 0)),
+                        "pct": int(pct or 0),
                         "shop_name": plan[6] or "",
                         "target_type": plan[4] or "shop",
                         "period_label": period_label,

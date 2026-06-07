@@ -363,7 +363,7 @@
                     {% endif %}
                 </p>
                 <div class="w-full bg-slate-200 rounded-full h-1.5">
-                    <div class="{{ bar_color }} h-1.5 rounded-full transition-all" style="width: {{ p.pct }}%"></div>
+                    <div class="{{ bar_color }} h-1.5 rounded-full transition-all" style="width: {{ [p.pct, 100]|min }}%"></div>
                 </div>
             </a>
             {% endfor %}
