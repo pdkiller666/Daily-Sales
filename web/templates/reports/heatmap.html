@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Тепловая карта продаж{% endblock %}
+
+{% block breadcrumb %}
+<a href="/reports" class="text-slate-400 text-xs hover:text-blue-500">Отчёты</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Тепловая карта</span>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.hm-cell {
+    border-radius: 4px;
+    width: 100%;
+    aspect-ratio: 1;
+    min-width: 18px;
+    min-height: 18px;
+    cursor: default;
+    position: relative;
+    transition: transform .15s;
+}
+.hm-cell:hover { transform: scale(1.25); z-index: 10; }
+.hm-grid {
+    display: grid;
+    grid-template-columns: 40px repeat(15,1fr);
+    gap: 3px;
+    align-items: center;
+}
+.hm-label { font-size: 10px; color: #94a3b8; text-align: right; padding-right: 6px; line-height: 1; }
+.hm-header { font-size: 10px; color: #94a3b8; text-align: center; }
+html.dark .hm-label, html.dark .hm-header { color: #64748b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">🔥 Тепловая карта</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Выручка по дням недели и часам</p>
+    </div>
+    <a href="/reports" class="text-xs text-blue-500 hover:underline">← Отчёты</a>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="card p-4 mb-5">
+    <form method="get" action="/reports/heatmap">
+        <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">Период</label>
+                <div class="flex gap-1">
+                    {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
+                    <a href="/reports/heatmap?period={{ p }}&shop={{ shop }}"
+                       class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                              {{ 'bg-blue-600 text-white' if period == p else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        {{ lbl }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% if shops %}
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">Магазин</label>
+                <select name="shop" onchange="this.form.submit()"
+                        class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
+                    <option value="">Все магазины</option>
+                    {% for s in shops %}
+                    <option value="{{ s }}" {% if s == shop %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <input type="hidden" name="period" value="{{ period }}">
+        </div>
+    </form>
+</div>
+
+<!-- Heatmap -->
+<div class="card p-5">
+    <div class="flex items-center justify-between mb-5">
+        <h2 class="font-semibold text-slate-800">Активность по времени</h2>
+        <span class="text-xs text-slate-400">{{ date_from|fmt_date }} — {{ date_to|fmt_date }}</span>
+    </div>
+
+    {% set days_ru = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] %}
+    {% set hours_show = [8,9,10,11,12,13,14,15,16,17,18,19,20,21,22] %}
+
+    {% if heatmap %}
+    <div class="overflow-x-auto">
+        <div class="hm-grid" style="min-width:360px">
+            <!-- Header row: hour labels -->
+            <div></div>
+            {% for h in hours_show %}
+            <div class="hm-header">{{ h }}</div>
+            {% endfor %}
+
+            <!-- Data rows: one per weekday -->
+            {% for wd in range(7) %}
+            <div class="hm-label">{{ days_ru[wd] }}</div>
+            {% for h in hours_show %}
+            {% set cell = heatmap.get(wd, {}).get(h) %}
+            {% if cell %}
+                {% set intensity = (cell.revenue / max_revenue * 100)|int %}
+                {% set alpha = [intensity / 100 * 0.85 + 0.08, 0.93]|min %}
+                <div class="hm-cell"
+                     style="background:rgba(16,185,129,{{ '%.2f'|format(alpha) }})"
+                     title="{{ days_ru[wd] }} {{ h }}:00 — {{ cell.revenue|int|fmt_currency }} ₽ ({{ cell.count }} прод.)">
+                </div>
+            {% else %}
+                <div class="hm-cell" style="background:rgba(203,213,225,0.25)"></div>
+            {% endif %}
+            {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="flex items-center gap-2 mt-4">
+        <span class="text-xs text-slate-400">Меньше</span>
+        <div class="flex gap-0.5">
+            {% for v in [0.1, 0.25, 0.45, 0.65, 0.85] %}
+            <div class="w-4 h-4 rounded" style="background:rgba(16,185,129,{{ v }})"></div>
+            {% endfor %}
+        </div>
+        <span class="text-xs text-slate-400">Больше</span>
+        <span class="text-xs text-slate-300 ml-3">* наведите на ячейку для суммы</span>
+    </div>
+
+    <!-- Top hours summary -->
+    {% set top_cells = [] %}
+    {% for wd in range(7) %}
+        {% for h, cell in heatmap.get(wd, {}).items() %}
+            {% if top_cells.append({'wd': wd, 'h': h, 'rev': cell.revenue, 'cnt': cell.count}) %}{% endif %}
+        {% endfor %}
+    {% endfor %}
+    {% set top_cells = top_cells | sort(attribute='rev', reverse=True) %}
+
+    {% if top_cells %}
+    <div class="mt-5 pt-4 border-t border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">🏆 Топ-5 периодов</h3>
+        <div class="space-y-2">
+            {% for c in top_cells[:5] %}
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-600">{{ days_ru[c.wd] }} {{ c.h }}:00–{{ c.h + 1 }}:00</span>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-slate-400">{{ c.cnt }} прод.</span>
+                    <span class="font-semibold text-emerald-600">{{ c.rev|int|fmt_currency }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="py-16 text-center text-slate-400">
+        <p class="text-5xl mb-3">📊</p>
+        <p class="text-sm font-medium">Нет данных за выбранный период</p>
+        <p class="text-xs mt-1">Попробуйте выбрать более широкий диапазон</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

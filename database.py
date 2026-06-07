@@ -3415,6 +3415,44 @@ class Database:
         conn.close()
         return sales
 
+    def get_sales_heatmap(self, start_date=None, end_date=None, shop_name=None):
+        """Heatmap: list of (weekday 0=Mon..6=Sun, hour 0-23, revenue, count)."""
+        conn = self.get_connection()
+        try:
+            conditions, params = [], []
+            if start_date:
+                conditions.append("s.sale_date >= ?"); params.append(start_date)
+            if end_date:
+                conditions.append("s.sale_date <= ?"); params.append(end_date + " 23:59:59")
+            if shop_name:
+                conditions.append("s.shop_name = ?"); params.append(shop_name)
+            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                SELECT
+                    CASE strftime('%w', s.sale_date)
+                        WHEN '0' THEN 6
+                        ELSE CAST(strftime('%w', s.sale_date) AS INTEGER) - 1
+                    END AS weekday,
+                    CAST(strftime('%H', s.sale_date) AS INTEGER) AS hour,
+                    SUM(s.quantity * s.price) AS revenue,
+                    COUNT(*) AS cnt
+                FROM sales s
+                {where}
+                GROUP BY weekday, hour
+                ORDER BY weekday, hour
+            """, params)
+            return cursor.fetchall()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("get_sales_heatmap: %s", exc)
+            return []
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     def get_sales_summary(self, start_date=None, end_date=None,
                           shop_name=None, city=None, trade_network=None,
                           shop_names=None, cities=None, trade_networks=None,

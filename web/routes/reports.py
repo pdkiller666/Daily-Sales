@@ -95,7 +95,7 @@ def reports_page(
         "date_from": date_from, "date_to": date_to,
         "shops": [], "summary": (0, 0, 0, 0),
         "groups": [], "all_sales": [], "error": None,
-        "chart_labels": [], "chart_data": [],
+        "chart_labels": [], "chart_data": [], "chart_dates": [],
         "prev_revenue": None, "growth_pct": None,
     }
 
@@ -174,6 +174,7 @@ def reports_page(
                 all_days = all_days[-60:]
             ctx["chart_labels"] = [d[8:10] + '-' + d[5:7] for d in all_days]   # DD-MM
             ctx["chart_data"]   = [int(daily_rev.get(d, 0)) for d in all_days]
+            ctx["chart_dates"]  = list(all_days)  # ISO strings for drill-down
 
             # Previous period revenue for growth indicator
             try:
@@ -437,3 +438,125 @@ def reports_export_xlsx(
     except Exception as exc:
         logger.error(f"reports_export_xlsx error: {exc}\n{traceback.format_exc()}")
         return RedirectResponse(url="/reports?error=Ошибка+при+формировании+отчёта.+Попробуйте+позже.", status_code=302)
+
+
+@router.get("/reports/heatmap")
+def reports_heatmap(
+    request: Request,
+    period: str = "month",
+    shop: str = "",
+):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "period": period, "shop": shop,
+        "shops": [], "heatmap": {}, "max_revenue": 1,
+        "date_from": "", "date_to": "", "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        from timezone_utils import get_current_user_time
+        tz = db.get_user_timezone(telegram_id)
+        today = get_current_user_time(tz).date()
+        df, dt = _period_dates(period, today)
+        ctx["date_from"], ctx["date_to"] = df, dt
+        ctx["shops"] = db.get_all_shops() or []
+
+        raw = db.get_sales_heatmap(start_date=df, end_date=dt, shop_name=shop or None)
+        # Build dict: {weekday: {hour: {"revenue": x, "count": y}}}
+        heatmap: dict = {}
+        max_rev = 0.0
+        for row in raw:
+            wd, hr, rev, cnt = int(row[0]), int(row[1]), float(row[2] or 0), int(row[3] or 0)
+            heatmap.setdefault(wd, {})[hr] = {"revenue": rev, "count": cnt}
+            if rev > max_rev:
+                max_rev = rev
+        ctx["heatmap"] = heatmap
+        ctx["max_revenue"] = max_rev or 1
+    except Exception as exc:
+        ctx["error"] = str(exc)
+
+    return request.app.state.templates.TemplateResponse(request, "reports/heatmap.html", ctx)
+
+
+@router.get("/reports/abc")
+def reports_abc(
+    request: Request,
+    period: str = "month",
+    shop: str = "",
+):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "period": period, "shop": shop,
+        "shops": [], "abc_items": [],
+        "a_rev": 0, "b_rev": 0, "c_rev": 0,
+        "a_count": 0, "b_count": 0, "c_count": 0,
+        "date_from": "", "date_to": "", "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        from timezone_utils import get_current_user_time
+        tz = db.get_user_timezone(telegram_id)
+        today = get_current_user_time(tz).date()
+        df, dt = _period_dates(period, today)
+        ctx["date_from"], ctx["date_to"] = df, dt
+        ctx["shops"] = db.get_all_shops() or []
+
+        kwargs: dict = {"start_date": df, "end_date": dt}
+        if shop:
+            kwargs["shop_name"] = shop
+        all_sales = db.get_sales_report(**kwargs) or []
+
+        # Aggregate by product
+        products: dict = {}
+        for s in all_sales:
+            pid, name, cat = s[1], s[7] or "—", s[8] or "—"
+            rev = float((s[3] or 0) * (s[4] or 0))
+            qty = int(s[3] or 0)
+            if pid not in products:
+                products[pid] = {"id": pid, "name": name, "category": cat, "revenue": 0.0, "qty": 0, "count": 0}
+            products[pid]["revenue"] += rev
+            products[pid]["qty"] += qty
+            products[pid]["count"] += 1
+
+        items = sorted(products.values(), key=lambda x: x["revenue"], reverse=True)
+        total_rev = sum(x["revenue"] for x in items) or 1
+
+        # Assign ABC groups
+        cumulative = 0.0
+        for item in items:
+            item["pct"] = round(item["revenue"] / total_rev * 100, 1)
+            cumulative += item["revenue"]
+            cum_pct = cumulative / total_rev * 100
+            item["group"] = "A" if cum_pct <= 80 else ("B" if cum_pct <= 95 else "C")
+
+        ctx["abc_items"] = items
+        ctx["a_rev"]   = sum(x["revenue"] for x in items if x["group"] == "A")
+        ctx["b_rev"]   = sum(x["revenue"] for x in items if x["group"] == "B")
+        ctx["c_rev"]   = sum(x["revenue"] for x in items if x["group"] == "C")
+        ctx["a_count"] = sum(1 for x in items if x["group"] == "A")
+        ctx["b_count"] = sum(1 for x in items if x["group"] == "B")
+        ctx["c_count"] = sum(1 for x in items if x["group"] == "C")
+    except Exception as exc:
+        ctx["error"] = str(exc)
+
+    return request.app.state.templates.TemplateResponse(request, "reports/abc.html", ctx)

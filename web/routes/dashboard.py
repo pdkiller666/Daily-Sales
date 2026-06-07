@@ -1,3 +1,4 @@
+import calendar as _cal
 from datetime import date, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
@@ -29,6 +30,35 @@ def _fmt(amount) -> str:
         return "0\u00a0₽"
 
 
+def _growth(cur, prev) -> str | None:
+    """Return '+12.3%' / '-5.1%' badge string, or None if no prev data."""
+    try:
+        cur, prev = float(cur or 0), float(prev or 0)
+        if prev <= 0:
+            return None
+        pct = round((cur - prev) / prev * 100, 1)
+        return f"+{pct}%" if pct >= 0 else f"{pct}%"
+    except Exception:
+        return None
+
+
+def _add_forecast(plans_dash: list, today: date) -> None:
+    """Add forecast_pct to each plan dict (linear extrapolation)."""
+    days_in_month = _cal.monthrange(today.year, today.month)[1]
+    week_elapsed = today.weekday() + 1   # Mon=1 … Sun=7
+    for p in plans_dash:
+        if p["pct"] >= 100:
+            p["forecast_pct"] = None
+            continue
+        elapsed = week_elapsed if p["plan_type"] == "weekly" else today.day
+        total   = 7           if p["plan_type"] == "weekly" else days_in_month
+        actual, target = float(p["actual"]), float(p["target"])
+        if elapsed > 0 and actual > 0 and target > 0:
+            p["forecast_pct"] = min(int(actual / elapsed * total / target * 100), 300)
+        else:
+            p["forecast_pct"] = None
+
+
 @router.get("/dashboard")
 def dashboard(request: Request):
     from web.auth import get_session_user
@@ -50,7 +80,7 @@ def dashboard(request: Request):
         "today_sales": 0, "today_revenue": "0\u00a0₽",
         "month_sales": 0, "month_revenue": "0\u00a0₽",
         "user_count": 0, "product_count": 0,
-        "chart_labels": [], "chart_data": [],
+        "chart_labels": [], "chart_data": [], "chart_dates": [],
         "recent_sales": [], "shop_ranking": [],
         "seller_ranking": [], "low_stock": [],
         "plans_dash": [],
@@ -58,6 +88,8 @@ def dashboard(request: Request):
         "today_label": date.today().strftime('%d.%m.%Y'),
         "error": None,
         "user_tz": "Europe/Moscow",
+        "today_vs_yesterday": None,
+        "month_vs_prev": None,
     }
 
     try:
@@ -81,14 +113,37 @@ def dashboard(request: Request):
         ctx["month_sales"] = int(month_s[0] or 0)
         ctx["month_revenue"] = _fmt(month_s[2])
 
-        labels, data = [], []
+        # ── Period comparisons ──────────────────────────────────────────────
+        try:
+            yesterday = today - timedelta(days=1)
+            yesterday_s = db.get_sales_summary(
+                start_date=yesterday.isoformat(), end_date=yesterday.isoformat()
+            ) or (0, 0, 0, 0)
+            ctx["today_vs_yesterday"] = _growth(today_s[2], yesterday_s[2])
+        except Exception:
+            pass
+
+        try:
+            prev_end   = today.replace(day=1) - timedelta(days=1)
+            prev_start = prev_end.replace(day=1)
+            prev_m_s   = db.get_sales_summary(
+                start_date=prev_start.isoformat(), end_date=prev_end.isoformat()
+            ) or (0, 0, 0, 0)
+            ctx["month_vs_prev"] = _growth(month_s[2], prev_m_s[2])
+        except Exception:
+            pass
+
+        # ── 7-day chart ─────────────────────────────────────────────────────
+        labels, data, dates = [], [], []
         for i in range(6, -1, -1):
             d = today - timedelta(days=i)
             s = db.get_sales_summary(start_date=d.isoformat(), end_date=d.isoformat())
             labels.append(d.strftime('%d.%m'))
             data.append(int(float(s[2] or 0)) if s else 0)
+            dates.append(d.isoformat())
         ctx["chart_labels"] = labels
         ctx["chart_data"] = data
+        ctx["chart_dates"] = dates
 
         ctx["recent_sales"] = db.get_recent_sales(limit=10) or []
         ctx["shop_ranking"] = (db.get_shop_ranking(start_date=month_str, end_date=today_str) or [])[:5]
@@ -101,7 +156,6 @@ def dashboard(request: Request):
                 uid = db.get_user_id(telegram_id)
                 conn2 = db.get_connection()
                 cur2 = conn2.cursor()
-                # Get user threshold (default 5)
                 threshold = 5
                 if uid:
                     th_row = cur2.execute(
@@ -109,7 +163,6 @@ def dashboard(request: Request):
                     ).fetchone()
                     if th_row and th_row[0] is not None:
                         threshold = int(th_row[0])
-                # For admins/owners show low stock across ALL shops
                 cur2.execute("""
                     SELECT p.name, i.quantity, i.shop_name, i.product_id
                     FROM inventory i
@@ -122,7 +175,7 @@ def dashboard(request: Request):
                 conn2.close()
             except Exception:
                 pass
-            # Who's on shift today
+
             try:
                 conn3 = db.get_connection()
                 cur3 = conn3.cursor()
@@ -139,7 +192,6 @@ def dashboard(request: Request):
             except Exception:
                 ctx["on_shift_today"] = []
 
-            # Active plans progress for admins
             try:
                 raw = db.get_plans_progress(local_today=today) or []
                 plans_dash = []
@@ -166,17 +218,15 @@ def dashboard(request: Request):
                         "period_label": period_label,
                         "filter_type": filter_type,
                         "filter_value": filter_value,
+                        "forecast_pct": None,
                     })
-                # Sort: least complete first (most urgent); completed plans (≥100%) go last
                 plans_dash.sort(key=lambda x: x["pct"] if x["pct"] < 100 else 10000)
-                # Group by label (shop or seller) — one group per entity
+                _add_forecast(plans_dash, today)
                 ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
                 ctx["plans_dash"] = []
         else:
-            uid = db.get_user_id(telegram_id)
             ctx["user_count"] = 0
-            # Personal plans for regular users
             try:
                 raw = db.get_user_plans_progress(telegram_id, local_today=today) or []
                 plans_dash = []
@@ -201,8 +251,10 @@ def dashboard(request: Request):
                         "period_label": period_label,
                         "filter_type": filter_type,
                         "filter_value": filter_value,
+                        "forecast_pct": None,
                     })
                 plans_dash.sort(key=lambda x: x["pct"])
+                _add_forecast(plans_dash, today)
                 ctx["plans_dash"] = _group_plans_dash(plans_dash, limit=6)
             except Exception:
                 ctx["plans_dash"] = []

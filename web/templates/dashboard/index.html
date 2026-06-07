@@ -64,26 +64,48 @@
 
     <!-- Today revenue -->
     <a href="/reports" class="card p-5 block ds-card-anim ds-c2">
-        <div class="flex items-start justify-between mb-4">
+        <div class="flex items-start justify-between mb-3">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Выручка<br>сегодня</p>
-            <div class="ds-icon" style="background:linear-gradient(135deg,#d1fae5,#ecfdf5)">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            <div class="flex flex-col items-end gap-1">
+                <div class="ds-icon" style="background:linear-gradient(135deg,#d1fae5,#ecfdf5)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                </div>
+                {% if today_vs_yesterday %}
+                <span class="text-xs font-semibold px-1.5 py-0.5 rounded-md {% if today_vs_yesterday.startswith('+') %}text-emerald-700 bg-emerald-50{% else %}text-red-600 bg-red-50{% endif %}">
+                    {{ today_vs_yesterday }}
+                </span>
+                {% endif %}
             </div>
         </div>
+        <!-- 7-day sparkline -->
+        {% if chart_data and chart_data|sum > 0 %}
+        {% set _mn = chart_data|min %}{% set _mx = chart_data|max %}{% set _r = (_mx - _mn) if _mx != _mn else 1 %}
+        <svg width="64" height="24" class="mb-2 opacity-60" viewBox="0 0 64 24" fill="none">
+            <polyline stroke="#10b981" stroke-width="1.8" stroke-linejoin="round" fill="none"
+                points="{% for v in chart_data %}{{ loop.index0 * 64 // 6 }},{{ 22 - ((v - _mn) / _r * 20)|int }}{% if not loop.last %} {% endif %}{% endfor %}"/>
+        </svg>
+        {% endif %}
         <p class="text-xl sm:text-2xl font-bold text-emerald-600 leading-tight">{{ today_revenue }}</p>
-        <p class="text-xs text-slate-400 mt-1">сумма продаж</p>
+        <p class="text-xs text-slate-400 mt-1">сумма продаж{% if today_vs_yesterday %} · vs вчера{% endif %}</p>
     </a>
 
     <!-- Month revenue -->
     <a href="/reports" class="card p-5 block ds-card-anim ds-c3">
         <div class="flex items-start justify-between mb-4">
             <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide leading-tight">Выручка<br>за месяц</p>
-            <div class="ds-icon" style="background:linear-gradient(135deg,#e0e7ff,#eef2ff)">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+            <div class="flex flex-col items-end gap-1">
+                <div class="ds-icon" style="background:linear-gradient(135deg,#e0e7ff,#eef2ff)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                </div>
+                {% if month_vs_prev %}
+                <span class="text-xs font-semibold px-1.5 py-0.5 rounded-md {% if month_vs_prev.startswith('+') %}text-emerald-700 bg-emerald-50{% else %}text-red-600 bg-red-50{% endif %}">
+                    {{ month_vs_prev }}
+                </span>
+                {% endif %}
             </div>
         </div>
         <p class="text-xl sm:text-2xl font-bold text-indigo-600 leading-tight">{{ month_revenue }}</p>
-        <p class="text-xs text-slate-400 mt-1">{{ month_sales }} транзакций</p>
+        <p class="text-xs text-slate-400 mt-1">{{ month_sales }} транзакций{% if month_vs_prev %} · vs пред. месяц{% endif %}</p>
     </a>
 
     <!-- Users / Products -->
@@ -362,9 +384,19 @@
                     · Товар: {{ p.filter_value }}
                     {% endif %}
                 </p>
-                <div class="w-full bg-slate-200 rounded-full h-1.5">
-                    <div class="{{ bar_color }} h-1.5 rounded-full transition-all" style="width: {{ [p.pct, 100]|min }}%"></div>
+                <div class="relative w-full bg-slate-200 rounded-full h-2">
+                    <div class="{{ bar_color }} h-2 rounded-full ds-bar-fill" style="width: {{ [p.pct, 100]|min }}%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:25%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:50%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:75%"></div>
                 </div>
+                {% if p.forecast_pct is not none and p.pct < 100 %}
+                <div class="flex items-center gap-1 mt-1">
+                    <span class="text-xs text-slate-400">Прогноз:</span>
+                    <span class="text-xs font-semibold {{ 'text-emerald-600' if p.forecast_pct >= 100 else ('text-amber-600' if p.forecast_pct >= 70 else 'text-red-500') }}">{{ p.forecast_pct }}%</span>
+                    <span class="text-xs text-slate-300">к концу периода</span>
+                </div>
+                {% endif %}
             </a>
             {% endfor %}
             </div>
@@ -374,20 +406,25 @@
 </div>
 {% endif %}
 
-<!-- Chart.js -->
+<!-- Chart.js + dark mode + drill-down -->
 <script>
 (function(){
     const labels = {{ chart_labels | tojson }};
     const data   = {{ chart_data   | tojson }};
+    const dates  = {{ chart_dates  | tojson }};
     const ctx = document.getElementById('revenueChart');
     if (!ctx) return;
-    // Gradient fill
+
+    const isDark    = () => document.documentElement.classList.contains('dark');
+    const gridColor = () => isDark() ? '#1e293b' : 'rgba(0,0,0,0.04)';
+    const tickColor = () => isDark() ? '#475569' : '#94a3b8';
+
     const grad = ctx.getContext('2d').createLinearGradient(0, 0, 0, 180);
     grad.addColorStop(0,   'rgba(59,130,246,0.18)');
     grad.addColorStop(0.6, 'rgba(59,130,246,0.04)');
     grad.addColorStop(1,   'rgba(59,130,246,0)');
 
-    new Chart(ctx, {
+    const chart = new Chart(ctx, {
         type: 'line',
         data: {
             labels,
@@ -410,6 +447,13 @@
             responsive: true,
             maintainAspectRatio: false,
             interaction: {mode:'index', intersect:false},
+            onClick: (event, elements) => {
+                if (elements.length > 0 && dates.length > 0) {
+                    const idx = elements[0].index;
+                    const d = dates[idx];
+                    if (d) window.location.href = `/reports?period=custom&date_from=${d}&date_to=${d}`;
+                }
+            },
             plugins: {
                 legend: {display: false},
                 tooltip: {
@@ -421,34 +465,40 @@
                     padding: 12,
                     cornerRadius: 10,
                     callbacks: {
-                        label: ctx => '  ' + ctx.parsed.y.toLocaleString('ru-RU') + ' ₽'
+                        label: c => '  ' + c.parsed.y.toLocaleString('ru-RU') + ' ₽',
+                        afterLabel: () => '  ↗ Нажмите для отчёта'
                     }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    grid: {color:'rgba(0,0,0,0.04)', drawBorder: false},
-                    ticks: {
-                        callback: v => v >= 1000 ? (v/1000).toFixed(0)+'к' : v,
-                        font: {size:11}, color:'#94a3b8'
-                    },
+                    grid: {color: gridColor()},
+                    ticks: { callback: v => v>=1000?(v/1000).toFixed(0)+'к':v, font:{size:11}, color: tickColor() },
                     border: {display: false}
                 },
                 x: {
                     grid: {display: false},
-                    ticks: {font:{size:11}, color:'#94a3b8'},
+                    ticks: {font:{size:11}, color: tickColor()},
                     border: {display: false}
                 }
             }
         }
     });
-    // Show 7-day total
+
+    // Dark mode sync
+    const observer = new MutationObserver(() => {
+        chart.options.scales.y.grid.color   = gridColor();
+        chart.options.scales.y.ticks.color  = tickColor();
+        chart.options.scales.x.ticks.color  = tickColor();
+        chart.update('none');
+    });
+    observer.observe(document.documentElement, {attributes:true, attributeFilter:['class']});
+
+    // 7-day total badge
     const weekSum = data.reduce((a, b) => a + (b || 0), 0);
     const el = document.getElementById('weekTotal');
-    if (el && weekSum > 0) {
-        el.textContent = weekSum.toLocaleString('ru-RU') + ' ₽ / 7 дн.';
-    }
+    if (el && weekSum > 0) el.textContent = weekSum.toLocaleString('ru-RU') + ' ₽ / 7 дн.';
 })();
 </script>
 <script>

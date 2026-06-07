@@ -171,6 +171,8 @@ Disallow: /sales
 Disallow: /products
 Disallow: /inventory
 Disallow: /reports
+Disallow: /reports/heatmap
+Disallow: /reports/abc
 Disallow: /rankings
 Disallow: /staff
 Disallow: /plans

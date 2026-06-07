@@ -183,7 +183,12 @@
     const data   = {{ chart_data   | tojson }};
     const ctx = document.getElementById('staffRevenueChart');
     if (!ctx) return;
-    new Chart(ctx, {
+
+    const isDark    = () => document.documentElement.classList.contains('dark');
+    const gridColor = () => isDark() ? '#1e293b' : 'rgba(0,0,0,0.04)';
+    const tickColor = () => isDark() ? '#475569' : '#94a3b8';
+
+    const chart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels,
@@ -204,12 +209,20 @@
                 }
             },
             scales: {
-                y: { beginAtZero: true, grid: {color:'rgba(0,0,0,0.04)'}, border:{display:false},
-                     ticks: { callback: v => v>=1000?(v/1000).toFixed(0)+'к':v, font:{size:10}, color:'#94a3b8' } },
-                x: { grid: {display:false}, border:{display:false}, ticks: {font:{size:10}, color:'#94a3b8'} }
+                y: { beginAtZero: true, grid: {color: gridColor()}, border:{display:false},
+                     ticks: { callback: v => v>=1000?(v/1000).toFixed(0)+'к':v, font:{size:10}, color: tickColor() } },
+                x: { grid: {display:false}, border:{display:false}, ticks: {font:{size:10}, color: tickColor()} }
             }
         }
     });
+
+    const obs = new MutationObserver(() => {
+        chart.options.scales.y.grid.color  = gridColor();
+        chart.options.scales.y.ticks.color = tickColor();
+        chart.options.scales.x.ticks.color = tickColor();
+        chart.update('none');
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['class']});
 })();
 </script>
 {% endif %}
