@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from keyboards import InlineKeyboardBuilder, back_button, home_button
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
+from utils import he
 
 tasks_router = Router()
 logger = logging.getLogger(__name__)
@@ -243,26 +244,26 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
             lines = []
             for item in checklist:
                 mark = "✅" if item.get('is_done') else "☐"
-                lines.append(f"  {mark} {item.get('text', '')}")
+                lines.append(f"  {mark} {he(item.get('text', ''))}")
             cl_str = "\n\nЧеклист:\n" + "\n".join(lines)
 
         text = (
-            f"📋 <b>{title}</b>\n"
+            f"📋 <b>{he(title)}</b>\n"
             f"{status} · {priority}\n"
         )
         if topic_name:
-            text += f"🏷 {topic_name}\n"
+            text += f"🏷 {he(topic_name)}\n"
         if assign_all:
             text += "👥 Исполнитель: Вся команда\n"
         elif assigned_shop:
-            text += f"🏪 Магазин: {assigned_shop}\n"
+            text += f"🏪 Магазин: {he(assigned_shop)}\n"
         elif assigned_name:
-            text += f"👤 Исполнитель: {assigned_name}\n"
+            text += f"👤 Исполнитель: {he(assigned_name)}\n"
         if creator_name:
-            text += f"✍️ Автор: {creator_name}\n"
+            text += f"✍️ Автор: {he(creator_name)}\n"
         text += dl_str
         if desc:
-            text += f"\n\n{desc}"
+            text += f"\n\n{he(desc)}"
         text += cl_str
 
         kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop)

@@ -1691,7 +1691,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 seller_name = f"{user[2] or ''} {user[3] or ''}".strip() if user else ""
                 notif_lines = [f"🛍 <b>Новая продажа в магазине {he(shop_name)}</b>"]
                 if seller_name:
-                    notif_lines.append(f"👤 Продавец: {seller_name}")
+                    notif_lines.append(f"👤 Продавец: {he(seller_name)}")
                 for r in results:
                     _earn = r.get('expected_earning', 0) or 0
                     _earn_part = f" 💰 {format_currency(_earn)}" if _earn > 0 else ""
