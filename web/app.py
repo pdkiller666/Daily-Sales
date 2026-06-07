@@ -239,6 +239,36 @@ def create_web_app() -> FastAPI:
     templates.env.filters['fmt_datetime'] = _fmt_datetime
     templates.env.filters['fmt_currency'] = _fmt_currency
 
+    from timezone_utils import get_user_time as _get_user_time
+
+    def _fmt_sale_dt(s, tz: str = "Europe/Moscow", fmt: str = "%d.%m.%Y %H:%M") -> str:
+        """Convert UTC sale_date string to user local time and format it."""
+        if not s:
+            return "—"
+        try:
+            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            if local_dt:
+                return local_dt.strftime(fmt)
+        except Exception:
+            pass
+        return _fmt_date(str(s)[:10])
+
+    def _fmt_sale_time(s, tz: str = "Europe/Moscow") -> str:
+        """Return only the HH:MM part of a sale_date, converted to user's TZ."""
+        if not s:
+            return "—"
+        try:
+            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            if local_dt:
+                return local_dt.strftime("%H:%M")
+        except Exception:
+            pass
+        raw = str(s)
+        return raw[11:16] if len(raw) > 10 else "—"
+
+    templates.env.filters['fmt_sale_dt'] = _fmt_sale_dt
+    templates.env.filters['fmt_sale_time'] = _fmt_sale_time
+
     import bot_holder
     templates.env.globals['bot_username'] = lambda: bot_holder.get_username() or ''
 

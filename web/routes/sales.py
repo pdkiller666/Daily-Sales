@@ -169,6 +169,7 @@ def sales_page(
         "flash_ok": request.query_params.get("ok") == "1",
         "flash_err": request.query_params.get("error", ""),
         "current_user_id": None,
+        "user_tz": "Europe/Moscow",
     }
 
     try:
@@ -176,6 +177,7 @@ def sales_page(
 
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
+        ctx["user_tz"] = tz or "Europe/Moscow"
         today = get_current_user_time(tz).date()
         month_start = today.replace(day=1)
 
@@ -350,8 +352,19 @@ def sales_export_xlsx(
             row_fill = even_fill if row_idx % 2 == 0 else None
 
             raw_dt = str(s[6] or "")
-            date_part = raw_dt[:10]
-            time_part = raw_dt[11:16] if len(raw_dt) > 10 else ""
+            try:
+                from timezone_utils import get_user_time as _gut
+                _tz = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+                _local = _gut(raw_dt, _tz)
+                if _local:
+                    date_part = _local.strftime("%Y-%m-%d")
+                    time_part = _local.strftime("%H:%M")
+                else:
+                    date_part = raw_dt[:10]
+                    time_part = raw_dt[11:16] if len(raw_dt) > 10 else ""
+            except Exception:
+                date_part = raw_dt[:10]
+                time_part = raw_dt[11:16] if len(raw_dt) > 10 else ""
 
             for col_idx, val in enumerate(
                 [date_part, time_part, s[7] or "", s[8] or "", s[2] or "",

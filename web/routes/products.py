@@ -697,10 +697,15 @@ def product_detail(request: Request, product_id: int):
         "month_revenue": 0.0, "month_qty": 0,
         "chart_labels": [], "chart_data": [],
         "error": None,
+        "user_tz": "Europe/Moscow",
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
+        try:
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        except Exception:
+            pass
 
         product = db.get_product(product_id)
         if not product:

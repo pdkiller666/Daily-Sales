@@ -372,9 +372,9 @@
                         <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
                         <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
                         {% endif %}
-                        <!-- Mobile: date + shop + seller inline -->
+                        <!-- Mobile: date + time + shop + seller inline -->
                         <p class="sm:hidden text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center flex-wrap gap-1.5">
-                            <span>{{ s[6][:10]|fmt_date if s[6] else '—' }}</span>
+                            <span>{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y %H:%M') if s[6] else '—' }}</span>
                             {% if s[2] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[2] }}</span>{% endif %}
                             {% if s[9] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[9] }}{% if s[10] %} {{ s[10][0] }}.{% endif %}</span>{% endif %}
                         </p>
@@ -391,7 +391,8 @@
                         {{ s[9] or '' }}{% if s[10] %} {{ s[10][0] }}.{% endif %}
                     </td>
                     <td class="px-3 sm:px-5 py-2.5 text-right text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap hidden sm:table-cell">
-                        {{ s[6][:10]|fmt_date if s[6] else '—' }}
+                        <span class="block">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y') if s[6] else '—' }}</span>
+                        <span class="block text-slate-300 dark:text-slate-600">{{ s[6]|fmt_sale_time(user_tz) if s[6] else '' }}</span>
                     </td>
                     {% if is_admin or s[5] == current_user_id %}
                     <td class="px-2 py-2.5 text-right">
