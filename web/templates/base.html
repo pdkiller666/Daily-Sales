@@ -2332,5 +2332,16 @@ function mainApp() {
 {% endif %}
 
 
+<script>
+/* dsOnce — безопасный disable submit-кнопки: сначала checkValidity(), потом блокировка */
+window.dsOnce = function(btn, label) {
+    var f = btn ? btn.closest('form') : null;
+    if (f && typeof f.checkValidity === 'function' && !f.checkValidity()) {
+        f.reportValidity();
+        return;
+    }
+    if (btn) { btn.disabled = true; btn.innerHTML = label || '⏳ Сохранение…'; }
+};
+</script>
 </body>
 </html>

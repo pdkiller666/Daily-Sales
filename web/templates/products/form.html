@@ -129,7 +129,7 @@
         <!-- Submit -->
         <div class="flex items-center gap-3">
             <button type="submit"
-                    onclick="this.disabled=true;this.innerHTML='⏳ Сохранение…'"
+                    onclick="dsOnce(this,'⏳ Сохранение…')"
                     class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
                 {% if is_edit %}💾 Сохранить изменения{% else %}➕ Добавить товар{% endif %}
             </button>

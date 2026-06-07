@@ -41,7 +41,7 @@
     <form method="POST" action="/plans/{{ plan.id }}/toggle">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit"
-                onclick="this.disabled=true"
+                onclick="dsOnce(this)"
                 class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl border-2 transition-colors
                        {% if plan.is_active %}border-amber-300 text-amber-700 hover:bg-amber-50{% else %}border-emerald-300 text-emerald-700 hover:bg-emerald-50{% endif %}">
             {% if plan.is_active %}
