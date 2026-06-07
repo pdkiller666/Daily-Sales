@@ -188,7 +188,7 @@
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="px-5 py-3">
                             <p class="font-medium text-slate-800 truncate max-w-[140px] sm:max-w-[200px]" title="{{ s[1] }}">{{ s[1] }}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">{{ s[6][:10]|fmt_date if s[6] else '' }}</p>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y %H:%M') if s[6] else '' }}</p>
                         </td>
                         <td class="px-3 py-3 hidden sm:table-cell">
                             <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full whitespace-nowrap">{{ s[2] or '—' }}</span>

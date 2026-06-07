@@ -57,6 +57,7 @@ def dashboard(request: Request):
         "on_shift_today": [],
         "today_label": date.today().strftime('%d.%m.%Y'),
         "error": None,
+        "user_tz": "Europe/Moscow",
     }
 
     try:
@@ -64,6 +65,7 @@ def dashboard(request: Request):
 
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
+        ctx["user_tz"] = tz or "Europe/Moscow"
         today = get_current_user_time(tz).date()
         month_start = today.replace(day=1)
 

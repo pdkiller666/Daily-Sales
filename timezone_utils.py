@@ -28,7 +28,8 @@ def get_user_time(dt, user_timezone='Europe/Moscow'):
                 "%Y-%m-%d %H:%M:%S",
                 "%Y-%m-%d %H:%M:%S.%f",
                 "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%dT%H:%M:%S.%f"  # ISO формат с микросекундами
+                "%Y-%m-%dT%H:%M:%S.%f",  # ISO формат с микросекундами
+                "%Y-%m-%d %H:%M",        # без секунд
             ]
             
             for fmt in formats:

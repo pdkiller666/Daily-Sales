@@ -170,6 +170,14 @@ def payments_page(request: Request, msg: str = "", tab: str = "pending"):
 
     from web.auth import get_csrf_token
 
+    user_tz = "Europe/Moscow"
+    try:
+        from web.deps import get_web_db as _gwdb
+        _db = _gwdb(int(user["sub"]), user.get("org_db"))
+        user_tz = _db.get_user_timezone(int(user["sub"])) or "Europe/Moscow"
+    except Exception:
+        pass
+
     ctx = {
         "request": request,
         "user": user,
@@ -180,6 +188,7 @@ def payments_page(request: Request, msg: str = "", tab: str = "pending"):
         "tab": tab if tab in ("pending", "history", "grant") else "pending",
         "msg": msg,
         "csrf_token": get_csrf_token(request),
+        "user_tz": user_tz,
     }
     return request.app.state.templates.TemplateResponse(
         request, "payments/index.html", ctx

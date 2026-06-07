@@ -431,10 +431,15 @@ def staff_detail(request: Request, user_id: int):
         "user_plans": [],
         "chart_labels": [],
         "chart_data": [],
+        "user_tz": "Europe/Moscow",
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
+        try:
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        except Exception:
+            pass
         org_roles = _get_org_roles(db.db_file)
 
         # Get user row

@@ -113,6 +113,7 @@ def notifications_page(
         "scheduled_success": msg == "scheduled",
         "error": None,
         "now_local": "",
+        "user_tz": "Europe/Moscow",
     }
 
     try:
@@ -121,6 +122,7 @@ def notifications_page(
         tz_name = db.get_user_timezone(telegram_id) or "Europe/Moscow"
 
         ctx["now_local"] = get_current_user_time(tz_name).strftime("%Y-%m-%dT%H:%M")
+        ctx["user_tz"] = tz_name
         ctx["shops"] = db.get_all_shops() or []
 
         raw_sched = db.get_scheduled_notifications(status=None) or []

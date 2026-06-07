@@ -258,7 +258,7 @@
                     <div class="flex-1 min-w-0">
                         <p class="text-sm text-slate-700 leading-snug">{{ h.message|striptags }}</p>
                         <div class="flex items-center gap-2 mt-1">
-                            <p class="text-xs text-slate-400">{{ h.created_at|fmt_datetime }}</p>
+                            <p class="text-xs text-slate-400">{{ h.created_at|fmt_sale_dt(user_tz) }}</p>
                             <span class="text-xs text-blue-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity">→ перейти</span>
                         </div>
                     </div>
@@ -269,7 +269,7 @@
                                 {{ 'bg-slate-300' if h.is_read else 'bg-blue-400' }}"></div>
                     <div class="flex-1 min-w-0">
                         <p class="text-sm text-slate-700 leading-snug">{{ h.message|striptags }}</p>
-                        <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_datetime }}</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ h.created_at|fmt_sale_dt(user_tz) }}</p>
                     </div>
                 </div>
                 {% endif %}

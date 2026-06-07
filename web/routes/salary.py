@@ -70,10 +70,15 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "total_pages": 1,
         "total_earnings_count": 0,
         "error": None,
+        "user_tz": "Europe/Moscow",
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
+        try:
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        except Exception:
+            pass
         import sqlite3 as _sq
         conn_m = _sq.connect("data/main.db")
         uid_row = conn_m.execute(

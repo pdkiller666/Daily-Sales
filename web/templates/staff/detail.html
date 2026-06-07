@@ -237,7 +237,10 @@
                 {# get_user_sales: s.id[0] product_id[1] shop_name[2] qty[3] price[4]
                    user_id[5] sale_date[6] product_name[7] category[8] #}
                 <tr class="hover:bg-slate-50/70">
-                    <td class="px-5 py-2.5 text-slate-400 text-xs">{{ (s[6] or '')[:10]|fmt_date }}</td>
+                    <td class="px-5 py-2.5 text-slate-400 text-xs whitespace-nowrap">
+                        <span class="block">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y') if s[6] else '—' }}</span>
+                        <span class="block text-[10px] text-slate-300">{{ s[6]|fmt_sale_time(user_tz) if s[6] else '' }}</span>
+                    </td>
                     <td class="px-3 py-2.5">
                         {% if s[1] %}
                         <a href="/products/{{ s[1] }}" class="group">
