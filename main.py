@@ -664,6 +664,12 @@ async def check_scheduled_notifications(bot: Bot):
                                 send_db.add_notification_to_history(uid_internal, 'admin', notif_text)
                                 send_count += 1
                                 await asyncio.sleep(0.05)
+                                try:
+                                    from web.push_utils import send_web_push
+                                    _pb = re.sub(r'<[^>]+>', '', notif_text)[:120].strip()
+                                    await asyncio.to_thread(send_web_push, tid_int, "🔔 Уведомление", _pb, "/dashboard")
+                                except Exception:
+                                    pass
                             except Exception as e:
                                 logging.error(f"Scheduled notif send error to {tid_int}: {e}")
 
@@ -767,6 +773,18 @@ async def auto_finish_contests(bot: Bot):
                                 await bot.send_message(int(tg_id), text, parse_mode="HTML", reply_markup=add_read_btn())
                                 notified += 1
                                 await asyncio.sleep(0.05)
+                                _uid = winner.get('user_id')
+                                if _uid:
+                                    try:
+                                        current_db.add_notification_to_history(_uid, 'admin', text)
+                                    except Exception:
+                                        pass
+                                try:
+                                    from web.push_utils import send_web_push
+                                    _pb = re.sub(r'<[^>]+>', '', text)[:120].strip()
+                                    await asyncio.to_thread(send_web_push, int(tg_id), "🏆 Конкурс завершён!", _pb, "/dashboard")
+                                except Exception:
+                                    pass
                             except Exception as e:
                                 logging.error(
                                     f"auto_finish_contests: ошибка уведомления "

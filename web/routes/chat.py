@@ -1574,11 +1574,21 @@ async def ws_dm(websocket: WebSocket):
                 await dm_manager.send_to_user(org_db, to_id, payload)
                 try:
                     first_name = user.get("name", "Кто-то")
+                    _dm_msg = f"💬 {first_name}: {text[:80]}"
                     db.add_notification_to_history(
                         user_id=to_id,
                         notification_type="dm",
-                        message=f"💬 {first_name}: {text[:80]}",
+                        message=_dm_msg,
                     )
+                    try:
+                        conn = db.get_connection()
+                        _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_id,)).fetchone()
+                        conn.close()
+                        if _row and _row[0]:
+                            from web.push_utils import send_web_push
+                            send_web_push(int(_row[0]), "💬 Новое сообщение", _dm_msg, "/chat/dm")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 

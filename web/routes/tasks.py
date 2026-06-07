@@ -1017,6 +1017,11 @@ def task_change_status(
                     f"<b>{task['title']}</b>\n"
                     f"Новый статус: {status_text}"
                 )
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(tg_id, "📋 Задача обновлена", f"«{task['title']}»: {status_text}", "/tasks")
+                except Exception:
+                    pass
 
         if status == 'done' and task.get("assigned_to") and task["assigned_to"] != my_db_id:
             assigned_tg_id = _get_user_tg_id(db, task["assigned_to"])
@@ -1025,6 +1030,15 @@ def task_change_status(
                     task["assigned_to"], "task_status",
                     f"✅ Задача выполнена: {task['title']}"
                 )
+                _send_tg_task_notify(
+                    assigned_tg_id,
+                    f"✅ <b>Задача выполнена</b>\n\n<b>{task['title']}</b>"
+                )
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(assigned_tg_id, "✅ Задача выполнена", task['title'], "/tasks")
+                except Exception:
+                    pass
 
     except Exception as e:
         logger.error("task_change_status: %s", e)
@@ -1084,6 +1098,15 @@ def task_add_comment(
                     other_id, "task_status",
                     f"💬 Новый комментарий к задаче «{task['title']}»"
                 )
+                _send_tg_task_notify(
+                    tg_id,
+                    f"💬 <b>Новый комментарий</b>\n\nЗадача: <b>{task['title']}</b>"
+                )
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(tg_id, "💬 Новый комментарий", f"Задача: {task['title']}", "/tasks")
+                except Exception:
+                    pass
 
     except Exception as e:
         logger.error("task_add_comment: %s", e)
@@ -1267,6 +1290,11 @@ def task_edit_post(
                     f"{deadline_str}\n\n"
                     f"🌐 Откройте веб-кабинет для подробностей."
                 )
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(tg_id, "📋 Назначена задача", title, "/tasks")
+                except Exception:
+                    pass
     except Exception as e:
         logger.error("task_edit_post: %s", e)
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=error", status_code=303)
