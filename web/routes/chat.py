@@ -135,9 +135,12 @@ def _get_org_active_plan(telegram_id: int) -> str:
             (telegram_id,)
         ).fetchone()
         conn.close()
-        if (org_row and org_row[0] and org_row[0] in PLAN_ORDER
-                and org_row[1] and org_row[1] >= datetime.now().strftime("%Y-%m-%d")):
-            return org_row[0]
+        if org_row and org_row[0] and org_row[0] in PLAN_ORDER:
+            end = org_row[1]
+            # subscription_end is None → no expiry set, plan is valid indefinitely
+            # subscription_end < today → expired, fall through to next check
+            if end is None or end >= datetime.now().strftime("%Y-%m-%d"):
+                return org_row[0]
     except Exception:
         pass
 

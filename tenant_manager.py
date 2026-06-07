@@ -63,9 +63,17 @@ class TenantManager:
         # Миграция: переименовываем роль super_admin → owner
         cursor.execute("UPDATE user_org_mapping SET role = 'owner' WHERE role = 'super_admin'")
 
-        # Миграция: invite_preset_role и invite_preset_shop в organizations
+        # Миграция: колонки в organizations
         cursor.execute("PRAGMA table_info(organizations)")
         org_cols = [c[1] for c in cursor.fetchall()]
+        if 'subscription_plan' not in org_cols:
+            cursor.execute(
+                "ALTER TABLE organizations ADD COLUMN subscription_plan TEXT DEFAULT 'Бесплатный'"
+            )
+        if 'subscription_end' not in org_cols:
+            cursor.execute(
+                "ALTER TABLE organizations ADD COLUMN subscription_end TEXT"
+            )
         if 'invite_preset_role' not in org_cols:
             cursor.execute("ALTER TABLE organizations ADD COLUMN invite_preset_role TEXT DEFAULT NULL")
         if 'invite_preset_shop' not in org_cols:
