@@ -3098,67 +3098,89 @@ class Database:
         return result[0] if result else 0
 
     def update_inventory(self, shop_name, product_id, delta, user_id=None, change_type='manual', change_reason=None):
-        """Обновление остатков товара"""
+        """Обновление остатков товара (атомарно — BEGIN IMMEDIATE исключает TOCTOU race)."""
         import time
+        from datetime import datetime
 
         max_retries = 3
         retry_delay = 0.1
 
         for attempt in range(max_retries):
+            conn = None
             try:
                 conn = self.get_connection()
-                cursor = conn.cursor()
+                # BEGIN IMMEDIATE — захватываем write-lock до чтения; никакой другой
+                # процесс не может изменить строку между SELECT и UPDATE.
+                conn.execute("BEGIN IMMEDIATE")
 
-                # Получаем текущее количество
-                cursor.execute('''
-                    SELECT quantity FROM inventory
-                    WHERE shop_name = ? AND product_id = ?
-                ''', (shop_name, product_id))
+                row = conn.execute(
+                    "SELECT quantity FROM inventory WHERE shop_name=? AND product_id=?",
+                    (shop_name, product_id)
+                ).fetchone()
 
-                result = cursor.fetchone()
-                current_quantity = result[0] if result else 0
-                new_quantity = current_quantity + delta
+                current_quantity = row[0] if row else 0
+                new_quantity = max(0, current_quantity + delta)
+                now = datetime.now().isoformat()
 
-                if new_quantity < 0:
-                    new_quantity = 0
-
-                # Обновляем остатки
-                from datetime import datetime
-                cursor.execute('''
-                    INSERT OR REPLACE INTO inventory (shop_name, product_id, quantity, updated_by, last_updated, change_type, change_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (shop_name, product_id, new_quantity, user_id, datetime.now().isoformat(), change_type, change_reason))
-
-                conn.commit()
-                try:
-                    cursor.execute(
-                        'INSERT INTO inventory_log (shop_name, product_id, old_quantity, new_quantity, delta, change_type, change_reason, changed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                        (shop_name, product_id, current_quantity, new_quantity, delta, change_type, change_reason, user_id)
+                if row:
+                    conn.execute(
+                        """UPDATE inventory
+                           SET quantity=?, updated_by=?, last_updated=?,
+                               change_type=?, change_reason=?
+                           WHERE shop_name=? AND product_id=?""",
+                        (new_quantity, user_id, now, change_type, change_reason,
+                         shop_name, product_id)
                     )
-                    conn.commit()
+                else:
+                    conn.execute(
+                        """INSERT INTO inventory
+                               (shop_name, product_id, quantity, updated_by,
+                                last_updated, change_type, change_reason)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (shop_name, product_id, new_quantity, user_id,
+                         now, change_type, change_reason)
+                    )
+
+                try:
+                    conn.execute(
+                        """INSERT INTO inventory_log
+                               (shop_name, product_id, old_quantity, new_quantity,
+                                delta, change_type, change_reason, changed_by)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (shop_name, product_id, current_quantity, new_quantity,
+                         delta, change_type, change_reason, user_id)
+                    )
                 except Exception as _le:
                     logger.warning(f"inventory_log insert failed: {_le}")
-                conn.close()
 
+                conn.commit()
+                conn.close()
                 return new_quantity
 
             except sqlite3.OperationalError as e:
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    conn.close()
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay *= 2
                     continue
-                else:
-                    logger.error(f"Database error in update_inventory: {e}")
-                    if 'conn' in locals():
-                        conn.close()
-                    raise
+                logger.error(f"Database error in update_inventory: {e}")
+                raise
             except Exception as e:
-                logger.error(f"Unexpected error in update_inventory: {e}")
-                if 'conn' in locals():
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
                     conn.close()
+                logger.error(f"Unexpected error in update_inventory: {e}")
                 raise
 
-        return current_quantity
+        return 0
 
     def get_all_inventory(self, shop_name=None):
         """Получение всех остатков с информацией о последнем изменении"""

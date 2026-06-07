@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="x-csrf-token" content="{{ csrf_token_for(request) }}">
     <title>{% block title %}DailySales{% endblock %} — DailySales</title>
     <!-- Preconnect to CDNs — eliminates DNS+TCP handshake delay -->
     <link rel="preconnect" href="https://cdn.tailwindcss.com">
@@ -873,6 +874,10 @@ window.dsRefreshBadge = function() {
         return out;
     }
 
+    function _getCsrfToken() {
+        return document.querySelector('meta[name="x-csrf-token"]')?.content || '';
+    }
+
     window.dsSubscribeWebPush = async function () {
         if (!('PushManager' in window) || !navigator.serviceWorker) return;
         try {
@@ -882,7 +887,7 @@ window.dsRefreshBadge = function() {
                 /* Already subscribed — sync to server in case it was cleared */
                 await fetch('/api/push/subscribe', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
                     body: JSON.stringify(sub.toJSON()),
                     credentials: 'same-origin',
                 });
@@ -897,7 +902,7 @@ window.dsRefreshBadge = function() {
             });
             await fetch('/api/push/subscribe', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
                 body: JSON.stringify(sub.toJSON()),
                 credentials: 'same-origin',
             });
@@ -912,7 +917,7 @@ window.dsRefreshBadge = function() {
             if (sub) {
                 await fetch('/api/push/unsubscribe', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
                     body: JSON.stringify({ endpoint: sub.endpoint }),
                     credentials: 'same-origin',
                 });

@@ -95,9 +95,26 @@
 <div class="card p-5 mb-5">
     <div class="flex items-center justify-between mb-4">
         <h2 class="font-semibold text-slate-800">📈 Выручка по дням</h2>
-        <span class="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
-            {{ week_sum|fmt_currency }} ₽
-        </span>
+        <div class="flex items-center gap-2">
+            {% if growth_pct is not none %}
+                {% if growth_pct > 0 %}
+                <span class="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg" title="vs предыдущий период {{ prev_revenue|fmt_currency }} ₽">
+                    ▲ +{{ growth_pct }}%
+                </span>
+                {% elif growth_pct < 0 %}
+                <span class="text-xs font-semibold text-red-500 bg-red-50 border border-red-200 px-2 py-1 rounded-lg" title="vs предыдущий период {{ prev_revenue|fmt_currency }} ₽">
+                    ▼ {{ growth_pct }}%
+                </span>
+                {% else %}
+                <span class="text-xs font-semibold text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg" title="vs предыдущий период {{ prev_revenue|fmt_currency }} ₽">
+                    — 0%
+                </span>
+                {% endif %}
+            {% endif %}
+            <span class="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                {{ week_sum|fmt_currency }} ₽
+            </span>
+        </div>
     </div>
     <div class="relative" style="height:150px">
         <canvas id="reportsChart"></canvas>

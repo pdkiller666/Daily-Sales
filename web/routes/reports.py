@@ -96,6 +96,7 @@ def reports_page(
         "shops": [], "summary": (0, 0, 0, 0),
         "groups": [], "all_sales": [], "error": None,
         "chart_labels": [], "chart_data": [],
+        "prev_revenue": None, "growth_pct": None,
     }
 
     try:
@@ -171,8 +172,37 @@ def reports_page(
             # Limit to max 60 data points to keep chart readable
             if len(all_days) > 60:
                 all_days = all_days[-60:]
-            ctx["chart_labels"] = [d[5:] for d in all_days]   # MM-DD
+            ctx["chart_labels"] = [d[8:10] + '-' + d[5:7] for d in all_days]   # DD-MM
             ctx["chart_data"]   = [int(daily_rev.get(d, 0)) for d in all_days]
+
+            # Previous period revenue for growth indicator
+            try:
+                from datetime import timedelta
+                import datetime as _dt2
+                cur_start = _dt2.date.fromisoformat(df)
+                cur_end   = _dt2.date.fromisoformat(dt)
+                span = (cur_end - cur_start).days
+                prev_end   = cur_start - timedelta(days=1)
+                prev_start = prev_end - timedelta(days=span)
+                prev_kwargs: dict = {"start_date": prev_start.isoformat(), "end_date": prev_end.isoformat()}
+                if shop:
+                    prev_kwargs["shop_name"] = shop
+                elif _scoped:
+                    prev_kwargs["shop_names"] = allowed_shops
+                prev_summary = db.get_sales_summary(**prev_kwargs) or (0, 0, 0, 0)
+                prev_revenue = float(prev_summary[2] or 0)
+                cur_revenue  = float(ctx["summary"][2] or 0)
+                if prev_revenue > 0:
+                    growth_pct = round((cur_revenue - prev_revenue) / prev_revenue * 100, 1)
+                elif cur_revenue > 0:
+                    growth_pct = 100.0
+                else:
+                    growth_pct = 0.0
+                ctx["prev_revenue"] = int(prev_revenue)
+                ctx["growth_pct"]   = growth_pct
+            except Exception:
+                ctx["prev_revenue"] = None
+                ctx["growth_pct"]   = None
         except Exception:
             ctx["chart_labels"] = []
             ctx["chart_data"]   = []
