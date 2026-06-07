@@ -827,15 +827,18 @@ window.dsRefreshBadge = function() {
 (function () {
     if (!('Notification' in window)) return;
 
-    /* Show prompt in the More-sheet if permission not decided */
+    /* Show prompt in the More-sheet based on current permission state */
     function _showPrompt() {
-        const el = document.getElementById('ds-notif-prompt');
-        if (!el) return;
-        if (Notification.permission === 'default') {
-            el.classList.remove('hidden');
-        }
+        const elDefault = document.getElementById('ds-notif-prompt');
+        const elDenied  = document.getElementById('ds-notif-denied');
+        if (!elDefault && !elDenied) return;
+        const perm = Notification.permission;
+        if (elDefault) elDefault.classList.toggle('hidden', perm !== 'default');
+        if (elDenied)  elDenied.classList.toggle('hidden',  perm !== 'denied');
     }
     setTimeout(_showPrompt, 800);
+    /* Re-check when user opens the More sheet */
+    document.addEventListener('ds-open-more', function () { setTimeout(_showPrompt, 50); });
 
     /* Polling loop (sales-feed, background tab) */
     let _poll = null;
@@ -887,7 +890,7 @@ window.dsRefreshBadge = function() {
                 /* Already subscribed — sync to server in case it was cleared */
                 await fetch('/api/push/subscribe', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(sub.toJSON()),
                     credentials: 'same-origin',
                 });
@@ -902,7 +905,7 @@ window.dsRefreshBadge = function() {
             });
             await fetch('/api/push/subscribe', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(sub.toJSON()),
                 credentials: 'same-origin',
             });
@@ -917,7 +920,7 @@ window.dsRefreshBadge = function() {
             if (sub) {
                 await fetch('/api/push/unsubscribe', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _getCsrfToken() },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ endpoint: sub.endpoint }),
                     credentials: 'same-origin',
                 });
@@ -1907,13 +1910,20 @@ function mainApp() {
         </div>
         <div class="border-t border-slate-100"></div>
 
-        <!-- Notification permission prompt (shown if not yet granted) -->
+        <!-- Notification permission prompt: default state -->
         <div id="ds-notif-prompt"
              class="hidden flex items-center gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700">
             <span class="text-lg shrink-0">🔔</span>
-            <span class="flex-1 leading-snug">Получать браузерные уведомления о продажах коллег</span>
+            <span class="flex-1 leading-snug">Включить push-уведомления — отчёты, остатки, напоминания о подписке</span>
             <button onclick="dsRequestNotif()" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors">Включить</button>
-            <button onclick="document.getElementById('ds-notif-prompt').remove()" class="shrink-0 text-blue-300 hover:text-blue-500 text-base leading-none px-1">×</button>
+            <button onclick="document.getElementById('ds-notif-prompt').classList.add('hidden')" class="shrink-0 text-blue-300 hover:text-blue-500 text-base leading-none px-1">×</button>
+        </div>
+        <!-- Notification permission prompt: denied state (blocked in browser) -->
+        <div id="ds-notif-denied"
+             class="hidden flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            <span class="text-lg shrink-0">🔕</span>
+            <span class="flex-1 leading-snug">Уведомления заблокированы в браузере. Чтобы включить — откройте <b>Настройки сайта</b> в браузере и разрешите уведомления для этого сайта.</span>
+            <button onclick="document.getElementById('ds-notif-denied').classList.add('hidden')" class="shrink-0 text-amber-400 hover:text-amber-600 text-base leading-none px-1">×</button>
         </div>
 
         <!-- PWA install prompt -->
