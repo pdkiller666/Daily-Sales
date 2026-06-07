@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 _SHOP_BOT_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "shop_bot.db")
 
-_VAPID_PRIVATE = os.environ.get("VAPID_PRIVATE_KEY", "")
+_raw_vapid_key = os.environ.get("VAPID_PRIVATE_KEY", "")
+_VAPID_PRIVATE = _raw_vapid_key.replace("\\n", "\n")
 _VAPID_CLAIMS  = {"sub": os.environ.get("VAPID_MAILTO", "mailto:admin@dailysales.app")}
 
 
