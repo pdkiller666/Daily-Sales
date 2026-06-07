@@ -5,6 +5,7 @@ import os
 import sys
 import asyncio
 import logging
+import re
 import pytz
 from aiogram import Bot, Dispatcher
 from sqlite_storage import SQLiteStorage
@@ -377,6 +378,12 @@ async def send_payment_alerts(bot: Bot):
                                 await asyncio.sleep(0.05)
                                 await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
                                 await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
+                                try:
+                                    from web.push_utils import send_web_push
+                                    _pb = re.sub(r'<[^>]+>', '', reminder)[:120].strip()
+                                    await asyncio.to_thread(send_web_push, telegram_id, "💳 Подписка", _pb, "/settings")
+                                except Exception:
+                                    pass
                             except Exception as send_err:
                                 logging.error(f"Ошибка отправки напоминания {telegram_id}: {send_err}")
                             break  # отправляем только самый срочный непосланный порог
@@ -428,6 +435,12 @@ async def send_sales_alerts(bot: Bot):
                             await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                             await asyncio.sleep(0.05)
                             await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
+                            try:
+                                from web.push_utils import send_web_push
+                                _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                                await asyncio.to_thread(send_web_push, telegram_id, "🛍️ Уведомление о продажах", _pb, "/sales")
+                            except Exception:
+                                pass
                         except Exception as _send_err:
                             logging.warning(f"send_sales_alerts: skip {telegram_id}: {_send_err}")
             except Exception: continue
@@ -470,6 +483,12 @@ async def send_personalized_notifications(bot: Bot):
                             await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                             await asyncio.sleep(0.05)
                             await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
+                            try:
+                                from web.push_utils import send_web_push
+                                _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                                await asyncio.to_thread(send_web_push, telegram_id, "📦 Низкий остаток", _pb, "/inventory")
+                            except Exception:
+                                pass
                         except Exception as _send_err:
                             logging.warning(f"send_personalized_notifications: skip {telegram_id}: {_send_err}")
             except Exception: continue
@@ -535,6 +554,12 @@ async def send_daily_reports(bot: Bot):
                         await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
                         await asyncio.sleep(0.05)
                         await current_db.add_notification_to_history(user_id, 'daily_report', message)
+                        try:
+                            from web.push_utils import send_web_push
+                            _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                            await asyncio.to_thread(send_web_push, telegram_id, "📊 Ежедневный отчёт", _pb, "/reports")
+                        except Exception:
+                            pass
                     except Exception as _send_err:
                         logging.warning(f"send_daily_reports: skip {telegram_id}: {_send_err}")
             except Exception:

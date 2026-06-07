@@ -239,18 +239,19 @@ def push_vapid_key(request: Request):
 
 @router.post("/push/subscribe")
 async def push_subscribe(request: Request):
-    """Save browser push subscription (endpoint + keys) to shop_bot.db."""
-    from web.auth import get_session_user, verify_csrf_token
+    """Save browser push subscription (endpoint + keys) to shop_bot.db.
+
+    CSRF note: JSON endpoint protected by samesite=lax session cookie — no CSRF
+    token needed. Service Worker's pushsubscriptionchange handler also calls this
+    and cannot attach DOM-derived tokens.
+    """
+    from web.auth import get_session_user
     from database import Database
     import json as _json
 
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False}, status_code=401)
-
-    token = request.headers.get("X-CSRF-Token", "")
-    if not verify_csrf_token(request, token):
-        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
 
     tg_id = int(user["sub"])
     try:
@@ -274,16 +275,12 @@ async def push_subscribe(request: Request):
 @router.post("/push/unsubscribe")
 async def push_unsubscribe(request: Request):
     """Remove push subscription from shop_bot.db."""
-    from web.auth import get_session_user, verify_csrf_token
+    from web.auth import get_session_user
     from database import Database
 
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False}, status_code=401)
-
-    token = request.headers.get("X-CSRF-Token", "")
-    if not verify_csrf_token(request, token):
-        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
 
     tg_id = int(user["sub"])
     try:
