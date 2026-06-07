@@ -418,21 +418,20 @@ async def tasks_new_post(
                 logger.warning("tasks: add_notification_to_history uid=%s: %s", uid, _ne)
 
         if assign_mode == "person" and _assigned_to:
-            if _assigned_to != my_db_id:
-                tg_id = _get_user_tg_id(db, _assigned_to)
-                logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
-                _safe_add_notif(_assigned_to, "task_assigned", notif_msg)
-                if tg_id:
-                    _send_tg_task_notify(tg_id, notify_text)
-                    try:
-                        from web.push_utils import send_web_push
-                        send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
-                    except Exception:
-                        pass
-                else:
-                    logger.warning("tasks notify: no tg_id for uid=%s", _assigned_to)
-            # Notify creator about task created for someone
-            if my_db_id:
+            tg_id = _get_user_tg_id(db, _assigned_to)
+            logger.info("tasks notify: person uid=%s tg_id=%s", _assigned_to, tg_id)
+            _safe_add_notif(_assigned_to, "task_assigned", notif_msg)
+            if tg_id:
+                _send_tg_task_notify(tg_id, notify_text)
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
+                except Exception:
+                    pass
+            else:
+                logger.warning("tasks notify: no tg_id for uid=%s", _assigned_to)
+            # Уведомление создателю в историю (если он не тот же, кто исполнитель)
+            if my_db_id and my_db_id != _assigned_to:
                 assignee_name = next(
                     (s["name"] for s in _get_staff_list(db) if s["id"] == _assigned_to),
                     f"id={_assigned_to}"
