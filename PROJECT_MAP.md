@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-06 · 51 модуль · GitHub `13e53dc` · Amvera `e6c49da`
+> Последнее обновление: 2026-06-08 · 52 модуля · GitHub актуально · Amvera актуально
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -106,6 +106,10 @@ Telegram API
 | `subscription_addons` | id, user_id, addon_type ('extra_shops'/'extra_products'), quantity, expires_at, created_at |
 | `web_credentials` | id, email UNIQUE, password_hash (PBKDF2-SHA256), telegram_id (nullable FK), synthetic_tg_id, org_db, first_name, email_verified (0/1), verify_token, verify_expires (unix ts), reset_token, reset_expires (unix ts), last_login, created_at — **email+пароль аутентификация** |
 | `push_subscriptions` | id, telegram_id, endpoint, p256dh, auth, created_at — UNIQUE(telegram_id, endpoint) — **Web Push VAPID подписки** |
+| `billing_modules` | id, key UNIQUE, name, icon, description, price_monthly, features_json, sort_order, is_active — 7 дефолтных модулей |
+| `billing_extensions` | id, module_key (FK→billing_modules.key), key, name, icon, description, price_monthly, sort_order, is_active — UNIQUE(module_key, key) — 17 дефолтных расширений |
+| `billing_bundles` | id, key UNIQUE, name, icon, description, includes_json, price_monthly, sort_order, is_active — 3 дефолтных пакета; `includes_json` парсится в `b.includes` (dict) |
+| `billing_module_subs` | id, user_telegram_id, item_key, item_type ('module'/'bundle'/'extension'), end_date, is_active, created_at — активные подписки пользователей на конкретные модули/пакеты |
 
 ### Индексы (create_tables, все IF NOT EXISTS)
 

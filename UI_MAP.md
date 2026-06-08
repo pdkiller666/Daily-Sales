@@ -2,11 +2,36 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-06
+> Обновлён: 2026-06-08
 
 ---
 
 ## История изменений интерфейса
+
+### v7 — 2026-06-08: Subscription UX overhaul + billing fixes
+
+**Страница подписки `/subscription` — полная переработка:**
+- **Вкладка «🔌 Расширения»**: новая 3-я вкладка рядом с «Модули» и «Пакеты»; расширения сгруппированы по родительскому модулю; кнопка недоступна если родительский модуль не активен; `plan_type = extension_{key}` в POST
+- **Friendly names**: статус-карточка теперь показывает иконку + название модуля (`📊 Аналитика`) вместо raw ключа (`analytics`); пакеты показывают названия включённых модулей
+- **Инструкция оплаты**: при `msg=module_request_sent` показывается блок с реквизитами из `payment_settings.card_number` и инструкция «отправьте скриншот боту»
+- **Ссылка "Управление грантами →"** убрана — вела на `/admin/billing/grants` недоступную обычным owner
+- **Визуальная иерархия**: кнопка «Подключить» — синяя, крупнее (`text-sm px-5 py-2`); «Продлить» — меньше, зелёная; активные карточки с `ring-2 + bg-*/30` фоном
+- **footer_info** удалён — `current_plan` не передавался в контекст, вызывал undefined
+
+**`web/routes/subscription.py` — изменения:**
+- `_get_all_billing_extensions()` — новая функция, читает `billing_extensions` из shop_bot.db
+- `_modules_map(modules)` — `key → {name, icon}` для дружественных названий в шаблоне
+- `_get_payment_requisites()` — читает `payment_settings.card_number` для отображения в flash-сообщении
+- POST: принимает `extension_` prefix (ранее только `module_` и `bundle_`)
+- Контекст: добавлены `extensions`, `modules_map`, `requisites`
+
+**Критические баги исправлены (2026-06-08):**
+- `billing_utils.py`: `import env_manager` → `from env_manager import env_manager as _env_mgr` — AttributeError вызывал `has_module()` = False для всех пользователей
+- `admin.py` + `admin_billing.py`: `request.state.templates` → `request.app.state.templates` — 500 на всех admin-страницах
+- `admin.py` + `admin_billing.py`: `TemplateResponse("tmpl", ctx)` → `TemplateResponse(request, "tmpl", ctx)` — TypeError unhashable dict (Starlette new API)
+- `requirements.txt`: `aiohttp>=3.11.0,<3.12.0` → `aiohttp==3.11.18` — range fails на Amvera pip
+
+---
 
 ### v6 — 2026-06-06: DM-чат + Web Push VAPID + App Badge + фикс поиска и FAB badge
 
