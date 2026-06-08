@@ -15,7 +15,7 @@ import logging
 import sqlite3
 from typing import Set, Dict
 
-import env_manager
+from env_manager import env_manager as _env_mgr
 
 SHOP_BOT_DB = "data/shop_bot.db"
 
@@ -131,7 +131,7 @@ def has_module(tg_id: int, module_key: str) -> bool:
     Priority: super_admin → trial → direct grant → bundle
     """
     try:
-        if env_manager.is_super_admin(tg_id):
+        if _env_mgr.is_super_admin(tg_id):
             return True
         if _is_trial(tg_id):
             return True
@@ -151,7 +151,7 @@ def has_extension(tg_id: int, ext_key: str) -> bool:
     Priority: super_admin → trial → direct grant → bundle
     """
     try:
-        if env_manager.is_super_admin(tg_id):
+        if _env_mgr.is_super_admin(tg_id):
             return True
         if _is_trial(tg_id):
             return True
@@ -168,7 +168,7 @@ def has_extension(tg_id: int, ext_key: str) -> bool:
 def get_active_billing_items(tg_id: int) -> Dict[str, Set[str]]:
     """Return {modules, extensions, bundles} sets of active keys for UI."""
     try:
-        if env_manager.is_super_admin(tg_id):
+        if _env_mgr.is_super_admin(tg_id):
             return {"modules": {"*"}, "extensions": {"*"}, "bundles": {"*"}}
 
         # Trial → full access
