@@ -72,6 +72,7 @@ async def billing_hub(request: Request):
     stats = db.get_billing_stats()
     modules = db.get_all_billing_modules()
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/billing/hub.html",
         _ctx(request, user, {
             "stats": stats,
@@ -97,6 +98,7 @@ async def billing_modules_page(request: Request, tab: str = "modules"):
     modules = db.get_all_billing_modules()
     extensions = db.get_all_billing_extensions()
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/billing/modules.html",
         _ctx(request, user, {
             "modules": modules,
@@ -287,6 +289,7 @@ async def billing_bundles_page(request: Request):
     modules = db.get_all_billing_modules()
     extensions = db.get_all_billing_extensions()
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/billing/bundles.html",
         _ctx(request, user, {
             "bundles": bundles,
@@ -415,6 +418,7 @@ async def billing_grants_page(request: Request, q: str = ""):
     users = _all_users_with_ids()
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/billing/grants.html",
         _ctx(request, user, {
             "subs": subs,

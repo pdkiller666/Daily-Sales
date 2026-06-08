@@ -64,6 +64,7 @@ async def admin_hub(request: Request):
     except Exception:
         last_backup = "—"
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/hub.html",
         _ctx(request, user, {
             "stats": stats,
@@ -100,6 +101,7 @@ async def admin_orgs(request: Request):
             "invite_code": invite_code or "—",
         })
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/organizations.html",
         _ctx(request, user, {
             "orgs": orgs,
@@ -142,6 +144,7 @@ async def admin_subs(request: Request, q: str = ""):
     users_for_grant = _get_all_shop_bot_users()
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/subscriptions.html",
         _ctx(request, user, {
             "active_subs": active_subs,
@@ -211,6 +214,7 @@ async def admin_stats(request: Request):
     chart = [{"month": r[0], "revenue": float(r[1] or 0)} for r in chart_raw]
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/stats.html",
         _ctx(request, user, {
             "stats": detailed,
@@ -260,6 +264,7 @@ async def admin_tariffs(request: Request):
             "is_active": bool(detail[12]),
         })
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/tariffs.html",
         _ctx(request, user, {
             "plans": plans,
@@ -370,6 +375,7 @@ async def admin_pay_settings(request: Request):
     payment_instruction = settings.get("payment_instruction", "")
 
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/payment_settings.html",
         _ctx(request, user, {
             "settings": settings,
@@ -433,6 +439,7 @@ async def admin_users(request: Request, q: str = ""):
         return RedirectResponse("/dashboard", 303)
     results = _search_global_users(q) if len(q.strip()) >= 2 else []
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/users.html",
         _ctx(request, user, {"q": q, "results": results}),
     )
@@ -453,6 +460,7 @@ async def admin_backups(request: Request):
     except Exception:
         backups = []
     return request.app.state.templates.TemplateResponse(
+        request,
         "admin/backups.html",
         _ctx(request, user, {
             "backups": backups,
