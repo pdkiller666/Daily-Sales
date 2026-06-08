@@ -30,6 +30,24 @@
     </div>
 </div>
 
+{% set _rmsg = request.query_params.get('msg', '') %}
+{% set _ext_labels = {
+  'ext_heatmap_required': 'Расширение «Тепловая карта» не подключено',
+  'ext_abc_required': 'Расширение «ABC-анализ» не подключено',
+  'ext_turnover_required': 'Расширение «Оборачиваемость» не подключено',
+  'ext_dead_stock_required': 'Расширение «Залежалые товары» не подключено'
+} %}
+{% if _rmsg in _ext_labels %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
+    <span class="shrink-0 text-base">🔒</span>
+    <div class="flex-1">
+        <p class="font-semibold">{{ _ext_labels[_rmsg] }}</p>
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">Подключите расширение в разделе Подписка → Расширения.</p>
+    </div>
+    <a href="/subscription?tab=extensions" class="shrink-0 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 transition-colors">Подключить</a>
+</div>
+{% endif %}
+
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
     <span>⚠️</span><span>{{ error }}</span>

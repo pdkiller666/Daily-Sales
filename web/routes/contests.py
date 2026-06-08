@@ -65,6 +65,9 @@ def contests_page(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
+    from billing_utils import has_extension
+    if not has_extension(telegram_id, "contests"):
+        return RedirectResponse(url="/dashboard?msg=ext_contests_required", status_code=302)
     org_db = user.get("org_db")
     today = date.today()
 

@@ -34,6 +34,9 @@ async def ai_explain_report(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    if not has_module(int(user["sub"]), "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
     if not _ai_rate_ok(f"ai:{user['sub']}"):
@@ -90,6 +93,9 @@ async def ai_product_description(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    if not has_module(int(user["sub"]), "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
     if not _ai_rate_ok(f"ai:{user['sub']}"):
@@ -140,6 +146,9 @@ async def ai_sales_forecast(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    if not has_module(int(user["sub"]), "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
     if not _ai_rate_ok(f"ai:{user['sub']}"):

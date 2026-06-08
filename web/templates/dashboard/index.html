@@ -40,6 +40,17 @@
     </button>
 </div>
 
+{% if gate_title %}
+<div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
+    <span class="shrink-0 text-base">🔒</span>
+    <div class="flex-1">
+        <p class="font-semibold">{{ gate_title }}</p>
+        <p class="mt-0.5 text-blue-700 dark:text-blue-300">{{ gate_text }}</p>
+    </div>
+    <a href="/subscription?tab=modules" class="shrink-0 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 transition-colors">Подключить</a>
+</div>
+{% endif %}
+
 {% if error %}
 <div class="mb-5 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
     <span class="shrink-0">⚠️</span>

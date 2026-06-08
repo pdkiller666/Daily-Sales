@@ -75,8 +75,21 @@ def _add_forecast(plans_dash: list, today: date) -> None:
             p["forecast_pct"] = None
 
 
+_GATE_MSGS = {
+    "module_analytics_required": ("📊 Модуль «Аналитика» не подключён", "Подключите модуль в разделе Подписка → Модули, чтобы использовать отчёты."),
+    "module_plans_required": ("🎯 Модуль «Планы и мотивация» не подключён", "Подключите модуль в разделе Подписка → Модули, чтобы управлять планами и мотивацией."),
+    "module_team_required": ("👥 Модуль «Команда» не подключён", "Подключите модуль в разделе Подписка → Модули, чтобы использовать расписание, зарплаты и отсутствия."),
+    "ext_heatmap_required": ("🌡️ Расширение «Тепловая карта» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+    "ext_abc_required": ("🔤 Расширение «ABC-анализ» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+    "ext_turnover_required": ("🔄 Расширение «Оборачиваемость» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+    "ext_dead_stock_required": ("📦 Расширение «Залежалые товары» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+    "ext_contests_required": ("🏆 Расширение «Конкурсы» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+    "ext_salary_export_required": ("📥 Расширение «Экспорт зарплат» не подключено", "Подключите расширение в разделе Подписка → Расширения."),
+}
+
+
 @router.get("/dashboard")
-def dashboard(request: Request):
+def dashboard(request: Request, msg: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -89,10 +102,14 @@ def dashboard(request: Request):
     role = user.get('role', 'user')
     is_admin = role in ('owner', 'admin', 'super_admin')
 
+    gate_title, gate_text = _GATE_MSGS.get(msg, (None, None))
+
     ctx: dict = {
         "request": request,
         "user": user,
         "is_admin": is_admin,
+        "gate_title": gate_title,
+        "gate_text": gate_text,
         "today_sales": 0, "today_revenue": "0\u00a0₽",
         "month_sales": 0, "month_revenue": "0\u00a0₽",
         "user_count": 0, "product_count": 0,
