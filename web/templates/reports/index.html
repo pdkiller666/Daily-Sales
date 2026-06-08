@@ -212,7 +212,7 @@
 </script>
 {% endif %}
 
-<!-- Analytics links: ABC + Heatmap -->
+<!-- Analytics links: ABC + Heatmap + Turnover + Dead Stock -->
 <div class="flex flex-wrap gap-3 mb-5">
     <a href="/reports/abc?period={{ period }}&shop={{ shop|urlencode }}"
        class="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm">
@@ -228,6 +228,22 @@
         <div class="leading-tight">
             <div>Тепловая карта</div>
             <div class="text-xs font-normal text-slate-400">Активность День × Час</div>
+        </div>
+    </a>
+    <a href="/reports/turnover?shop={{ shop|urlencode }}"
+       class="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition-colors shadow-sm">
+        <span class="text-base">⏳</span>
+        <div class="leading-tight">
+            <div>Оборачиваемость</div>
+            <div class="text-xs font-normal text-slate-400">Когда кончится товар</div>
+        </div>
+    </a>
+    <a href="/reports/dead-stock?shop={{ shop|urlencode }}"
+       class="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:border-amber-300 hover:text-amber-700 transition-colors shadow-sm">
+        <span class="text-base">🪦</span>
+        <div class="leading-tight">
+            <div>Залежалые товары</div>
+            <div class="text-xs font-normal text-slate-400">Нет продаж за период</div>
         </div>
     </a>
 </div>

@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Карточка продавца{% endblock %}
+
+{% block extra_head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
+
+{% block breadcrumb %}
+<a href="/reports" class="text-slate-400 text-xs hover:text-blue-500">Отчёты</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">{{ seller_name or "Карточка продавца" }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">👤 {{ seller_name }}</h1>
+        {% if seller %}
+        <p class="text-sm text-slate-500 mt-0.5">
+            {% if seller.city %}{{ seller.city }}{% endif %}
+            {% if seller.shop %}{% if seller.city %} · {% endif %}{{ seller.shop }}{% endif %}
+        </p>
+        {% endif %}
+    </div>
+    <a href="/reports" class="text-xs text-blue-500 hover:underline">← Отчёты</a>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Period filter -->
+<div class="card p-4 mb-5">
+    <div class="flex flex-wrap gap-2 items-center" x-data="{ customOpen: {{ 'true' if period == 'custom' else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }">
+        {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
+        <a href="/reports/seller/{{ seller_id }}?period={{ p }}"
+           class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                  {{ 'bg-blue-600 text-white' if period == p and period != 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+            {{ lbl }}
+        </a>
+        {% endfor %}
+        <button type="button" @click="customOpen = !customOpen"
+                class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                       {{ 'bg-blue-600 text-white' if period == 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+            📅 Период
+        </button>
+        <div x-show="customOpen" x-cloak x-transition class="flex flex-wrap items-end gap-2 w-full mt-2">
+            <input type="date" x-model="df"
+                   class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <span class="text-slate-400 text-sm self-center">—</span>
+            <input type="date" x-model="dt"
+                   class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button type="button"
+                    @click="if(df && dt) window.location='/reports/seller/{{ seller_id }}?period=custom&date_from='+df+'&date_to='+dt"
+                    :disabled="!df || !dt"
+                    class="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                Применить
+            </button>
+        </div>
+    </div>
+    {% if date_from and date_to %}
+    <p class="text-xs text-slate-400 mt-2">{{ date_from }} — {{ date_to }}</p>
+    {% endif %}
+</div>
+
+<!-- Summary cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Продаж</p>
+        <p class="text-2xl font-bold text-slate-800">{{ summary[0]|int }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Единиц</p>
+        <p class="text-2xl font-bold text-slate-800">{{ summary[1]|int }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Выручка</p>
+        <p class="text-2xl font-bold text-emerald-600">{{ summary[2]|int|fmt_currency }} ₽</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Средний чек</p>
+        <p class="text-2xl font-bold text-slate-700">{{ summary[3]|int|fmt_currency }} ₽</p>
+    </div>
+</div>
+
+{% if summary[0] > 0 %}
+<!-- Charts row -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+    <!-- Daily revenue chart (2/3 width) -->
+    {% if daily_labels|length > 1 %}
+    <div class="card p-5 lg:col-span-2">
+        <h2 class="font-semibold text-slate-800 mb-4">📈 Выручка по дням</h2>
+        <div class="relative" style="height:150px">
+            <canvas id="sellerDailyChart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- DOW chart (1/3 width) -->
+    {% if dow_data|sum > 0 %}
+    <div class="card p-5">
+        <h2 class="font-semibold text-slate-800 mb-1">📅 По дням недели</h2>
+        {% if best_dow %}
+        <p class="text-xs text-slate-400 mb-3">Лучший день: <span class="font-semibold text-blue-600">{{ best_dow }}</span></p>
+        {% else %}
+        <div class="mb-3"></div>
+        {% endif %}
+        <div class="relative" style="height:150px">
+            <canvas id="sellerDowChart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Top products -->
+{% if top_products %}
+<div class="card p-5 mb-5">
+    <h2 class="font-semibold text-slate-800 mb-4">🏆 Топ товаров</h2>
+    <div class="space-y-2">
+    {% for p in top_products %}
+    <div class="flex items-center gap-3">
+        <span class="text-sm font-bold text-slate-400 w-5 text-right flex-shrink-0">{{ loop.index }}</span>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2 mb-1">
+                <a href="/products/{{ p.id }}" class="text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors truncate">{{ p.name }}</a>
+                <div class="text-right flex-shrink-0">
+                    <span class="text-sm font-semibold text-slate-800">{{ p.revenue|int|fmt_currency }} ₽</span>
+                    <span class="text-xs text-slate-400 ml-1">{{ p.qty }} шт</span>
+                </div>
+            </div>
+            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div class="h-full bg-blue-500 rounded-full transition-all duration-500"
+                     style="width: {{ p.pct }}%"></div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card p-10 text-center">
+    <div class="text-4xl mb-3">📭</div>
+    <p class="text-slate-500 font-medium">Нет продаж за выбранный период</p>
+</div>
+{% endif %}
+
+<!-- Chart scripts -->
+<script>
+(function(){
+    const isDark = () => document.documentElement.classList.contains('dark');
+    const gridColor = () => isDark() ? '#1e293b' : 'rgba(0,0,0,0.04)';
+    const tickColor = () => isDark() ? '#475569' : '#94a3b8';
+
+    // Daily chart
+    const dailyCtx = document.getElementById('sellerDailyChart');
+    if (dailyCtx) {
+        const labels = {{ daily_labels | tojson }};
+        const data   = {{ daily_data   | tojson }};
+        const chart = new Chart(dailyCtx, {
+            type: 'bar',
+            data: { labels, datasets: [{ data,
+                backgroundColor: data.map(v => v > 0 ? 'rgba(59,130,246,0.65)' : 'rgba(203,213,225,0.35)'),
+                borderRadius: 4, borderSkipped: false }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false },
+                    tooltip: { backgroundColor: '#1e293b', titleColor: '#94a3b8', bodyColor: '#f1f5f9', padding: 8,
+                        callbacks: { label: c => '  ' + c.parsed.y.toLocaleString('ru-RU') + ' ₽' } } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: gridColor() }, border: { display: false },
+                         ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(0)+'к' : v, font: { size: 10 }, color: tickColor(), maxTicksLimit: 4 } },
+                    x: { grid: { display: false }, border: { display: false },
+                         ticks: { font: { size: 9 }, color: tickColor(), maxTicksLimit: 10, maxRotation: 0 } }
+                }
+            }
+        });
+        new MutationObserver(() => {
+            chart.options.scales.y.grid.color = gridColor();
+            chart.options.scales.y.ticks.color = tickColor();
+            chart.options.scales.x.ticks.color = tickColor();
+            chart.data.datasets[0].backgroundColor = data.map(v => v > 0 ? (isDark()?'rgba(99,102,241,0.65)':'rgba(59,130,246,0.65)') : 'rgba(203,213,225,0.35)');
+            chart.update('none');
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // DOW chart
+    const dowCtx = document.getElementById('sellerDowChart');
+    if (dowCtx) {
+        const labels = {{ dow_labels | tojson }};
+        const data   = {{ dow_data   | tojson }};
+        const maxVal = Math.max(...data) || 1;
+        const chart2 = new Chart(dowCtx, {
+            type: 'bar',
+            data: { labels, datasets: [{ data,
+                backgroundColor: data.map(v => v === maxVal ? 'rgba(59,130,246,0.85)' : 'rgba(59,130,246,0.35)'),
+                borderRadius: 4, borderSkipped: false }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false },
+                    tooltip: { backgroundColor: '#1e293b', titleColor: '#94a3b8', bodyColor: '#f1f5f9', padding: 8,
+                        callbacks: { label: c => '  ' + c.parsed.y.toLocaleString('ru-RU') + ' ₽' } } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: gridColor() }, border: { display: false },
+                         ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(0)+'к' : v, font: { size: 9 }, color: tickColor(), maxTicksLimit: 4 } },
+                    x: { grid: { display: false }, border: { display: false },
+                         ticks: { font: { size: 10 }, color: tickColor() } }
+                }
+            }
+        });
+        new MutationObserver(() => { chart2.update('none'); })
+            .observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    }
+})();
+</script>
+{% endblock %}

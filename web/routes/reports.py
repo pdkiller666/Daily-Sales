@@ -624,3 +624,254 @@ def reports_abc(
         ctx["error"] = str(exc)
 
     return request.app.state.templates.TemplateResponse(request, "reports/abc.html", ctx)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  ОТЧЁТ: Оборачиваемость / «Когда кончится товар»
+# ─────────────────────────────────────────────────────────────────
+@router.get("/reports/turnover")
+def reports_turnover(
+    request: Request,
+    shop: str = "",
+    days: int = 30,
+):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "shop": shop, "days": days,
+        "shops": [], "rows": [],
+        "critical_count": 0, "warning_count": 0, "ok_count": 0, "nostats_count": 0,
+        "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["shops"] = db.get_all_shops() or []
+        rows = db.get_inventory_turnover(shop_name=shop or None, days=days) or []
+
+        enriched = []
+        for r in rows:
+            d = int(r[8]) if r[8] is not None else None
+            if d is None:
+                status = "nostats"
+                ctx["nostats_count"] += 1
+            elif d <= 7:
+                status = "critical"
+                ctx["critical_count"] += 1
+            elif d <= 14:
+                status = "warning"
+                ctx["warning_count"] += 1
+            else:
+                status = "ok"
+                ctx["ok_count"] += 1
+            enriched.append({
+                "product_id": r[0], "name": r[1], "category": r[2] or "—",
+                "price": float(r[3] or 0), "shop": r[4],
+                "stock": int(r[5] or 0), "sold": int(r[6] or 0),
+                "avg_daily": float(r[7] or 0),
+                "days_left": d, "status": status,
+            })
+        ctx["rows"] = enriched
+    except Exception as exc:
+        logger.error("reports_turnover error: %s", exc)
+        ctx["error"] = "Произошла ошибка при загрузке отчёта."
+
+    return request.app.state.templates.TemplateResponse(request, "reports/turnover.html", ctx)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  ОТЧЁТ: Dead Stock / Залежалые товары
+# ─────────────────────────────────────────────────────────────────
+@router.get("/reports/dead-stock")
+def reports_dead_stock(
+    request: Request,
+    shop: str = "",
+    days: int = 30,
+):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "shop": shop, "days": days,
+        "shops": [], "rows": [],
+        "total_stock": 0, "total_value": 0.0,
+        "never_sold_count": 0,
+        "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["shops"] = db.get_all_shops() or []
+        rows = db.get_dead_stock(shop_name=shop or None, days=days) or []
+
+        enriched = []
+        for r in rows:
+            last_sale = (r[7] or "")[:10] if r[7] else None
+            stock = int(r[5] or 0)
+            price = float(r[3] or 0)
+            ctx["total_stock"] += stock
+            ctx["total_value"] += stock * price
+            if not last_sale:
+                ctx["never_sold_count"] += 1
+            enriched.append({
+                "product_id": r[0], "name": r[1], "category": r[2] or "—",
+                "price": price, "shop": r[4],
+                "stock": stock, "stock_value": stock * price,
+                "last_updated": (r[6] or "")[:10],
+                "last_sale": last_sale,
+                "never_sold": not last_sale,
+            })
+        ctx["rows"] = enriched
+    except Exception as exc:
+        logger.error("reports_dead_stock error: %s", exc)
+        ctx["error"] = "Произошла ошибка при загрузке отчёта."
+
+    return request.app.state.templates.TemplateResponse(request, "reports/dead-stock.html", ctx)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  ОТЧЁТ: Карточка продавца
+# ─────────────────────────────────────────────────────────────────
+_DOW_NAMES = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]  # SQLite strftime %w: 0=Sun
+
+
+@router.get("/reports/seller/{seller_id}")
+def reports_seller(
+    request: Request,
+    seller_id: int,
+    period: str = "month",
+    date_from: str = "",
+    date_to: str = "",
+):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/reports", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    ctx: dict = {
+        "request": request, "user": user,
+        "is_admin": True,
+        "period": period, "date_from": date_from, "date_to": date_to,
+        "seller_id": seller_id, "seller": None, "seller_name": "",
+        "summary": (0, 0, 0.0, 0.0),
+        "daily_labels": [], "daily_data": [],
+        "top_products": [],
+        "dow_labels": [], "dow_data": [],
+        "best_dow": "",
+        "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        from timezone_utils import get_current_user_time
+        tz = db.get_user_timezone(telegram_id)
+        today = get_current_user_time(tz).date()
+
+        if period == "custom" and date_from and date_to:
+            df, dt = date_from, date_to
+        else:
+            df, dt = _period_dates(period, today)
+            date_from = ctx["date_from"] = df
+            date_to = ctx["date_to"] = dt
+
+        # Seller info
+        seller_row = db.get_user_by_id(seller_id)
+        if not seller_row:
+            ctx["error"] = "Продавец не найден."
+            return request.app.state.templates.TemplateResponse(request, "reports/seller.html", ctx)
+
+        fname = (seller_row[2] or "").strip()
+        lname = (seller_row[3] or "").strip()
+        ctx["seller_name"] = f"{fname} {lname}".strip() or f"Продавец #{seller_id}"
+        ctx["seller"] = {"id": seller_id, "name": ctx["seller_name"],
+                         "city": seller_row[5] if len(seller_row) > 5 else "",
+                         "shop": seller_row[4] if len(seller_row) > 4 else ""}
+
+        # Summary stats from sales
+        all_sales = db.get_sales_report(start_date=df, end_date=dt) or []
+        seller_sales = [s for s in all_sales if int(s[5] or 0) == seller_id]
+        cnt = len(seller_sales)
+        qty = sum(int(s[3] or 0) for s in seller_sales)
+        rev = sum(float((s[3] or 0) * (s[4] or 0)) for s in seller_sales)
+        avg = rev / cnt if cnt else 0.0
+        ctx["summary"] = (cnt, qty, rev, avg)
+
+        # Daily trend
+        from collections import defaultdict
+        import datetime as _dt
+        from datetime import timedelta
+        daily_rev: dict = defaultdict(float)
+        for s in seller_sales:
+            d = (s[6] or "")[:10]
+            if d:
+                daily_rev[d] += float((s[3] or 0) * (s[4] or 0))
+        start_d = _dt.date.fromisoformat(df)
+        end_d   = _dt.date.fromisoformat(dt)
+        all_days = []
+        cur_d = start_d
+        while cur_d <= end_d:
+            all_days.append(cur_d.isoformat())
+            cur_d += timedelta(days=1)
+        if len(all_days) > 60:
+            all_days = all_days[-60:]
+        ctx["daily_labels"] = [d[8:10] + "." + d[5:7] for d in all_days]
+        ctx["daily_data"]   = [round(daily_rev.get(d, 0)) for d in all_days]
+
+        # Top products
+        prod_agg: dict = {}
+        for s in seller_sales:
+            pid = s[1]; name = s[7] or "—"; cat = s[8] or "—"
+            r = float((s[3] or 0) * (s[4] or 0)); q = int(s[3] or 0)
+            if pid not in prod_agg:
+                prod_agg[pid] = {"id": pid, "name": name, "category": cat, "revenue": 0.0, "qty": 0}
+            prod_agg[pid]["revenue"] += r
+            prod_agg[pid]["qty"] += q
+        top = sorted(prod_agg.values(), key=lambda x: x["revenue"], reverse=True)[:8]
+        max_rev = top[0]["revenue"] if top else 1
+        for p in top:
+            p["pct"] = round(p["revenue"] / max_rev * 100) if max_rev > 0 else 0
+        ctx["top_products"] = top
+
+        # Day-of-week pattern (SQLite %w: 0=Sun, 1=Mon…6=Sat)
+        dow_rev: dict = defaultdict(float)
+        dow_cnt: dict = defaultdict(int)
+        for s in seller_sales:
+            d_str = (s[6] or "")[:10]
+            if d_str:
+                try:
+                    wd = _dt.date.fromisoformat(d_str).isoweekday() % 7  # 0=Sun..6=Sat
+                    dow_rev[wd] += float((s[3] or 0) * (s[4] or 0))
+                    dow_cnt[wd] += 1
+                except Exception:
+                    pass
+        dow_order = [1, 2, 3, 4, 5, 6, 0]  # Пн..Вс for display
+        ctx["dow_labels"] = [_DOW_NAMES[i] for i in dow_order]
+        ctx["dow_data"]   = [round(dow_rev.get(i, 0)) for i in dow_order]
+        best_dow_idx = max(dow_order, key=lambda i: dow_rev.get(i, 0)) if dow_rev else None
+        ctx["best_dow"] = _DOW_NAMES[best_dow_idx] if best_dow_idx is not None and dow_rev else ""
+
+    except Exception as exc:
+        logger.error("reports_seller error seller_id=%s: %s", seller_id, exc)
+        ctx["error"] = "Произошла ошибка при загрузке карточки продавца."
+
+    return request.app.state.templates.TemplateResponse(request, "reports/seller.html", ctx)

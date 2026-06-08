@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Залежалые товары{% endblock %}
+
+{% block breadcrumb %}
+<a href="/reports" class="text-slate-400 text-xs hover:text-blue-500">Отчёты</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Залежалые товары</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800">🪦 Залежалые товары</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Товары с остатком, по которым не было продаж за выбранный период</p>
+    </div>
+    <a href="/reports" class="text-xs text-blue-500 hover:underline">← Отчёты</a>
+</div>
+
+{% if error %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+    <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="card p-4 mb-5">
+    <form method="get" action="/reports/dead-stock">
+        <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">Нет продаж за</label>
+                <div class="flex gap-1">
+                    {% for d, lbl in [(30,'30 дней'),(60,'60 дней'),(90,'90 дней')] %}
+                    <a href="/reports/dead-stock?days={{ d }}&shop={{ shop|urlencode }}"
+                       class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
+                              {{ 'bg-blue-600 text-white' if days == d else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                        {{ lbl }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% if shops %}
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-500">Магазин</label>
+                <select name="shop" onchange="this.form.submit()"
+                        class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
+                    <option value="">Все магазины</option>
+                    {% for s in shops %}
+                    <option value="{{ s }}" {% if s == shop %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <input type="hidden" name="days" value="{{ days }}">
+        </div>
+    </form>
+</div>
+
+{% if rows %}
+<!-- Summary cards -->
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Позиций залежалых</p>
+        <p class="text-2xl font-bold text-slate-800">{{ rows|length }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Единиц заморожено</p>
+        <p class="text-2xl font-bold text-amber-600">{{ total_stock }}</p>
+    </div>
+    <div class="card p-4 col-span-2 sm:col-span-1">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Стоимость остатков</p>
+        <p class="text-2xl font-bold text-red-600">{{ total_value|int|fmt_currency }} ₽</p>
+    </div>
+</div>
+{% if never_sold_count %}
+<div class="mb-4 flex items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-600">
+    ⚠️ <span><strong>{{ never_sold_count }}</strong> товаров не продавались <em>никогда</em> — рассмотрите списание или акцию</span>
+</div>
+{% endif %}
+
+<!-- Table -->
+<div class="card overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-slate-50 border-b border-slate-100">
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Товар</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Категория</th>
+                    {% if not shop %}<th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Магазин</th>{% endif %}
+                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Остаток</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Сумма</th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Последняя продажа</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+            {% for row in rows %}
+            <tr class="hover:bg-slate-50 transition-colors {% if row.never_sold %}bg-red-50/30{% endif %}">
+                <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                        {% if row.never_sold %}
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>
+                        {% else %}
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                        {% endif %}
+                        <a href="/products/{{ row.product_id }}" class="font-medium text-slate-800 hover:text-blue-600 transition-colors">
+                            {{ row.name }}
+                        </a>
+                    </div>
+                    <div class="text-xs text-slate-400 ml-3.5 sm:hidden">{{ row.category }}</div>
+                </td>
+                <td class="px-4 py-3 text-slate-500 hidden sm:table-cell">{{ row.category }}</td>
+                {% if not shop %}<td class="px-4 py-3 text-slate-500 text-xs hidden md:table-cell">{{ row.shop }}</td>{% endif %}
+                <td class="px-4 py-3 text-right">
+                    <span class="font-semibold text-slate-700">{{ row.stock }}</span>
+                    <span class="text-xs text-slate-400 ml-0.5">шт</span>
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600 hidden sm:table-cell">
+                    {{ row.stock_value|int|fmt_currency }} ₽
+                </td>
+                <td class="px-4 py-3 text-center">
+                    {% if row.never_sold %}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                        никогда
+                    </span>
+                    {% else %}
+                    <span class="text-xs text-slate-500">{{ row.last_sale }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="card p-10 text-center">
+    <div class="text-4xl mb-3">🎉</div>
+    <p class="text-slate-500 font-medium">Залежалых товаров нет</p>
+    <p class="text-xs text-slate-400 mt-1">Все товары с остатком продавались в последние {{ days }} дней</p>
+</div>
+{% endif %}
+{% endblock %}

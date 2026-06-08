@@ -3322,6 +3322,155 @@ class Database:
         conn.close()
         return inventory
 
+    def get_inventory_turnover(self, shop_name=None, days: int = 30):
+        """Оборачиваемость остатков: текущий stock + продажи за последние days дней.
+        Columns: product_id[0] name[1] category[2] price[3] shop_name[4]
+                 current_stock[5] sold_qty[6] avg_daily[7] days_until_empty[8]
+        Сортировка: сначала критические (дней мало), потом нет продаж (NULL).
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        shop_clause = "AND i.shop_name = ?" if shop_name else ""
+        params: list = [days, days]
+        if shop_name:
+            params.append(shop_name)
+        cursor.execute(f"""
+            SELECT
+                p.id,
+                p.name,
+                p.category,
+                p.price,
+                i.shop_name,
+                i.quantity AS current_stock,
+                COALESCE(SUM(s.quantity_sold), 0) AS sold_qty,
+                ROUND(COALESCE(SUM(s.quantity_sold), 0) * 1.0 / ?, 2) AS avg_daily,
+                CASE
+                    WHEN COALESCE(SUM(s.quantity_sold), 0) = 0 THEN NULL
+                    ELSE CAST(ROUND(i.quantity * 1.0 * ? / COALESCE(SUM(s.quantity_sold), 1)) AS INTEGER)
+                END AS days_until_empty
+            FROM inventory i
+            JOIN products p ON i.product_id = p.id
+            LEFT JOIN sales s
+                ON s.product_id = i.product_id
+                AND s.shop_name = i.shop_name
+                AND date(s.sale_date) >= date('now', '-' || CAST(? AS TEXT) || ' days')
+            WHERE i.quantity > 0
+            {shop_clause}
+            GROUP BY i.product_id, i.shop_name
+            ORDER BY
+                CASE WHEN COALESCE(SUM(s.quantity_sold), 0) = 0 THEN 1 ELSE 0 END ASC,
+                days_until_empty ASC
+        """, params + [days])
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def get_dead_stock(self, shop_name=None, days: int = 30):
+        """Залежалые товары: остаток > 0 и нет продаж за последние days дней.
+        Columns: product_id[0] name[1] category[2] price[3] shop_name[4]
+                 current_stock[5] last_updated[6] last_sale_date[7]
+        Сортировка: без продаж вообще сначала, затем по давности последней продажи.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        shop_clause = "AND i.shop_name = ?" if shop_name else ""
+        params: list = []
+        if shop_name:
+            params.append(shop_name)
+        params.append(days)
+        cursor.execute(f"""
+            SELECT
+                p.id,
+                p.name,
+                p.category,
+                p.price,
+                i.shop_name,
+                i.quantity AS current_stock,
+                i.last_updated,
+                (SELECT MAX(s2.sale_date) FROM sales s2
+                 WHERE s2.product_id = p.id AND s2.shop_name = i.shop_name) AS last_sale_date
+            FROM inventory i
+            JOIN products p ON i.product_id = p.id
+            WHERE i.quantity > 0
+            {shop_clause}
+            AND NOT EXISTS (
+                SELECT 1 FROM sales s
+                WHERE s.product_id = p.id
+                AND s.shop_name = i.shop_name
+                AND date(s.sale_date) >= date('now', '-' || CAST(? AS TEXT) || ' days')
+            )
+            ORDER BY last_sale_date ASC NULLS FIRST, p.name
+        """, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def get_seller_card_daily(self, user_id: int, start_date: str, end_date: str, shop_name=None):
+        """Продажи продавца по дням для графика.
+        Columns: day[0] revenue[1] qty[2] count[3]
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        shop_clause = "AND s.shop_name = ?" if shop_name else ""
+        params: list = [user_id, start_date, end_date]
+        if shop_name:
+            params.append(shop_name)
+        cursor.execute(f"""
+            SELECT date(s.sale_date) AS day,
+                   SUM(s.quantity_sold * s.sale_price) AS revenue,
+                   SUM(s.quantity_sold) AS qty,
+                   COUNT(*) AS cnt
+            FROM sales s
+            WHERE s.user_id = ? AND date(s.sale_date) BETWEEN ? AND ?
+            {shop_clause}
+            GROUP BY day
+            ORDER BY day
+        """, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def get_seller_card_top_products(self, user_id: int, start_date: str, end_date: str, limit: int = 8):
+        """Топ товаров продавца за период.
+        Columns: product_id[0] name[1] category[2] qty[3] revenue[4]
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT p.id, p.name, p.category,
+                   SUM(s.quantity_sold) AS qty,
+                   SUM(s.quantity_sold * s.sale_price) AS revenue
+            FROM sales s
+            JOIN products p ON s.product_id = p.id
+            WHERE s.user_id = ? AND date(s.sale_date) BETWEEN ? AND ?
+            GROUP BY s.product_id
+            ORDER BY revenue DESC
+            LIMIT ?
+        """, (user_id, start_date, end_date, limit))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def get_seller_card_dow(self, user_id: int, start_date: str, end_date: str):
+        """Выручка продавца по дням недели (0=Вс..6=Сб, SQLite strftime).
+        Columns: dow[0] revenue[1] qty[2] cnt[3]
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT CAST(strftime('%w', sale_date) AS INTEGER) AS dow,
+                   SUM(quantity_sold * sale_price) AS revenue,
+                   SUM(quantity_sold) AS qty,
+                   COUNT(*) AS cnt
+            FROM sales
+            WHERE user_id = ? AND date(sale_date) BETWEEN ? AND ?
+            GROUP BY dow
+            ORDER BY revenue DESC
+        """, (user_id, start_date, end_date))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
     # Методы для работы с продажами
     def add_sale(self, product_id, shop_name, quantity_sold, user_id, sale_price=None):
         """Добавление продажи"""
