@@ -64,11 +64,31 @@ SQLite: `CASE strftime('%w',...) WHEN '0' THEN 6 ELSE CAST(...)-1 END` converts 
 Template: CSS grid 7×15 hours (8-22), green opacity cells, Top-5 periods summary.
 `sale_date TEXT DEFAULT CURRENT_TIMESTAMP` stores full datetime → strftime('%H') works correctly.
 
+## Drill-down rows in Reports breakdown
+row_link computed in Jinja2 per group_by: `category`→product+category=, `shop`→product+shop= (reuses existing shop param), `seller`→product+seller_id= (new param, breadcrumb shown).
+Route: `seller_id: int = 0` → filter `all_sales` by `s[5]`. Breadcrumb: `{% if seller_id %}← По продавцам / {{ seller_name }}{% endif %}`
+
+## ABC inline badges (Reports group rows)
+`_add_abc_badges(groups)`: cumulative revenue → A≤80%, B≤95%, C=rest. Template: `{% if g.abc %}<span ...>{{ g.abc }}</span>{% endif %}`
+
+## Sparklines (inline SVG in Reports rows, Jinja2 namespace trick)
+`_compute_sparklines(groups, all_sales, group_by)`: last 7 unique dates, per-group daily revenue normalized 0..1.
+Jinja2 namespace needed for loop variable mutation: `{% set ns = namespace(pts='') %}` then `{% set ns.pts = ns.pts ~ x ~ ',' ~ y ~ ' ' %}`.
+SVG: `viewBox="0 0 60 20"` polyline, x = loop.index0*60/(n-1), y = (1-v)*17+1.5.
+
+## Period comparison in Rankings
+`growth_pct`/`prev_revenue`/`cur_revenue` added to rankings ctx. Computed after all tab branches, only when df+dt set. Badge shown in card header. Same formula as reports: span = cur_end - cur_start.
+
+## Custom date picker in Reports
+Filter card wrapped with Alpine `x-data="{customOpen, df, dt}"`. Button `📅 Период` toggles picker. Same pattern as rankings. Period pill `'custom'` highlighted when active.
+
 ## **Why**
 Dark mode Chart.js required MutationObserver because CSS class is toggled dynamically after page load.
 Sparklines as inline SVG avoid extra Chart.js instances (4 instances already = enough).
 ABC/heatmap as separate routes (not embedded) to keep reports/index.html fast and simple.
+Seller drill-down needs breadcrumb (seller_id not visible in any UI control); shop drill-down reuses existing shop param (visible in dropdown = user can clear it).
 
 ## **How to apply**
 When adding any new Chart.js instance: always use isDark()/gridColor()/tickColor() pattern + MutationObserver.
 When adding new analytics route: add Disallow to _ROBOTS_TXT in web/app.py.
+When extending Reports drill-down: add case to row_link block in reports/index.html + route param + breadcrumb block.

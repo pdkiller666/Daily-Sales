@@ -2333,14 +2333,19 @@ function mainApp() {
 
 
 <script>
-/* dsOnce — безопасный disable submit-кнопки: сначала checkValidity(), потом блокировка */
+/* dsOnce — безопасный disable submit-кнопки: сначала checkValidity(), потом блокировка.
+   setTimeout(0) откладывает disable на следующий тик ПОСЛЕ того, как браузер
+   диспатчит submit — иначе мобильный Chrome отменяет отправку формы (disabled до submit). */
 window.dsOnce = function(btn, label) {
     var f = btn ? btn.closest('form') : null;
     if (f && typeof f.checkValidity === 'function' && !f.checkValidity()) {
         f.reportValidity();
-        return;
+        return false;
     }
-    if (btn) { btn.disabled = true; btn.innerHTML = label || '⏳ Сохранение…'; }
+    if (btn) {
+        var b = btn, l = label;
+        setTimeout(function() { b.disabled = true; b.innerHTML = l || '⏳ Сохранение…'; }, 0);
+    }
 };
 </script>
 </body>
