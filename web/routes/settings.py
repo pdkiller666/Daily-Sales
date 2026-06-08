@@ -82,7 +82,6 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "scheduled_notifications": [],
         "notification_history": [],
         "chat_min_plan": None,
-        "chat_plan_options": [],
         "all_orgs": [],
         # invite block
         "org_id": None,
@@ -248,25 +247,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
             ctx["org_plan"] = "—"
             ctx["org_plan_end"] = ""
 
-        # Chat min plan (super_admin only)
-        if user.get("role") == "super_admin":
-            try:
-                import sqlite3 as _sqlite3
-                _sdb3 = "data/shop_bot.db"
-                _c3 = _sqlite3.connect(_sdb3)
-                _row3 = _c3.execute(
-                    "SELECT value FROM payment_settings WHERE key='chat_min_plan'"
-                ).fetchone()
-                _c3.close()
-                _CHAT_PLANS = ["Отключён", "Бесплатный", "Базовый", "Стандарт", "Премиум"]
-                _cur_plan = _row3[0] if _row3 and _row3[0] in _CHAT_PLANS else "Базовый"
-                ctx["chat_min_plan"] = _cur_plan
-                ctx["chat_plan_options"] = _CHAT_PLANS
-            except Exception:
-                ctx["chat_min_plan"] = "Базовый"
-                ctx["chat_plan_options"] = ["Отключён", "Бесплатный", "Базовый", "Стандарт", "Премиум"]
-        else:
-            ctx["chat_min_plan"] = None
+        ctx["chat_min_plan"] = None
 
         # All active orgs list for org switcher (super_admin only)
         if user.get("role") == "super_admin":
@@ -532,36 +513,6 @@ async def save_invite_preset(
 
     return RedirectResponse(url="/settings#invite", status_code=303)
 
-
-@router.post("/settings/chat-plan")
-async def settings_chat_plan(
-    request: Request,
-    csrf_token: str = Form(default=""),
-    plan: str = Form(default="Базовый"),
-):
-    from web.auth import get_session_user, verify_csrf_token
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse(url="/settings#system", status_code=303)
-    if user.get("role") != "super_admin":
-        return RedirectResponse(url="/settings", status_code=303)
-
-    _VALID = ["Отключён", "Бесплатный", "Базовый", "Стандарт", "Премиум"]
-    safe_plan = plan if plan in _VALID else "Базовый"
-
-    import sqlite3 as _sqlite3
-    _sdb = "data/shop_bot.db"
-    _conn = _sqlite3.connect(_sdb)
-    _conn.execute(
-        "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
-        "VALUES ('chat_min_plan', ?, datetime('now'))",
-        (safe_plan,),
-    )
-    _conn.commit()
-    _conn.close()
-    return RedirectResponse(url="/settings#system", status_code=303)
 
 
 @router.post("/settings/beta-mode")

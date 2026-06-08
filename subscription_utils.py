@@ -462,26 +462,12 @@ def check_notifications_permission(telegram_id):
 
 
 def get_subscription_warning_message(telegram_id):
-    """Предупреждающее сообщение о лимитах плана."""
-    org_plan = _get_org_plan_for_user(telegram_id)
-    plan_name = org_plan if org_plan is not None else _get_personal_plan(telegram_id)
-
-    if plan_name in ('Бесплатный', 'free', None):
-        return (
-            "⚠️ <b>Функция недоступна в бесплатном плане</b>\n\n"
-            "💎 Оформите платную подписку:\n"
-            "• <b>Базовый</b> — экспорт, аналитика, уведомления\n"
-            "• <b>Стандарт</b> — всё выше + Google Таблицы\n"
-            "• <b>Премиум</b> — безлимит на всё\n\n"
-            "Нажмите «🔔 Подписка» → «💳 Купить подписку»."
-        )
-
-    limits = get_plan_limits(telegram_id)
-    if not limits.get('can_use_integrations', False):
-        return (
-            "⚠️ <b>Google Таблицы доступны с тарифа «Стандарт»</b>\n\n"
-            "Ваш текущий тариф: <b>{}</b>\n\n"
-            "Нажмите «🔔 Подписка» → «💳 Купить подписку» чтобы сменить тариф."
-        ).format(plan_name)
-
-    return "⚠️ Функция ограничена текущим тарифным планом."
+    """Предупреждающее сообщение о недоступности функции."""
+    return (
+        "⚠️ <b>Функция не подключена</b>\n\n"
+        "Подключите нужный модуль в веб-кабинете:\n"
+        "📊 <b>Аналитика</b> — отчёты, экспорт, рейтинги\n"
+        "🔗 <b>Интеграции</b> — Google Таблицы и другие\n"
+        "🔔 <b>Уведомления</b> — push и рассылки\n\n"
+        "Перейдите в <b>Подписка → Модули</b> для подключения."
+    )

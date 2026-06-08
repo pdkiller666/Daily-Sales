@@ -10,25 +10,23 @@
 {% block content %}
 <div class="flex items-center justify-between mb-5">
     <div>
-        <h1 class="text-2xl font-bold text-slate-800">💳 Подписка</h1>
-        <p class="text-sm text-slate-500 mt-0.5">Управление тарифом и модулями</p>
+        <h1 class="text-2xl font-bold text-slate-800">🧩 Подписка</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Управление модулями и расширениями</p>
     </div>
 </div>
 
 {# ── Flash messages ── #}
 {% if msg %}
 <div class="mb-5 px-4 py-3 rounded-xl text-sm font-medium border
-    {% if msg in ('request_sent','module_request_sent') %}bg-emerald-50 text-emerald-800 border-emerald-200
+    {% if msg == 'module_request_sent' %}bg-emerald-50 text-emerald-800 border-emerald-200
     {% elif msg == 'already_pending' %}bg-amber-50 text-amber-700 border-amber-200
-    {% elif msg in ('csrf_error','free_plan','user_not_found','invalid_plan') %}bg-red-50 text-red-700 border-red-200
+    {% elif msg in ('csrf_error','user_not_found','invalid_plan') %}bg-red-50 text-red-700 border-red-200
     {% else %}bg-slate-50 text-slate-600 border-slate-200{% endif %}">
-    {% if msg == 'request_sent' %}✅ Заявка на смену тарифа отправлена. Администратор рассмотрит её в ближайшее время.
-    {% elif msg == 'module_request_sent' %}✅ Заявка на подключение модуля отправлена. Администратор рассмотрит её в ближайшее время.
+    {% if msg == 'module_request_sent' %}✅ Заявка на подключение модуля отправлена. Администратор рассмотрит её в ближайшее время.
     {% elif msg == 'already_pending' %}⏳ У вас уже есть ожидающая заявка. Дождитесь её рассмотрения.
     {% elif msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите действие.
-    {% elif msg == 'free_plan' %}ℹ️ Бесплатный тариф активируется автоматически.
     {% elif msg == 'user_not_found' %}⚠️ Пользователь не найден в базе. Зайдите через бот.
-    {% elif msg == 'invalid_plan' %}⚠️ Некорректный тариф или модуль.
+    {% elif msg == 'invalid_plan' %}⚠️ Некорректный модуль или пакет.
     {% else %}⚠️ Ошибка при отправке заявки. Попробуйте снова.
     {% endif %}
 </div>
@@ -41,42 +39,29 @@
 </div>
 {% endif %}
 
-{# ── Current plan status card ── #}
+{# ── Status card ── #}
 <div class="card p-5 mb-5">
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
         <div>
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Текущий тариф</p>
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Статус доступа</p>
+            {% if user_mod_subs and '*' in user_mod_subs %}
+            <p class="text-lg font-bold text-amber-500">✦ Полный доступ</p>
+            <p class="text-sm text-slate-500 mt-0.5">Все модули и расширения включены</p>
+            {% elif trial %}
             <div class="flex items-center gap-2">
-                <h2 class="text-2xl font-bold
-                    {% if current_plan == 'Премиум' %}text-amber-500
-                    {% elif current_plan == 'Стандарт' %}text-indigo-500
-                    {% elif current_plan == 'Базовый' %}text-blue-500
-                    {% else %}text-slate-500{% endif %}">
-                    {{ current_plan }}
-                </h2>
-                {% if subscription and subscription.is_trial %}
-                <span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Пробный</span>
-                {% endif %}
+                <p class="text-lg font-bold text-emerald-600">🎁 Пробный период</p>
+                <span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Trial</span>
             </div>
-            {% if subscription %}
-            <p class="text-sm text-slate-500 mt-1">
-                {% if subscription.is_trial %}
-                    Пробный период до <strong class="text-slate-700">{{ subscription.end_date }}</strong>
-                {% else %}
-                    Активен до <strong class="text-slate-700">{{ subscription.end_date }}</strong>
-                {% endif %}
-            </p>
+            <p class="text-sm text-slate-500 mt-0.5">Полный доступ до <strong class="text-slate-700">{{ trial.end_date }}</strong></p>
+            {% elif user_mod_subs %}
+            <p class="text-lg font-bold text-blue-600">{{ user_mod_subs|length }} модул{{ 'ь' if user_mod_subs|length == 1 else ('я' if user_mod_subs|length in (2,3,4) else 'ей') }} активно</p>
             {% else %}
-            <p class="text-sm text-slate-400 mt-1">Активная подписка не найдена</p>
+            <p class="text-lg font-bold text-slate-400">Модули не подключены</p>
+            <p class="text-sm text-slate-400 mt-0.5">Подключите нужные модули ниже</p>
             {% endif %}
         </div>
-        {% if current_plan == 'Премиум' %}
-        <span class="shrink-0 inline-block px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-semibold rounded-lg">🏆 Максимальный</span>
-        {% elif current_plan == 'Бесплатный' %}
-        <span class="shrink-0 inline-block px-3 py-1.5 bg-slate-100 text-slate-500 text-xs font-medium rounded-lg">Базовый доступ</span>
-        {% endif %}
+        <a href="/admin/billing/grants" class="shrink-0 text-xs text-blue-600 hover:underline font-medium">Управление грантами →</a>
     </div>
-    {# Active modules summary #}
     {% if user_mod_subs and '*' not in user_mod_subs %}
     <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
         {% for key, info in user_mod_subs.items() %}
@@ -88,18 +73,12 @@
         </span>
         {% endfor %}
     </div>
-    {% elif user_mod_subs and '*' in user_mod_subs %}
-    <p class="mt-3 text-xs text-amber-600 font-medium">✦ Все модули и расширения включены (super admin)</p>
     {% endif %}
 </div>
 
 {# ── Tab navigation ── #}
-{% set _qtab = request.query_params.get('tab', 'plan') %}
+{% set _qtab = request.query_params.get('tab', 'modules') %}
 <div class="flex gap-1 mb-5 bg-slate-100 rounded-xl p-1 w-fit">
-    <a href="/subscription?tab=plan"
-       class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {{ 'bg-white text-slate-800 shadow-sm' if _qtab == 'plan' else 'text-slate-500 hover:text-slate-700' }}">
-        📋 Тарифный план
-    </a>
     <a href="/subscription?tab=modules"
        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-colors {{ 'bg-white text-slate-800 shadow-sm' if _qtab == 'modules' else 'text-slate-500 hover:text-slate-700' }}">
         🧩 Модули
@@ -114,93 +93,6 @@
     </a>
     {% endif %}
 </div>
-
-{# ══════════════════════════════════════════════════════════════
-   TAB: ТАРИФНЫЙ ПЛАН
-══════════════════════════════════════════════════════════════ #}
-{% if _qtab == 'plan' %}
-
-<h2 class="text-base font-semibold text-slate-700 mb-3">Тарифные планы</h2>
-<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-    {% for plan in plans %}
-    <div class="card p-5 flex flex-col gap-3
-        {% if plan.is_current %}ring-2 ring-blue-400{% endif %}
-        {% if plan.name == 'Премиум' %}bg-gradient-to-b from-amber-50/60 to-white{% endif %}">
-
-        <div>
-            <div class="flex items-center justify-between mb-1">
-                <span class="font-bold text-slate-800 text-base">{{ plan.label }}</span>
-                {% if plan.is_current %}
-                <span class="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold uppercase tracking-wide">Текущий</span>
-                {% endif %}
-            </div>
-            <p class="text-xl font-bold
-                {% if plan.name == 'Премиум' %}text-amber-500
-                {% elif plan.name == 'Стандарт' %}text-indigo-500
-                {% elif plan.name == 'Базовый' %}text-blue-500
-                {% else %}text-slate-400{% endif %}">
-                {{ plan.price_fmt }}
-            </p>
-            <p class="text-xs text-slate-400">{{ plan.duration_label }}</p>
-        </div>
-
-        <ul class="space-y-1.5 text-sm flex-1">
-            <li class="flex items-center gap-2"><span class="text-slate-400 text-xs">📦</span><span class="text-slate-600">{{ plan.max_products }} товаров</span></li>
-            <li class="flex items-center gap-2"><span class="text-slate-400 text-xs">🏪</span><span class="text-slate-600">{{ plan.max_shops }} магазин{{ 'ов' if plan.max_shops not in ('1', '∞') else ('' if plan.max_shops == '1' else '') }}</span></li>
-            <li class="flex items-center gap-2"><span class="text-slate-400 text-xs">📊</span><span class="text-slate-600">{{ plan.max_sales }} продаж/мес.</span></li>
-            <li class="flex items-center gap-2 {% if not plan.can_export %}opacity-40{% endif %}">
-                <span class="{% if plan.can_export %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_export %}✓{% else %}✗{% endif %}</span>
-                <span class="text-slate-600">Экспорт Excel</span>
-            </li>
-            <li class="flex items-center gap-2 {% if not plan.can_analytics %}opacity-40{% endif %}">
-                <span class="{% if plan.can_analytics %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_analytics %}✓{% else %}✗{% endif %}</span>
-                <span class="text-slate-600">Аналитика</span>
-            </li>
-            <li class="flex items-center gap-2 {% if not plan.can_notifications %}opacity-40{% endif %}">
-                <span class="{% if plan.can_notifications %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_notifications %}✓{% else %}✗{% endif %}</span>
-                <span class="text-slate-600">Уведомления</span>
-            </li>
-            <li class="flex items-center gap-2 {% if not plan.can_integrations %}opacity-40{% endif %}">
-                <span class="{% if plan.can_integrations %}text-emerald-500{% else %}text-slate-300{% endif %}">{% if plan.can_integrations %}✓{% else %}✗{% endif %}</span>
-                <span class="text-slate-600">Google Sheets</span>
-            </li>
-        </ul>
-
-        {% if plan.is_current %}
-        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-400 cursor-default">Текущий тариф</button>
-        {% elif plan.name == 'Бесплатный' %}
-        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">Базовый план</button>
-        {% elif has_pending %}
-        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">Заявка на рассмотрении</button>
-        {% elif plan.is_upgrade %}
-        <form method="POST" action="/subscription/request">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="plan_type" value="{{ plan.name }}">
-            <button type="submit" class="w-full py-2 rounded-xl text-xs font-semibold transition-colors
-                {% if plan.name == 'Премиум' %}bg-amber-500 hover:bg-amber-600 text-white
-                {% elif plan.name == 'Стандарт' %}bg-indigo-500 hover:bg-indigo-600 text-white
-                {% else %}bg-blue-500 hover:bg-blue-600 text-white{% endif %}">
-                Запросить переход →
-            </button>
-        </form>
-        {% else %}
-        <button disabled class="w-full py-2 rounded-xl text-xs font-semibold bg-slate-50 text-slate-400 cursor-default">Текущий выше</button>
-        {% endif %}
-    </div>
-    {% endfor %}
-</div>
-
-<div class="card p-4 mb-5 bg-slate-50 border-slate-200">
-    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">ℹ️ Как происходит оплата</p>
-    <ol class="text-sm text-slate-600 space-y-1 list-decimal list-inside">
-        <li>Нажмите «Запросить переход» на нужном тарифе или «Подключить» у модуля</li>
-        <li>Администратор получит уведомление и свяжется с вами для оплаты</li>
-        <li>После подтверждения оплаты доступ будет активирован автоматически</li>
-    </ol>
-    <p class="text-xs text-slate-400 mt-2">Также можно оплатить напрямую через бота командой /tariffs</p>
-</div>
-
-{% endif %}{# end tab plan #}
 
 
 {# ══════════════════════════════════════════════════════════════

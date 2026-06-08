@@ -19,8 +19,6 @@ PLAN_LABELS = {
 
 SHOP_BOT_DB = "data/shop_bot.db"
 
-GRANT_PLANS = ["Бесплатный", "Базовый", "Стандарт", "Премиум"]
-
 
 def _get_all_users_with_subs(limit: int = 500) -> list[dict]:
     try:
@@ -183,7 +181,6 @@ def payments_page(request: Request, msg: str = "", tab: str = "pending"):
         "user": user,
         "pending": pending,
         "grant_users": grant_users,
-        "grant_plans": GRANT_PLANS,
         "history": history,
         "tab": tab if tab in ("pending", "history", "grant") else "pending",
         "msg": msg,
@@ -267,29 +264,4 @@ async def reject_payment(request: Request, payment_id: int):
 
 @router.post("/payments/grant")
 async def payments_grant(request: Request):
-    from web.auth import get_session_user, verify_csrf_token
-
-    user = get_session_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if user.get("role") != "super_admin":
-        return RedirectResponse(url="/payments", status_code=302)
-
-    form = await request.form()
-    if not verify_csrf_token(request, form.get("csrf_token", "")):
-        return RedirectResponse(url="/payments?msg=csrf_error&tab=grant", status_code=302)
-
-    try:
-        target_user_id = int(form.get("target_user_id", "0"))
-        plan_type = form.get("plan_type", "").strip()
-        if not target_user_id or plan_type not in GRANT_PLANS:
-            raise ValueError("Неверные параметры")
-
-        from database import Database
-        db = Database(SHOP_BOT_DB)
-        ok = db.create_subscription(target_user_id, plan_type)
-        if ok:
-            return RedirectResponse(url=f"/payments?msg=granted_{target_user_id}&tab=grant", status_code=303)
-        raise ValueError("create_subscription вернул False")
-    except Exception as exc:
-        return RedirectResponse(url=f"/payments?msg=grant_error&tab=grant", status_code=303)
+    return RedirectResponse(url="/admin/billing/grants", status_code=303)

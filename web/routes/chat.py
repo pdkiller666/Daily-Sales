@@ -16,7 +16,17 @@ router = APIRouter()
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
 MAX_FILES_PER_MSG = 10            # до 10 файлов в одном сообщении
-PLAN_ORDER = ["Бесплатный", "Базовый", "Стандарт", "Премиум"]
+
+
+def _get_chat_min_plan() -> str:
+    """Stub: chat access is now controlled by has_module('chat').
+    Returns 'Базовый' (never 'Отключён') so all legacy 'disabled' checks pass through."""
+    return "Базовый"
+
+
+def _get_org_active_plan(telegram_id: int) -> str:
+    """Stub: plan-based access replaced by has_module(). Returns empty string for display."""
+    return ""
 
 _SHOP_BOT_DB = "data/shop_bot.db"
 
@@ -46,30 +56,6 @@ def _search_rate_ok(ip: str)  -> bool: return _rate_ok(_SEARCH_RATE_STORE, ip,  
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_chat_min_plan() -> str:
-    try:
-        import sqlite3
-        conn = sqlite3.connect(_SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT value FROM payment_settings WHERE key='chat_min_plan'"
-        ).fetchone()
-        conn.close()
-        if row and row[0] in PLAN_ORDER:
-            return row[0]
-        return "Базовый"
-    except Exception:
-        return "Базовый"
-
-
-def _plan_allowed(org_plan: str, min_plan: str) -> bool:
-    if min_plan == "Отключён":
-        return False
-    try:
-        return PLAN_ORDER.index(org_plan) >= PLAN_ORDER.index(min_plan)
-    except ValueError:
-        return False
-
-
 def _get_user_db_id(db, telegram_id: int) -> int | None:
     try:
         conn = db.get_connection()
@@ -80,95 +66,6 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
         return None
 
 
-def _get_org_active_plan(telegram_id: int) -> str:
-    """Return active plan name for this user's org.
-
-    Priority (mirrors subscription_utils.get_plan_limits logic):
-    1. super_admin → Премиум always
-    2. Active trial in shop_bot.db (is_trial=1)
-    3. Org-level plan from main.db (covers ALL members: owners + invited admins/users)
-    4. Individual paid subscription in shop_bot.db (fallback for standalone users / owners)
-
-    BUG FIXED: previously shop_bot.db was checked first. Every Telegram user gets a
-    'Бесплатный' subscription with end_date='9999-12-31' on first bot interaction
-    (database.py create_subscription). This made invited org members always appear as
-    'Бесплатный', blocking the org plan check in main.db.
-    """
-    try:
-        from env_manager import env_manager
-        if env_manager.is_super_admin(telegram_id):
-            return "Премиум"
-    except Exception:
-        pass
-
-    # ── 2. Trial check (is_trial=1 in shop_bot.db) ───────────────────────────
-    try:
-        import sqlite3
-        conn = sqlite3.connect(_SHOP_BOT_DB)
-        user_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        if user_row:
-            trial_row = conn.execute(
-                "SELECT plan_type FROM subscriptions "
-                "WHERE user_id = ? AND is_trial = 1 AND datetime(end_date) > datetime('now') "
-                "ORDER BY end_date DESC LIMIT 1",
-                (user_row[0],)
-            ).fetchone()
-            if trial_row and trial_row[0]:
-                conn.close()
-                return trial_row[0]
-        conn.close()
-    except Exception:
-        pass
-
-    # ── 3. Org plan from main.db — works for ALL members incl. invited admins ─
-    try:
-        import sqlite3
-        conn = sqlite3.connect("data/main.db")
-        org_row = conn.execute(
-            """SELECT o.subscription_plan, o.subscription_end
-               FROM organizations o
-               JOIN user_org_mapping m ON m.org_id = o.id
-               WHERE m.telegram_id = ? AND m.is_active = 1
-               ORDER BY o.subscription_end DESC LIMIT 1""",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
-        if org_row and org_row[0] and org_row[0] in PLAN_ORDER:
-            end = org_row[1]
-            # subscription_end is None → no expiry set, plan is valid indefinitely
-            # subscription_end < today → expired, fall through to next check
-            if end is None or end >= datetime.now().strftime("%Y-%m-%d"):
-                return org_row[0]
-    except Exception:
-        pass
-
-    # ── 4. Individual paid subscription (non-trial, non-free) in shop_bot.db ──
-    # Explicit plan_type != 'Бесплатный' guard: all users get a perpetual
-    # 'Бесплатный' row on first bot interaction, so we only surface paid plans here.
-    try:
-        import sqlite3
-        conn = sqlite3.connect(_SHOP_BOT_DB)
-        user_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        if user_row:
-            sub_row = conn.execute(
-                "SELECT plan_type FROM subscriptions "
-                "WHERE user_id = ? AND is_trial = 0 AND plan_type != 'Бесплатный' "
-                "AND datetime(end_date) > datetime('now') "
-                "ORDER BY end_date DESC LIMIT 1",
-                (user_row[0],)
-            ).fetchone()
-            if sub_row and sub_row[0]:
-                conn.close()
-                return sub_row[0]
-        conn.close()
-    except Exception:
-        pass
-
-    return "Бесплатный"
 
 
 def _uploads_dir(org_db: str) -> str:
@@ -313,26 +210,17 @@ def _fmt_search_result_dm(row, my_db_id: int = 0) -> dict:
 
 
 def _chat_access_ok(telegram_id: int) -> bool:
-    """Проверяет доступ к чату через модульный биллинг (модуль 'chat').
-    Глобальное отключение (chat_min_plan='Отключён') имеет приоритет.
-    При недоступности billing_utils — fallback на проверку тарифного плана."""
-    if _get_chat_min_plan() == "Отключён":
-        return False
+    """Доступ к чату через модуль 'chat' в биллинг-системе."""
     try:
         from billing_utils import has_module
         return has_module(telegram_id, "chat")
     except Exception:
-        min_plan = _get_chat_min_plan()
-        return _plan_allowed(_get_org_active_plan(telegram_id), min_plan)
+        return False
 
 
 def _ensure_access(db, telegram_id: int) -> tuple[bool, str]:
-    """Проверяет доступ к чату. Возвращает (allowed, org_plan)."""
-    min_plan = _get_chat_min_plan()
-    if min_plan == "Отключён":
-        return False, ""
-    org_plan = _get_org_active_plan(telegram_id)
-    return _chat_access_ok(telegram_id), org_plan
+    """Проверяет доступ к чату. Возвращает (allowed, '')."""
+    return _chat_access_ok(telegram_id), ""
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

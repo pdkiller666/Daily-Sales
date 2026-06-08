@@ -218,45 +218,12 @@
 <!-- ══ GRANT TAB ══ -->
 {% if tab == 'grant' %}
 <div class="card p-6 max-w-xl">
-    <h2 class="font-semibold text-slate-800 mb-1">🎁 Ручная выдача подписки</h2>
-    <p class="text-xs text-slate-500 mb-5">Активировать план для любого пользователя без оплаты (тест, подарок, промо)</p>
-
-    <form method="post" action="/payments/grant" class="space-y-4">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Пользователь</label>
-            {% if grant_users %}
-            <select name="target_user_id" required
-                    class="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— выберите пользователя —</option>
-                {% for u in grant_users %}
-                <option value="{{ u.id }}">{{ u.name }} · {{ u.shop }} · {{ u.plan }}{% if u.end_date %} до {{ u.end_date }}{% endif %}</option>
-                {% endfor %}
-            </select>
-            {% else %}
-            <p class="text-sm text-slate-400 italic">Нет зарегистрированных пользователей</p>
-            {% endif %}
-        </div>
-
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Тарифный план</label>
-            <div class="grid grid-cols-2 gap-2">
-                {% for plan in grant_plans %}
-                <label class="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 transition-colors">
-                    <input type="radio" name="plan_type" value="{{ plan }}" class="text-blue-600"
-                           {% if loop.last %}checked{% endif %}>
-                    <span class="text-sm font-medium text-slate-700">{{ plan }}</span>
-                </label>
-                {% endfor %}
-            </div>
-        </div>
-
-        <button type="submit" {% if not grant_users %}disabled{% endif %}
-                class="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors">
-            🎁 Выдать подписку
-        </button>
-    </form>
+    <h2 class="font-semibold text-slate-800 mb-1">🎁 Ручная выдача доступа</h2>
+    <p class="text-sm text-slate-500 mb-5">Выдача модулей и расширений пользователям перенесена в раздел биллинга.</p>
+    <a href="/admin/billing/grants"
+       class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+        🔑 Перейти к управлению доступом →
+    </a>
 </div>
 {% endif %}
 

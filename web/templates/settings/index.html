@@ -730,37 +730,6 @@
 </div>
 {% endif %}
 
-{% if chat_min_plan is not none %}
-<!-- ══ SUPER ADMIN: Chat settings ══ -->
-<div class="card p-5 mt-6 scroll-mt-6 border-2 border-blue-200 dark:border-blue-500/30">
-    <div class="flex items-center gap-2 mb-4">
-        <span class="text-lg">💬</span>
-        <h2 class="font-semibold text-slate-800">Внутренний чат</h2>
-        <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-semibold ml-1">super_admin</span>
-    </div>
-    <div class="py-3">
-        <p class="text-sm font-medium text-slate-800 dark:text-slate-100">Минимальный тариф для доступа к чату</p>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Выберите с какого тарифа сотрудники получают доступ к внутреннему чату организации.
-            «Отключён» полностью скрывает чат для всех.
-        </p>
-        <p class="text-xs text-blue-600 mt-1 font-medium">Сейчас: <strong>{{ chat_min_plan }}</strong></p>
-        <form method="post" action="/settings/chat-plan" class="flex flex-col sm:flex-row gap-2 mt-3">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <select name="plan"
-                    class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                {% for opt in chat_plan_options %}
-                <option value="{{ opt }}" {% if opt == chat_min_plan %}selected{% endif %}>{{ opt }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit"
-                    class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-xl transition-colors">
-                💾 Сохранить
-            </button>
-        </form>
-    </div>
-</div>
-{% endif %}
 
 {% if smtp_configured is not none %}
 <!-- ══ SUPER ADMIN: Email Auth Settings ══ -->

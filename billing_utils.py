@@ -6,7 +6,8 @@ Usage:
 
 All functions are synchronous and safe to call from web routes and bot handlers.
 Super-admin and active-trial users always get full access.
-Legacy plan subscribers are mapped to corresponding modules for backward compat.
+Access is granted exclusively via billing_module_subs (direct grants or bundles).
+Legacy plan tiers (Базовый/Стандарт/Премиум) are no longer used for access control.
 """
 
 import json
@@ -18,17 +19,6 @@ import env_manager
 
 SHOP_BOT_DB = "data/shop_bot.db"
 
-# ── Legacy plan → module keys ─────────────────────────────────────────────────
-_LEGACY_MODULE_MAP: Dict[str, Set[str]] = {
-    "Бесплатный":  set(),
-    "Базовый":     {"analytics", "notifications"},
-    "Стандарт":    {"analytics", "notifications", "integrations"},
-    "Премиум":     {"analytics", "team", "notifications", "plans_motivation",
-                    "ai_assistant", "integrations", "chat"},
-}
-_LEGACY_FULL_ACCESS = {"Премиум"}   # these plans include all extensions
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(SHOP_BOT_DB)
@@ -37,6 +27,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _is_trial(tg_id: int) -> bool:
+    """Active trial in subscriptions table (is_trial=1). Trial = full access."""
     try:
         db = _conn()
         row = db.execute(
@@ -50,22 +41,6 @@ def _is_trial(tg_id: int) -> bool:
         return row is not None
     except Exception:
         return False
-
-
-def _legacy_plan(tg_id: int) -> str:
-    try:
-        db = _conn()
-        row = db.execute(
-            """SELECT s.plan_type FROM subscriptions s
-               JOIN users u ON u.id = s.user_id
-               WHERE u.telegram_id=? AND s.end_date > datetime('now')
-               ORDER BY s.end_date DESC LIMIT 1""",
-            (tg_id,)
-        ).fetchone()
-        db.close()
-        return row[0] if row else "Бесплатный"
-    except Exception:
-        return "Бесплатный"
 
 
 def _has_direct_item(tg_id: int, item_key: str) -> bool:
@@ -153,7 +128,7 @@ def _module_from_bundles(tg_id: int, key: str) -> bool:
 def has_module(tg_id: int, module_key: str) -> bool:
     """True if user has access to the module.
 
-    Priority: super_admin → trial → direct grant → bundle → legacy plan
+    Priority: super_admin → trial → direct grant → bundle
     """
     try:
         if env_manager.is_super_admin(tg_id):
@@ -164,8 +139,7 @@ def has_module(tg_id: int, module_key: str) -> bool:
             return True
         if _module_from_bundles(tg_id, module_key):
             return True
-        plan = _legacy_plan(tg_id)
-        return module_key in _LEGACY_MODULE_MAP.get(plan, set())
+        return False
     except Exception as e:
         logging.error(f"has_module({tg_id},{module_key}): {e}")
         return False
@@ -174,7 +148,7 @@ def has_module(tg_id: int, module_key: str) -> bool:
 def has_extension(tg_id: int, ext_key: str) -> bool:
     """True if user has access to the extension within a module.
 
-    Priority: super_admin → trial → direct grant → bundle → legacy premium
+    Priority: super_admin → trial → direct grant → bundle
     """
     try:
         if env_manager.is_super_admin(tg_id):
@@ -185,7 +159,7 @@ def has_extension(tg_id: int, ext_key: str) -> bool:
             return True
         if _module_from_bundles(tg_id, ext_key):
             return True
-        return _legacy_plan(tg_id) in _LEGACY_FULL_ACCESS
+        return False
     except Exception as e:
         logging.error(f"has_extension({tg_id},{ext_key}): {e}")
         return False
@@ -196,6 +170,10 @@ def get_active_billing_items(tg_id: int) -> Dict[str, Set[str]]:
     try:
         if env_manager.is_super_admin(tg_id):
             return {"modules": {"*"}, "extensions": {"*"}, "bundles": {"*"}}
+
+        # Trial → full access
+        if _is_trial(tg_id):
+            return {"modules": {"*"}, "extensions": {"*"}, "bundles": set()}
 
         db = _conn()
         rows = db.execute(
@@ -218,19 +196,9 @@ def get_active_billing_items(tg_id: int) -> Dict[str, Set[str]]:
                 extensions.add(k)
             elif t == "bundle":
                 bundles.add(k)
-                # Expand bundle — modules → modules, extensions → extensions
                 inc = _bundle_includes(k)
                 modules.update(inc["modules"])
                 extensions.update(inc["extensions"])
-
-        # Legacy plan fallback
-        is_trial = _is_trial(tg_id)
-        plan = _legacy_plan(tg_id)
-        if is_trial:
-            plan = "Премиум"
-        modules.update(_LEGACY_MODULE_MAP.get(plan, set()))
-        if plan in _LEGACY_FULL_ACCESS:
-            extensions.add("*")
 
         return {"modules": modules, "extensions": extensions, "bundles": bundles}
     except Exception as e:

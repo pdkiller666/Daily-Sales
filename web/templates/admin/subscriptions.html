@@ -22,30 +22,14 @@
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Неверный тарифный план.</div>
 {% endif %}
 
-<!-- Grant subscription form -->
-<div class="card p-5 mb-6">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">🎁 Выдать / продлить подписку</h2>
-    <form method="post" action="/admin/subs/grant" class="flex flex-col sm:flex-row gap-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <select name="user_id" required
-                class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-            <option value="">— Выбрать пользователя —</option>
-            {% for u in users_for_grant %}
-            <option value="{{ u.id }}">{{ u.name }}{% if u.shop %} · {{ u.shop }}{% endif %}</option>
-            {% endfor %}
-        </select>
-        <select name="plan_type" required
-                class="sm:w-40 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-            {% for p in plans %}
-            <option value="{{ p }}">{{ p }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit"
-                class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-            🎁 Выдать
-        </button>
-    </form>
-    <p class="text-xs text-slate-400 mt-2">Бесплатный — бессрочно; Базовый 30 дн; Стандарт 90 дн; Премиум 365 дн. Если подписка уже есть — перезапишет.</p>
+<!-- Grant section -->
+<div class="card p-5 mb-6 bg-blue-50 border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
+    <p class="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1">🎁 Управление доступом к модулям</p>
+    <p class="text-xs text-blue-600 dark:text-slate-400 mb-3">Выдача и отзыв модулей/расширений перенесены в раздел биллинга.</p>
+    <a href="/admin/billing/grants"
+       class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
+        🔑 Перейти к управлению доступом →
+    </a>
 </div>
 
 <!-- Search -->

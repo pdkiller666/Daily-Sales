@@ -18,15 +18,6 @@ router = APIRouter(prefix="/admin")
 
 SHOP_BOT_DB = "data/shop_bot.db"
 
-PLAN_LABELS = {
-    "Бесплатный": "Бесплатный",
-    "Базовый": "Базовый",
-    "Стандарт": "Стандарт",
-    "Премиум": "Премиум",
-}
-
-ALL_PLANS = ["Бесплатный", "Базовый", "Стандарт", "Премиум"]
-
 
 def _guard(user) -> bool:
     """Return True if access should be denied."""
@@ -155,7 +146,6 @@ async def admin_subs(request: Request, q: str = ""):
         _ctx(request, user, {
             "active_subs": active_subs,
             "users_for_grant": users_for_grant,
-            "plans": ALL_PLANS,
             "q": q,
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
@@ -164,39 +154,13 @@ async def admin_subs(request: Request, q: str = ""):
 
 
 @router.post("/subs/grant")
-async def admin_grant_sub(
-    request: Request,
-    csrf_token: str = Form(""),
-    user_id: int = Form(...),
-    plan_type: str = Form(...),
-):
-    user = get_session_user(request)
-    if _guard(user):
-        return RedirectResponse("/dashboard", 303)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse("/dashboard", 303)
-    if plan_type not in ALL_PLANS:
-        return RedirectResponse("/admin/subs?msg=invalid_plan", 303)
-    db = _db()
-    ok = db.create_subscription(user_id, plan_type)
-    msg = f"granted_{user_id}" if ok else "error"
-    return RedirectResponse(f"/admin/subs?msg={msg}", 303)
+async def admin_grant_sub(request: Request):
+    return RedirectResponse("/admin/billing/grants", 303)
 
 
 @router.post("/subs/{user_id}/cancel")
-async def admin_cancel_sub(
-    request: Request,
-    user_id: int,
-    csrf_token: str = Form(""),
-):
-    user = get_session_user(request)
-    if _guard(user):
-        return RedirectResponse("/dashboard", 303)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse("/dashboard", 303)
-    db = _db()
-    db.create_subscription(user_id, "Бесплатный")
-    return RedirectResponse("/admin/subs?msg=cancelled", 303)
+async def admin_cancel_sub(request: Request, user_id: int):
+    return RedirectResponse("/admin/billing/grants", 303)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,7 +378,7 @@ async def admin_pay_settings(request: Request):
             "trial_days": trial_days,
             "trial_plan": trial_plan,
             "payment_instruction": payment_instruction,
-            "plans": ALL_PLANS,
+            "plans": ["Базовый", "Стандарт", "Премиум"],
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
         }),
@@ -450,7 +414,7 @@ async def admin_pay_settings_save(
         db.update_payment_setting("payment_instruction", payment_instruction.strip())
     if trial_days.strip():
         db.update_payment_setting("trial_days", trial_days.strip())
-    if trial_plan.strip() and trial_plan in ALL_PLANS:
+    if trial_plan.strip():
         db.update_payment_setting("trial_plan", trial_plan.strip())
     db.set_web_interface_url(web_url.strip() or None)
     if provider in ("sbp", "yookassa"):
