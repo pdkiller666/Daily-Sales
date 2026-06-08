@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
@@ -19,6 +20,22 @@ PLAN_LABELS = {
     "Стандарт": "Стандарт",
     "Премиум": "Премиум",
 }
+
+# ── Friendly labels for module/bundle plan_types in payment history ────────────
+def _plan_type_label(plan_type: str) -> str:
+    if not plan_type:
+        return "—"
+    if plan_type.startswith("module_"):
+        key = plan_type[7:]
+        return f"Модуль: {key}"
+    if plan_type.startswith("bundle_"):
+        key = plan_type[7:]
+        return f"Пакет: {key}"
+    if plan_type.startswith("addon_"):
+        parts = plan_type.split("_")
+        labels = {"shops": "Доп. магазин", "products": "Доп. товары"}
+        return labels.get(parts[1] if len(parts) > 1 else "", plan_type)
+    return PLAN_LABELS.get(plan_type, plan_type)
 
 
 def _get_user_id_in_shop_bot(telegram_id: int) -> int | None:
@@ -77,6 +94,88 @@ def _get_all_plans() -> list[dict]:
         return []
 
 
+def _get_all_billing_modules() -> list[dict]:
+    """Все активные модули биллинга для клиентского маркетплейса."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        rows = conn.execute(
+            """SELECT key, name, icon, description, price_monthly, features_json
+               FROM billing_modules WHERE is_active=1
+               ORDER BY sort_order, id"""
+        ).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            key, name, icon, desc, price, feats_json = r
+            try:
+                features = json.loads(feats_json or "[]")
+            except Exception:
+                features = []
+            result.append({
+                "key": key,
+                "name": name,
+                "icon": icon or "🔧",
+                "description": desc or "",
+                "price_monthly": int(price or 0),
+                "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+                "features": features,
+            })
+        return result
+    except Exception:
+        return []
+
+
+def _get_all_billing_bundles() -> list[dict]:
+    """Все активные пакеты биллинга для клиентского маркетплейса."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        rows = conn.execute(
+            """SELECT key, name, icon, description, includes_json, price_monthly
+               FROM billing_bundles WHERE is_active=1
+               ORDER BY sort_order, id"""
+        ).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            key, name, icon, desc, inc_json, price = r
+            try:
+                includes = json.loads(inc_json or '{"modules":[],"extensions":[]}')
+            except Exception:
+                includes = {"modules": [], "extensions": []}
+            result.append({
+                "key": key,
+                "name": name,
+                "icon": icon or "📦",
+                "description": desc or "",
+                "includes": includes,
+                "modules_count": len(includes.get("modules", [])),
+                "price_monthly": int(price or 0),
+                "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+            })
+        return result
+    except Exception:
+        return []
+
+
+def _get_user_active_module_subs(telegram_id: int) -> dict:
+    """Возвращает {item_key: {end_date, item_type}} для активных модульных подписок пользователя."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        rows = conn.execute(
+            """SELECT item_key, item_type, end_date FROM billing_module_subs
+               WHERE user_telegram_id=? AND is_active=1
+                 AND (end_date IS NULL OR end_date > datetime('now'))""",
+            (telegram_id,)
+        ).fetchall()
+        conn.close()
+        return {
+            r[0]: {"item_type": r[1], "end_date": str(r[2] or "")[:10] or "∞"}
+            for r in rows
+        }
+    except Exception:
+        return {}
+
+
 def _get_user_subscription(user_id: int) -> dict | None:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
@@ -123,7 +222,7 @@ def _get_payment_history(user_id: int, limit: int = 10) -> list[dict]:
             result.append({
                 "id": row[0],
                 "plan_type": row[1],
-                "plan_label": PLAN_LABELS.get(row[1] or "", row[1] or "—"),
+                "plan_label": _plan_type_label(row[1] or ""),
                 "amount": int(row[2] or 0),
                 "status": st,
                 "status_label": label,
@@ -149,9 +248,31 @@ def _has_pending_request(user_id: int) -> bool:
         return False
 
 
+def _build_ctx(request, user, subscription, current_plan, plans, history,
+               has_pending, csrf_token, msg, modules, bundles, user_mod_subs,
+               active_items):
+    """Build full template context."""
+    return {
+        "request": request,
+        "user": user,
+        "subscription": subscription,
+        "current_plan": current_plan,
+        "plans": plans,
+        "history": history,
+        "has_pending": has_pending,
+        "csrf_token": csrf_token,
+        "msg": msg,
+        "modules": modules,
+        "bundles": bundles,
+        "user_mod_subs": user_mod_subs,
+        "active_items": active_items,
+    }
+
+
 @router.get("/subscription")
-def subscription_page(request: Request, msg: str = ""):
+def subscription_page(request: Request, msg: str = "", tab: str = "plan"):
     from web.auth import get_session_user, get_csrf_token
+    from billing_utils import get_active_billing_items
 
     user = get_session_user(request)
     if not user:
@@ -160,6 +281,8 @@ def subscription_page(request: Request, msg: str = ""):
         return RedirectResponse(url="/dashboard", status_code=302)
 
     telegram_id = int(user["sub"])
+    modules = _get_all_billing_modules()
+    bundles = _get_all_billing_bundles()
 
     # Super-admin has unconditional Премиум access — no real subscription record
     if user.get("role") == "super_admin":
@@ -167,26 +290,22 @@ def subscription_page(request: Request, msg: str = ""):
         for p in plans:
             p["is_current"] = p["name"] == "Премиум"
             p["is_upgrade"] = False
-            p["is_downgrade"] = PLAN_ORDER.index(p["name"]) < PLAN_ORDER.index("Премиум") if p["name"] in PLAN_ORDER else False
+            p["is_downgrade"] = (
+                PLAN_ORDER.index(p["name"]) < PLAN_ORDER.index("Премиум")
+                if p["name"] in PLAN_ORDER else False
+            )
         return request.app.state.templates.TemplateResponse(
             request,
             "subscription/index.html",
-            {
-                "request": request,
-                "user": user,
-                "subscription": {
-                    "plan_type": "Премиум",
-                    "start_date": "—",
-                    "end_date": "—",
-                    "is_trial": False,
-                },
-                "current_plan": "Премиум",
-                "plans": plans,
-                "history": [],
-                "has_pending": False,
-                "csrf_token": get_csrf_token(request),
-                "msg": msg,
-            },
+            _build_ctx(
+                request, user,
+                {"plan_type": "Премиум", "start_date": "—", "end_date": "—", "is_trial": False},
+                "Премиум", plans, [], False,
+                get_csrf_token(request), msg,
+                modules, bundles,
+                user_mod_subs={"*": {"item_type": "all", "end_date": "∞"}},
+                active_items={"modules": {"*"}, "extensions": {"*"}, "bundles": {"*"}},
+            ),
         )
 
     user_id = _get_user_id_in_shop_bot(telegram_id)
@@ -196,8 +315,14 @@ def subscription_page(request: Request, msg: str = ""):
     has_pending = _has_pending_request(user_id) if user_id else False
     plans = _get_all_plans()
     current_plan = subscription["plan_type"] if subscription else "Бесплатный"
+    user_mod_subs = _get_user_active_module_subs(telegram_id)
+    try:
+        active_items = get_active_billing_items(telegram_id)
+        # Convert sets to lists for JSON serialisation in Jinja2
+        active_items = {k: list(v) for k, v in active_items.items()}
+    except Exception:
+        active_items = {"modules": [], "extensions": [], "bundles": []}
 
-    # Determine which plans are upgrades
     try:
         current_idx = PLAN_ORDER.index(current_plan)
     except ValueError:
@@ -215,17 +340,11 @@ def subscription_page(request: Request, msg: str = ""):
     return request.app.state.templates.TemplateResponse(
         request,
         "subscription/index.html",
-        {
-            "request": request,
-            "user": user,
-            "subscription": subscription,
-            "current_plan": current_plan,
-            "plans": plans,
-            "history": history,
-            "has_pending": has_pending,
-            "csrf_token": get_csrf_token(request),
-            "msg": msg,
-        },
+        _build_ctx(
+            request, user, subscription, current_plan, plans, history,
+            has_pending, get_csrf_token(request), msg,
+            modules, bundles, user_mod_subs, active_items,
+        ),
     )
 
 
@@ -269,8 +388,57 @@ async def subscription_request(
         )
         conn.commit()
         conn.close()
-        return RedirectResponse(url="/subscription?msg=request_sent", status_code=303)
+        return RedirectResponse(url="/subscription?msg=request_sent&tab=plan", status_code=303)
     except Exception as exc:
         import logging
         logging.error(f"subscription_request error: {exc}")
         return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+
+@router.post("/subscription/module-request")
+def subscription_module_request(
+    request: Request,
+    plan_type: str = Form(...),
+    amount: int = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Клиентская заявка на подключение модуля или пакета."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?tab=modules&msg=csrf_error", status_code=303)
+
+    # plan_type must be module_* or bundle_*
+    if not (plan_type.startswith("module_") or plan_type.startswith("bundle_")):
+        return RedirectResponse(url="/subscription?tab=modules&msg=invalid_plan", status_code=303)
+
+    if amount < 0 or amount > 100_000:
+        return RedirectResponse(url="/subscription?tab=modules&msg=invalid_plan", status_code=303)
+
+    telegram_id = int(user["sub"])
+    user_id = _get_user_id_in_shop_bot(telegram_id)
+    if not user_id:
+        return RedirectResponse(url="/subscription?tab=modules&msg=user_not_found", status_code=303)
+
+    if _has_pending_request(user_id):
+        return RedirectResponse(url="/subscription?tab=modules&msg=already_pending", status_code=303)
+
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        conn.execute(
+            """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
+               VALUES (?, ?, ?, 'web_module_request')""",
+            (user_id, plan_type, amount),
+        )
+        conn.commit()
+        conn.close()
+        return RedirectResponse(url="/subscription?tab=modules&msg=module_request_sent", status_code=303)
+    except Exception as exc:
+        import logging
+        logging.error(f"subscription_module_request error: {exc}")
+        return RedirectResponse(url="/subscription?tab=modules&msg=error", status_code=303)

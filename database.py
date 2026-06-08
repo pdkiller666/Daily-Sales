@@ -2964,6 +2964,34 @@ class Database:
                             self.create_subscription_addon(_tg_id, 'extra_products', _qty, 100.0 * _qty, days=30)
                 return True
 
+            # Обработка модульных подписок: module_analytics, bundle_starter, etc.
+            if plan_type and (plan_type.startswith('module_') or plan_type.startswith('bundle_')):
+                _user_info = self.get_user_by_id(user_id)
+                if _user_info:
+                    _tg_id = _user_info[1]
+                    _item_type = 'module' if plan_type.startswith('module_') else 'bundle'
+                    _item_key = plan_type[len(_item_type) + 1:]
+                    try:
+                        _pc = self.get_connection()
+                        _pr_row = _pc.execute(
+                            "SELECT amount FROM payment_requests WHERE id=?", (request_id,)
+                        ).fetchone()
+                        _pc.close()
+                        _price = float(_pr_row[0]) if _pr_row else 0.0
+                    except Exception:
+                        _price = 0.0
+                    self.grant_billing_item(
+                        user_telegram_id=_tg_id,
+                        item_type=_item_type,
+                        item_key=_item_key,
+                        duration_days=30,
+                        price_paid=_price,
+                        granted_by='payment',
+                        note='Оплачен из веб-кабинета',
+                        payment_request_id=request_id,
+                    )
+                return True
+
             # Создаем подписку (и сбрасываем старые напоминания — подписка продлена)
             success = self.create_subscription(user_id, plan_type)
             if not success:
