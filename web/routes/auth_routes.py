@@ -69,6 +69,19 @@ async def telegram_callback(request: Request):
 
     token = create_session_token(telegram_id, first_name, org_db, role)
 
+    # Уведомление при входе с нового IP (fire-and-forget, не блокирует ответ)
+    try:
+        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
+        from bot_holder import get_bot as _get_bot
+        import asyncio as _aio
+        _notif_ip = _real_ip(request)
+        if check_and_record_ip(telegram_id, _notif_ip):
+            _bot = _get_bot()
+            if _bot:
+                _aio.create_task(notify_new_ip(_bot, telegram_id, _notif_ip, first_name))
+    except Exception:
+        pass
+
     response = RedirectResponse(url="/dashboard", status_code=302)
     response.set_cookie(
         COOKIE_NAME, token,
@@ -163,6 +176,20 @@ async def code_auto_login(request: Request, c: str = ""):
 
     first_name = _get_display_name(telegram_id, org_db)
     token = create_session_token(telegram_id, first_name, org_db, role)
+
+    # Уведомление при входе с нового IP (fire-and-forget)
+    try:
+        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
+        from bot_holder import get_bot as _get_bot
+        import asyncio as _aio
+        _notif_ip = _real_ip(request)
+        if check_and_record_ip(telegram_id, _notif_ip):
+            _bot = _get_bot()
+            if _bot:
+                _aio.create_task(notify_new_ip(_bot, telegram_id, _notif_ip, first_name))
+    except Exception:
+        pass
+
     # Stay on current page if referer is one of our own pages
     referer = request.headers.get("referer", "")
     try:
@@ -250,6 +277,20 @@ async def code_login_submit(
     first_name = _get_display_name(telegram_id, org_db)
 
     token = create_session_token(telegram_id, first_name, org_db, role)
+
+    # Уведомление при входе с нового IP (fire-and-forget)
+    try:
+        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
+        from bot_holder import get_bot as _get_bot
+        import asyncio as _aio
+        _notif_ip = _real_ip(request)
+        if check_and_record_ip(telegram_id, _notif_ip):
+            _bot = _get_bot()
+            if _bot:
+                _aio.create_task(notify_new_ip(_bot, telegram_id, _notif_ip, first_name))
+    except Exception:
+        pass
+
     response = RedirectResponse(url="/dashboard", status_code=302)
     response.set_cookie(
         COOKIE_NAME, token,

@@ -136,6 +136,20 @@ async def email_login(
         pass
 
     token = create_session_token(tg_id, first_name, org_db, role)
+
+    # Уведомление при входе с нового IP (только для реальных tg_id > 0)
+    try:
+        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
+        from bot_holder import get_bot as _get_bot
+        import asyncio as _aio
+        _notif_ip = _real_ip(request)
+        if check_and_record_ip(tg_id, _notif_ip):
+            _bot = _get_bot()
+            if _bot:
+                _aio.create_task(notify_new_ip(_bot, tg_id, _notif_ip, first_name))
+    except Exception:
+        pass
+
     response = RedirectResponse(url="/dashboard", status_code=302)
     response.set_cookie(COOKIE_NAME, token, httponly=True, samesite='lax',
                         secure=True, max_age=TOKEN_EXPIRE_DAYS * 24 * 3600)

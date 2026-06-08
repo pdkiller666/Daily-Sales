@@ -1271,6 +1271,20 @@ class Database:
                 )
             ''')
 
+        # ── login_ips — новые IP-адреса для уведомлений (только shop_bot.db) ───
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS login_ips (
+                    telegram_id INTEGER NOT NULL,
+                    ip          TEXT NOT NULL,
+                    first_seen  TEXT NOT NULL,
+                    PRIMARY KEY (telegram_id, ip)
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_login_ips_user ON login_ips(telegram_id)'
+            )
+
         # ── Биллинг: модули, расширения, пакеты, подписки (только shop_bot.db) ─
         if 'shop_bot' in self.db_file:
             cursor.execute('''
