@@ -3331,7 +3331,8 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         shop_clause = "AND i.shop_name = ?" if shop_name else ""
-        params: list = [days, days]
+        # Порядок ?: avg_daily(days), days_until_empty(days), date_filter(days), shop_name(опц.)
+        params: list = [days, days, days]
         if shop_name:
             params.append(shop_name)
         cursor.execute(f"""
@@ -3360,7 +3361,7 @@ class Database:
             ORDER BY
                 CASE WHEN COALESCE(SUM(s.quantity_sold), 0) = 0 THEN 1 ELSE 0 END ASC,
                 days_until_empty ASC
-        """, params + [days])
+        """, params)
         rows = cursor.fetchall()
         conn.close()
         return rows
