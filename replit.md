@@ -23,7 +23,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ### Bot
 - `main.py` — bot entry, router registration, 10 APScheduler jobs
 - `web_auth_handlers.py` — `/setweblogin` команда: привязка email к Telegram-аккаунту прямо из бота
-- `database.py` — Database class, 163+ methods, all migrations in `create_tables()`
+- `database.py` — Database class, 181+ methods, all migrations in `create_tables()`
 - `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
 - `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
 - `dashboard_handlers.py` — `build_admin_dashboard(..., period)`, `build_user_dashboard(...)`, `_plan_summary_line()`
@@ -46,7 +46,9 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `web/email_utils.py` — `send_verification_email()`, `send_reset_email()`, `send_link_notification()`; SMTP via `smtp.yandex.ru:465` SSL; secrets `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; `is_configured()` guard — all routes degrade gracefully if SMTP not configured
 - `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `bool`; survives restarts; used by `auth_routes.py` and `email_auth.py`
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
-- `web/routes/` — 24 route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`
+- `billing_utils.py` — `has_module(tg_id, key)`, `has_extension(tg_id, key)`, `get_active_billing_items(tg_id)` — feature-gate API; priority: super_admin → trial → direct grant → bundle → legacy plan
+- `web/routes/` — 25 route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`, `admin_billing`
+- `web/routes/admin_billing.py` — 19 маршрутов `/admin/billing/*`: хаб, CRUD модулей/расширений/пакетов, выдача/отзыв доступов; все POST с CSRF + `_guard(role=super_admin)`
 - `web/routes/email_auth.py` — 9 маршрутов: `GET/POST /register`, `GET/POST /auth/email`, `GET /auth/verify`, `POST /auth/resend-verify`, `GET/POST /auth/reset`, `GET/POST /auth/reset/confirm`, `POST /settings/email-change`, `POST /settings/password-change`, `POST /settings/email-unlink`; rate limit 5 req/10min/IP на login/register/reset
 - `web/routes/support.py` — `GET /support` (форма обратной связи), `POST /support/send` (отправка через Telegram Bot API с rate limit 3 req/hour/user; `urllib.request` stdlib)
 - `web/routes/pos.py` — GET `/pos`: передаёт `sales_limit_reached` + `sales_limit_msg` в шаблон; красный 🚫 баннер при достижении лимита продаж
@@ -66,6 +68,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Anchor message pattern**: all FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` MUST be called AFTER `fsm_edit()`, never before
 - **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — auto-creates missing tables including `shift_templates`, `start_time`/`end_time` in `work_schedule`
 - **Subscription tiers**: Бесплатный (0₽, 50 products/1 shop/100 sales, no features) → Базовый (500₽/30d, 200/3/500, export+analytics+notifications, NO integrations) → Стандарт (1200₽/90d, 500/10/1500, + Google Sheets) → Премиум (4000₽/365d, unlimited all). Migration always enforces `can_use_integrations=0` for Базовый. Default `trial_plan='Премиум'`.
+- **Modular billing system**: `billing_modules`, `billing_extensions`, `billing_bundles`, `billing_module_subs` в `shop_bot.db` (guard: `if 'shop_bot' in self.db_file`); `_init_billing_defaults()` заполняет 7 модулей + 17 расширений + 3 пакета при первом старте (идемпотентно); `billing_utils.py` — feature-gate API; super admin UI на `/admin/billing`; `tab` query-param в `/admin/billing/modules` whitelist-защищён от XSS; `get_all_billing_bundles()` возвращает предпарсенный `includes` dict — в шаблонах `b.includes.get('modules', [])`, НЕ `fromjson` фильтр
 - **deploy.sh always pushes to both GitHub + Amvera** (default); `--no-amvera` to skip; hash verification runs after every Amvera push; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
 - **Login nonce (stateless CSRF for `/auth/code`)**: `generate_login_nonce()` создаёт HMAC-SHA256(secret, timestamp//300); `verify_login_nonce()` принимает nonce ±1 окно (10 мин tolerance); не хранится в БД — чистый stateless
 - **Persistent rate limiting**: `web/rate_store.py` — SQLite `data/rate_limits.db`; `check_rate_limit(key, limit, window_sec)` — выдерживает рестарты; используется в `auth_routes.py`; `_api_rate_ok()` (in-memory) остаётся для `/api/*`
@@ -126,6 +129,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
 - Web feedback form: `/support` — форма обратной связи в веб-кабинете; категория + тема + сообщение; отправляет супер-админу в Telegram через Bot API; rate limit 3/час/user; доступна всем авторизованным пользователям через шторку «Ещё»
 - Email + пароль вход: `/register` (по инвайт-коду + email + пароль) + `/auth/email` (login); подтверждение email через письмо (`/auth/verify?token=…`); сброс пароля через письмо (`/auth/reset` → `/auth/reset/confirm`); привязка/отвязка email в `/settings`; смена пароля в `/settings`; привязка к Telegram через `/setweblogin` в боте; email-only пользователи получают synthetic_tg_id для совместимости с существующей сессионной системой
+- Modular billing configurator: `/admin/billing` — super admin панель управления модулями, расширениями, пакетами; выдача/отзыв доступов любому пользователю; статистика выручки; дефолтные модули: analytics(299₽), team(399₽), notifications(199₽), plans_motivation(249₽), ai_assistant(299₽), integrations(399₽), chat(149₽)
 
 ## User Preferences
 
