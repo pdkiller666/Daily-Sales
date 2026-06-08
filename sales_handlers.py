@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from aiogram import Router, F
+
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -15,6 +16,7 @@ from utils import format_currency, get_stock_color_indicator, format_date_displa
 
 # Создаем роутер для продаж
 sales_router = Router()
+logger = logging.getLogger(__name__)
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin, maybe_refresh_username, wrap_db
 from keyboards import safe_cb, resolve_cb_name

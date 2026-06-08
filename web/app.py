@@ -202,6 +202,18 @@ Disallow: /login
 Disallow: /register
 Disallow: /auth/
 Disallow: /admin
+Disallow: /backups
+Disallow: /logout
+Disallow: /my-notifications
+Disallow: /nav-config
+Disallow: /orgs
+Disallow: /push
+Disallow: /stats
+Disallow: /subs
+Disallow: /switch_org
+Disallow: /tariffs
+Disallow: /unread-count
+Disallow: /users
 
 Sitemap: https://dailysales.app/sitemap.xml
 """

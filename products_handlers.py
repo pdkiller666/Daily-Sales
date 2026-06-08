@@ -4,9 +4,11 @@
 import asyncio
 import hashlib
 import io
+import logging
 import os
 import uuid as _uuid
 from pathlib import Path
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, FSInputFile
 from aiogram.fsm.context import FSMContext
@@ -44,10 +46,12 @@ async def _download_tg_photo(bot, file_id: str, db_file: str) -> str | None:
         await bot.download_file(tg_file.file_path, destination=buf)
         raw = buf.getvalue()
         if len(raw) > _PHOTO_MAX_BOT:
+            logger.warning("_download_tg_photo: file_id=%s too large (%d bytes), skipped", file_id, len(raw))
             return None
         fpath.write_bytes(raw)
         return f"/static/product_photos/{org_hash}/{fname}"
-    except Exception:
+    except Exception as exc:
+        logger.error("_download_tg_photo: file_id=%s db=%s error: %s", file_id, db_file, exc)
         return None
 
 # Получаем ID администратора из переменных окружения
@@ -57,6 +61,7 @@ BULK_IMPORT_MAX = 100  # максимум товаров за одну паке�
 
 # Создаем роутер для товаров
 products_router = Router()
+logger = logging.getLogger(__name__)
 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from keyboards import safe_cb, resolve_cb_name

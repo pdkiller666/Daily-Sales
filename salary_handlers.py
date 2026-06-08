@@ -5,8 +5,10 @@ v2 — rebuild trigger
 """
 import asyncio
 import calendar as _cal
+import logging
 from datetime import datetime
 from aiogram import Router, F
+
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -21,6 +23,7 @@ from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
 from states import AdjustmentStates, SearchStates
 
 salary_router = Router()
+logger = logging.getLogger(__name__)
 
 _MONTH_NAMES = [
     "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
