@@ -21,46 +21,11 @@ def _purge_expired_device_flow() -> None:
 
 
 def _check_plan(telegram_id: int) -> tuple[bool, str]:
-    """Returns (can_use_integrations, plan_name)."""
+    """Returns (can_use_integrations, plan_name).
+    Delegated to modular billing system (has_module 'integrations')."""
     try:
-        from env_manager import env_manager
-        if env_manager.is_super_admin(telegram_id):
-            return (True, "Премиум")
-    except Exception:
-        pass
-    try:
-        conn = sqlite3.connect("data/main.db")
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT o.subscription_plan FROM organizations o "
-            "JOIN user_org_mapping m ON m.org_id = o.id "
-            "WHERE m.telegram_id = ? AND m.is_active = 1 LIMIT 1",
-            (telegram_id,)
-        )
-        row = cur.fetchone()
-        conn.close()
-        plan = row[0] if row else "Бесплатный"
-        can = plan in ("Стандарт", "Премиум", "VIP")
-        if not can:
-            try:
-                trial_conn = sqlite3.connect("data/shop_bot.db")
-                tc = trial_conn.cursor()
-                tc.execute(
-                    "SELECT 1 FROM subscriptions s "
-                    "JOIN organizations o ON o.id = s.org_id "
-                    "JOIN user_org_mapping m ON m.org_id = o.id "
-                    "WHERE m.telegram_id = ? AND m.is_active = 1 "
-                    "AND s.plan_type IN ('Стандарт','Премиум','VIP') "
-                    "AND s.is_active = 1 AND s.expires_at > datetime('now') LIMIT 1",
-                    (telegram_id,)
-                )
-                if tc.fetchone():
-                    can = True
-                    plan = plan + " + trial"
-                trial_conn.close()
-            except Exception:
-                pass
-        return can, plan
+        from billing_utils import has_module
+        return has_module(telegram_id, "integrations"), "—"
     except Exception as e:
         logging.error(f"_check_plan: {e}")
         return False, "—"

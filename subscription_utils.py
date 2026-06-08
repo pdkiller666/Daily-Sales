@@ -147,11 +147,29 @@ def invalidate_plan_cache(telegram_id: int) -> None:
     _plan_cache.pop(telegram_id, None)
 
 
+def _apply_billing_modules(telegram_id: int, limits: dict) -> dict:
+    """Перекрывает can_* флаги значениями из модульной биллинг-системы.
+    Вызывается только для обычных пользователей (не super_admin, не trial).
+    При недоступности billing_utils — оставляет legacy-значения из БД без изменений."""
+    try:
+        from billing_utils import has_module as _bm
+        limits['can_view_analytics']    = _bm(telegram_id, 'analytics')
+        limits['can_export_reports']    = _bm(telegram_id, 'analytics')
+        limits['can_use_notifications'] = _bm(telegram_id, 'notifications')
+        limits['can_use_integrations']  = _bm(telegram_id, 'integrations')
+    except Exception:
+        pass
+    return limits
+
+
 def get_plan_limits(telegram_id):
     """
     Главная функция получения лимитов для пользователя.
     Принимает telegram_id (не внутренний user_id).
     Результат кешируется на _PLAN_CACHE_TTL секунд.
+
+    can_* feature flags определяются модульной биллинг-системой (billing_utils.has_module).
+    Жёсткие лимиты (max_products, max_shops, max_sales_per_month) берутся из subscription_plans.
     """
     if env_manager.is_super_admin(telegram_id):
         return _UNLIMITED
@@ -169,11 +187,14 @@ def get_plan_limits(telegram_id):
     # Сначала проверяем: в org?
     org_plan = _get_org_plan_for_user(telegram_id)
     if org_plan is not None:
-        limits = _plan_limits_from_shop_bot(org_plan) or _FREE_FALLBACK
+        limits = dict(_plan_limits_from_shop_bot(org_plan) or _FREE_FALLBACK)
     else:
         # Личный пользователь
         plan_name = _get_personal_plan(telegram_id)
-        limits = _plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK
+        limits = dict(_plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK)
+
+    # Перекрываем can_* флаги модульной биллинг-системой
+    limits = _apply_billing_modules(telegram_id, limits)
 
     _plan_cache[telegram_id] = (limits, now)
     return limits
@@ -361,10 +382,14 @@ def check_shop_limit(telegram_id):
 
 
 def check_integrations_permission(telegram_id):
-    """Проверка разрешения на Google Sheets и другие интеграции."""
+    """Проверка разрешения на Google Sheets и другие интеграции (модуль 'integrations')."""
     if env_manager.is_super_admin(telegram_id):
         return True
-    return get_plan_limits(telegram_id).get('can_use_integrations', False)
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'integrations')
+    except Exception:
+        return get_plan_limits(telegram_id).get('can_use_integrations', False)
 
 
 def _get_org_plan_by_db_path(org_db: str):
@@ -396,7 +421,7 @@ def _get_org_plan_by_db_path(org_db: str):
 
 
 def check_export_permission(telegram_id, org_db: str = None):
-    """Проверка разрешения на экспорт отчётов.
+    """Проверка разрешения на экспорт отчётов (модуль 'analytics').
     org_db — путь к БД организации; обязателен для email-only пользователей (tg_id < 0)."""
     if env_manager.is_super_admin(telegram_id):
         return True
@@ -407,21 +432,33 @@ def check_export_permission(telegram_id, org_db: str = None):
             return False
         limits = _plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK
         return bool(limits.get('can_export_reports', False))
-    return get_plan_limits(telegram_id)['can_export_reports']
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'analytics')
+    except Exception:
+        return get_plan_limits(telegram_id)['can_export_reports']
 
 
 def check_analytics_permission(telegram_id):
-    """Проверка разрешения на расширенную аналитику."""
+    """Проверка разрешения на расширенную аналитику (модуль 'analytics')."""
     if env_manager.is_super_admin(telegram_id):
         return True
-    return get_plan_limits(telegram_id)['can_view_analytics']
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'analytics')
+    except Exception:
+        return get_plan_limits(telegram_id)['can_view_analytics']
 
 
 def check_notifications_permission(telegram_id):
-    """Проверка разрешения на систему уведомлений."""
+    """Проверка разрешения на систему уведомлений (модуль 'notifications')."""
     if env_manager.is_super_admin(telegram_id):
         return True
-    return get_plan_limits(telegram_id)['can_use_notifications']
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'notifications')
+    except Exception:
+        return get_plan_limits(telegram_id)['can_use_notifications']
 
 
 def get_subscription_warning_message(telegram_id):

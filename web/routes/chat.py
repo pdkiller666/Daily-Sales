@@ -312,13 +312,27 @@ def _fmt_search_result_dm(row, my_db_id: int = 0) -> dict:
     }
 
 
+def _chat_access_ok(telegram_id: int) -> bool:
+    """Проверяет доступ к чату через модульный биллинг (модуль 'chat').
+    Глобальное отключение (chat_min_plan='Отключён') имеет приоритет.
+    При недоступности billing_utils — fallback на проверку тарифного плана."""
+    if _get_chat_min_plan() == "Отключён":
+        return False
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, "chat")
+    except Exception:
+        min_plan = _get_chat_min_plan()
+        return _plan_allowed(_get_org_active_plan(telegram_id), min_plan)
+
+
 def _ensure_access(db, telegram_id: int) -> tuple[bool, str]:
-    """Проверяет тариф. Возвращает (allowed, org_plan)."""
+    """Проверяет доступ к чату. Возвращает (allowed, org_plan)."""
     min_plan = _get_chat_min_plan()
     if min_plan == "Отключён":
         return False, ""
     org_plan = _get_org_active_plan(telegram_id)
-    return _plan_allowed(org_plan, min_plan), org_plan
+    return _chat_access_ok(telegram_id), org_plan
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -357,10 +371,9 @@ def chat_page(request: Request, topic: int = 1):
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        allowed = _plan_allowed(org_plan, min_plan)
+        allowed = _chat_access_ok(telegram_id)
         ctx["chat_allowed"] = allowed
-        ctx["org_plan"] = org_plan
+        ctx["org_plan"] = _get_org_active_plan(telegram_id)
 
         if allowed:
             user_db_id = _get_user_db_id(db, telegram_id)
@@ -454,8 +467,7 @@ async def chat_send(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        if not _plan_allowed(org_plan, min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
 
         user_db_id = _get_user_db_id(db, telegram_id)
@@ -512,8 +524,7 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
             return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        if not _plan_allowed(org_plan, min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
@@ -553,7 +564,7 @@ def chat_topic_messages(request: Request, topic_id: int):
             return JSONResponse({"ok": False, "messages": [], "latest_id": 0})
 
         db = get_web_db(telegram_id, org_db)
-        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "messages": [], "latest_id": 0})
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
@@ -739,7 +750,7 @@ def chat_topic_create(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
@@ -857,8 +868,7 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        if not _plan_allowed(org_plan, min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "results": []}, status_code=403)
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
@@ -1028,8 +1038,7 @@ def dm_contacts_page_legacy(request: Request):
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        allowed = _plan_allowed(org_plan, min_plan)
+        allowed = _chat_access_ok(telegram_id)
         ctx["chat_allowed"] = allowed
 
         if allowed:
@@ -1097,8 +1106,7 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        allowed = _plan_allowed(org_plan, min_plan)
+        allowed = _chat_access_ok(telegram_id)
         ctx["chat_allowed"] = allowed
 
         if allowed:
@@ -1158,7 +1166,7 @@ def api_dm_members(request: Request):
         if min_plan == "Отключён":
             return JSONResponse({"ok": True, "members": []})
         db = get_web_db(telegram_id, org_db)
-        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": True, "members": []})
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         if not user_db_id:
@@ -1202,7 +1210,7 @@ def api_dm_contacts(request: Request):
         if min_plan == "Отключён":
             return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
         db = get_web_db(telegram_id, org_db)
-        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         if not user_db_id:
@@ -1239,7 +1247,7 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         if min_plan == "Отключён":
             return JSONResponse({"ok": False, "messages": [], "has_more": False})
         db = get_web_db(telegram_id, org_db)
-        if not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=403)
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         if not user_db_id:
@@ -1326,8 +1334,7 @@ async def dm_send(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        org_plan = _get_org_active_plan(telegram_id)
-        if not _plan_allowed(org_plan, min_plan):
+        if not _chat_access_ok(telegram_id):
             return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
 
         user_db_id = _get_user_db_id(db, telegram_id)
@@ -1524,8 +1531,7 @@ async def ws_dm(websocket: WebSocket):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
 
-    min_plan = _get_chat_min_plan()
-    if min_plan == "Отключён" or not _plan_allowed(_get_org_active_plan(telegram_id), min_plan):
+    if not _chat_access_ok(telegram_id):
         await websocket.close(code=4003)
         return
 
