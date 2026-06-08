@@ -1321,14 +1321,15 @@ class Database:
                 CREATE TABLE IF NOT EXISTS billing_extensions (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     module_key    TEXT NOT NULL,
-                    key           TEXT UNIQUE NOT NULL,
+                    key           TEXT NOT NULL,
                     name          TEXT NOT NULL,
                     icon          TEXT DEFAULT '⚡',
                     description   TEXT DEFAULT '',
                     price_monthly REAL DEFAULT 0,
                     sort_order    INTEGER DEFAULT 0,
                     is_active     INTEGER DEFAULT 1,
-                    updated_at    TEXT DEFAULT (datetime('now'))
+                    updated_at    TEXT DEFAULT (datetime('now')),
+                    UNIQUE(module_key, key)
                 )
             ''')
             cursor.execute('''
@@ -1408,6 +1409,49 @@ class Database:
                        description='Все 7 модулей — максимальный функционал'
                    WHERE key='all_in_one'
                      AND includes_json NOT LIKE '%"chat"%'"""
+            )
+            # Migration: billing_extensions — change UNIQUE(key) → UNIQUE(module_key, key)
+            # so the same extension key can appear under multiple modules (e.g. ai_smart_alerts
+            # shown under both analytics and ai_assistant).
+            _ext_schema = (cursor.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='billing_extensions'"
+            ).fetchone() or ("",))[0]
+            # Old schema had "key TEXT UNIQUE NOT NULL"; new has "UNIQUE(module_key, key)"
+            _has_old_unique = "key           TEXT UNIQUE" in _ext_schema or "key TEXT UNIQUE" in _ext_schema
+            if _has_old_unique:
+                # Recreate table with new constraint; preserve all existing rows
+                cursor.execute("ALTER TABLE billing_extensions RENAME TO billing_extensions_old")
+                cursor.execute("""
+                    CREATE TABLE billing_extensions (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        module_key    TEXT NOT NULL,
+                        key           TEXT NOT NULL,
+                        name          TEXT NOT NULL,
+                        icon          TEXT DEFAULT '⚡',
+                        description   TEXT DEFAULT '',
+                        price_monthly REAL DEFAULT 0,
+                        sort_order    INTEGER DEFAULT 0,
+                        is_active     INTEGER DEFAULT 1,
+                        updated_at    TEXT DEFAULT (datetime('now')),
+                        UNIQUE(module_key, key)
+                    )""")
+                cursor.execute("""
+                    INSERT OR IGNORE INTO billing_extensions
+                        (id, module_key, key, name, icon, description,
+                         price_monthly, sort_order, is_active, updated_at)
+                    SELECT id, module_key, key, name, icon, description,
+                           price_monthly, sort_order, is_active, updated_at
+                    FROM billing_extensions_old""")
+                cursor.execute("DROP TABLE billing_extensions_old")
+                # Now add ai_smart_alerts under analytics (was blocked by old UNIQUE)
+                cursor.execute("""
+                    INSERT OR IGNORE INTO billing_extensions
+                        (module_key, key, name, icon, description, price_monthly, sort_order, is_active)
+                    VALUES ('analytics','ai_smart_alerts','ИИ-алерты','🤖',
+                            'AI-детектирование аномалий в продажах', 199, 6, 1)""")
+            # Migration: hide gs_realtime (not yet implemented, no gate checks in code)
+            cursor.execute(
+                "UPDATE billing_extensions SET is_active=0 WHERE key='gs_realtime'"
             )
 
         # Инициализация базовых данных при первом запуске
@@ -10904,8 +10948,8 @@ class Database:
             conn.execute(
                 '''INSERT INTO billing_extensions (module_key,key,name,icon,description,price_monthly,sort_order,is_active,updated_at)
                    VALUES (?,?,?,?,?,?,?,?,datetime('now'))
-                   ON CONFLICT(key) DO UPDATE SET
-                       module_key=excluded.module_key, name=excluded.name, icon=excluded.icon,
+                   ON CONFLICT(module_key,key) DO UPDATE SET
+                       name=excluded.name, icon=excluded.icon,
                        description=excluded.description, price_monthly=excluded.price_monthly,
                        sort_order=excluded.sort_order, is_active=excluded.is_active, updated_at=datetime('now')''',
                 (module_key, key, name, icon, description, price_monthly, sort_order, is_active)
