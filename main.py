@@ -1105,6 +1105,106 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # AI умные алерты — ежедневно в 07:05 (после накопления данных за вчера)
+    async def ai_smart_alerts():
+        """Анализирует падения выручки по каждой орг и отправляет алерты через LLM."""
+        import os as _os, json as _json, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        try:
+            from web.ai_utils import ask_llm, build_smart_alert_prompt, is_configured
+        except Exception as _imp_err:
+            logging.warning(f"ai_smart_alerts: cannot import ai_utils: {_imp_err}")
+            return
+
+        def _send_tg(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]}
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                import threading as _th
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from database import Database
+            import datetime as _dt
+            db_paths = _get_scheduler_db_paths()
+            yesterday = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+            week_ago  = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+                    # Выручка за вчера
+                    y_summary  = db.get_sales_summary(start_date=yesterday, end_date=yesterday) or (0, 0, 0, 0)
+                    w_summary  = db.get_sales_summary(start_date=week_ago, end_date=yesterday)  or (0, 0, 0, 0)
+                    y_rev  = float(y_summary[2] or 0)
+                    w_rev  = float(w_summary[2] or 0)
+                    avg_7d = w_rev / 7 if w_rev > 0 else 0
+
+                    # Алерт только если средняя за 7 дней > 0 и вчера упало > 35%
+                    zero_yesterday = y_rev == 0 and avg_7d > 0
+                    drop_pct = ((avg_7d - y_rev) / avg_7d * 100) if avg_7d > 0 else 0
+
+                    if not zero_yesterday and drop_pct < 35:
+                        continue  # всё нормально
+
+                    # Находим владельцев/админов орга
+                    owners = [u for u in (db.get_all_users() or []) if len(u) > 7 and u[7] in ("owner", "admin")]
+                    if not owners:
+                        continue
+
+                    org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
+                    ai_text: str | None = None
+                    if is_configured():
+                        try:
+                            prompt = build_smart_alert_prompt(
+                                org_name=org_name,
+                                yesterday_revenue=y_rev,
+                                avg_7d=avg_7d,
+                                drop_pct=drop_pct,
+                                zero_yesterday=zero_yesterday,
+                            )
+                            ai_text = await ask_llm(prompt, max_tokens=180)
+                        except Exception as _ai_err:
+                            logging.warning(f"ai_smart_alerts LLM error: {_ai_err}")
+
+                    if ai_text:
+                        msg = f"🤖 <b>AI-алерт</b>\n\n{ai_text}"
+                    elif zero_yesterday:
+                        msg = f"⚠️ <b>Нет продаж вчера</b>\nСредняя за 7 дней: {int(avg_7d):,} ₽"
+                    else:
+                        msg = (f"📉 <b>Падение выручки на {int(drop_pct)}%</b>\n"
+                               f"Вчера: {int(y_rev):,} ₽ | Среднее 7д: {int(avg_7d):,} ₽")
+
+                    for u in owners[:3]:  # максимум 3 адреса
+                        tg_id = u[1] if len(u) > 1 else None
+                        if tg_id and tg_id > 0:
+                            _send_tg(tg_id, msg)
+
+                except Exception as _db_err:
+                    logging.warning(f"ai_smart_alerts db={db_path}: {_db_err}")
+        except Exception as _e:
+            logging.error(f"ai_smart_alerts: {_e}")
+
+    scheduler.add_job(
+        ai_smart_alerts,
+        CronTrigger(hour=7, minute=5),
+        id='ai_smart_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=7200,
+    )
+
     scheduler.start()
 
     # Регистрируем cron-задачи из интеграций Google Sheets

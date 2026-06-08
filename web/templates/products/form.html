@@ -91,14 +91,43 @@
         </div>
 
         <!-- Description -->
-        <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-desc">
-                Описание
-            </label>
+        <div class="mb-5" x-data="{ aiLoading: false, aiError: '' }">
+            <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="f-desc">
+                    Описание
+                </label>
+                <button type="button"
+                        @click="async () => {
+                            const name = document.getElementById('f-name')?.value?.trim();
+                            if (!name) { aiError = 'Сначала введите название товара'; return; }
+                            aiLoading = true; aiError = '';
+                            try {
+                                const r = await fetch('/api/ai/product-description', {
+                                    method: 'POST',
+                                    headers: {'Content-Type':'application/json'},
+                                    body: JSON.stringify({
+                                        name,
+                                        category: document.getElementById('f-cat')?.value?.trim() || '',
+                                        price: parseFloat(document.getElementById('f-price')?.value || 0)
+                                    })
+                                });
+                                const d = await r.json();
+                                if (d.ok) { document.getElementById('f-desc').value = d.text; }
+                                else { aiError = d.error || 'Ошибка AI'; }
+                            } catch(e) { aiError = 'Ошибка соединения'; }
+                            finally { aiLoading = false; }
+                        }"
+                        :disabled="aiLoading"
+                        class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200
+                               hover:bg-purple-100 transition-colors disabled:opacity-50">
+                    <span x-text="aiLoading ? '⏳ Генерирую...' : '✨ Сгенерировать'"></span>
+                </button>
+            </div>
             <textarea id="f-desc" name="description" rows="4"
                       placeholder="Дополнительная информация о товаре (необязательно)"
                       class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none">{{ form_data.description if form_data else '' }}</textarea>
+            <p x-show="aiError" x-text="aiError" class="mt-1 text-xs text-red-500"></p>
         </div>
 
         <!-- Photos -->

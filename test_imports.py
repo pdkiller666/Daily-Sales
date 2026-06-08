@@ -61,6 +61,8 @@ MODULES = [
     'tasks_handlers',
     'pdf_utils',
     'web.sale_events',
+    'web.ai_utils',
+    'web.routes.ai_routes',
 ]
 
 passed = 0

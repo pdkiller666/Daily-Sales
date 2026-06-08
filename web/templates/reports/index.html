@@ -212,6 +212,94 @@
 </script>
 {% endif %}
 
+<!-- AI Analysis block -->
+<div class="card p-5 mb-5"
+     x-data="{
+         aiOpen: false,
+         aiLoading: false,
+         aiText: '',
+         aiError: '',
+         aiMode: '',
+         async runAI(mode) {
+             aiLoading = true; aiOpen = true; aiMode = mode; aiText = ''; aiError = '';
+             try {
+                 const summary = {{ summary | tojson }};
+                 const chartData = {{ chart_data | default([]) | tojson }};
+                 const groups = {{ groups | map(attribute='label') | list | tojson }};
+                 const groupRevs = {{ groups | map(attribute='revenue') | list | tojson }};
+                 const totalRev = summary[2] || 0;
+                 const topItems = groups.slice(0,5).map((l,i) => ({
+                     label: l,
+                     revenue: groupRevs[i] || 0,
+                     pct_total: totalRev > 0 ? (groupRevs[i] || 0) / totalRev * 100 : 0
+                 }));
+                 let url, body;
+                 if (mode === 'explain') {
+                     url = '/api/ai/explain-report';
+                     body = {
+                         period_label: '{{ date_from }} — {{ date_to }}',
+                         summary,
+                         growth_pct: {{ growth_pct | default('null') }},
+                         top_items: topItems
+                     };
+                 } else {
+                     url = '/api/ai/sales-forecast';
+                     body = {
+                         daily_data: chartData,
+                         period_days: chartData.length || 30,
+                         total_revenue: totalRev,
+                         best_dow: ''
+                     };
+                 }
+                 const r = await fetch(url, {
+                     method: 'POST',
+                     headers: {'Content-Type': 'application/json'},
+                     body: JSON.stringify(body)
+                 });
+                 const d = await r.json();
+                 if (d.ok) aiText = d.text;
+                 else aiError = d.error || 'Ошибка AI';
+             } catch(e) { aiError = 'Ошибка соединения'; }
+             finally { aiLoading = false; }
+         }
+     }">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <span class="text-base">🤖</span>
+            <span class="text-sm font-semibold text-slate-700">AI-анализ</span>
+        </div>
+        <div class="flex gap-2">
+            <button type="button" @click="runAI('explain')"
+                    :disabled="aiLoading"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200
+                           hover:bg-blue-100 transition-colors disabled:opacity-50">
+                <span x-show="!aiLoading || aiMode !== 'explain'">💡 Объяснить</span>
+                <span x-show="aiLoading && aiMode === 'explain'">⏳ Анализирую...</span>
+            </button>
+            <button type="button" @click="runAI('forecast')"
+                    :disabled="aiLoading"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200
+                           hover:bg-purple-100 transition-colors disabled:opacity-50">
+                <span x-show="!aiLoading || aiMode !== 'forecast'">🔮 Прогноз</span>
+                <span x-show="aiLoading && aiMode === 'forecast'">⏳ Прогнозирую...</span>
+            </button>
+        </div>
+    </div>
+    <div x-show="aiOpen" x-cloak x-transition class="mt-4">
+        <div x-show="aiText" class="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm text-slate-700 dark:text-slate-200 leading-relaxed border border-slate-100 dark:border-slate-700"
+             x-text="aiText"></div>
+        <div x-show="aiError" class="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600" x-text="aiError"></div>
+        <div x-show="aiLoading && !aiText && !aiError"
+             class="flex items-center gap-2 text-sm text-slate-400 py-2">
+            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+            </svg>
+            Запрос к AI...
+        </div>
+    </div>
+</div>
+
 <!-- Analytics links: ABC + Heatmap + Turnover + Dead Stock -->
 <div class="flex flex-wrap gap-3 mb-5">
     <a href="/reports/abc?period={{ period }}&shop={{ shop|urlencode }}"
