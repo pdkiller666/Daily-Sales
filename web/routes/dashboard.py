@@ -1,9 +1,25 @@
 import calendar as _cal
+import time as _time
 from datetime import date, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+
+# ── TTL кэш для rankings (60 с) — снижает нагрузку при частых переходах ──────
+_RANK_CACHE: dict = {}
+_RANK_TTL = 60  # секунд
+
+
+def _rank_cached(key: str, fn, *args, **kwargs):
+    """Return cached value if fresh, else call fn(*args, **kwargs) and cache."""
+    now = _time.monotonic()
+    entry = _RANK_CACHE.get(key)
+    if entry and now - entry[0] < _RANK_TTL:
+        return entry[1]
+    result = fn(*args, **kwargs)
+    _RANK_CACHE[key] = (now, result)
+    return result
 
 
 def _group_plans_dash(plans_dash: list, limit: int = 6) -> list:
@@ -146,8 +162,13 @@ def dashboard(request: Request):
         ctx["chart_dates"] = dates
 
         ctx["recent_sales"] = db.get_recent_sales(limit=10) or []
-        ctx["shop_ranking"] = (db.get_shop_ranking(start_date=month_str, end_date=today_str) or [])[:5]
-        ctx["seller_ranking"] = (db.get_sales_ranking(start_date=month_str, end_date=today_str) or [])[:5]
+        _rk = org_db or "default"
+        ctx["shop_ranking"] = (_rank_cached(
+            f"shop:{_rk}:{month_str}", db.get_shop_ranking,
+            start_date=month_str, end_date=today_str) or [])[:5]
+        ctx["seller_ranking"] = (_rank_cached(
+            f"seller:{_rk}:{month_str}", db.get_sales_ranking,
+            start_date=month_str, end_date=today_str) or [])[:5]
         ctx["product_count"] = len(db.get_all_products() or [])
 
         if is_admin:
