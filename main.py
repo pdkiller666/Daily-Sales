@@ -163,6 +163,13 @@ db.create_tables()
 shop_db = Database('data/shop_bot.db')
 shop_db.create_tables()
 
+# One-time migration: legacy plans → modular billing grants
+try:
+    from migrate_to_modules import run_startup_migration
+    run_startup_migration()
+except Exception as _mig_err:
+    print(f"[migration] Skipped due to error: {_mig_err}")
+
 # Синхронизация платёжных реквизитов из .env в БД
 def _sync_payment_settings():
     card = os.getenv('PAYMENT_CARD_NUMBER', '').strip()
