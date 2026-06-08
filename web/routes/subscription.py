@@ -1,11 +1,42 @@
 import json
+import logging
+import os
 import sqlite3
+import urllib.request
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
 SHOP_BOT_DB = "data/shop_bot.db"
+
+
+def _notify_admin_new_request(plan_type: str, amount: int, user_display: str, telegram_id: int) -> None:
+    """Уведомить супер-администратора в Telegram о новой заявке (web-запрос)."""
+    token = os.environ.get("BOT_TOKEN", "")
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "")
+    if not token or not admin_id:
+        return
+    label = _plan_type_label(plan_type)
+    text = (
+        "🔔 <b>Новая заявка из веб-кабинета!</b>\n\n"
+        f"👤 <b>Пользователь:</b> {user_display}\n"
+        f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
+        f"📦 <b>Позиция:</b> {label}\n"
+        f"💰 <b>Сумма:</b> {amount}\u00a0₽\n\n"
+        "⏰ Заявка ожидает рассмотрения в боте."
+    )
+    payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except Exception as exc:
+        logging.warning("_notify_admin_new_request: %s", exc)
 
 PLAN_ORDER = ["Бесплатный", "Базовый", "Стандарт", "Премиум"]
 PLAN_PRICES = {
@@ -388,10 +419,14 @@ async def subscription_request(
         )
         conn.commit()
         conn.close()
+        _notify_admin_new_request(
+            plan_type, amount,
+            user.get("first_name", user.get("email", "—")),
+            telegram_id,
+        )
         return RedirectResponse(url="/subscription?msg=request_sent&tab=plan", status_code=303)
     except Exception as exc:
-        import logging
-        logging.error(f"subscription_request error: {exc}")
+        logging.error("subscription_request error: %s", exc)
         return RedirectResponse(url="/subscription?msg=error", status_code=303)
 
 
@@ -437,8 +472,12 @@ def subscription_module_request(
         )
         conn.commit()
         conn.close()
+        _notify_admin_new_request(
+            plan_type, amount,
+            user.get("first_name", user.get("email", "—")),
+            telegram_id,
+        )
         return RedirectResponse(url="/subscription?tab=modules&msg=module_request_sent", status_code=303)
     except Exception as exc:
-        import logging
-        logging.error(f"subscription_module_request error: {exc}")
+        logging.error("subscription_module_request error: %s", exc)
         return RedirectResponse(url="/subscription?tab=modules&msg=error", status_code=303)

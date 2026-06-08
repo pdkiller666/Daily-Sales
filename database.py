@@ -1401,6 +1401,14 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
+            # Migration: fix all_in_one bundle to include chat module (was missing)
+            cursor.execute(
+                """UPDATE billing_bundles
+                   SET includes_json='{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations","chat"],"extensions":[]}',
+                       description='Все 7 модулей — максимальный функционал'
+                   WHERE key='all_in_one'
+                     AND includes_json NOT LIKE '%"chat"%'"""
+            )
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -1563,8 +1571,8 @@ class Database:
              '{"modules":["analytics","notifications"],"extensions":[]}', 399, 1),
             ('team_bundle', '👥', 'Управление командой', 'Команда + Планы + Уведомления — полный HR-пакет',
              '{"modules":["team","plans_motivation","notifications"],"extensions":[]}', 699, 2),
-            ('all_in_one',  '🎯', 'Всё включено',        'Все 6 основных модулей — максимальный функционал',
-             '{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations"],"extensions":[]}', 1299, 3),
+            ('all_in_one',  '🎯', 'Всё включено',        'Все 7 модулей — максимальный функционал',
+             '{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations","chat"],"extensions":[]}', 1299, 3),
         ]
         for key, icon, name, description, includes_json, price, sort in DEFAULT_BUNDLES:
             cursor.execute(
@@ -11031,6 +11039,12 @@ class Database:
                 end = (_dt.utcnow() + _td(days=duration_days)).strftime('%Y-%m-%d %H:%M:%S')
             conn = self.get_connection()
             cur = conn.cursor()
+            # Deactivate existing active rows for same user+item (renewal / re-grant)
+            cur.execute(
+                """UPDATE billing_module_subs SET is_active=0
+                   WHERE user_telegram_id=? AND item_key=? AND is_active=1""",
+                (user_telegram_id, item_key)
+            )
             cur.execute(
                 '''INSERT INTO billing_module_subs
                    (user_telegram_id,item_type,item_key,price_paid,start_date,end_date,
