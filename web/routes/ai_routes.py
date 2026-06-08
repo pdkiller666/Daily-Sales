@@ -130,23 +130,49 @@ async def ai_sales_forecast(request: Request):
         return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
 
     try:
-        daily_data = body.get("daily_data", [])
+        import datetime as _dt
+        daily_data  = [float(v) for v in body.get("daily_data", [])]
+        daily_dates = body.get("daily_dates", [])
         period_days = int(body.get("period_days", len(daily_data) or 30))
         total_revenue = float(body.get("total_revenue", sum(daily_data)))
-        best_dow = str(body.get("best_dow", ""))
 
-        # Compute avg and trend
         non_zero = [v for v in daily_data if v > 0]
         avg_daily = total_revenue / period_days if period_days > 0 else 0
+
+        # Trend: second half vs first half
         trend_pct: float | None = None
         if len(daily_data) >= 6:
-            first_half = sum(daily_data[:len(daily_data)//2])
-            second_half = sum(daily_data[len(daily_data)//2:])
+            mid = len(daily_data) // 2
+            first_half = sum(daily_data[:mid])
+            second_half = sum(daily_data[mid:])
             if first_half > 0:
                 trend_pct = round((second_half - first_half) / first_half * 100, 1)
 
         if not non_zero or total_revenue < 100:
             return JSONResponse({"ok": False, "error": "Недостаточно данных для прогноза."})
+
+        # Best day of week from real dates
+        DOW_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        best_dow = ""
+        dow_totals: dict[int, float] = {}
+        dow_counts: dict[int, int] = {}
+        if daily_dates and len(daily_dates) == len(daily_data):
+            for iso, rev in zip(daily_dates, daily_data):
+                if rev > 0:
+                    try:
+                        dow = _dt.date.fromisoformat(iso).weekday()
+                        dow_totals[dow] = dow_totals.get(dow, 0) + rev
+                        dow_counts[dow] = dow_counts.get(dow, 0) + 1
+                    except Exception:
+                        pass
+            if dow_totals:
+                best_dow = DOW_RU[max(dow_totals, key=lambda k: dow_totals[k] / max(dow_counts[k], 1))]
+
+        # Extra stats for richer prompt
+        max_day = max(daily_data) if daily_data else 0
+        min_nonzero = min(non_zero) if non_zero else 0
+        zero_days = len(daily_data) - len(non_zero)
+        last7 = daily_data[-7:] if len(daily_data) >= 7 else daily_data
 
         prompt = build_sales_forecast_prompt(
             period_days=period_days,
@@ -154,8 +180,18 @@ async def ai_sales_forecast(request: Request):
             trend_pct=trend_pct,
             best_dow=best_dow,
             total_revenue=total_revenue,
+            max_day=max_day,
+            min_nonzero=min_nonzero,
+            zero_days=zero_days,
+            last7=last7,
         )
-        result = await ask_llm(prompt, max_tokens=300)
+        system = (
+            "Ты — аналитик продаж розничного магазина. "
+            "Дай конкретный прогноз на основе предоставленных данных. "
+            "Пиши на русском, без markdown, цифры в рублях. "
+            "Строго 3 предложения: 1) диапазон выручки на неделю, 2) на какие дни акцент, 3) главный риск."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=350)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось построить прогноз."})
         return JSONResponse({"ok": True, "text": result})

@@ -217,6 +217,7 @@
 window._aiReportData = {
     summary:     {{ summary | tojson }},
     chartData:   {{ chart_data | default([]) | tojson }},
+    chartDates:  {{ chart_dates | default([]) | tojson }},
     groupLabels: {{ groups | map(attribute='label') | list | tojson }},
     groupRevs:   {{ groups | map(attribute='revenue') | list | tojson }},
     periodLabel: {{ (date_from ~ ' — ' ~ date_to) | tojson }},
@@ -253,7 +254,7 @@ window._aiReportData = {
                      body = { period_label: d.periodLabel || '', summary, growth_pct: d.growthPct, top_items: topItems };
                  } else {
                      url = '/api/ai/sales-forecast';
-                     body = { daily_data: chartData, period_days: chartData.length || 30, total_revenue: totalRev, best_dow: '' };
+                     body = { daily_data: chartData, daily_dates: d.chartDates || [], period_days: chartData.length || 30, total_revenue: totalRev };
                  }
                  const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
                  const resp = await r.json();

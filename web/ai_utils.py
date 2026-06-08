@@ -285,20 +285,38 @@ def build_sales_forecast_prompt(
     trend_pct: float | None,
     best_dow: str,
     total_revenue: float,
+    max_day: float = 0,
+    min_nonzero: float = 0,
+    zero_days: int = 0,
+    last7: list | None = None,
 ) -> str:
     trend_str = ""
     if trend_pct is not None:
         direction = "рост" if trend_pct >= 0 else "снижение"
-        trend_str = f" Тренд последних дней: {direction} {abs(trend_pct):.1f}%."
+        trend_str = f"\nТренд: {direction} на {abs(trend_pct):.1f}% (вторая половина периода vs первая)."
+
+    last7_str = ""
+    if last7:
+        vals = ", ".join(f"{int(v):,} ₽" for v in last7)
+        last7_str = f"\nПоследние {len(last7)} дней (день за днём): {vals}."
+
+    range_str = ""
+    if max_day > 0 and min_nonzero > 0:
+        range_str = f"\nДиапазон дней: лучший {int(max_day):,} ₽, худший (с продажами) {int(min_nonzero):,} ₽."
+
+    zero_str = f"\nДней без продаж: {zero_days}." if zero_days > 0 else ""
+    dow_str = f"\nЛучший день недели: {best_dow}." if best_dow else ""
 
     return (
-        f"Данные за последние {period_days} дней: "
-        f"средняя дневная выручка {int(avg_daily):,} ₽, "
-        f"суммарная выручка {int(total_revenue):,} ₽."
+        f"Период анализа: {period_days} дней. "
+        f"Суммарная выручка: {int(total_revenue):,} ₽. "
+        f"Средняя в день: {int(avg_daily):,} ₽."
         f"{trend_str}"
-        f" Лучший день недели по продажам: {best_dow or 'нет данных'}.\n\n"
-        "Дай краткий прогноз на следующие 7 дней: ожидаемый диапазон выручки, "
-        "на какие дни делать акцент, что важно учесть. Максимум 3 предложения."
+        f"{last7_str}"
+        f"{range_str}"
+        f"{zero_str}"
+        f"{dow_str}"
+        "\n\nСделай прогноз продаж на следующие 7 дней."
     )
 
 
