@@ -212,6 +212,18 @@
 </script>
 {% endif %}
 
+<!-- AI block: server-side data injected into <script> to avoid double-quote collision inside x-data="..." -->
+<script>
+window._aiReportData = {
+    summary:     {{ summary | tojson }},
+    chartData:   {{ chart_data | default([]) | tojson }},
+    groupLabels: {{ groups | map(attribute='label') | list | tojson }},
+    groupRevs:   {{ groups | map(attribute='revenue') | list | tojson }},
+    periodLabel: {{ (date_from ~ ' — ' ~ date_to) | tojson }},
+    growthPct:   {{ growth_pct | tojson }}
+};
+</script>
+
 <!-- AI Analysis block -->
 <div class="card p-5 mb-5"
      x-data="{
@@ -221,46 +233,34 @@
          aiError: '',
          aiMode: '',
          async runAI(mode) {
-             aiLoading = true; aiOpen = true; aiMode = mode; aiText = ''; aiError = '';
+             this.aiLoading = true; this.aiOpen = true; this.aiMode = mode;
+             this.aiText = ''; this.aiError = '';
              try {
-                 const summary = {{ summary | tojson }};
-                 const chartData = {{ chart_data | default([]) | tojson }};
-                 const groups = {{ groups | map(attribute='label') | list | tojson }};
-                 const groupRevs = {{ groups | map(attribute='revenue') | list | tojson }};
-                 const totalRev = summary[2] || 0;
-                 const topItems = groups.slice(0,5).map((l,i) => ({
+                 const d = window._aiReportData || {};
+                 const summary   = d.summary   || [0,0,0,0];
+                 const chartData = d.chartData  || [];
+                 const labels    = d.groupLabels|| [];
+                 const revs      = d.groupRevs  || [];
+                 const totalRev  = summary[2] || 0;
+                 const topItems  = labels.slice(0,5).map((l,i) => ({
                      label: l,
-                     revenue: groupRevs[i] || 0,
-                     pct_total: totalRev > 0 ? (groupRevs[i] || 0) / totalRev * 100 : 0
+                     revenue: revs[i] || 0,
+                     pct_total: totalRev > 0 ? (revs[i] || 0) / totalRev * 100 : 0
                  }));
                  let url, body;
                  if (mode === 'explain') {
                      url = '/api/ai/explain-report';
-                     body = {
-                         period_label: '{{ date_from }} — {{ date_to }}',
-                         summary,
-                         growth_pct: {{ growth_pct | tojson }},
-                         top_items: topItems
-                     };
+                     body = { period_label: d.periodLabel || '', summary, growth_pct: d.growthPct, top_items: topItems };
                  } else {
                      url = '/api/ai/sales-forecast';
-                     body = {
-                         daily_data: chartData,
-                         period_days: chartData.length || 30,
-                         total_revenue: totalRev,
-                         best_dow: ''
-                     };
+                     body = { daily_data: chartData, period_days: chartData.length || 30, total_revenue: totalRev, best_dow: '' };
                  }
-                 const r = await fetch(url, {
-                     method: 'POST',
-                     headers: {'Content-Type': 'application/json'},
-                     body: JSON.stringify(body)
-                 });
-                 const d = await r.json();
-                 if (d.ok) aiText = d.text;
-                 else aiError = d.error || 'Ошибка AI';
-             } catch(e) { aiError = 'Ошибка соединения'; }
-             finally { aiLoading = false; }
+                 const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+                 const resp = await r.json();
+                 if (resp.ok) this.aiText = resp.text;
+                 else this.aiError = resp.error || 'Ошибка AI';
+             } catch(e) { this.aiError = 'Ошибка соединения'; }
+             finally { this.aiLoading = false; }
          }
      }">
     <div class="flex items-center justify-between">

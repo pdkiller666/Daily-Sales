@@ -131,6 +131,11 @@ def notifications_page(
             rcpt_raw = sn[5] or "{}"
             try:
                 rcpt_info = json.loads(rcpt_raw)
+                # Guard against double-encoded JSON (old bug): second decode if still a string
+                if isinstance(rcpt_info, str):
+                    rcpt_info = json.loads(rcpt_info)
+                if not isinstance(rcpt_info, dict):
+                    rcpt_info = {}
             except Exception:
                 rcpt_info = {}
             rtype = rcpt_info.get("type", "all")
@@ -243,7 +248,7 @@ def notifications_send(
             created_by=user_db_id,
             notification_text=text,
             recipients_type=db_recipients_type,
-            recipients_list=json.dumps(rcpt_info, ensure_ascii=False),
+            recipients_list=rcpt_info,
             scheduled_datetime=dt_str,
         )
         logger.info(f"Web notification scheduled: job={job_id}, when={dt_str}, by={telegram_id}")
