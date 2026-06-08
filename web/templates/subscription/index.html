@@ -102,7 +102,7 @@
 
 <div class="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700">
     <p class="font-semibold mb-1">🧩 Модульная подписка</p>
-    <p>Подключайте только те функции, которые нужны вашему бизнесу. Каждый модуль — это ежемесячная подписка. Уже активные модули из тарифного плана включены автоматически.</p>
+    <p>Подключайте только те функции, которые нужны вашему бизнесу. Каждый модуль — отдельная ежемесячная подписка. Активные модули доступны сразу после подтверждения оплаты.</p>
 </div>
 
 {% if modules %}
@@ -145,8 +145,8 @@
             </div>
 
             {% if is_active and not sub_info %}
-            {# Active via plan — cannot subscribe separately #}
-            <span class="text-xs text-slate-400 italic">Включён в тариф</span>
+            {# Active via super_admin or trial — no separate sub record #}
+            <span class="text-xs text-slate-400 italic">Активен</span>
             {% elif is_active and sub_info %}
             {# Active via module sub — offer renewal #}
             {% if has_pending %}
@@ -168,7 +168,7 @@
             {% if has_pending %}
             <button disabled class="text-xs px-3 py-1.5 rounded-lg bg-slate-100 text-slate-400 cursor-default font-medium">Заявка ожидает</button>
             {% elif mod.price_monthly == 0 %}
-            <span class="text-xs text-slate-400">Включён в тариф</span>
+            <span class="text-xs text-slate-400">Бесплатно</span>
             {% else %}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -257,7 +257,7 @@
                 </button>
             </form>
             {% else %}
-            <span class="text-xs text-slate-400 italic">Включён в тариф</span>
+            <span class="text-xs text-slate-400 italic">Активен</span>
             {% endif %}
             {% else %}
             {% if has_pending %}

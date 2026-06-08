@@ -80,14 +80,12 @@ async def integration_menu(callback: CallbackQuery, state: FSMContext):
     if not check_integrations_permission(callback.from_user.id):
         await callback.answer()
         await callback.message.edit_text(
-            "🔒 <b>Google Таблицы — тариф «Стандарт» и выше</b>\n\n"
-            "💎 <b>Базовый</b> — экспорт Excel, аналитика, уведомления\n"
-            "💎 <b>Стандарт</b> — всё выше + Google Таблицы\n"
-            "💎 <b>Премиум</b> — безлимит на всё\n\n"
-            "Выберите подходящий тариф прямо сейчас:",
+            "🔒 <b>Модуль «Интеграции» не подключён</b>\n\n"
+            "Интеграция с Google Таблицами доступна при активном модуле <b>Интеграции</b>.\n\n"
+            "Подключить модуль можно в веб-кабинете:\n"
+            "<b>Подписка → Модули → 🔗 Интеграции</b>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Выбрать тариф", callback_data="subscription_plans")],
                 [back_button("main_menu")],
             ])
         )
@@ -2882,12 +2880,11 @@ async def gs_import_menu(callback: CallbackQuery, state: FSMContext):
     if not check_integrations_permission(callback.from_user.id):
         await callback.answer()
         await callback.message.edit_text(
-            "🔒 <b>Импорт из Google Таблиц — тариф «Стандарт» и выше</b>\n\n"
-            "Для доступа к интеграциям выберите подходящий тариф:",
+            "🔒 <b>Модуль «Интеграции» не подключён</b>\n\n"
+            "Для доступа к импорту из Google Таблиц активируйте модуль <b>Интеграции</b> в веб-кабинете:\n"
+            "<b>Подписка → Модули → 🔗 Интеграции</b>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Выбрать тариф",
-                                      callback_data="subscription_plans")],
                 [_back(f"gs_conn_{conn_id}")],
             ])
         )
@@ -2927,7 +2924,7 @@ async def gs_import_type_selected(callback: CallbackQuery, state: FSMContext):
     imp_type = parts[2]
     conn_id = int(parts[3])
     if not check_integrations_permission(callback.from_user.id):
-        await callback.answer("🔒 Требуется тариф «Стандарт» и выше", show_alert=True)
+        await callback.answer("🔒 Модуль «Интеграции» не подключён. Активируйте в веб-кабинете: Подписка → Модули.", show_alert=True)
         return
     await callback.answer()
     await state.update_data(gs_import_type=imp_type, gs_import_conn_id=conn_id)

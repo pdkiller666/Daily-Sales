@@ -8,27 +8,22 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def create_subscription_offer_keyboard():
-    """Создание клавиатуры с предложением подписки"""
+    """Создание клавиатуры с предложением подключить модуль"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💰 Оформить подписку", callback_data="subscription_menu")],
-        [InlineKeyboardButton(text="📋 Посмотреть тарифы", callback_data="subscription_plans")],
+        [InlineKeyboardButton(text="📦 Подключить модуль", callback_data="subscription_menu")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="reports")]
     ])
 
 
 def get_subscription_offer_message(feature_name, is_admin=False):
-    """Получение сообщения с предложением подписки"""
-    admin_note = ("\n\n👑 Как администратор, вы также можете получить доступ через платную подписку."
+    """Получение сообщения о необходимости подключить модуль"""
+    admin_note = ("\n\n👑 Как администратор, вы можете подключить нужный модуль в веб-кабинете."
                   if is_admin else "")
     return (
-        f"❌ <b>Доступ ограничен</b>\n\n"
-        f"🔒 Функция «{feature_name}» доступна только в платных тарифах.\n\n"
-        f"💎 <b>Преимущества платной подписки:</b>\n"
-        f"• Экспорт отчётов в Excel\n"
-        f"• Расширенная аналитика\n"
-        f"• Уведомления о низких остатках\n"
-        f"• Больше товаров и магазинов\n"
-        f"• Приоритетная поддержка{admin_note}\n\n"
+        f"🔒 <b>Модуль не подключён</b>\n\n"
+        f"Функция «{feature_name}» требует активного модуля <b>Аналитика</b>.\n\n"
+        f"Подключите модуль в веб-кабинете:\n"
+        f"<b>Подписка → Модули → 📊 Аналитика</b>{admin_note}\n\n"
         f"👆 Выберите действие:"
     )
 
@@ -42,11 +37,9 @@ def check_excel_export_permission(db, user_id, env_manager, telegram_id):
     if check_export_permission(telegram_id):
         return True, None
 
-    is_admin = is_any_admin(telegram_id)
-    note = " (доступно администраторам в платных тарифах)" if is_admin else ""
     return False, (
-        f"❌ Экспорт в Excel доступен только в платных тарифах{note}.\n\n"
-        f"💰 Оформите подписку через меню «Подписка»."
+        "🔒 Экспорт в Excel доступен при активном модуле <b>Аналитика</b>.\n\n"
+        "Подключите модуль в веб-кабинете: <b>Подписка → Модули → 📊 Аналитика</b>"
     )
 
 
@@ -59,11 +52,9 @@ def check_analytics_permission(db, user_id, env_manager, telegram_id):
     if _check(telegram_id):
         return True, None
 
-    is_admin = is_any_admin(telegram_id)
-    note = " (доступно администраторам в платных тарифах)" if is_admin else ""
     return False, (
-        f"❌ Расширенная аналитика доступна только в платных тарифах{note}.\n\n"
-        f"💰 Оформите подписку через меню «Подписка»."
+        "🔒 Расширенная аналитика доступна при активном модуле <b>Аналитика</b>.\n\n"
+        "Подключите модуль в веб-кабинете: <b>Подписка → Модули → 📊 Аналитика</b>"
     )
 
 

@@ -3066,6 +3066,44 @@ class Database:
                     logger.error(f"confirm_payment_request: не удалось откатить статус заявки {request_id}: {rb_err}")
                 return False
 
+            # Автоматически выдаём модульные гранты для legacy-планов (бот-покупки СБП).
+            # billing_utils больше не читает таблицу subscriptions, поэтому каждое
+            # подтверждение legacy-плана сразу конвертируется в гранты billing_module_subs.
+            _LEGACY_GRANT_MAP = {
+                "Базовый":  ["analytics", "notifications"],
+                "Стандарт": ["analytics", "notifications", "integrations"],
+                "Премиум":  ["analytics", "team", "notifications",
+                             "plans_motivation", "ai_assistant", "integrations", "chat"],
+            }
+            _modules_to_grant = _LEGACY_GRANT_MAP.get(plan_type, [])
+            if _modules_to_grant:
+                _user_info = self.get_user_by_id(user_id)
+                if _user_info:
+                    _tg_id = _user_info[1]
+                    try:
+                        _pc = self.get_connection()
+                        _pr_row = _pc.execute(
+                            "SELECT amount FROM payment_requests WHERE id=?", (request_id,)
+                        ).fetchone()
+                        _pc.close()
+                        _price = float(_pr_row[0]) if _pr_row else 0.0
+                    except Exception:
+                        _price = 0.0
+                    for _mk in _modules_to_grant:
+                        try:
+                            self.grant_billing_item(
+                                user_telegram_id=_tg_id,
+                                item_type='module',
+                                item_key=_mk,
+                                duration_days=30,
+                                price_paid=_price / len(_modules_to_grant),
+                                granted_by='payment',
+                                note=f'Конвертирован из тарифа {plan_type}',
+                                payment_request_id=request_id,
+                            )
+                        except Exception as _ge:
+                            logger.error(f"confirm_payment_request: grant {_mk} для {_tg_id}: {_ge}")
+
             self.clear_reminders(user_id)
 
             # Применяем промокод только при успешном подтверждении оплаты

@@ -27,18 +27,17 @@
 {% endif %}
 
 {% if not can_use %}
-<!-- Upgrade required -->
+<!-- Module required -->
 <div class="card p-8 text-center max-w-lg mx-auto">
     <p class="text-5xl mb-4">🔒</p>
-    <h2 class="text-lg font-bold text-slate-800 mb-2">Требуется тариф Стандарт или выше</h2>
-    <p class="text-sm text-slate-500 mb-1">Текущий тариф: <strong>{{ plan_name }}</strong></p>
-    <p class="text-sm text-slate-500 mb-5">
-        Интеграция с Google Таблицами доступна начиная с тарифа <strong>Стандарт</strong>.
-        Она позволяет автоматически экспортировать продажи, остатки и другие данные в ваши таблицы.
+    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">Модуль «Интеграции» не подключён</h2>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mb-5">
+        Интеграция с Google Таблицами доступна при активном модуле <strong>🔗 Интеграции</strong>.
+        Он позволяет автоматически экспортировать продажи, остатки и другие данные в ваши таблицы.
     </p>
-    <a href="https://t.me/{{ bot_username() }}" target="_blank"
+    <a href="/subscription"
        class="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors">
-        🤖 Обновить тариф в боте
+        📦 Подключить модуль
     </a>
 </div>
 
