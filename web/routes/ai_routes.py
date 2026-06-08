@@ -99,8 +99,13 @@ async def ai_product_description(request: Request):
     price = float(body.get("price", 0) or 0)
 
     try:
+        system = (
+            "Ты — эксперт по товарным карточкам. Знаешь технические характеристики популярных товаров. "
+            "Пиши конкретно: называй точные цифры и параметры. Без markdown, без эмодзи, без заголовков. "
+            "Только русский язык."
+        )
         prompt = build_product_description_prompt(name, category, price)
-        result = await ask_llm(prompt, max_tokens=200)
+        result = await ask_llm(prompt, system=system, max_tokens=400)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
         return JSONResponse({"ok": True, "text": result})

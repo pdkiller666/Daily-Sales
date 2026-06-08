@@ -112,7 +112,12 @@
                                     })
                                 });
                                 const d = await r.json();
-                                if (d.ok) { document.getElementById('f-desc').value = d.text; }
+                                if (d.ok) {
+                                    const ta = document.getElementById('f-desc');
+                                    ta.value = d.text;
+                                    ta.style.height = 'auto';
+                                    ta.style.height = ta.scrollHeight + 'px';
+                                }
                                 else { aiError = d.error || 'Ошибка AI'; }
                             } catch(e) { aiError = 'Ошибка соединения'; }
                             finally { aiLoading = false; }
@@ -123,10 +128,11 @@
                     <span x-text="aiLoading ? '⏳ Генерирую...' : '✨ Сгенерировать'"></span>
                 </button>
             </div>
-            <textarea id="f-desc" name="description" rows="4"
+            <textarea id="f-desc" name="description" rows="5"
                       placeholder="Дополнительная информация о товаре (необязательно)"
+                      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
                       class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
-                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none">{{ form_data.description if form_data else '' }}</textarea>
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px]">{{ form_data.description if form_data else '' }}</textarea>
             <p x-show="aiError" x-text="aiError" class="mt-1 text-xs text-red-500"></p>
         </div>
 
