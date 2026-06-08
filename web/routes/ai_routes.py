@@ -6,19 +6,22 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai")
 
-# Simple per-user rate limit: 20 requests / hour (in-memory, resets on restart)
+# Simple per-user rate limit (in-memory, resets on restart)
+# Base: 20 req/hour. With ai_high_limit extension: 50 req/hour.
 import time as _time
 from collections import defaultdict as _defaultdict
 
 _ai_rate: dict = _defaultdict(list)
-_AI_LIMIT = 20
+_AI_LIMIT_BASE = 20
+_AI_LIMIT_HIGH = 50
 _AI_WINDOW = 3600
 
 
-def _ai_rate_ok(key: str) -> bool:
+def _ai_rate_ok(key: str, high_limit: bool = False) -> bool:
+    limit = _AI_LIMIT_HIGH if high_limit else _AI_LIMIT_BASE
     now = _time.monotonic()
     _ai_rate[key] = [t for t in _ai_rate[key] if now - t < _AI_WINDOW]
-    if len(_ai_rate[key]) >= _AI_LIMIT:
+    if len(_ai_rate[key]) >= limit:
         return False
     _ai_rate[key].append(now)
     return True
@@ -34,13 +37,16 @@ async def ai_explain_report(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
-    from billing_utils import has_module
-    if not has_module(int(user["sub"]), "ai_assistant"):
+    from billing_utils import has_module, has_extension
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
         return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
-    if not _ai_rate_ok(f"ai:{user['sub']}"):
-        return JSONResponse({"ok": False, "error": "Слишком много запросов. Подождите немного."}, status_code=429)
+    high_limit = has_extension(tg_id, "ai_high_limit")
+    if not _ai_rate_ok(f"ai:{user['sub']}", high_limit=high_limit):
+        limit_val = _AI_LIMIT_HIGH if high_limit else _AI_LIMIT_BASE
+        return JSONResponse({"ok": False, "error": f"Превышен лимит запросов ({limit_val}/час). Подождите немного."}, status_code=429)
 
     try:
         body = await request.json()
@@ -93,13 +99,16 @@ async def ai_product_description(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
-    from billing_utils import has_module
-    if not has_module(int(user["sub"]), "ai_assistant"):
+    from billing_utils import has_module, has_extension
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
         return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
-    if not _ai_rate_ok(f"ai:{user['sub']}"):
-        return JSONResponse({"ok": False, "error": "Слишком много запросов."}, status_code=429)
+    high_limit = has_extension(tg_id, "ai_high_limit")
+    if not _ai_rate_ok(f"ai:{user['sub']}", high_limit=high_limit):
+        limit_val = _AI_LIMIT_HIGH if high_limit else _AI_LIMIT_BASE
+        return JSONResponse({"ok": False, "error": f"Превышен лимит запросов ({limit_val}/час)."}, status_code=429)
 
     try:
         body = await request.json()
@@ -146,13 +155,18 @@ async def ai_sales_forecast(request: Request):
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
-    from billing_utils import has_module
-    if not has_module(int(user["sub"]), "ai_assistant"):
+    from billing_utils import has_module, has_extension
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
         return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not has_extension(tg_id, "ai_forecast"):
+        return JSONResponse({"ok": False, "error": "Расширение «Прогноз продаж» не подключено. Перейдите в Подписка → Расширения."}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
-    if not _ai_rate_ok(f"ai:{user['sub']}"):
-        return JSONResponse({"ok": False, "error": "Слишком много запросов."}, status_code=429)
+    high_limit = has_extension(tg_id, "ai_high_limit")
+    if not _ai_rate_ok(f"ai:{user['sub']}", high_limit=high_limit):
+        limit_val = _AI_LIMIT_HIGH if high_limit else _AI_LIMIT_BASE
+        return JSONResponse({"ok": False, "error": f"Превышен лимит запросов ({limit_val}/час)."}, status_code=429)
 
     try:
         body = await request.json()

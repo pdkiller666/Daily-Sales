@@ -418,6 +418,14 @@ async def send_sales_alerts(bot: Bot):
                     user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
                     if not telegram_id or not notification_time_str: continue
 
+                    # Gate: smart_alerts extension required per user
+                    try:
+                        from billing_utils import has_extension as _hex_sa
+                        if not _hex_sa(int(telegram_id), "smart_alerts"):
+                            continue
+                    except Exception:
+                        pass
+
                     user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                     try:
                         user_tz = pytz.timezone(user_timezone)
@@ -1205,6 +1213,14 @@ async def main():
                     admin_ids = db.get_all_admins_telegram_ids()
                     if not admin_ids:
                         continue
+
+                    # Gate: ai_smart_alerts extension required (check org owner)
+                    try:
+                        from billing_utils import has_extension as _hex_ext
+                        if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        pass
 
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
 

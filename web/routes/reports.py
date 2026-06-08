@@ -791,7 +791,7 @@ def reports_seller(
         return RedirectResponse(url="/reports", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_module
+    from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "analytics"):
         return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
     org_db = user.get("org_db")
@@ -806,6 +806,7 @@ def reports_seller(
         "dow_labels": [], "dow_data": [],
         "best_dow": "",
         "error": None,
+        "has_trend_forecast": has_extension(telegram_id, "trend_forecast"),
     }
     try:
         db = get_web_db(telegram_id, org_db)

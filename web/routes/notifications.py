@@ -234,6 +234,12 @@ def notifications_send(
             rcpt_info = {"type": "all"}
 
         if send_when == "schedule" and scheduled_at:
+            from billing_utils import has_extension as _has_ext
+            if not _has_ext(telegram_id, "scheduled_notifs"):
+                return RedirectResponse(
+                    url="/notifications?error=Плановые+рассылки+недоступны.+Подключите+расширение+«Плановые+уведомления».",
+                    status_code=303,
+                )
             dt_utc = _local_to_utc(scheduled_at, tz_name)
             result_msg = "scheduled"
         else:

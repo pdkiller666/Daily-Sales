@@ -179,6 +179,11 @@ def plans_create(
             error = "Выберите метрику."
         if filter_type not in ("all", "category", "product"):
             filter_type = "all"
+        if filter_type != "all":
+            from billing_utils import has_extension as _hex
+            if not _hex(telegram_id, "plan_filters"):
+                filter_type = "all"
+                error = "Фильтрация по категории/товару требует расширения «Фильтры планов». Подключите его в Подписка → Расширения."
 
         uid = None
         shop = None
@@ -480,6 +485,11 @@ def plans_update(
             error = "Выберите метрику."
         if filter_type not in ("all", "category", "product"):
             filter_type = "all"
+        if filter_type != "all":
+            from billing_utils import has_extension as _hex
+            if not _hex(telegram_id, "plan_filters"):
+                filter_type = "all"
+                error = "Фильтрация по категории/товару требует расширения «Фильтры планов». Подключите его в Подписка → Расширения."
 
         uid = None
         shop = None
@@ -746,7 +756,10 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
             sellers.sort(key=lambda s: -s["actual"])
             ctx["sellers"] = sellers
 
-        ctx["milestones"] = _load_milestone_history(db, plan_id)
+        from billing_utils import has_extension as _hex
+        if _hex(telegram_id, "milestone_alerts"):
+            ctx["milestones"] = _load_milestone_history(db, plan_id)
+        ctx["has_milestone_alerts"] = _hex(telegram_id, "milestone_alerts")
 
     except Exception as exc:
         logger.error(f"plan_detail {plan_id} error: {exc}")
