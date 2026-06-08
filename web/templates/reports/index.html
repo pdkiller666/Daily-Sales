@@ -239,7 +239,7 @@
                      body = {
                          period_label: '{{ date_from }} — {{ date_to }}',
                          summary,
-                         growth_pct: {{ growth_pct | default('null') }},
+                         growth_pct: {{ growth_pct | tojson }},
                          top_items: topItems
                      };
                  } else {

@@ -1158,9 +1158,9 @@ async def main():
                     if not zero_yesterday and drop_pct < 35:
                         continue  # всё нормально
 
-                    # Находим владельцев/админов орга
-                    owners = [u for u in (db.get_all_users() or []) if len(u) > 7 and u[7] in ("owner", "admin")]
-                    if not owners:
+                    # Получаем telegram_id владельцев/админов через штатный метод
+                    admin_ids = db.get_all_admins_telegram_ids()
+                    if not admin_ids:
                         continue
 
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
@@ -1186,8 +1186,7 @@ async def main():
                         msg = (f"📉 <b>Падение выручки на {int(drop_pct)}%</b>\n"
                                f"Вчера: {int(y_rev):,} ₽ | Среднее 7д: {int(avg_7d):,} ₽")
 
-                    for u in owners[:3]:  # максимум 3 адреса
-                        tg_id = u[1] if len(u) > 1 else None
+                    for tg_id in admin_ids[:3]:  # максимум 3 адреса
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
 

@@ -10,6 +10,12 @@ Usage:
 
 Ключи в env vars: DEEPSEEK_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY
 Порядок попыток: DeepSeek → Gemini → OpenRouter (первый ответивший побеждает).
+
+Устойчивость к сбоям:
+- каждый провайдер обёрнут в try/except — исключение → переход к следующему
+- если все упали → ask_llm() возвращает None, роуты отдают {"ok": False, "error": "..."}
+- пустой ответ (empty string) тоже считается сбоем и вызывает fallback
+- ошибка парсинга ответа (KeyError, IndexError) → logged + fallback
 """
 import logging
 import os
@@ -30,17 +36,18 @@ _DEFAULT_SYSTEM = (
 )
 
 
-def is_configured() -> bool:
-    """Возвращает True если хотя бы один API-ключ задан."""
-    return bool(_DEEPSEEK_KEY or _GEMINI_KEY or _OPENROUTER_KEY)
-
-
 def _reload_keys() -> None:
-    """Перечитывает ключи из env (вызывается при смене env без рестарта)."""
+    """Перечитывает ключи из env (актуально если ключи добавили без рестарта)."""
     global _DEEPSEEK_KEY, _GEMINI_KEY, _OPENROUTER_KEY
     _DEEPSEEK_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
     _GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
     _OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+
+def is_configured() -> bool:
+    """Возвращает True если хотя бы один API-ключ задан."""
+    _reload_keys()  # всегда актуальные ключи без рестарта
+    return bool(_DEEPSEEK_KEY or _GEMINI_KEY or _OPENROUTER_KEY)
 
 
 # ─── Provider implementations ────────────────────────────────────────────────
@@ -65,48 +72,118 @@ async def _ask_deepseek(prompt: str, system: str, max_tokens: int) -> str:
         async with session.post(url, json=payload, headers=headers) as resp:
             resp.raise_for_status()
             data = await resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            choices = data.get("choices") or []
+            if not choices:
+                raise ValueError(f"DeepSeek returned empty choices: {data}")
+            content = choices[0].get("message", {}).get("content", "").strip()
+            if not content:
+                raise ValueError("DeepSeek returned empty content")
+            return content
 
 
 async def _ask_gemini(prompt: str, system: str, max_tokens: int) -> str:
+    """
+    Gemini REST API v1beta.
+    Рабочая модель: gemini-flash-latest (alias → всегда актуальная Flash-версия).
+    Резерв:       gemini-2.5-flash-lite (самая дешёвая 2.5-серия).
+    """
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-1.5-flash:generateContent?key={_GEMINI_KEY}"
-    )
+    base = "https://generativelanguage.googleapis.com/v1beta/models"
+    gen_cfg = {"maxOutputTokens": max_tokens, "temperature": 0.7}
     payload = {
         "contents": [{"parts": [{"text": full_prompt}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
+        "generationConfig": gen_cfg,
     }
-    async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
-        async with session.post(url, json=payload) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    for model_id in ("gemini-flash-latest", "gemini-2.5-flash-lite"):
+        url = f"{base}/{model_id}:generateContent?key={_GEMINI_KEY}"
+        try:
+            async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 404:
+                        logger.debug("Gemini model %s not found, trying next", model_id)
+                        continue
+                    resp.raise_for_status()
+                    data = await resp.json()
+                    candidates = data.get("candidates") or []
+                    if not candidates:
+                        # Может быть заблокировано safety filters
+                        block = data.get("promptFeedback", {}).get("blockReason", "unknown")
+                        raise ValueError(f"Gemini returned no candidates (block={block})")
+                    parts = candidates[0].get("content", {}).get("parts") or []
+                    if not parts:
+                        raise ValueError("Gemini candidate has no parts")
+                    content = parts[0].get("text", "").strip()
+                    if not content:
+                        raise ValueError("Gemini returned empty text")
+                    return content
+        except (aiohttp.ClientResponseError, ValueError):
+            raise
+        except Exception:
+            raise
+
+    raise RuntimeError("All Gemini model aliases exhausted")
 
 
 async def _ask_openrouter(prompt: str, system: str, max_tokens: int) -> str:
+    """
+    OpenRouter API — пробует модели по порядку внутри провайдера.
+    Платные (дешёвые): deepseek/deepseek-chat, openai/gpt-4o-mini.
+    Бесплатный tier: meta-llama/llama-3.3-70b-instruct:free (если лимит не исчерпан).
+    """
     url = "https://openrouter.ai/api/v1/chat/completions"
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
-    payload = {
-        "model": "deepseek/deepseek-chat-v3-0324:free",
-        "messages": messages,
-        "max_tokens": max_tokens,
-    }
     headers = {
         "Authorization": f"Bearer {_OPENROUTER_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://dailysales.app",
         "X-Title": "DailySales",
     }
-    async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    or_models = [
+        "deepseek/deepseek-chat",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "openai/gpt-4o-mini",
+        "meta-llama/llama-3.2-3b-instruct:free",
+    ]
+
+    last_err: Exception | None = None
+    for model in or_models:
+        payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        try:
+            async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    if resp.status in (429, 503):
+                        logger.debug("OpenRouter model %s rate-limited (%d), trying next", model, resp.status)
+                        continue
+                    if resp.status == 404:
+                        logger.debug("OpenRouter model %s not found, trying next", model)
+                        continue
+                    resp.raise_for_status()
+                    data = await resp.json()
+                    choices = data.get("choices") or []
+                    if not choices:
+                        logger.debug("OpenRouter model %s returned empty choices", model)
+                        continue
+                    content = choices[0].get("message", {}).get("content", "").strip()
+                    if not content:
+                        logger.debug("OpenRouter model %s returned empty content", model)
+                        continue
+                    logger.debug("OpenRouter: got response from model=%s", model)
+                    return content
+        except aiohttp.ClientResponseError as exc:
+            last_err = exc
+            logger.debug("OpenRouter model %s error: %s", model, exc)
+            continue
+        except Exception as exc:
+            last_err = exc
+            logger.debug("OpenRouter model %s exception: %s", model, exc)
+            continue
+
+    raise RuntimeError(f"All OpenRouter models exhausted. Last error: {last_err}")
 
 
 # ─── Public API ──────────────────────────────────────────────────────────────
@@ -117,7 +194,14 @@ async def ask_llm(
     max_tokens: int = 500,
 ) -> str | None:
     """Попробовать DeepSeek → Gemini → OpenRouter.
-    Возвращает текст первого успешного ответа или None если все провайдеры недоступны.
+
+    Возвращает текст первого успешного ответа или None если все провайдеры
+    недоступны / ключи не заданы.
+
+    Гарантии:
+    - никогда не бросает исключений наружу
+    - пустой ответ от провайдера → переход к следующему
+    - timeout 28 с на провайдера
     """
     _reload_keys()
     sys_prompt = system or _DEFAULT_SYSTEM
@@ -136,14 +220,15 @@ async def ask_llm(
 
     for name, fn in providers:
         try:
-            result = await fn(prompt, sys_prompt, max_tokens)
+            result = await fn(prompt, sys_prompt, max_tokens)  # type: ignore[operator]
             if result:
-                logger.info("ask_llm: response from %s (%d chars)", name, len(result))
+                logger.info("ask_llm: OK from %s (%d chars)", name, len(result))
                 return result
+            logger.warning("ask_llm: %s returned empty string", name)
         except Exception as exc:
-            logger.warning("ask_llm: provider %s failed — %s", name, exc)
+            logger.warning("ask_llm: provider %s failed — %s: %s", name, type(exc).__name__, exc)
 
-    logger.warning("ask_llm: all %d provider(s) failed", len(providers))
+    logger.warning("ask_llm: all %d provider(s) failed or returned empty", len(providers))
     return None
 
 
@@ -156,11 +241,14 @@ def build_report_explain_prompt(
     total_revenue: float,
     avg_check: float,
     growth_pct: float | None,
-    top_items: list[dict],  # [{label, revenue, pct}]
+    top_items: list[dict],
 ) -> str:
     top_str = ""
     if top_items:
-        lines = [f"  {i+1}. {t['label']} — {int(t['revenue']):,} ₽ ({t.get('pct_total', 0):.1f}%)" for i, t in enumerate(top_items[:5])]
+        lines = [
+            f"  {i+1}. {t['label']} — {int(t['revenue']):,} ₽ ({t.get('pct_total', 0):.1f}%)"
+            for i, t in enumerate(top_items[:5])
+        ]
         top_str = "\nТоп позиций:\n" + "\n".join(lines)
 
     growth_str = ""
