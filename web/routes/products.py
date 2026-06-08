@@ -951,3 +951,36 @@ def product_detail(request: Request, product_id: int):
     return request.app.state.templates.TemplateResponse(
         request, "products/detail.html", ctx
     )
+
+
+@router.post("/api/products/{product_id}/price")
+def api_update_product_price(
+    request: Request, product_id: int,
+    price: int = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Inline price edit — admin-only AJAX endpoint."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+    if price < 0:
+        return JSONResponse({"ok": False, "error": "Цена не может быть отрицательной"})
+    try:
+        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        conn = db.get_connection()
+        updated = conn.execute(
+            "UPDATE products SET price = ? WHERE id = ?", (price, product_id)
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if not updated:
+            return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+        price_fmt = f"{price:,}".replace(",", "\u00a0") + "\u00a0₽"
+        return JSONResponse({"ok": True, "price_fmt": price_fmt})
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Ошибка сохранения"}, status_code=500)

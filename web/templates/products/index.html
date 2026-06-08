@@ -141,7 +141,8 @@
                         <span class="text-slate-300">—</span>
                         {% endif %}
                     </td>
-                    <td class="px-3 py-3 text-right font-semibold text-slate-700">{{ p[3]|int|fmt_currency }}</td>
+                    <td class="px-3 py-3 text-right font-semibold text-slate-700" id="pc-{{ p[0] }}"
+                        {% if is_admin %}ondblclick="dsEditPrice({{ p[0] }}, {{ p[3]|int }}, this)" title="Дважды нажмите для изменения цены"{% endif %}>{{ p[3]|int|fmt_currency }}</td>
                     <td class="px-3 py-3 text-right hidden md:table-cell">
                         <span class="font-medium {{ 'text-red-500' if qty <= 0 else 'text-orange-500' if qty <= 5 else 'text-slate-700' }}">
                             {{ qty }}&thinsp;шт.
@@ -202,3 +203,63 @@
 {% endblock %}
 
 {% block footer_info %}{{ total_count }} товаров · стр. {{ page }}/{{ total_pages }}{% endblock %}
+
+{% block extra_js %}
+{% if is_admin %}
+<script>
+(function(){
+const _csrf = '{{ csrf_token_for(request) }}';
+window.dsEditPrice = function(pid, curPrice, cell) {
+    /* Запрещаем вложенный вызов */
+    if (cell.querySelector('form')) return;
+    const orig = cell.textContent.trim();
+    cell.innerHTML = '<form onsubmit="window.dsSavePrice(event,' + pid + ',this)" style="display:flex;align-items:center;justify-content:flex-end;gap:4px" onclick="event.stopPropagation()">' +
+        '<input type="number" name="p" value="' + curPrice + '" min="0" step="1" ' +
+        'style="width:90px;border:1.5px solid #3b82f6;border-radius:6px;padding:2px 6px;font-size:.85rem;text-align:right;outline:none" ' +
+        'autofocus>' +
+        '<button type="submit" style="font-size:.75rem;color:#059669;font-weight:600;cursor:pointer;background:none;border:none" title="Сохранить">✓</button>' +
+        '<button type="button" onclick="window.dsCancelPrice(' + pid + ',\'' + orig.replace(/'/g,"\\'") + '\')" style="font-size:.75rem;color:#94a3b8;cursor:pointer;background:none;border:none" title="Отмена">✕</button>' +
+        '</form>';
+    const inp = cell.querySelector('input');
+    inp.select();
+    inp.addEventListener('keydown', function(e){
+        if (e.key === 'Escape') window.dsCancelPrice(pid, orig);
+    });
+};
+window.dsCancelPrice = function(pid, orig) {
+    const cell = document.getElementById('pc-' + pid);
+    if (cell) cell.textContent = orig;
+};
+window.dsSavePrice = async function(e, pid, form) {
+    e.preventDefault();
+    const price = parseInt(form.p.value);
+    if (isNaN(price) || price < 0) return;
+    form.querySelector('button[type=submit]').textContent = '…';
+    try {
+        const resp = await fetch('/api/products/' + pid + '/price', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'price=' + price + '&csrf_token=' + encodeURIComponent(_csrf),
+        });
+        const data = await resp.json();
+        const cell = document.getElementById('pc-' + pid);
+        if (cell) {
+            if (data.ok) {
+                cell.textContent = data.price_fmt;
+                cell.dataset.price = price;
+                /* Обновляем атрибут ondblclick с новой ценой */
+                cell.setAttribute('ondblclick', 'dsEditPrice(' + pid + ',' + price + ',this)');
+            } else {
+                cell.textContent = data.error || 'Ошибка';
+                setTimeout(() => { if(cell) cell.textContent = price.toLocaleString('ru-RU') + '\u00a0₽'; }, 1500);
+            }
+        }
+    } catch(_) {
+        const cell = document.getElementById('pc-' + pid);
+        if (cell) cell.textContent = price.toLocaleString('ru-RU') + '\u00a0₽';
+    }
+};
+})();
+</script>
+{% endif %}
+{% endblock %}

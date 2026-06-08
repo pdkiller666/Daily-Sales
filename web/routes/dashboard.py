@@ -133,9 +133,9 @@ def dashboard(request: Request):
         except Exception:
             pass
 
-        # ── 7-day chart ─────────────────────────────────────────────────────
+        # ── 30-day chart ─────────────────────────────────────────────────────
         labels, data, dates = [], [], []
-        for i in range(6, -1, -1):
+        for i in range(29, -1, -1):
             d = today - timedelta(days=i)
             s = db.get_sales_summary(start_date=d.isoformat(), end_date=d.isoformat())
             labels.append(d.strftime('%d.%m'))
