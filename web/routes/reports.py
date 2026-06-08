@@ -521,7 +521,9 @@ def reports_heatmap(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "analytics"):
+        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
     if not has_extension(telegram_id, "heatmap"):
         return RedirectResponse(url="/reports?msg=ext_heatmap_required", status_code=302)
     org_db = user.get("org_db")
@@ -572,7 +574,9 @@ def reports_abc(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "analytics"):
+        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
     if not has_extension(telegram_id, "abc_analysis"):
         return RedirectResponse(url="/reports?msg=ext_abc_required", status_code=302)
     org_db = user.get("org_db")
@@ -652,7 +656,9 @@ def reports_turnover(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "analytics"):
+        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
     if not has_extension(telegram_id, "turnover"):
         return RedirectResponse(url="/reports?msg=ext_turnover_required", status_code=302)
     org_db = user.get("org_db")
@@ -716,7 +722,9 @@ def reports_dead_stock(
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_extension
+    from billing_utils import has_module, has_extension
+    if not has_module(telegram_id, "analytics"):
+        return RedirectResponse(url="/dashboard?msg=module_analytics_required", status_code=302)
     if not has_extension(telegram_id, "dead_stock"):
         return RedirectResponse(url="/reports?msg=ext_dead_stock_required", status_code=302)
     org_db = user.get("org_db")
