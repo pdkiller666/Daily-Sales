@@ -1,14 +1,23 @@
+import hashlib
 import io
+import json
 import logging
 import os
 import uuid as _uuid
 from pathlib import Path
+from typing import List
 from fastapi import APIRouter, Request, File, UploadFile, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 
 _PHOTO_DIR = Path("web/static/product_photos")
 _PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+_GALLERY_MAX = 10  # максимум фото на товар
+
+
+def _get_org_hash(org_db: str) -> str:
+    """Короткий хэш от имени org db-файла для изоляции папок по организациям."""
+    return hashlib.md5(os.path.basename(org_db or "shop_bot.db").encode()).hexdigest()[:8]
 
 
 def _is_valid_image(raw: bytes) -> bool:
@@ -24,16 +33,17 @@ def _is_valid_image(raw: bytes) -> bool:
     return False
 
 
-def _save_product_photo(upload: UploadFile, raw: bytes) -> str:
-    """Save uploaded photo bytes to static dir, return web path like /static/product_photos/xxx.jpg."""
+def _save_product_photo(upload: UploadFile, raw: bytes, org_db: str = "") -> str:
+    """Save uploaded photo bytes to static dir, return web path like /static/product_photos/org_hash/xxx.jpg."""
     ext = Path(upload.filename or "photo.jpg").suffix.lower()
     if ext not in _PHOTO_EXTS:
         ext = ".jpg"
-    _PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    org_hash = _get_org_hash(org_db)
+    save_dir = _PHOTO_DIR / org_hash
+    save_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{_uuid.uuid4().hex}{ext}"
-    fpath = _PHOTO_DIR / fname
-    fpath.write_bytes(raw)
-    return f"/static/product_photos/{fname}"
+    (save_dir / fname).write_bytes(raw)
+    return f"/static/product_photos/{org_hash}/{fname}"
 
 
 def _delete_product_photo(photo_url: str):
@@ -428,7 +438,7 @@ async def products_create(
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
-    photo: UploadFile = File(default=None),
+    photos: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
@@ -443,7 +453,7 @@ async def products_create(
         return Response(content="Недействительный CSRF-токен. Обновите страницу.", status_code=403)
 
     telegram_id = int(user["sub"])
-    org_db = user.get("org_db")
+    org_db = user.get("org_db") or ""
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
 
@@ -452,11 +462,11 @@ async def products_create(
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
-            "form_data": fd or {"name": name, "category": category, "price": price, "description": description, "photo_url": ""},
+            "form_data": fd or {"name": name, "category": category, "price": price, "description": description, "existing_photos": []},
             "error": err, "is_edit": False,
         })
 
-    # Subscription limit: enforce product cap in web layer (mirrors bot check_product_limit)
+    # Subscription limit
     try:
         from subscription_utils import check_product_limit
         _ok, _msg = check_product_limit(telegram_id)
@@ -475,40 +485,58 @@ async def products_create(
     except ValueError:
         return _re_render("Цена должна быть числом ≥ 0.")
 
-    # Handle photo upload
-    photo_url = None
-    if photo and photo.filename:
-        ext = Path(photo.filename).suffix.lower()
+    # Handle multiple photo uploads
+    valid_photos = [p for p in (photos or []) if p and p.filename]
+    if len(valid_photos) > _GALLERY_MAX:
+        return _re_render(f"Максимум {_GALLERY_MAX} фотографий.")
+
+    saved_urls: list[str] = []
+    for upload in valid_photos:
+        ext = Path(upload.filename).suffix.lower()
         if ext not in _PHOTO_EXTS:
+            for u in saved_urls:
+                _delete_product_photo(u)
             return _re_render("Допустимые форматы фото: JPG, PNG, WebP.")
         try:
-            raw = await photo.read(_PHOTO_MAX_BYTES + 1)
+            raw = await upload.read(_PHOTO_MAX_BYTES + 1)
             if len(raw) > _PHOTO_MAX_BYTES:
-                return _re_render("Фото слишком большое (максимум 5 МБ).")
+                for u in saved_urls:
+                    _delete_product_photo(u)
+                return _re_render("Одно из фото слишком большое (максимум 5 МБ).")
             if not _is_valid_image(raw):
-                return _re_render("Файл не является изображением. Загрузите JPG, PNG или WebP.")
-            photo_url = _save_product_photo(photo, raw)
+                for u in saved_urls:
+                    _delete_product_photo(u)
+                return _re_render("Один из файлов не является изображением. Загрузите JPG, PNG или WebP.")
+            saved_urls.append(_save_product_photo(upload, raw, org_db))
         except Exception as exc:
             logging.error(f"products_create photo save: {exc}")
+            for u in saved_urls:
+                _delete_product_photo(u)
             return _re_render("Не удалось сохранить фото. Попробуйте ещё раз.")
 
+    first_photo = saved_urls[0] if saved_urls else None
     try:
         new_id = db.add_product(
             name=name_clean,
             category=category.strip() or None,
             price=price_val,
             description=description.strip() or None,
-            photo_file_id=photo_url,
+            photo_file_id=first_photo,
         )
         if not new_id:
-            if photo_url:
-                _delete_product_photo(photo_url)
+            for u in saved_urls:
+                _delete_product_photo(u)
             return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
+        for url in saved_urls:
+            try:
+                db.add_product_photo(new_id, url, source='web')
+            except Exception:
+                pass
         return RedirectResponse(url=f"/products/{new_id}?success=Товар+добавлен", status_code=303)
     except Exception as exc:
-        if photo_url:
-            _delete_product_photo(photo_url)
-        logger.error(f"products_create db error: {exc}")
+        for u in saved_urls:
+            _delete_product_photo(u)
+        logging.error(f"products_create db error: {exc}")
         return _re_render("Не удалось создать товар. Попробуйте ещё раз.")
 
 
@@ -536,6 +564,7 @@ def products_edit_form(request: Request, product_id: int):
     photo_url = photo_file_id if (photo_file_id and str(photo_file_id).startswith("/static/")) else ""
 
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+    existing_photos = db.get_product_photos(product_id) or []
     return request.app.state.templates.TemplateResponse(request, "products/form.html", {
         "request": request, "user": user, "is_admin": True,
         "csrf_token": get_csrf_token(request),
@@ -545,7 +574,7 @@ def products_edit_form(request: Request, product_id: int):
             "category": product[2] or "",
             "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
             "description": product[6] if len(product) > 6 else "",
-            "photo_url": photo_url,
+            "existing_photos": existing_photos,
         },
         "error": None, "is_edit": True,
         "edit_id": product_id,
@@ -562,8 +591,8 @@ async def products_update(
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
-    photo: UploadFile = File(default=None),
-    remove_photo: str = Form(default=""),
+    photos: List[UploadFile] = File(default=[]),
+    delete_photo_ids: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
@@ -578,21 +607,18 @@ async def products_update(
         return Response(content="Недействительный CSRF-токен. Обновите страницу.", status_code=403)
 
     telegram_id = int(user["sub"])
-    org_db = user.get("org_db")
+    org_db = user.get("org_db") or ""
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
-
-    # Fetch current photo to allow deletion / replacement
-    existing = db.get_product(product_id)
-    cur_photo = (existing[5] if existing and len(existing) > 5 else "") or ""
-    cur_photo_url = cur_photo if cur_photo.startswith("/static/") else ""
+    existing_photos = db.get_product_photos(product_id) or []
 
     def _re_render(err):
         return request.app.state.templates.TemplateResponse(request, "products/form.html", {
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
-            "form_data": {"name": name, "category": category, "price": price, "description": description, "photo_url": cur_photo_url},
+            "form_data": {"name": name, "category": category, "price": price, "description": description,
+                          "existing_photos": existing_photos},
             "error": err, "is_edit": True,
             "edit_id": product_id, "product_name": name,
         })
@@ -607,43 +633,133 @@ async def products_update(
     except ValueError:
         return _re_render("Цена должна быть числом ≥ 0.")
 
-    # Resolve new photo_file_id value
-    new_photo_url: str | None = None  # None = don't change; "" = remove; "/static/..." = new file
-    if photo and photo.filename:
-        ext = Path(photo.filename).suffix.lower()
+    # Delete marked photos
+    to_delete_ids: list[int] = []
+    try:
+        to_delete_ids = [int(x) for x in delete_photo_ids.split(",") if x.strip().isdigit()]
+    except Exception:
+        pass
+    for pid in to_delete_ids:
+        try:
+            url = db.delete_product_photo(pid)
+            if url:
+                _delete_product_photo(url)
+        except Exception:
+            pass
+
+    # Upload new photos
+    valid_photos = [p for p in (photos or []) if p and p.filename]
+    remaining_count = len(db.get_product_photos(product_id) or [])
+    if remaining_count + len(valid_photos) > _GALLERY_MAX:
+        return _re_render(f"Максимум {_GALLERY_MAX} фотографий на товар.")
+
+    saved_urls: list[str] = []
+    for upload in valid_photos:
+        ext = Path(upload.filename).suffix.lower()
         if ext not in _PHOTO_EXTS:
+            for u in saved_urls:
+                _delete_product_photo(u)
             return _re_render("Допустимые форматы фото: JPG, PNG, WebP.")
         try:
-            raw = await photo.read(_PHOTO_MAX_BYTES + 1)
+            raw = await upload.read(_PHOTO_MAX_BYTES + 1)
             if len(raw) > _PHOTO_MAX_BYTES:
-                return _re_render("Фото слишком большое (максимум 5 МБ).")
+                for u in saved_urls:
+                    _delete_product_photo(u)
+                return _re_render("Одно из фото слишком большое (максимум 5 МБ).")
             if not _is_valid_image(raw):
-                return _re_render("Файл не является изображением. Загрузите JPG, PNG или WebP.")
-            new_photo_url = _save_product_photo(photo, raw)
-            _delete_product_photo(cur_photo_url)  # remove old if it was web-uploaded
+                for u in saved_urls:
+                    _delete_product_photo(u)
+                return _re_render("Один из файлов не является изображением. Загрузите JPG, PNG или WebP.")
+            saved_urls.append(_save_product_photo(upload, raw, org_db))
         except Exception as exc:
             logging.error(f"products_update photo save: {exc}")
+            for u in saved_urls:
+                _delete_product_photo(u)
             return _re_render("Не удалось сохранить фото. Попробуйте ещё раз.")
-    elif remove_photo == "1" and cur_photo_url:
-        _delete_product_photo(cur_photo_url)
-        new_photo_url = ""
 
     try:
+        # Update product fields
+        all_photos = db.get_product_photos(product_id) or []
+        first_photo_url = all_photos[0][2] if all_photos else (saved_urls[0] if saved_urls else None)
         kwargs: dict = dict(
             name=name_clean,
             category=category.strip() or "",
             price=price_val,
             description=description.strip() or "",
         )
-        if new_photo_url is not None:
-            kwargs["photo_file_id"] = new_photo_url
+        if first_photo_url is not None:
+            kwargs["photo_file_id"] = first_photo_url
+        elif not all_photos and not saved_urls:
+            kwargs["photo_file_id"] = None
         db.update_product(product_id, **kwargs)
+        for url in saved_urls:
+            try:
+                db.add_product_photo(product_id, url, source='web')
+            except Exception:
+                pass
         return RedirectResponse(url=f"/products/{product_id}?success=Сохранено", status_code=303)
     except Exception as exc:
-        if new_photo_url and new_photo_url.startswith("/static/"):
-            _delete_product_photo(new_photo_url)
-        logger.error(f"products_update db error: {exc}")
+        for u in saved_urls:
+            _delete_product_photo(u)
+        logging.error(f"products_update db error: {exc}")
         return _re_render("Не удалось сохранить товар. Попробуйте ещё раз.")
+
+
+@router.post("/products/{product_id}/photos/{photo_id}/delete")
+async def product_photo_delete(request: Request, product_id: int, photo_id: int):
+    """AJAX: удалить одно фото товара."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+        csrf = body.get("csrf_token", "")
+    except Exception:
+        csrf = ""
+    if not verify_csrf_token(request, csrf):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    try:
+        url = db.delete_product_photo(photo_id)
+        if url:
+            _delete_product_photo(url)
+        # Update products.photo_file_id to first remaining or None
+        remaining = db.get_product_photos(product_id) or []
+        db.update_product(product_id, photo_file_id=remaining[0][2] if remaining else None)
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logging.error(f"product_photo_delete: {exc}")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.post("/products/{product_id}/photos/reorder")
+async def product_photos_reorder(request: Request, product_id: int):
+    """AJAX: изменить порядок фотографий."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+        csrf = body.get("csrf_token", "")
+        photo_ids = [int(x) for x in body.get("photo_ids", [])]
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    if not verify_csrf_token(request, csrf):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    try:
+        db.reorder_product_photos(photo_ids)
+        remaining = db.get_product_photos(product_id) or []
+        if remaining:
+            db.update_product(product_id, photo_file_id=remaining[0][2])
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logging.error(f"product_photos_reorder: {exc}")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @router.post("/products/{product_id}/delete")
@@ -713,6 +829,7 @@ def product_detail(request: Request, product_id: int):
 
         # products: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6]
         ctx["product"] = product
+        ctx["product_photos"] = db.get_product_photos(product_id) or []
 
         # Inventory per shop
         # get_all_inventory returns: i.id[0] product_id[1] shop_name[2] quantity[3] last_updated[4]

@@ -2,9 +2,13 @@
 Обработчики для управления товарами
 """
 import asyncio
+import hashlib
+import io
 import os
+import uuid as _uuid
+from pathlib import Path
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -15,6 +19,36 @@ from states import ProductStates, ExcelImportStates
 from utils import format_currency, he
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from env_manager import env_manager
+
+_PRODUCT_PHOTO_DIR = Path("web/static/product_photos")
+_PHOTO_MAX_BOT = 5 * 1024 * 1024  # 5 MB
+
+
+def _get_org_hash(db_file: str) -> str:
+    """Короткий хэш от имени org db-файла для изоляции папок по организациям."""
+    return hashlib.md5(os.path.basename(db_file).encode()).hexdigest()[:8]
+
+
+async def _download_tg_photo(bot, file_id: str, db_file: str) -> str | None:
+    """Скачивает фото из Telegram и сохраняет в /static/product_photos/{org_hash}/.
+    Возвращает web-путь /static/product_photos/... или None при ошибке."""
+    try:
+        org_hash = _get_org_hash(db_file)
+        save_dir = _PRODUCT_PHOTO_DIR / org_hash
+        save_dir.mkdir(parents=True, exist_ok=True)
+        tg_file = await bot.get_file(file_id)
+        ext = Path(tg_file.file_path or "photo.jpg").suffix.lower() or ".jpg"
+        fname = f"{_uuid.uuid4().hex}{ext}"
+        fpath = save_dir / fname
+        buf = io.BytesIO()
+        await bot.download_file(tg_file.file_path, destination=buf)
+        raw = buf.getvalue()
+        if len(raw) > _PHOTO_MAX_BOT:
+            return None
+        fpath.write_bytes(raw)
+        return f"/static/product_photos/{org_hash}/{fname}"
+    except Exception:
+        return None
 
 # Получаем ID администратора из переменных окружения
 ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0').split(',')[0].strip() or 0)
@@ -516,7 +550,14 @@ async def process_product_photo(message: Message, state: FSMContext):
     file_id = message.photo[-1].file_id
 
     current_db = await get_db(message.from_user.id, state)
-    await current_db.update_product(product_id, photo_file_id=file_id)
+    # Скачиваем фото и сохраняем локально (единое хранилище бот+веб)
+    photo_url = await _download_tg_photo(message.bot, file_id, current_db.db_file)
+    if photo_url:
+        await current_db.update_product(product_id, photo_file_id=photo_url)
+        current_db.add_product_photo(product_id, photo_url, source='telegram')
+    else:
+        # fallback: сохраняем tg file_id (фото будет в боте, но не в вебе)
+        await current_db.update_product(product_id, photo_file_id=file_id)
     product = await current_db.get_product(product_id)
 
     if product:
@@ -2001,9 +2042,11 @@ async def process_edit_photo(message: Message, state: FSMContext):
         return
 
     if message.text and message.text.strip() == '-':
-        new_file_id = None
+        new_photo_url = None
+        _remove = True
     elif message.photo:
-        new_file_id = message.photo[-1].file_id
+        new_photo_url = None
+        _remove = False
     else:
         await fsm_edit(
             state, message,
@@ -2013,8 +2056,44 @@ async def process_edit_photo(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    await current_db.update_product(product_id, photo_file_id=new_file_id)
-    _label = "удалено" if new_file_id is None else "обновлено ✅"
+
+    if _remove:
+        # Удаляем все фото товара (файлы + записи)
+        try:
+            urls = current_db.delete_all_product_photos(product_id)
+            for url in urls:
+                if url and url.startswith("/static/product_photos/"):
+                    fpath = Path("web") / url.lstrip("/")
+                    try:
+                        fpath.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        await current_db.update_product(product_id, photo_file_id=None)
+    else:
+        file_id = message.photo[-1].file_id
+        new_photo_url = await _download_tg_photo(message.bot, file_id, current_db.db_file)
+        if new_photo_url:
+            # Удаляем старые web-фото перед добавлением нового
+            try:
+                old_urls = current_db.delete_all_product_photos(product_id)
+                for url in old_urls:
+                    if url and url.startswith("/static/product_photos/"):
+                        fpath = Path("web") / url.lstrip("/")
+                        try:
+                            fpath.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            await current_db.update_product(product_id, photo_file_id=new_photo_url)
+            current_db.add_product_photo(product_id, new_photo_url, source='telegram')
+        else:
+            # fallback: только обновляем tg file_id
+            await current_db.update_product(product_id, photo_file_id=file_id)
+
+    _label = "удалено" if _remove else "обновлено ✅"
     await fsm_edit(
         state, message,
         f"✅ Фото товара {_label}.",

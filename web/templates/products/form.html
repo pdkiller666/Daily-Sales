@@ -16,7 +16,7 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <div>
-        <h1 class="text-2xl font-bold text-slate-800">
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">
             {% if is_edit %}Редактировать товар{% else %}Добавить товар{% endif %}
         </h1>
         <p class="text-sm text-slate-500 mt-0.5">
@@ -37,32 +37,34 @@
 
 <div class="card p-6 max-w-xl">
     <form method="post" enctype="multipart/form-data"
-          action="{% if is_edit %}/products/{{ edit_id }}/update{% else %}/products/create{% endif %}">
+          action="{% if is_edit %}/products/{{ edit_id }}/update{% else %}/products/create{% endif %}"
+          x-data="photoFormState()" @submit="onSubmit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="delete_photo_ids" :value="deleteIds.join(',')">
 
         <!-- Name -->
         <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-name">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-name">
                 Название <span class="text-red-500">*</span>
             </label>
             <input id="f-name" type="text" name="name"
                    value="{{ form_data.name if form_data else '' }}"
                    placeholder="Например: iPhone 15 Pro 256GB"
                    required autofocus
-                   class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                   class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
         </div>
 
         <!-- Category -->
         <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-cat">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-cat">
                 Категория
             </label>
             <input id="f-cat" type="text" name="category"
                    value="{{ form_data.category if form_data else '' }}"
                    placeholder="Например: Смартфоны"
                    list="cat-list"
-                   class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                   class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
                           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
             {% if categories %}
             <datalist id="cat-list">
@@ -76,13 +78,13 @@
 
         <!-- Price -->
         <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-price">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-price">
                 Цена (₽)
             </label>
             <div class="relative">
                 <input id="f-price" type="number" name="price" min="0" step="0.01"
                        value="{{ form_data.price if form_data else '0' }}"
-                       class="w-full border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-800
+                       class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-800
                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₽</span>
             </div>
@@ -90,54 +92,134 @@
 
         <!-- Description -->
         <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 mb-1.5" for="f-desc">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-desc">
                 Описание
             </label>
-            <textarea id="f-desc" name="description" rows="3"
+            <textarea id="f-desc" name="description" rows="4"
                       placeholder="Дополнительная информация о товаре (необязательно)"
-                      class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800
+                      class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm text-slate-800
                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none">{{ form_data.description if form_data else '' }}</textarea>
         </div>
 
-        <!-- Photo -->
+        <!-- Photos -->
         <div class="mb-6">
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Фото товара
+                <span class="text-xs font-normal text-slate-400 ml-1">до 10 шт., JPG/PNG/WebP, 5 МБ каждое</span>
             </label>
-            {% set cur_photo = form_data.photo_url if form_data else '' %}
-            {% if cur_photo and cur_photo.startswith('/static/') %}
-            <div class="mb-2 flex items-center gap-3">
-                <img src="{{ cur_photo }}" alt="Фото товара"
-                     class="w-16 h-16 rounded-xl object-cover border border-slate-200">
-                <div>
-                    <p class="text-xs text-slate-500">Текущее фото</p>
-                    <label class="flex items-center gap-1.5 mt-1 cursor-pointer">
-                        <input type="checkbox" name="remove_photo" value="1" class="rounded">
-                        <span class="text-xs text-red-600">Удалить фото</span>
-                    </label>
+
+            {% set existing = form_data.existing_photos if form_data else [] %}
+            {% if existing %}
+            <div class="mb-3">
+                <p class="text-xs text-slate-500 mb-2">Текущие фото — нажмите ✕ чтобы удалить при сохранении:</p>
+                <div class="flex flex-wrap gap-2" id="existing-photos-list">
+                    {% for ph in existing %}
+                    <div class="relative group" id="ph-{{ ph[0] }}" x-data>
+                        <img src="{{ ph[2] }}" alt="фото"
+                             class="w-16 h-16 rounded-xl object-cover border border-slate-200 dark:border-slate-700"
+                             :class="deleteIds.includes({{ ph[0] }}) ? 'opacity-30' : ''">
+                        <button type="button"
+                                @click="toggleDelete({{ ph[0] }})"
+                                class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors shadow"
+                                :class="deleteIds.includes({{ ph[0] }}) ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'">
+                            <span x-text="deleteIds.includes({{ ph[0] }}) ? '↩' : '✕'"></span>
+                        </button>
+                        <span x-show="deleteIds.includes({{ ph[0] }})"
+                              class="absolute bottom-0 left-0 right-0 text-center text-[9px] font-semibold text-red-600 bg-red-50/90 rounded-b-xl py-0.5">
+                            удалить
+                        </span>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
             {% endif %}
-            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp"
-                   class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700
-                          file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0
-                          file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-600
-                          hover:file:bg-blue-100 focus:outline-none">
-            <p class="mt-1 text-xs text-slate-400">JPG, PNG или WebP, до 5 МБ (необязательно)</p>
+
+            <!-- File input with previews -->
+            <div class="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                <input type="file" name="photos" accept="image/jpeg,image/png,image/webp"
+                       multiple id="photo-input"
+                       @change="onFilePick"
+                       class="hidden">
+                <label for="photo-input"
+                       class="flex flex-col items-center gap-2 cursor-pointer text-slate-400 hover:text-blue-500 transition-colors">
+                    <span class="text-3xl">📷</span>
+                    <span class="text-sm font-medium">Нажмите чтобы выбрать фото</span>
+                    <span class="text-xs">или перетащите файлы сюда</span>
+                </label>
+
+                <!-- Preview of picked files -->
+                <div x-show="previews.length > 0" class="mt-3 flex flex-wrap gap-2">
+                    <template x-for="(p, i) in previews" :key="i">
+                        <div class="relative">
+                            <img :src="p" class="w-16 h-16 rounded-xl object-cover border border-slate-200">
+                            <button type="button" @click="removePreview(i)"
+                                    class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] font-bold shadow">✕</button>
+                        </div>
+                    </template>
+                </div>
+                <p x-show="previews.length > 0"
+                   class="mt-2 text-xs text-slate-400 text-center"
+                   x-text="previews.length + ' фото выбрано'"></p>
+            </div>
         </div>
 
         <!-- Submit -->
         <div class="flex items-center gap-3">
             <button type="submit"
-                    onclick="dsOnce(this,'⏳ Сохранение…')"
                     class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
                 {% if is_edit %}💾 Сохранить изменения{% else %}➕ Добавить товар{% endif %}
             </button>
             <a href="{% if is_edit %}/products/{{ edit_id }}{% else %}/products{% endif %}"
-               class="px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-500 hover:bg-slate-50 transition-colors">
+               class="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 Отмена
             </a>
         </div>
     </form>
 </div>
+
+<script>
+function photoFormState() {
+    return {
+        deleteIds: [],
+        previews: [],
+        _files: [],
+
+        toggleDelete(id) {
+            const idx = this.deleteIds.indexOf(id);
+            if (idx === -1) this.deleteIds.push(id);
+            else this.deleteIds.splice(idx, 1);
+        },
+
+        onFilePick(e) {
+            const files = Array.from(e.target.files || []);
+            this._files = files;
+            this.previews = [];
+            files.forEach(f => {
+                const r = new FileReader();
+                r.onload = ev => this.previews.push(ev.target.result);
+                r.readAsDataURL(f);
+            });
+        },
+
+        removePreview(i) {
+            this.previews.splice(i, 1);
+            this._files.splice(i, 1);
+            // Rebuild FileList via DataTransfer
+            const dt = new DataTransfer();
+            this._files.forEach(f => dt.items.add(f));
+            document.getElementById('photo-input').files = dt.files;
+        },
+
+        onSubmit(e) {
+            const btn = e.submitter || e.target.querySelector('button[type=submit]');
+            if (btn) {
+                setTimeout(() => {
+                    btn.disabled = true;
+                    btn.innerHTML = '⏳ Сохранение…';
+                }, 0);
+            }
+        }
+    };
+}
+</script>
 {% endblock %}

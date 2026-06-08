@@ -400,6 +400,19 @@ class Database:
         if 'description' not in _prod_cols:
             cursor.execute("ALTER TABLE products ADD COLUMN description TEXT")
 
+        # Галерея фото товаров (единое хранилище бот+веб)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS product_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                photo_url TEXT NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'web',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        ''')
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS promocodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2217,6 +2230,73 @@ class Database:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM motivation_schedule WHERE product_id = ?', (product_id,))
         cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        conn.commit()
+        conn.close()
+
+    # ── Галерея фотографий товара ──────────────────────────────────────────
+
+    def get_product_photos(self, product_id):
+        """Возвращает список фото товара отсортированных по sort_order.
+        Каждая строка: id[0] product_id[1] photo_url[2] sort_order[3] source[4] created_at[5]
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id, product_id, photo_url, sort_order, source, created_at '
+            'FROM product_photos WHERE product_id = ? ORDER BY sort_order, id',
+            (product_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+
+    def add_product_photo(self, product_id, photo_url, source='web'):
+        """Добавить фото товара. source: 'web' | 'telegram'"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_photos WHERE product_id = ?',
+            (product_id,)
+        )
+        next_order = cursor.fetchone()[0]
+        cursor.execute(
+            'INSERT INTO product_photos (product_id, photo_url, sort_order, source) VALUES (?, ?, ?, ?)',
+            (product_id, photo_url, next_order, source)
+        )
+        photo_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return photo_id
+
+    def delete_product_photo(self, photo_id):
+        """Удалить запись о фото по id. Возвращает photo_url удалённой записи или None."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT photo_url FROM product_photos WHERE id = ?', (photo_id,))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute('DELETE FROM product_photos WHERE id = ?', (photo_id,))
+            conn.commit()
+        conn.close()
+        return row[0] if row else None
+
+    def delete_all_product_photos(self, product_id):
+        """Удалить все записи фото товара. Возвращает список photo_url."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT photo_url FROM product_photos WHERE product_id = ?', (product_id,))
+        urls = [r[0] for r in cursor.fetchall()]
+        cursor.execute('DELETE FROM product_photos WHERE product_id = ?', (product_id,))
+        conn.commit()
+        conn.close()
+        return urls
+
+    def reorder_product_photos(self, photo_ids):
+        """Обновить sort_order: photo_ids — список id в нужном порядке."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        for i, pid in enumerate(photo_ids):
+            cursor.execute('UPDATE product_photos SET sort_order = ? WHERE id = ?', (i, pid))
         conn.commit()
         conn.close()
 
