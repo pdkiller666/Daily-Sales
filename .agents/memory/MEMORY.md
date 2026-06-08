@@ -23,3 +23,4 @@
 - [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
 - [Chat plan check bug](chat-plan-bug.md) — _get_org_active_plan() в chat.py: org plan из main.db должен быть ПЕРЕД shop_bot.db; иначе вечный 'Бесплатный' ряд блокирует Премиум у приглашённых членов
 - [Web Push VAPID setup](web-push-vapid.md) — pywebpush==2.3.0; VAPID_PUBLIC_KEY/PRIVATE_KEY/MAILTO в env vars; push_subscriptions в shop_bot.db; send_web_push в web/push_utils.py; SW v4 с badge; robots уже закрывает /api/
+- [Product photo gallery](product-photo-gallery.md) — product_photos в org_*.db; org-hash subdir /static/product_photos/{hash}/; бот скачивает через Bot API; веб multi-upload; свайп+лайтбокс Alpine; collapsible description
