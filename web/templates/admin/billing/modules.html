@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}Модули и расширения — Биллинг{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<a href="/admin/billing" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Биллинг</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Модули</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="{ tab: {{ active_tab | tojson }}, editMod: null, editExt: null }" class="space-y-6">
+
+<div class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🧩 Модули и расширения</h1>
+    <a href="/admin/billing" class="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">← Назад</a>
+</div>
+
+{% if msg == 'saved' %}<div class="px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300">✅ Сохранено.</div>
+{% elif msg == 'deleted' %}<div class="px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🗑️ Удалено.</div>
+{% elif msg == 'toggled' %}<div class="px-4 py-3 rounded-xl text-sm bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">🔄 Статус изменён.</div>
+{% elif msg == 'error' %}<div class="px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">❌ Ошибка.</div>
+{% elif msg == 'bad_input' %}<div class="px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">⚠️ Заполните все обязательные поля.</div>{% endif %}
+
+<!-- Tabs -->
+<div class="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1 w-fit">
+    <button @click="tab='modules'" :class="tab==='modules' ? 'bg-white dark:bg-slate-700 shadow text-slate-800 dark:text-slate-100' : 'text-slate-500'" class="px-4 py-1.5 text-sm font-semibold rounded-lg transition-all">🧩 Модули ({{ modules|length }})</button>
+    <button @click="tab='extensions'" :class="tab==='extensions' ? 'bg-white dark:bg-slate-700 shadow text-slate-800 dark:text-slate-100' : 'text-slate-500'" class="px-4 py-1.5 text-sm font-semibold rounded-lg transition-all">⚡ Расширения ({{ extensions|length }})</button>
+</div>
+
+<!-- ══ MODULES TAB ══════════════════════════════════════════════════════ -->
+<div x-show="tab==='modules'" x-cloak>
+    <!-- Add module form -->
+    <details class="card p-4 mb-4">
+        <summary class="cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400 text-sm">➕ Добавить модуль</summary>
+        <form method="post" action="/admin/billing/modules/add" class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="col-span-2 lg:col-span-1">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Ключ (латиница, _)*</label>
+                <input name="key" placeholder="analytics" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div class="col-span-2 lg:col-span-1">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Название*</label>
+                <input name="name" placeholder="Аналитика" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                <input name="icon" value="📦" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                <input name="price_monthly" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div class="col-span-2 lg:col-span-3">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+                <input name="description" placeholder="Краткое описание модуля" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">Добавить</button>
+            </div>
+        </form>
+    </details>
+
+    <!-- Modules list -->
+    <div class="space-y-3">
+        {% for m in modules %}
+        <div class="card p-4">
+            <div class="flex items-start gap-3">
+                <div class="text-2xl mt-0.5 shrink-0">{{ m.icon }}</div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                        <span class="font-bold text-slate-800 dark:text-slate-100">{{ m.name }}</span>
+                        <code class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{{ m.key }}</code>
+                        {% if m.is_active %}<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Активен</span>
+                        {% else %}<span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full font-semibold">Отключён</span>{% endif %}
+                        <span class="text-sm font-semibold text-indigo-600">{{ m.price_monthly|int }} ₽/мес</span>
+                    </div>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">{{ m.description or '—' }}</p>
+                    {% set mod_exts = extensions | selectattr('module_key', 'equalto', m.key) | list %}
+                    {% if mod_exts %}
+                    <div class="flex flex-wrap gap-1">
+                        {% for ext in mod_exts %}
+                        <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full {% if ext.is_active %}bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300{% else %}bg-slate-100 text-slate-400 dark:bg-slate-800{% endif %}">
+                            {{ ext.icon }} {{ ext.name }} — {{ ext.price_monthly|int }}₽{% if not ext.is_active %} (откл.){% endif %}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-xs text-slate-400 italic">Нет расширений</p>
+                    {% endif %}
+                </div>
+                <div class="flex flex-col gap-1 shrink-0">
+                    <button @click="editMod={{ m | tojson | e }}"
+                            class="px-3 py-1.5 text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg font-semibold transition-colors">✏️ Изм.</button>
+                    <form method="post" action="/admin/billing/modules/{{ m.id }}/toggle">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="w-full px-3 py-1.5 text-xs {% if m.is_active %}bg-slate-50 text-slate-500 hover:bg-slate-100{% else %}bg-emerald-50 text-emerald-600 hover:bg-emerald-100{% endif %} dark:bg-slate-700 dark:text-slate-300 rounded-lg font-semibold transition-colors">
+                            {% if m.is_active %}⏸{% else %}▶️{% endif %}
+                        </button>
+                    </form>
+                    <form method="post" action="/admin/billing/modules/{{ m.id }}/delete" onsubmit="return confirm('Удалить модуль «{{ m.name|e }}» и все его расширения?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="w-full px-3 py-1.5 text-xs bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg font-semibold transition-colors">🗑</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card p-10 text-center text-slate-400">
+            <p class="text-4xl mb-3">🧩</p>
+            <p>Нет модулей. Добавьте первый выше.</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- ══ EXTENSIONS TAB ══════════════════════════════════════════════════ -->
+<div x-show="tab==='extensions'" x-cloak>
+    <!-- Add extension form -->
+    <details class="card p-4 mb-4">
+        <summary class="cursor-pointer font-semibold text-violet-600 dark:text-violet-400 text-sm">➕ Добавить расширение</summary>
+        <form method="post" action="/admin/billing/extensions/add" class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Модуль*</label>
+                <select name="module_key" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    <option value="">— выберите —</option>
+                    {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Ключ (латиница)*</label>
+                <input name="key" placeholder="abc_analysis" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Название*</label>
+                <input name="name" placeholder="ABC-анализ" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                <input name="icon" value="⚡" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div class="col-span-2">
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+                <input name="description" placeholder="Что делает расширение" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                <input name="price_monthly" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="w-full bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">Добавить</button>
+            </div>
+        </form>
+    </details>
+
+    <!-- Extensions list grouped by module -->
+    {% set ns = namespace(prev_module='') %}
+    {% for ext in extensions | sort(attribute='module_key') %}
+        {% if ext.module_key != ns.prev_module %}
+            {% if ns.prev_module %}</div>{% endif %}
+            {% set ns.prev_module = ext.module_key %}
+            {% set parent = modules | selectattr('key', 'equalto', ext.module_key) | first %}
+            <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mt-4 mb-2">
+                {% if parent %}{{ parent.icon }} {{ parent.name }}{% else %}{{ ext.module_key }}{% endif %}
+            </h3>
+            <div class="space-y-2">
+        {% endif %}
+        <div class="card p-3 flex items-center gap-3">
+            <span class="text-lg shrink-0">{{ ext.icon }}</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ ext.name }}</span>
+                    <code class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{{ ext.key }}</code>
+                    {% if ext.is_active %}<span class="text-xs px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Активно</span>
+                    {% else %}<span class="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-400 rounded-full">Откл.</span>{% endif %}
+                    <span class="text-sm font-semibold text-violet-600">{{ ext.price_monthly|int }} ₽/мес</span>
+                </div>
+                {% if ext.description %}<p class="text-xs text-slate-400 mt-0.5">{{ ext.description }}</p>{% endif %}
+            </div>
+            <div class="flex gap-1 shrink-0">
+                <button @click="editExt={{ ext | tojson | e }}"
+                        class="px-2.5 py-1 text-xs bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300 rounded-lg font-semibold">✏️</button>
+                <form method="post" action="/admin/billing/extensions/{{ ext.id }}/toggle">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="px-2.5 py-1 text-xs bg-slate-50 text-slate-500 hover:bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded-lg font-semibold">{% if ext.is_active %}⏸{% else %}▶️{% endif %}</button>
+                </form>
+                <form method="post" action="/admin/billing/extensions/{{ ext.id }}/delete" onsubmit="return confirm('Удалить расширение «{{ ext.name|e }}»?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="px-2.5 py-1 text-xs bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg font-semibold">🗑</button>
+                </form>
+            </div>
+        </div>
+    {% else %}
+    <div class="card p-10 text-center text-slate-400"><p class="text-4xl mb-3">⚡</p><p>Нет расширений.</p></div>
+    {% endfor %}
+    {% if extensions %}</div>{% endif %}
+</div>
+
+<!-- ══ EDIT MODULE MODAL ═══════════════════════════════════════════════ -->
+<div x-show="editMod !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full shadow-xl" @click.outside="editMod=null">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100">✏️ Редактировать модуль</h3>
+            <button @click="editMod=null" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+        </div>
+        <template x-if="editMod">
+            <form :action="'/admin/billing/modules/'+editMod.id+'/save'" method="post" class="space-y-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Название</label>
+                        <input name="name" :value="editMod.name" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                        <input name="icon" :value="editMod.icon" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+                    <input name="description" :value="editMod.description" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                        <input name="price_monthly" type="number" step="1" :value="editMod.price_monthly" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Порядок (sort)</label>
+                        <input name="sort_order" type="number" :value="editMod.sort_order" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Фичи (JSON массив строк)</label>
+                    <textarea name="features_json" :value="editMod.features_json" rows="2" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"></textarea>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-xl">Сохранить</button>
+                    <button type="button" @click="editMod=null" class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+                </div>
+            </form>
+        </template>
+    </div>
+</div>
+
+<!-- ══ EDIT EXTENSION MODAL ════════════════════════════════════════════ -->
+<div x-show="editExt !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full shadow-xl" @click.outside="editExt=null">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100">✏️ Редактировать расширение</h3>
+            <button @click="editExt=null" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+        </div>
+        <template x-if="editExt">
+            <form :action="'/admin/billing/extensions/'+editExt.id+'/save'" method="post" class="space-y-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Модуль</label>
+                    <select name="module_key" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                        {% for m in modules %}<option :selected="editExt.module_key==='{{ m.key }}'" value="{{ m.key }}">{{ m.icon }} {{ m.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Название</label>
+                        <input name="name" :value="editExt.name" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                        <input name="icon" :value="editExt.icon" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+                    <input name="description" :value="editExt.description" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                        <input name="price_monthly" type="number" step="1" :value="editExt.price_monthly" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Порядок (sort)</label>
+                        <input name="sort_order" type="number" :value="editExt.sort_order" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    </div>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2.5 rounded-xl">Сохранить</button>
+                    <button type="button" @click="editExt=null" class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+                </div>
+            </form>
+        </template>
+    </div>
+</div>
+
+</div>
+{% endblock %}

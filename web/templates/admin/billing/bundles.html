@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Пакеты — Биллинг{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<a href="/admin/billing" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Биллинг</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Пакеты</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="{ editBnd: null }">
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🎁 Пакеты (бандлы)</h1>
+    <a href="/admin/billing" class="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">← Назад</a>
+</div>
+
+{% if msg == 'saved' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300">✅ Сохранено.</div>
+{% elif msg == 'deleted' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🗑️ Удалено.</div>
+{% elif msg == 'toggled' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">🔄 Статус изменён.</div>
+{% elif msg == 'error' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">❌ Ошибка.</div>{% endif %}
+
+<p class="text-sm text-slate-500 dark:text-slate-400 mb-6">
+    Пакет — набор модулей и/или расширений, продаваемых со скидкой. При выдаче пакета пользователю через раздел «Выдача доступов» он получит доступ ко всем включённым в пакет позициям.
+</p>
+
+<!-- Add bundle form -->
+<details class="card p-4 mb-6">
+    <summary class="cursor-pointer font-semibold text-blue-600 dark:text-blue-400 text-sm">➕ Создать пакет</summary>
+    <form method="post" action="/admin/billing/bundles/add" class="mt-4 space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Ключ (латиница)*</label>
+                <input name="key" placeholder="small_biz" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Название*</label>
+                <input name="name" placeholder="Малый бизнес" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                <input name="icon" value="🎁" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                <input name="price_monthly" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+            <input name="description" placeholder="Описание пакета" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Модули (ключи через запятую)</label>
+                <input name="includes_modules" placeholder="analytics,notifications" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+                <p class="text-[10px] text-slate-400 mt-1">Доступные: {% for m in modules %}<code>{{ m.key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Расширения (ключи через запятую)</label>
+                <input name="includes_extensions" placeholder="abc_analysis,heatmap" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+            </div>
+        </div>
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-2 rounded-lg transition-colors">Создать пакет</button>
+    </form>
+</details>
+
+<!-- Bundles list -->
+<div class="space-y-4">
+    {% for b in bundles %}
+    <div class="card p-5">
+        <div class="flex items-start gap-3">
+            <span class="text-2xl mt-0.5 shrink-0">{{ b.icon }}</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <span class="font-bold text-slate-800 dark:text-slate-100">{{ b.name }}</span>
+                    <code class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded">{{ b.key }}</code>
+                    {% if b.is_active %}<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Активен</span>
+                    {% else %}<span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full font-semibold">Отключён</span>{% endif %}
+                    <span class="text-sm font-bold text-blue-600">{{ b.price_monthly|int }} ₽/мес</span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">{{ b.description or '—' }}</p>
+                <div class="flex flex-wrap gap-1">
+                    {% for mk in b.includes.get('modules', []) %}
+                    <span class="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-full">🧩 {{ mk }}</span>
+                    {% endfor %}
+                    {% for ek in b.includes.get('extensions', []) %}
+                    <span class="text-xs px-2 py-0.5 bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 rounded-full">⚡ {{ ek }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="flex flex-col gap-1 shrink-0">
+                <button @click="editBnd={{ b | tojson | e }}"
+                        class="px-3 py-1.5 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg font-semibold">✏️ Изм.</button>
+                <form method="post" action="/admin/billing/bundles/{{ b.id }}/toggle">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="w-full px-3 py-1.5 text-xs {% if b.is_active %}bg-slate-50 text-slate-500{% else %}bg-emerald-50 text-emerald-600{% endif %} dark:bg-slate-700 dark:text-slate-300 rounded-lg font-semibold">{% if b.is_active %}⏸{% else %}▶️{% endif %}</button>
+                </form>
+                <form method="post" action="/admin/billing/bundles/{{ b.id }}/delete" onsubmit="return confirm('Удалить пакет «{{ b.name|e }}»?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="w-full px-3 py-1.5 text-xs bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg font-semibold">🗑</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="card p-10 text-center text-slate-400"><p class="text-4xl mb-3">🎁</p><p>Нет пакетов. Создайте первый выше.</p></div>
+    {% endfor %}
+</div>
+
+<!-- Edit modal -->
+<div x-show="editBnd !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-xl max-h-[90vh] overflow-y-auto" @click.outside="editBnd=null">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-100">✏️ Редактировать пакет</h3>
+            <button @click="editBnd=null" class="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+        </div>
+        <template x-if="editBnd">
+            <form :action="'/admin/billing/bundles/'+editBnd.id+'/save'" method="post" class="space-y-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Название</label>
+                        <input name="name" :value="editBnd.name" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Иконка</label>
+                        <input name="icon" :value="editBnd.icon" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
+                    <input name="description" :value="editBnd.description" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
+                    <input name="price_monthly" type="number" step="1" :value="editBnd.price_monthly" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Модули (ключи через запятую)</label>
+                    <input name="includes_modules"
+                           :value="editBnd.includes_json ? JSON.parse(editBnd.includes_json).modules.join(',') : ''"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1">Расширения (ключи через запятую)</label>
+                    <input name="includes_extensions"
+                           :value="editBnd.includes_json ? JSON.parse(editBnd.includes_json).extensions.join(',') : ''"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400">
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded-xl">Сохранить</button>
+                    <button type="button" @click="editBnd=null" class="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2.5 rounded-xl">Отмена</button>
+                </div>
+            </form>
+        </template>
+    </div>
+</div>
+</div>
+
+<script>
+// Jinja2 custom filter polyfill for fromjson (used in includes_json display)
+</script>
+{% endblock %}

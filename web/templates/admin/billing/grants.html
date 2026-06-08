@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Выдача доступов — Биллинг{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<a href="/admin/billing" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Биллинг</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Выдача доступов</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🎟️ Выдача доступов</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Выдать/отозвать модуль, расширение или пакет любому пользователю</p>
+    </div>
+    <a href="/admin/billing" class="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">← Назад</a>
+</div>
+
+{% if msg == 'granted' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300">✅ Доступ выдан.</div>
+{% elif msg == 'revoked' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🔒 Доступ отозван.</div>
+{% elif msg == 'error' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">❌ Ошибка при выдаче.</div>
+{% elif msg == 'bad_input' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">⚠️ Заполните все поля.</div>{% endif %}
+
+<!-- Grant form -->
+<div class="card p-5 mb-6" x-data="{ itemType: 'module' }">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">➕ Выдать доступ</h2>
+    <form method="post" action="/admin/billing/grant" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- User selection -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Пользователь (Telegram ID)*</label>
+                <div class="flex gap-2">
+                    <input name="user_telegram_id" type="number" placeholder="123456789" required
+                           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    <select onchange="this.previousElementSibling.value=this.value"
+                            class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 max-w-[200px]">
+                        <option value="">— или выбрать —</option>
+                        {% for u in users %}<option value="{{ u.telegram_id }}">{{ u.name }} ({{ u.telegram_id }})</option>{% endfor %}
+                    </select>
+                </div>
+                <p class="text-xs text-slate-400 mt-1">Введите Telegram ID вручную или выберите из списка</p>
+            </div>
+
+            <!-- Item type -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Тип доступа*</label>
+                <select name="item_type" x-model="itemType"
+                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    <option value="module">🧩 Модуль</option>
+                    <option value="extension">⚡ Расширение</option>
+                    <option value="bundle">🎁 Пакет</option>
+                </select>
+            </div>
+
+            <!-- Item key -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Ключ (что выдаём)*</label>
+                <div x-show="itemType==='module'">
+                    <select name="item_key_mod" onchange="document.getElementById('item_key_val').value=this.value"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                        <option value="">— выберите модуль —</option>
+                        {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
+                    </select>
+                </div>
+                <div x-show="itemType==='extension'">
+                    <select name="item_key_ext" onchange="document.getElementById('item_key_val').value=this.value"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                        <option value="">— выберите расширение —</option>
+                        {% for e in extensions %}<option value="{{ e.key }}">{{ e.icon }} {{ e.name }} ({{ e.module_key }}) — {{ e.price_monthly|int }}₽/мес</option>{% endfor %}
+                    </select>
+                </div>
+                <div x-show="itemType==='bundle'">
+                    <select name="item_key_bnd" onchange="document.getElementById('item_key_val').value=this.value"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                        <option value="">— выберите пакет —</option>
+                        {% for b in bundles %}<option value="{{ b.key }}">{{ b.icon }} {{ b.name }} — {{ b.price_monthly|int }}₽/мес</option>{% endfor %}
+                    </select>
+                </div>
+                <input type="hidden" name="item_key" id="item_key_val">
+            </div>
+
+            <!-- Duration + price -->
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Срок (дней, 0 = бессрочно)</label>
+                    <input name="duration_days" type="number" value="30" min="0"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Оплачено ₽ (0 = бесплатно)</label>
+                    <input name="price_paid" type="number" step="0.01" value="0"
+                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Заметка (необязательно)</label>
+            <input name="note" placeholder="Тест, акция, подарок..." maxlength="200"
+                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+        </div>
+
+        <div>
+            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors">🎟️ Выдать доступ</button>
+        </div>
+    </form>
+</div>
+
+<!-- Search -->
+<form method="get" action="/admin/billing/grants" class="flex gap-2 mb-4">
+    <input name="q" value="{{ q }}" placeholder="Поиск по Telegram ID, ключу, источнику..."
+           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <button type="submit" class="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">🔍 Найти</button>
+    {% if q %}<a href="/admin/billing/grants" class="bg-slate-100 dark:bg-slate-700 text-slate-500 text-sm px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors flex items-center">✕</a>{% endif %}
+</form>
+
+<!-- Grants table -->
+{% if subs %}
+<div class="card overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700">
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">ID / Тип</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Telegram ID</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Ключ</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Оплачено</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Активно до</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Источник</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Статус</th>
+                    <th class="px-4 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
+                {% for s in subs %}
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 {% if not s.is_active %}opacity-50{% endif %}">
+                    <td class="px-4 py-3">
+                        <span class="text-xs text-slate-400">#{{ s.id }}</span><br>
+                        <span class="text-xs font-semibold {% if s.item_type == 'module' %}text-indigo-600{% elif s.item_type == 'extension' %}text-violet-600{% else %}text-blue-600{% endif %}">
+                            {% if s.item_type == 'module' %}🧩{% elif s.item_type == 'extension' %}⚡{% else %}🎁{% endif %} {{ item_type_labels.get(s.item_type, s.item_type) }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <code class="text-xs text-slate-700 dark:text-slate-300">{{ s.user_telegram_id }}</code>
+                    </td>
+                    <td class="px-4 py-3">
+                        <code class="text-xs font-semibold text-slate-800 dark:text-slate-100">{{ s.item_key }}</code>
+                        {% if s.note %}<p class="text-[10px] text-slate-400 mt-0.5">{{ s.note }}</p>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                        {% if s.price_paid %}<span class="font-semibold">{{ "{:,.0f}".format(s.price_paid) }} ₽</span>
+                        {% else %}<span class="text-slate-400">бесплатно</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-500">
+                        {% if s.end_date %}{{ s.end_date[:10] }}{% else %}<span class="text-emerald-600 font-semibold">∞</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-slate-400">{{ s.granted_by or '—' }}</td>
+                    <td class="px-4 py-3">
+                        {% if s.is_active %}<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Активно</span>
+                        {% else %}<span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-semibold">Отозвано</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        {% if s.is_active %}
+                        <form method="post" action="/admin/billing/revoke/{{ s.id }}" onsubmit="return confirm('Отозвать доступ к {{ s.item_key|e }}?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="text-xs px-2.5 py-1 bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg font-semibold transition-colors">🔒 Отозвать</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card p-10 text-center text-slate-400">
+    <p class="text-4xl mb-3">🎟️</p>
+    <p>{% if q %}Ничего не найдено.{% else %}Доступы ещё не выдавались.{% endif %}</p>
+</div>
+{% endif %}
+
+<script>
+// Sync selects → hidden item_key on type change
+document.addEventListener('alpine:initialized', () => {
+    document.querySelectorAll('[x-model="itemType"]').forEach(el => {
+        el.addEventListener('change', () => {
+            document.getElementById('item_key_val').value = '';
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Биллинг — Супер-Кабинет{% endblock %}
+{% block breadcrumb %}
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Биллинг</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">💰 Конфигуратор биллинга</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Модули, расширения, пакеты, выдача доступов</p>
+    </div>
+    <span class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full font-semibold">super_admin</span>
+</div>
+
+{% if msg == 'saved' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800">✅ Сохранено.</div>
+{% elif msg == 'error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">❌ Ошибка при сохранении.</div>
+{% endif %}
+
+<!-- Stats cards -->
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Модулей активно</p>
+        <p class="text-2xl font-bold text-indigo-600">{{ stats.modules_active }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Расширений активно</p>
+        <p class="text-2xl font-bold text-violet-600">{{ stats.exts_active }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Пакетов активно</p>
+        <p class="text-2xl font-bold text-blue-600">{{ stats.bundles_active }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Клиентов с доступом</p>
+        <p class="text-2xl font-bold text-emerald-600">{{ stats.clients_count }}</p>
+    </div>
+    <div class="card p-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-1">Выручка 30д (₽)</p>
+        <p class="text-2xl font-bold text-amber-600">{{ "{:,.0f}".format(stats.revenue_30d or 0) }}</p>
+    </div>
+</div>
+
+<!-- Navigation cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+    <a href="/admin/billing/modules" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">🧩</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 transition-colors">Модули</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Создать, редактировать, цена, расширения</p>
+    </a>
+    <a href="/admin/billing/modules?tab=extensions" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">⚡</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-violet-600 transition-colors">Расширения</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Доп. функции внутри модулей</p>
+    </a>
+    <a href="/admin/billing/bundles" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">🎁</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-blue-600 transition-colors">Пакеты</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Связки модулей со скидкой</p>
+    </a>
+    <a href="/admin/billing/grants" class="card p-5 hover:shadow-md transition-shadow group">
+        <div class="text-3xl mb-2">🎟️</div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 transition-colors">Выдача доступов</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Выдать/отозвать модуль/расширение</p>
+    </a>
+</div>
+
+<!-- Revenue per module -->
+{% if stats.per_module %}
+<div class="card p-5 mb-6">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">📊 Выручка по модулям (всё время)</h2>
+    <div class="space-y-2">
+        {% for row in stats.per_module %}
+        <div class="flex items-center gap-3">
+            <span class="text-sm font-mono text-indigo-600 dark:text-indigo-400 w-32 shrink-0">{{ row.key }}</span>
+            <div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                {% set max_rev = stats.per_module[0].revenue or 1 %}
+                <div class="bg-indigo-500 h-2 rounded-full" style="width: {{ [((row.revenue or 0) / max_rev * 100)|int, 100]|min }}%"></div>
+            </div>
+            <span class="text-sm text-slate-600 dark:text-slate-300 w-20 text-right shrink-0">{{ "{:,.0f}".format(row.revenue or 0) }} ₽</span>
+            <span class="text-xs text-slate-400 w-12 text-right shrink-0">{{ row.count }} кл.</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick module overview -->
+<div class="card p-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">🧩 Текущие модули</h2>
+        <a href="/admin/billing/modules" class="text-xs text-indigo-600 hover:underline">Управлять →</a>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
+        {% for m in modules %}
+        <div class="flex items-center gap-2 p-2.5 rounded-xl border dark:border-slate-700 {% if m.is_active %}border-slate-200 bg-white dark:bg-slate-800{% else %}border-slate-100 bg-slate-50 dark:bg-slate-900 opacity-60{% endif %}">
+            <span class="text-xl">{{ m.icon }}</span>
+            <div class="min-w-0">
+                <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{{ m.name }}</p>
+                <p class="text-xs text-slate-400">{{ m.price_monthly|int }} ₽/мес {% if not m.is_active %}<span class="text-red-400">• откл.</span>{% endif %}</p>
+            </div>
+        </div>
+        {% else %}
+        <p class="col-span-3 text-sm text-slate-400 text-center py-4">Нет модулей. <a href="/admin/billing/modules" class="text-indigo-500 hover:underline">Создать</a></p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

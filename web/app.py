@@ -462,6 +462,7 @@ def create_web_app() -> FastAPI:
     from web.routes.support import router as support_router
     from web.routes.chat import router as chat_router
     from web.routes.admin import router as admin_router
+    from web.routes.admin_billing import router as admin_billing_router
     from web.routes.tasks import router as tasks_router
     from web.routes.email_auth import router as email_auth_router
     from web.routes.ai_routes import router as ai_router
@@ -493,6 +494,7 @@ def create_web_app() -> FastAPI:
     app.include_router(support_router)
     app.include_router(chat_router)
     app.include_router(admin_router)
+    app.include_router(admin_billing_router)
     app.include_router(tasks_router)
     app.include_router(email_auth_router)
     app.include_router(ai_router)

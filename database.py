@@ -1271,6 +1271,68 @@ class Database:
                 )
             ''')
 
+        # ── Биллинг: модули, расширения, пакеты, подписки (только shop_bot.db) ─
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS billing_modules (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key           TEXT UNIQUE NOT NULL,
+                    name          TEXT NOT NULL,
+                    icon          TEXT DEFAULT '📦',
+                    description   TEXT DEFAULT '',
+                    price_monthly REAL DEFAULT 0,
+                    sort_order    INTEGER DEFAULT 0,
+                    is_active     INTEGER DEFAULT 1,
+                    features_json TEXT DEFAULT '[]',
+                    updated_at    TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS billing_extensions (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    module_key    TEXT NOT NULL,
+                    key           TEXT UNIQUE NOT NULL,
+                    name          TEXT NOT NULL,
+                    icon          TEXT DEFAULT '⚡',
+                    description   TEXT DEFAULT '',
+                    price_monthly REAL DEFAULT 0,
+                    sort_order    INTEGER DEFAULT 0,
+                    is_active     INTEGER DEFAULT 1,
+                    updated_at    TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS billing_bundles (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key           TEXT UNIQUE NOT NULL,
+                    name          TEXT NOT NULL,
+                    icon          TEXT DEFAULT '🎁',
+                    description   TEXT DEFAULT '',
+                    includes_json TEXT NOT NULL DEFAULT '{"modules":[],"extensions":[]}',
+                    price_monthly REAL DEFAULT 0,
+                    sort_order    INTEGER DEFAULT 0,
+                    is_active     INTEGER DEFAULT 1,
+                    updated_at    TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS billing_module_subs (
+                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_telegram_id   INTEGER NOT NULL,
+                    item_type          TEXT NOT NULL,
+                    item_key           TEXT NOT NULL,
+                    quantity           INTEGER DEFAULT 1,
+                    price_paid         REAL DEFAULT 0,
+                    start_date         TEXT DEFAULT (datetime('now')),
+                    end_date           TEXT,
+                    is_active          INTEGER DEFAULT 1,
+                    payment_request_id INTEGER,
+                    granted_by         TEXT DEFAULT 'payment',
+                    note               TEXT DEFAULT '',
+                    created_at         TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+
         # ── Индексы для ускорения тяжёлых запросов ──────────────────────────
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
@@ -1304,6 +1366,11 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_created_by       ON tasks(created_by, status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_checklist_task    ON task_checklist(task_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_comments_task     ON task_comments(task_id, created_at)')
+
+        if 'shop_bot' in self.db_file:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -1404,6 +1471,76 @@ class Database:
                     INSERT INTO payment_settings (key, value)
                     VALUES (?, ?)
                 ''', (key, value))
+
+        # Инициализируем данные биллинг-системы (только shop_bot.db)
+        if 'shop_bot' in self.db_file:
+            self._init_billing_defaults(cursor)
+
+    def _init_billing_defaults(self, cursor):
+        """Заполнить billing_modules, billing_extensions, billing_bundles дефолтными данными."""
+        cursor.execute('SELECT COUNT(*) FROM billing_modules')
+        if cursor.fetchone()[0] > 0:
+            return  # Уже инициализировано
+
+        DEFAULT_MODULES = [
+            ('analytics',        '📊 Аналитика',         '📊', 'Углублённая аналитика продаж, рейтинги, тренды', 299, 1),
+            ('team',             '👥 Команда',            '👥', 'Зарплата, мотивация, конкурсы, расписание',       399, 2),
+            ('notifications',    '🔔 Уведомления',        '🔔', 'Push-уведомления, плановые рассылки, алерты',      199, 3),
+            ('plans_motivation', '📈 Планы и мотивация',  '📈', 'Планы продаж, мотивационные схемы, вехи',         249, 4),
+            ('ai_assistant',     '🤖 ИИ-ассистент',       '🤖', 'AI-анализ отчётов, прогноз, умные алерты',        299, 5),
+            ('integrations',     '🔗 Интеграции',         '🔗', 'Google Таблицы, автоэкспорт, API',                399, 6),
+            ('chat',             '💬 Чат команды',         '💬', 'Внутренний чат с темами и личными сообщениями',   149, 7),
+        ]
+        for key, name, icon, description, price, sort in DEFAULT_MODULES:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_modules (key,name,icon,description,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,1)',
+                (key, name, icon, description, price, sort)
+            )
+
+        DEFAULT_EXTENSIONS = [
+            # analytics
+            ('analytics',        'abc_analysis',       '🧮', 'ABC-анализ',               'Классификация товаров A/B/C по выручке',           149, 1),
+            ('analytics',        'heatmap',            '🌡️', 'Тепловая карта',           'Карта продаж по дням и часам',                      99, 2),
+            ('analytics',        'turnover',           '🔄', 'Оборачиваемость',          'Анализ скорости оборота товаров',                    99, 3),
+            ('analytics',        'dead_stock',         '📦', 'Залежалые товары',         'Выявление неликвидных позиций',                      99, 4),
+            ('analytics',        'trend_forecast',     '📉', 'Прогноз тренда',           'Прогноз продаж на 7/30 дней',                       149, 5),
+            # team
+            ('team',             'contests',           '🏆', 'Конкурсы',                 'Создание конкурсов между продавцами',               199, 1),
+            ('team',             'salary_export',      '📊', 'ФОТ-экспорт Excel',        'Выгрузка зарплатных данных в Excel',                 99, 2),
+            ('team',             'joint_motivation',   '💰', 'Совместная мотивация',     'Общий мотивационный фонд для команды',              149, 3),
+            # notifications
+            ('notifications',    'scheduled_notifs',   '📅', 'Плановые рассылки',        'Отложенные и повторяющиеся уведомления',            149, 1),
+            ('notifications',    'smart_alerts',       '🤖', 'Смарт-алерты',             'Автоматические алерты при отклонении',              199, 2),
+            # plans_motivation
+            ('plans_motivation', 'plan_filters',       '🔍', 'Планы с фильтрами',        'Фильтрация планов по категориям и товарам',          99, 1),
+            ('plans_motivation', 'milestone_alerts',   '🎯', 'Вехи и алерты',            'Уведомления при достижении вех плана',               99, 2),
+            ('plans_motivation', 'plan_coefficients',  '⚖️', 'Коэффициенты плана',       'Мотивационные коэффициенты выполнения',             149, 3),
+            # ai_assistant
+            ('ai_assistant',     'ai_forecast',        '🔮', 'Прогноз продаж (AI)',      'ML-прогноз продаж на 7–30 дней',                   149, 1),
+            ('ai_assistant',     'ai_smart_alerts',    '🚨', 'Смарт-алерты (AI)',        'AI-детектирование аномалий в продажах',             199, 2),
+            ('ai_assistant',     'ai_high_limit',      '⚡', 'Лимит: 200 запросов/д',   'Увеличенный дневной лимит запросов к AI',            99, 3),
+            # integrations
+            ('integrations',     'gs_realtime',        '🔄', 'Реал-тайм в Таблицы',     'Авто-синхронизация в Google Таблицы по событию',    99, 1),
+        ]
+        for module_key, key, icon, name, description, price, sort in DEFAULT_EXTENSIONS:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_extensions (module_key,key,name,icon,description,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,?,1)',
+                (module_key, key, name, icon, description, price, sort)
+            )
+
+        DEFAULT_BUNDLES = [
+            ('small_biz',   '🏪', 'Малый бизнес',       'Аналитика + Уведомления для небольшого магазина',
+             '{"modules":["analytics","notifications"],"extensions":[]}', 399, 1),
+            ('team_bundle', '👥', 'Управление командой', 'Команда + Планы + Уведомления — полный HR-пакет',
+             '{"modules":["team","plans_motivation","notifications"],"extensions":[]}', 699, 2),
+            ('all_in_one',  '🎯', 'Всё включено',        'Все 6 основных модулей — максимальный функционал',
+             '{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations"],"extensions":[]}', 1299, 3),
+        ]
+        for key, icon, name, description, includes_json, price, sort in DEFAULT_BUNDLES:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_bundles (key,name,icon,description,includes_json,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,?,1)',
+                (key, name, icon, description, includes_json, price, sort)
+            )
 
     def get_recent_sales(self, limit=10):
         """Получить список последних продаж"""
@@ -10557,4 +10694,387 @@ class Database:
         except Exception as exc:
             logger.error("save_ai_alert_settings: %s", exc)
             return False
+
+    # ── BILLING SYSTEM ────────────────────────────────────────────────────────
+
+    def get_all_billing_modules(self) -> list:
+        """Все модули биллинга, сортированные по sort_order."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id,key,name,icon,description,price_monthly,sort_order,is_active,features_json '
+                'FROM billing_modules ORDER BY sort_order,id'
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [
+                {'id': r[0], 'key': r[1], 'name': r[2], 'icon': r[3], 'description': r[4],
+                 'price_monthly': r[5], 'sort_order': r[6], 'is_active': bool(r[7]),
+                 'features_json': r[8] or '[]'}
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error('get_all_billing_modules: %s', exc)
+            return []
+
+    def upsert_billing_module(
+        self, key: str, name: str, icon: str, description: str,
+        price_monthly: float, sort_order: int = 0,
+        is_active: int = 1, features_json: str = '[]'
+    ) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''INSERT INTO billing_modules (key,name,icon,description,price_monthly,sort_order,is_active,features_json,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET
+                       name=excluded.name, icon=excluded.icon, description=excluded.description,
+                       price_monthly=excluded.price_monthly, sort_order=excluded.sort_order,
+                       is_active=excluded.is_active, features_json=excluded.features_json,
+                       updated_at=datetime('now')''',
+                (key, name, icon, description, price_monthly, sort_order, is_active, features_json)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('upsert_billing_module: %s', exc)
+            return False
+
+    def toggle_billing_module(self, module_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE billing_modules SET is_active=1-is_active, updated_at=datetime('now') WHERE id=?",
+                (module_id,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('toggle_billing_module: %s', exc)
+            return False
+
+    def delete_billing_module(self, module_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute('SELECT key FROM billing_modules WHERE id=?', (module_id,))
+            row = cur.fetchone()
+            if row:
+                conn.execute('DELETE FROM billing_extensions WHERE module_key=?', (row[0],))
+            conn.execute('DELETE FROM billing_modules WHERE id=?', (module_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('delete_billing_module: %s', exc)
+            return False
+
+    def get_all_billing_extensions(self, module_key: str = None) -> list:
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            if module_key:
+                cursor.execute(
+                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active '
+                    'FROM billing_extensions WHERE module_key=? ORDER BY sort_order,id',
+                    (module_key,)
+                )
+            else:
+                cursor.execute(
+                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active '
+                    'FROM billing_extensions ORDER BY module_key,sort_order,id'
+                )
+            rows = cursor.fetchall()
+            conn.close()
+            return [
+                {'id': r[0], 'module_key': r[1], 'key': r[2], 'name': r[3], 'icon': r[4],
+                 'description': r[5], 'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8])}
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error('get_all_billing_extensions: %s', exc)
+            return []
+
+    def upsert_billing_extension(
+        self, module_key: str, key: str, name: str, icon: str,
+        description: str, price_monthly: float,
+        sort_order: int = 0, is_active: int = 1
+    ) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''INSERT INTO billing_extensions (module_key,key,name,icon,description,price_monthly,sort_order,is_active,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET
+                       module_key=excluded.module_key, name=excluded.name, icon=excluded.icon,
+                       description=excluded.description, price_monthly=excluded.price_monthly,
+                       sort_order=excluded.sort_order, is_active=excluded.is_active, updated_at=datetime('now')''',
+                (module_key, key, name, icon, description, price_monthly, sort_order, is_active)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('upsert_billing_extension: %s', exc)
+            return False
+
+    def toggle_billing_extension(self, ext_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE billing_extensions SET is_active=1-is_active, updated_at=datetime('now') WHERE id=?",
+                (ext_id,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('toggle_billing_extension: %s', exc)
+            return False
+
+    def delete_billing_extension(self, ext_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute('DELETE FROM billing_extensions WHERE id=?', (ext_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('delete_billing_extension: %s', exc)
+            return False
+
+    def get_all_billing_bundles(self) -> list:
+        """Возвращает пакеты с предпарсенным полем includes."""
+        import json as _j
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT id,key,name,icon,description,includes_json,price_monthly,sort_order,is_active '
+                'FROM billing_bundles ORDER BY sort_order,id'
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                try:
+                    includes = _j.loads(r[5] or '{}')
+                except Exception:
+                    includes = {'modules': [], 'extensions': []}
+                result.append({
+                    'id': r[0], 'key': r[1], 'name': r[2], 'icon': r[3],
+                    'description': r[4], 'includes_json': r[5],
+                    'includes': includes,
+                    'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8])
+                })
+            return result
+        except Exception as exc:
+            logger.error('get_all_billing_bundles: %s', exc)
+            return []
+
+    def upsert_billing_bundle(
+        self, key: str, name: str, icon: str, description: str,
+        includes_json: str, price_monthly: float,
+        sort_order: int = 0, is_active: int = 1
+    ) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''INSERT INTO billing_bundles (key,name,icon,description,includes_json,price_monthly,sort_order,is_active,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET
+                       name=excluded.name, icon=excluded.icon, description=excluded.description,
+                       includes_json=excluded.includes_json, price_monthly=excluded.price_monthly,
+                       sort_order=excluded.sort_order, is_active=excluded.is_active, updated_at=datetime('now')''',
+                (key, name, icon, description, includes_json, price_monthly, sort_order, is_active)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('upsert_billing_bundle: %s', exc)
+            return False
+
+    def toggle_billing_bundle(self, bundle_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE billing_bundles SET is_active=1-is_active, updated_at=datetime('now') WHERE id=?",
+                (bundle_id,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('toggle_billing_bundle: %s', exc)
+            return False
+
+    def delete_billing_bundle(self, bundle_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute('DELETE FROM billing_bundles WHERE id=?', (bundle_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('delete_billing_bundle: %s', exc)
+            return False
+
+    def grant_billing_item(
+        self,
+        user_telegram_id: int,
+        item_type: str,
+        item_key: str,
+        duration_days: int = 0,
+        price_paid: float = 0.0,
+        granted_by: str = 'admin_grant',
+        note: str = '',
+        payment_request_id: int = None,
+    ) -> int:
+        """Выдать модуль/расширение/пакет. duration_days=0 → бессрочно. Возвращает id строки."""
+        try:
+            from datetime import datetime as _dt, timedelta as _td
+            start = _dt.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            end = None
+            if duration_days and duration_days > 0:
+                end = (_dt.utcnow() + _td(days=duration_days)).strftime('%Y-%m-%d %H:%M:%S')
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO billing_module_subs
+                   (user_telegram_id,item_type,item_key,price_paid,start_date,end_date,
+                    is_active,payment_request_id,granted_by,note,created_at)
+                   VALUES (?,?,?,?,?,?,1,?,?,?,datetime('now'))''',
+                (user_telegram_id, item_type, item_key, price_paid,
+                 start, end, payment_request_id, granted_by, note)
+            )
+            sub_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+            return sub_id or 0
+        except Exception as exc:
+            logger.error('grant_billing_item: %s', exc)
+            return 0
+
+    def revoke_billing_item(self, sub_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute('UPDATE billing_module_subs SET is_active=0 WHERE id=?', (sub_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error('revoke_billing_item: %s', exc)
+            return False
+
+    def get_billing_module_subs(
+        self,
+        user_telegram_id: int = None,
+        active_only: bool = True,
+        limit: int = 300,
+    ) -> list:
+        """Список подписок на модули/расширения/пакеты."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            wheres, params = [], []
+            if active_only:
+                wheres.append("is_active=1 AND (end_date IS NULL OR end_date > datetime('now'))")
+            if user_telegram_id:
+                wheres.append('user_telegram_id=?')
+                params.append(user_telegram_id)
+            where_sql = ('WHERE ' + ' AND '.join(wheres)) if wheres else ''
+            cursor.execute(
+                f'''SELECT id,user_telegram_id,item_type,item_key,price_paid,
+                           start_date,end_date,is_active,granted_by,note,created_at
+                    FROM billing_module_subs {where_sql} ORDER BY created_at DESC LIMIT ?''',
+                params + [limit]
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [
+                {'id': r[0], 'user_telegram_id': r[1], 'item_type': r[2], 'item_key': r[3],
+                 'price_paid': r[4], 'start_date': r[5], 'end_date': r[6],
+                 'is_active': bool(r[7]), 'granted_by': r[8], 'note': r[9], 'created_at': r[10]}
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error('get_billing_module_subs: %s', exc)
+            return []
+
+    def check_billing_item(self, user_telegram_id: int, item_key: str) -> bool:
+        """True если у пользователя есть активная подписка на item_key."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                """SELECT 1 FROM billing_module_subs
+                   WHERE user_telegram_id=? AND item_key=? AND is_active=1
+                     AND (end_date IS NULL OR end_date > datetime('now')) LIMIT 1""",
+                (user_telegram_id, item_key)
+            ).fetchone()
+            conn.close()
+            return row is not None
+        except Exception as exc:
+            logger.error('check_billing_item: %s', exc)
+            return False
+
+    def get_user_active_billing_items(self, user_telegram_id: int) -> set:
+        """Множество активных item_key для пользователя."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT item_key FROM billing_module_subs
+                   WHERE user_telegram_id=? AND is_active=1
+                     AND (end_date IS NULL OR end_date > datetime('now'))""",
+                (user_telegram_id,)
+            ).fetchall()
+            conn.close()
+            return {r[0] for r in rows}
+        except Exception as exc:
+            logger.error('get_user_active_billing_items: %s', exc)
+            return set()
+
+    def get_billing_stats(self) -> dict:
+        """Статистика биллинга для super admin панели."""
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*) FROM billing_modules WHERE is_active=1')
+            modules_active = cur.fetchone()[0]
+            cur.execute('SELECT COUNT(*) FROM billing_extensions WHERE is_active=1')
+            exts_active = cur.fetchone()[0]
+            cur.execute('SELECT COUNT(*) FROM billing_bundles WHERE is_active=1')
+            bundles_active = cur.fetchone()[0]
+            cur.execute(
+                """SELECT COUNT(DISTINCT user_telegram_id) FROM billing_module_subs
+                   WHERE is_active=1 AND (end_date IS NULL OR end_date > datetime('now'))"""
+            )
+            clients_count = cur.fetchone()[0]
+            cur.execute(
+                "SELECT SUM(price_paid) FROM billing_module_subs "
+                "WHERE is_active=1 AND created_at >= date('now','-30 days')"
+            )
+            rev_30d = cur.fetchone()[0] or 0.0
+            cur.execute(
+                """SELECT item_key, COUNT(*) AS cnt, SUM(price_paid) AS rev
+                   FROM billing_module_subs WHERE item_type='module'
+                   GROUP BY item_key ORDER BY rev DESC"""
+            )
+            per_module = [{'key': r[0], 'count': r[1], 'revenue': r[2] or 0} for r in cur.fetchall()]
+            conn.close()
+            return {
+                'modules_active': modules_active,
+                'exts_active': exts_active,
+                'bundles_active': bundles_active,
+                'clients_count': clients_count,
+                'revenue_30d': rev_30d,
+                'per_module': per_module,
+            }
+        except Exception as exc:
+            logger.error('get_billing_stats: %s', exc)
+            return {'modules_active': 0, 'exts_active': 0, 'bundles_active': 0,
+                    'clients_count': 0, 'revenue_30d': 0, 'per_module': []}
 

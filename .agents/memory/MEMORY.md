@@ -25,3 +25,4 @@
 - [Web Push VAPID setup](web-push-vapid.md) — pywebpush==2.3.0; VAPID_PUBLIC_KEY/PRIVATE_KEY/MAILTO в env vars; push_subscriptions в shop_bot.db; send_web_push в web/push_utils.py; SW v4 с badge; robots уже закрывает /api/
 - [Product photo gallery](product-photo-gallery.md) — product_photos в org_*.db; org-hash subdir /static/product_photos/{hash}/; бот скачивает через Bot API; веб multi-upload; свайп+лайтбокс Alpine; collapsible description
 - [AI LLM integration](ai-llm-integration.md) — web/ai_utils.py: fallback DeepSeek→Gemini→OpenRouter via aiohttp; 3 API routes /api/ai/*; APScheduler job ai_smart_alerts (07:05); NO httpx (use aiohttp); CSP не менять (server-side calls)
+- [Modular billing system](billing-system.md) — billing_utils.py + 4 DB tables in shop_bot.db; 18 DB methods; /admin/billing/* routes; get_all_billing_bundles() pre-parses includes_json → b.includes (avoid fromjson filter)
