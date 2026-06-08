@@ -123,6 +123,15 @@
                             <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 shrink-0 text-xs select-none">📦</div>
                             {% endif %}
                             <p class="font-medium text-slate-800 max-w-[200px] truncate" title="{{ p[1] }}">{{ p[1] }}</p>
+                            {% set abc = abc_grades.get(p[0]) %}
+                            {% if abc %}
+                            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0
+                                {% if abc == 'A' %}bg-emerald-100 text-emerald-700
+                                {% elif abc == 'B' %}bg-amber-100 text-amber-700
+                                {% else %}bg-slate-100 text-slate-500{% endif %}">
+                                {{ abc }}
+                            </span>
+                            {% endif %}
                         </div>
                     </td>
                     <td class="px-3 py-3 hidden sm:table-cell">

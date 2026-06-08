@@ -98,6 +98,7 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         "selected_category": category, "q": q,
         "stock": {}, "total_count": 0, "error": None,
         "page": 1, "total_pages": 1, "base_url": "/products",
+        "abc_grades": {},
     }
 
     try:
@@ -149,6 +150,32 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         ctx["page"] = page
         ctx["total_pages"] = total_pages
         ctx["base_url"] = base_url
+
+        # ── ABC-анализ: выручка по товарам за 90 дней ────────────────────────
+        try:
+            from datetime import date as _date, timedelta as _td
+            _start90 = (_date.today() - _td(days=90)).isoformat()
+            _conn = db.get_connection()
+            _rows = _conn.execute("""
+                SELECT product_id, SUM(quantity_sold * sale_price) AS revenue
+                FROM sales
+                WHERE date(sale_date) >= ?
+                GROUP BY product_id
+                HAVING revenue > 0
+                ORDER BY revenue DESC
+            """, (_start90,)).fetchall()
+            _conn.close()
+            if _rows:
+                _total = sum(r[1] for r in _rows)
+                _cumul = 0.0
+                _abc: dict[int, str] = {}
+                for _r in _rows:
+                    _cumul += _r[1]
+                    _pct = _cumul / _total
+                    _abc[_r[0]] = 'A' if _pct <= 0.80 else ('B' if _pct <= 0.95 else 'C')
+                ctx["abc_grades"] = _abc
+        except Exception:
+            pass
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

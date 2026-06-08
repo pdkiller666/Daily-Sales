@@ -606,6 +606,28 @@ function posApp() {
                 this.loadProducts();
                 this.loadMeta();
             }
+            /* ── Горячие клавиши POS ─────────────────────────────────── */
+            window.addEventListener('keydown', (e) => {
+                /* Пропускаем если фокус в поле ввода */
+                const tag = (document.activeElement?.tagName || '').toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button') return;
+                /* Пропускаем модификаторы и спецклавиши */
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                /* Цифры 1-9 → установить количество последнего товара в корзине */
+                if (e.key >= '1' && e.key <= '9') {
+                    const idx = this.cart.length - 1;
+                    if (idx >= 0) {
+                        e.preventDefault();
+                        this.setQty(idx, parseInt(e.key));
+                    }
+                    return;
+                }
+                /* Enter → открыть чекаут (если корзина не пуста и модал закрыт) */
+                if (e.key === 'Enter' && this.cart.length > 0 && !this.checkoutOpen && !this.successData) {
+                    e.preventDefault();
+                    this.checkoutOpen = true;
+                }
+            });
         },
 
         onShopChange() {
