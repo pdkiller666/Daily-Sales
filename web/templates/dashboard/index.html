@@ -135,7 +135,78 @@
 
 </div>
 
-<!-- ══ ROW 2: CHART + TOP SHOPS ══ -->
+<!-- ══ ROW 2: ACTIVE PLANS ══ -->
+{% if plans_dash %}
+<div class="card p-5 mb-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-slate-800">🎯 Активные планы продаж</h2>
+        <a href="/plans" class="text-xs text-blue-500 hover:underline shrink-0">Все →</a>
+    </div>
+    <div class="space-y-4">
+        {% for group in plans_dash %}
+        {% set g_color = 'text-emerald-600' if group.avg_pct >= 80 else ('text-amber-600' if group.avg_pct >= 40 else 'text-red-500') %}
+        <div class="bg-slate-50 border border-slate-100 rounded-xl p-4">
+            <!-- Group header -->
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-sm font-semibold text-slate-800 truncate">{{ group.key }}</span>
+                    <span class="text-xs text-slate-400 shrink-0">{{ '🏪' if group.target_type == 'shop' else '👤' }}</span>
+                </div>
+                {% if group.plans|length > 1 %}
+                <span class="text-xs text-slate-400 shrink-0">{{ group.plans|length }} плана</span>
+                {% endif %}
+            </div>
+            <!-- Plans inside group -->
+            <div class="space-y-3">
+            {% for p in group.plans %}
+            {% set bar_color = 'bg-emerald-500' if p.pct >= 80 else ('bg-amber-400' if p.pct >= 40 else 'bg-red-400') %}
+            {% set text_color = 'text-emerald-600' if p.pct >= 80 else ('text-amber-600' if p.pct >= 40 else 'text-red-500') %}
+            {% if not loop.first %}
+            <div class="border-t border-slate-200"></div>
+            {% endif %}
+            <a href="/plans/{{ p.id }}" class="block hover:opacity-80 transition-opacity">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <p class="text-xs text-slate-500">
+                        {{ 'Выручка' if p.metric == 'turnover' else 'Штуки' }}
+                        {% if p.metric == 'turnover' %}
+                        · {{ p.actual|int|fmt_currency }} / {{ p.target|int|fmt_currency }}
+                        {% else %}
+                        · {{ p.actual|int }}&thinsp;шт. / {{ p.target|int }}&thinsp;шт.
+                        {% endif %}
+                    </p>
+                    <span class="shrink-0 text-sm font-bold {{ text_color }}">{{ p.pct }}%</span>
+                </div>
+                <p class="text-xs text-slate-400 mb-1.5">
+                    {{ p.period_label }}
+                    {% if p.filter_type == 'category' and p.filter_value %}
+                    · Кат: {{ p.filter_value }}
+                    {% elif p.filter_type == 'product' and p.filter_value %}
+                    · Товар: {{ p.filter_value }}
+                    {% endif %}
+                </p>
+                <div class="relative w-full bg-slate-200 rounded-full h-2">
+                    <div class="{{ bar_color }} h-2 rounded-full ds-bar-fill" style="width: {{ [p.pct, 100]|min }}%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:25%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:50%"></div>
+                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:75%"></div>
+                </div>
+                {% if p.forecast_pct is not none and p.pct < 100 %}
+                <div class="flex items-center gap-1 mt-1">
+                    <span class="text-xs text-slate-400">Прогноз:</span>
+                    <span class="text-xs font-semibold {{ 'text-emerald-600' if p.forecast_pct >= 100 else ('text-amber-600' if p.forecast_pct >= 70 else 'text-red-500') }}">{{ p.forecast_pct }}%</span>
+                    <span class="text-xs text-slate-300">к концу периода</span>
+                </div>
+                {% endif %}
+            </a>
+            {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ══ ROW 3: CHART + TOP SHOPS ══ -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
 
     <!-- Revenue chart -->
@@ -334,77 +405,6 @@
 
     </div>
 </div>
-
-<!-- ══ ROW 4: ACTIVE PLANS ══ -->
-{% if plans_dash %}
-<div class="card p-5 mb-5">
-    <div class="flex items-center justify-between mb-4">
-        <h2 class="font-semibold text-slate-800">🎯 Активные планы продаж</h2>
-        <a href="/plans" class="text-xs text-blue-500 hover:underline shrink-0">Все →</a>
-    </div>
-    <div class="space-y-4">
-        {% for group in plans_dash %}
-        {% set g_color = 'text-emerald-600' if group.avg_pct >= 80 else ('text-amber-600' if group.avg_pct >= 40 else 'text-red-500') %}
-        <div class="bg-slate-50 border border-slate-100 rounded-xl p-4">
-            <!-- Group header -->
-            <div class="flex items-center justify-between gap-2 mb-3">
-                <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-sm font-semibold text-slate-800 truncate">{{ group.key }}</span>
-                    <span class="text-xs text-slate-400 shrink-0">{{ '🏪' if group.target_type == 'shop' else '👤' }}</span>
-                </div>
-                {% if group.plans|length > 1 %}
-                <span class="text-xs text-slate-400 shrink-0">{{ group.plans|length }} плана</span>
-                {% endif %}
-            </div>
-            <!-- Plans inside group -->
-            <div class="space-y-3">
-            {% for p in group.plans %}
-            {% set bar_color = 'bg-emerald-500' if p.pct >= 80 else ('bg-amber-400' if p.pct >= 40 else 'bg-red-400') %}
-            {% set text_color = 'text-emerald-600' if p.pct >= 80 else ('text-amber-600' if p.pct >= 40 else 'text-red-500') %}
-            {% if not loop.first %}
-            <div class="border-t border-slate-200"></div>
-            {% endif %}
-            <a href="/plans/{{ p.id }}" class="block hover:opacity-80 transition-opacity">
-                <div class="flex items-center justify-between gap-2 mb-1">
-                    <p class="text-xs text-slate-500">
-                        {{ 'Выручка' if p.metric == 'turnover' else 'Штуки' }}
-                        {% if p.metric == 'turnover' %}
-                        · {{ p.actual|int|fmt_currency }} / {{ p.target|int|fmt_currency }}
-                        {% else %}
-                        · {{ p.actual|int }}&thinsp;шт. / {{ p.target|int }}&thinsp;шт.
-                        {% endif %}
-                    </p>
-                    <span class="shrink-0 text-sm font-bold {{ text_color }}">{{ p.pct }}%</span>
-                </div>
-                <p class="text-xs text-slate-400 mb-1.5">
-                    {{ p.period_label }}
-                    {% if p.filter_type == 'category' and p.filter_value %}
-                    · Кат: {{ p.filter_value }}
-                    {% elif p.filter_type == 'product' and p.filter_value %}
-                    · Товар: {{ p.filter_value }}
-                    {% endif %}
-                </p>
-                <div class="relative w-full bg-slate-200 rounded-full h-2">
-                    <div class="{{ bar_color }} h-2 rounded-full ds-bar-fill" style="width: {{ [p.pct, 100]|min }}%"></div>
-                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:25%"></div>
-                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:50%"></div>
-                    <div class="absolute top-0 bottom-0 w-px bg-white/70" style="left:75%"></div>
-                </div>
-                {% if p.forecast_pct is not none and p.pct < 100 %}
-                <div class="flex items-center gap-1 mt-1">
-                    <span class="text-xs text-slate-400">Прогноз:</span>
-                    <span class="text-xs font-semibold {{ 'text-emerald-600' if p.forecast_pct >= 100 else ('text-amber-600' if p.forecast_pct >= 70 else 'text-red-500') }}">{{ p.forecast_pct }}%</span>
-                    <span class="text-xs text-slate-300">к концу периода</span>
-                </div>
-                {% endif %}
-            </a>
-            {% endfor %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
 
 <!-- Chart.js + dark mode + drill-down -->
 <script>
