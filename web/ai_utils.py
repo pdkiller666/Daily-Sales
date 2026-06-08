@@ -52,7 +52,7 @@ def is_configured() -> bool:
 
 # ─── Provider implementations ────────────────────────────────────────────────
 
-async def _ask_deepseek(prompt: str, system: str, max_tokens: int) -> str:
+async def _ask_deepseek(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
     url = "https://api.deepseek.com/v1/chat/completions"
     messages = []
     if system:
@@ -62,7 +62,7 @@ async def _ask_deepseek(prompt: str, system: str, max_tokens: int) -> str:
         "model": "deepseek-chat",
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.7,
+        "temperature": temperature,
     }
     headers = {
         "Authorization": f"Bearer {_DEEPSEEK_KEY}",
@@ -81,7 +81,7 @@ async def _ask_deepseek(prompt: str, system: str, max_tokens: int) -> str:
             return content
 
 
-async def _ask_gemini(prompt: str, system: str, max_tokens: int) -> str:
+async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
     """
     Gemini REST API v1beta.
     Рабочая модель: gemini-flash-latest (alias → всегда актуальная Flash-версия).
@@ -89,7 +89,7 @@ async def _ask_gemini(prompt: str, system: str, max_tokens: int) -> str:
     """
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
     base = "https://generativelanguage.googleapis.com/v1beta/models"
-    gen_cfg = {"maxOutputTokens": max_tokens, "temperature": 0.7}
+    gen_cfg = {"maxOutputTokens": max_tokens, "temperature": temperature}
     payload = {
         "contents": [{"parts": [{"text": full_prompt}]}],
         "generationConfig": gen_cfg,
@@ -125,7 +125,7 @@ async def _ask_gemini(prompt: str, system: str, max_tokens: int) -> str:
     raise RuntimeError("All Gemini model aliases exhausted")
 
 
-async def _ask_openrouter(prompt: str, system: str, max_tokens: int) -> str:
+async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
     """
     OpenRouter API — пробует модели по порядку внутри провайдера.
     Платные (дешёвые): deepseek/deepseek-chat, openai/gpt-4o-mini.
@@ -152,7 +152,7 @@ async def _ask_openrouter(prompt: str, system: str, max_tokens: int) -> str:
 
     last_err: Exception | None = None
     for model in or_models:
-        payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
         try:
             async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
                 async with session.post(url, json=payload, headers=headers) as resp:
@@ -192,6 +192,7 @@ async def ask_llm(
     prompt: str,
     system: str = "",
     max_tokens: int = 500,
+    temperature: float = 0.2,
 ) -> str | None:
     """Попробовать DeepSeek → Gemini → OpenRouter.
 
@@ -220,7 +221,7 @@ async def ask_llm(
 
     for name, fn in providers:
         try:
-            result = await fn(prompt, sys_prompt, max_tokens)  # type: ignore[operator]
+            result = await fn(prompt, sys_prompt, max_tokens, temperature)  # type: ignore[operator]
             if result:
                 logger.info("ask_llm: OK from %s (%d chars)", name, len(result))
                 return result
