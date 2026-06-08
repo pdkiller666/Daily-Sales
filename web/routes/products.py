@@ -841,6 +841,7 @@ def product_detail(request: Request, product_id: int):
         "chart_labels": [], "chart_data": [],
         "error": None,
         "user_tz": "Europe/Moscow",
+        "product_history": [],
     }
 
     try:
@@ -888,6 +889,12 @@ def product_detail(request: Request, product_id: int):
                 })
         inv_log.sort(key=lambda x: x["changed_at"], reverse=True)
         ctx["inventory_log"] = inv_log[:30]
+
+        # Product change history (price etc.)
+        try:
+            ctx["product_history"] = db.get_product_history(product_id, limit=20) or []
+        except Exception:
+            pass
 
         # Recent sales of this product
         today = date.today()
@@ -973,13 +980,22 @@ def api_update_product_price(
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         conn = db.get_connection()
-        updated = conn.execute(
-            "UPDATE products SET price = ? WHERE id = ?", (price, product_id)
-        ).rowcount
+        # Read old price BEFORE updating
+        old_row = conn.execute("SELECT price FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not old_row:
+            conn.close()
+            return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+        old_price = int(old_row[0]) if old_row[0] is not None else None
+        conn.execute("UPDATE products SET price = ? WHERE id = ?", (price, product_id))
         conn.commit()
         conn.close()
-        if not updated:
-            return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+        # Log price change
+        try:
+            first_name = user.get("first_name") or str(user.get("sub", ""))
+            db.add_product_history(product_id, "price", old_price, price,
+                                   changed_by=int(user["sub"]), changed_by_name=first_name)
+        except Exception:
+            pass
         price_fmt = f"{price:,}".replace(",", "\u00a0") + "\u00a0₽"
         return JSONResponse({"ok": True, "price_fmt": price_fmt})
     except Exception:

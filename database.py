@@ -318,6 +318,22 @@ class Database:
         ''')
 
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS product_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id  INTEGER NOT NULL,
+                field       TEXT NOT NULL,
+                old_value   TEXT,
+                new_value   TEXT,
+                changed_by  INTEGER,
+                changed_by_name TEXT,
+                changed_at  TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_product_history_pid ON product_history(product_id, changed_at DESC)'
+        )
+
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS scheduled_notifications (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT UNIQUE NOT NULL,
@@ -3055,6 +3071,36 @@ class Database:
         ''', values)
         conn.commit()
         conn.close()
+
+    def add_product_history(self, product_id: int, field: str, old_value, new_value,
+                            changed_by: int = None, changed_by_name: str = None) -> None:
+        """Log a product field change (e.g. price) to product_history."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO product_history (product_id, field, old_value, new_value, changed_by, changed_by_name)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (product_id, field, str(old_value) if old_value is not None else None,
+                 str(new_value) if new_value is not None else None, changed_by, changed_by_name)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def get_product_history(self, product_id: int, limit: int = 30):
+        """Return last N changes for product. Rows: id,product_id,field,old_value,new_value,changed_by,changed_by_name,changed_at."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, product_id, field, old_value, new_value, changed_by, changed_by_name, changed_at"
+                " FROM product_history WHERE product_id = ? ORDER BY changed_at DESC LIMIT ?",
+                (product_id, limit)
+            ).fetchall()
+            conn.close()
+            return rows
+        except Exception:
+            return []
 
     def add_notification_to_history(self, user_id, notification_type, message):
         conn = self.get_connection()

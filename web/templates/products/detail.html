@@ -385,6 +385,39 @@
 </div>
 {% endif %}
 
+<!-- Product change history -->
+{% if product_history %}
+<div class="card overflow-hidden mt-5">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">📋 История изменений товара</h2>
+    </div>
+    <div class="divide-y divide-slate-50 dark:divide-slate-800">
+        {% for h in product_history %}
+        {# h: id[0] product_id[1] field[2] old_value[3] new_value[4] changed_by[5] changed_by_name[6] changed_at[7] #}
+        <div class="px-5 py-3 flex items-center justify-between gap-4">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-0.5">
+                    <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                        {% if h[2] == 'price' %}Цена{% else %}{{ h[2] }}{% endif %}
+                    </span>
+                    <span class="text-xs text-slate-400">{{ (h[7] or '')[:16] }}</span>
+                </div>
+                <p class="text-xs text-slate-400">{{ h[6] or '—' }}</p>
+            </div>
+            <div class="text-right shrink-0 text-sm">
+                {% if h[2] == 'price' %}
+                <span class="text-slate-400 line-through text-xs mr-1">{{ (h[3]|int)|fmt_currency if h[3] else '—' }}</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-100">{{ (h[4]|int)|fmt_currency if h[4] else '—' }}</span>
+                {% else %}
+                <span class="text-slate-400 text-xs">{{ h[3] or '—' }} → {{ h[4] or '—' }}</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="card py-20 text-center text-slate-400">
     <p class="text-6xl mb-4">📦</p>
