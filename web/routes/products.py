@@ -960,6 +960,92 @@ def product_detail(request: Request, product_id: int):
     )
 
 
+@router.post("/products/bulk")
+def products_bulk_action(
+    request: Request,
+    action: str = Form(...),
+    ids: str = Form(default=""),
+    value: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Bulk-операции с товарами (delete / set_category / adjust_price)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import RedirectResponse
+
+    user = get_session_user(request)
+    if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse("/products?error=access", status_code=303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/products?error=csrf", status_code=303)
+
+    # Parse IDs
+    try:
+        product_ids = [int(x.strip()) for x in ids.split(",") if x.strip().lstrip("-").isdigit()]
+    except Exception:
+        product_ids = []
+    if not product_ids:
+        return RedirectResponse("/products?error=no_ids", status_code=303)
+
+    db = get_web_db(int(user["sub"]), user.get("org_db"))
+    changed = 0
+
+    if action == "delete":
+        for pid in product_ids:
+            try:
+                db.delete_product(pid)
+                changed += 1
+            except Exception:
+                pass
+        return RedirectResponse(f"/products?bulk=deleted&n={changed}", status_code=303)
+
+    elif action == "set_category":
+        new_cat = value.strip()[:100]
+        if not new_cat:
+            return RedirectResponse("/products?error=empty_cat", status_code=303)
+        try:
+            conn = db.get_connection()
+            for pid in product_ids:
+                conn.execute("UPDATE products SET category = ? WHERE id = ?", (new_cat, pid))
+                changed += 1
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        return RedirectResponse(f"/products?bulk=category&n={changed}", status_code=303)
+
+    elif action == "adjust_price":
+        try:
+            pct = float(value)
+            if not (-99 <= pct <= 999):
+                raise ValueError("out of range")
+        except ValueError:
+            return RedirectResponse("/products?error=bad_pct", status_code=303)
+        try:
+            first_name = user.get("first_name") or str(user.get("sub", ""))
+            conn = db.get_connection()
+            for pid in product_ids:
+                row = conn.execute("SELECT price FROM products WHERE id = ?", (pid,)).fetchone()
+                if not row:
+                    continue
+                old_price = int(row[0] or 0)
+                new_price = max(0, round(old_price * (1 + pct / 100)))
+                conn.execute("UPDATE products SET price = ? WHERE id = ?", (new_price, pid))
+                try:
+                    db.add_product_history(pid, "price", old_price, new_price,
+                                           changed_by=int(user["sub"]), changed_by_name=first_name)
+                except Exception:
+                    pass
+                changed += 1
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        return RedirectResponse(f"/products?bulk=price&n={changed}", status_code=303)
+
+    return RedirectResponse("/products", status_code=303)
+
+
 @router.post("/api/products/{product_id}/price")
 def api_update_product_price(
     request: Request, product_id: int,
