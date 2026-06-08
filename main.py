@@ -1105,7 +1105,7 @@ async def main():
         misfire_grace_time=3600,
     )
 
-    # AI умные алерты — ежедневно в 07:05 (после накопления данных за вчера)
+    # AI умные алерты — каждый час в :05, час отправки настраивается per-org (МСК)
     async def ai_smart_alerts():
         """Анализирует падения выручки по каждой орг и отправляет алерты через LLM."""
         import os as _os, json as _json, urllib.request as _ureq
@@ -1137,6 +1137,7 @@ async def main():
         try:
             from database import Database
             import datetime as _dt
+            current_utc_hour = _dt.datetime.utcnow().hour
             db_paths = _get_scheduler_db_paths()
             yesterday = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
             week_ago  = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
@@ -1144,18 +1145,53 @@ async def main():
             for db_path in db_paths:
                 try:
                     db = Database(db_path)
+
+                    # Читаем per-org настройки алертов
+                    try:
+                        alert_cfg = db.get_ai_alert_settings()
+                    except Exception:
+                        alert_cfg = {"enabled": True, "threshold_pct": 35, "alert_hour_msk": 10, "metrics": ["revenue"]}
+
+                    if not alert_cfg.get("enabled", True):
+                        continue  # алерты отключены для этой орг
+
+                    # Проверяем: сейчас UTC-час совпадает с нужным? (МСК = UTC+3)
+                    msk_hour = int(alert_cfg.get("alert_hour_msk", 10))
+                    expected_utc_hour = (msk_hour - 3) % 24
+                    if current_utc_hour != expected_utc_hour:
+                        continue
+
+                    threshold = int(alert_cfg.get("threshold_pct", 35))
+                    metrics = alert_cfg.get("metrics", ["revenue"])
+
                     # Выручка за вчера
                     y_summary  = db.get_sales_summary(start_date=yesterday, end_date=yesterday) or (0, 0, 0, 0)
                     w_summary  = db.get_sales_summary(start_date=week_ago, end_date=yesterday)  or (0, 0, 0, 0)
                     y_rev  = float(y_summary[2] or 0)
                     w_rev  = float(w_summary[2] or 0)
+                    y_cnt  = int(y_summary[0] or 0)
+                    w_cnt  = int(w_summary[0] or 0)
+                    y_avg  = float(y_summary[3] or 0)
                     avg_7d = w_rev / 7 if w_rev > 0 else 0
+                    avg_7d_cnt = w_cnt / 7 if w_cnt > 0 else 0
 
-                    # Алерт только если средняя за 7 дней > 0 и вчера упало > 35%
+                    # Определяем нужно ли слать алерт
                     zero_yesterday = y_rev == 0 and avg_7d > 0
                     drop_pct = ((avg_7d - y_rev) / avg_7d * 100) if avg_7d > 0 else 0
 
-                    if not zero_yesterday and drop_pct < 35:
+                    revenue_alert = zero_yesterday or ("revenue" in metrics and drop_pct >= threshold)
+                    avg_check_alert = ("avg_check" in metrics and avg_7d_cnt > 0 and y_cnt > 0
+                                       and y_avg > 0 and w_cnt > 0)
+                    if avg_check_alert:
+                        avg_check_7d = (w_rev / w_cnt) if w_cnt > 0 else 0
+                        avg_check_drop = ((avg_check_7d - y_avg) / avg_check_7d * 100) if avg_check_7d > 0 else 0
+                        avg_check_alert = avg_check_drop >= threshold
+                    else:
+                        avg_check_alert = False
+                    txn_alert = ("transactions" in metrics and avg_7d_cnt > 0 and y_cnt > 0
+                                 and ((avg_7d_cnt - y_cnt) / avg_7d_cnt * 100) >= threshold)
+
+                    if not (revenue_alert or avg_check_alert or txn_alert):
                         continue  # всё нормально
 
                     # Получаем telegram_id владельцев/админов через штатный метод
@@ -1164,6 +1200,15 @@ async def main():
                         continue
 
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
+
+                    # Формируем дополнительный контекст для алерта
+                    extra_lines = []
+                    if avg_check_alert:
+                        extra_lines.append(f"Средний чек упал на {int(avg_check_drop)}%: {int(y_avg):,} ₽ vs {int(avg_check_7d):,} ₽ среднее 7д.")
+                    if txn_alert:
+                        txn_drop = (avg_7d_cnt - y_cnt) / avg_7d_cnt * 100 if avg_7d_cnt > 0 else 0
+                        extra_lines.append(f"Транзакций упало на {int(txn_drop)}%: {y_cnt} вчера vs {avg_7d_cnt:.1f} среднее 7д.")
+
                     ai_text: str | None = None
                     if is_configured():
                         try:
@@ -1174,7 +1219,9 @@ async def main():
                                 drop_pct=drop_pct,
                                 zero_yesterday=zero_yesterday,
                             )
-                            ai_text = await ask_llm(prompt, max_tokens=180)
+                            if extra_lines:
+                                prompt += "\nДополнительно: " + " ".join(extra_lines)
+                            ai_text = await ask_llm(prompt, max_tokens=200)
                         except Exception as _ai_err:
                             logging.warning(f"ai_smart_alerts LLM error: {_ai_err}")
 
@@ -1185,6 +1232,8 @@ async def main():
                     else:
                         msg = (f"📉 <b>Падение выручки на {int(drop_pct)}%</b>\n"
                                f"Вчера: {int(y_rev):,} ₽ | Среднее 7д: {int(avg_7d):,} ₽")
+                        if extra_lines:
+                            msg += "\n" + "\n".join(extra_lines)
 
                     for tg_id in admin_ids[:3]:  # максимум 3 адреса
                         if tg_id and tg_id > 0:
@@ -1197,11 +1246,11 @@ async def main():
 
     scheduler.add_job(
         ai_smart_alerts,
-        CronTrigger(hour=7, minute=5),
+        CronTrigger(hour='*', minute=5),
         id='ai_smart_alerts',
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=7200,
+        misfire_grace_time=3600,
     )
 
     scheduler.start()

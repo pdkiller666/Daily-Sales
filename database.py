@@ -1215,6 +1215,18 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_attach_task ON task_attachments(task_id)')
 
+        # ── AI smart alert settings (per-org, singleton row id=1) ─────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_alert_settings (
+                id             INTEGER PRIMARY KEY DEFAULT 1,
+                enabled        INTEGER DEFAULT 1,
+                threshold_pct  INTEGER DEFAULT 35,
+                alert_hour_msk INTEGER DEFAULT 10,
+                metrics        TEXT    DEFAULT '["revenue"]',
+                updated_at     TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -10489,4 +10501,60 @@ class Database:
         except Exception as exc:
             logger.error("get_push_subscriptions: %s", exc)
             return []
+
+    # ── AI smart alert settings ───────────────────────────────────────────────
+
+    def get_ai_alert_settings(self) -> dict:
+        """Return AI alert settings dict with defaults."""
+        import json as _json
+        defaults = {
+            "enabled": True,
+            "threshold_pct": 35,
+            "alert_hour_msk": 10,
+            "metrics": ["revenue"],
+        }
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT enabled, threshold_pct, alert_hour_msk, metrics FROM ai_alert_settings WHERE id = 1"
+            ).fetchone()
+            conn.close()
+            if row:
+                return {
+                    "enabled": bool(row[0]),
+                    "threshold_pct": int(row[1] or 35),
+                    "alert_hour_msk": int(row[2] or 10),
+                    "metrics": _json.loads(row[3] or '["revenue"]'),
+                }
+            return defaults
+        except Exception as exc:
+            logger.error("get_ai_alert_settings: %s", exc)
+            return defaults
+
+    def save_ai_alert_settings(
+        self,
+        enabled: bool,
+        threshold_pct: int,
+        alert_hour_msk: int,
+        metrics: list,
+    ) -> bool:
+        import json as _json
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                """INSERT INTO ai_alert_settings (id, enabled, threshold_pct, alert_hour_msk, metrics, updated_at)
+                   VALUES (1, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(id) DO UPDATE SET
+                       enabled        = excluded.enabled,
+                       threshold_pct  = excluded.threshold_pct,
+                       alert_hour_msk = excluded.alert_hour_msk,
+                       metrics        = excluded.metrics,
+                       updated_at     = excluded.updated_at""",
+                (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics)),
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("save_ai_alert_settings: %s", exc)
+            return False
 

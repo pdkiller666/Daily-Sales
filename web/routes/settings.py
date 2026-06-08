@@ -102,6 +102,8 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "profile": {},
         # web credentials
         "web_cred": None,
+        # AI alert settings (admin only)
+        "ai_alert_settings": None,
     }
 
     try:
@@ -165,6 +167,16 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 ]
             except Exception:
                 ctx["notification_history"] = []
+
+        # AI alert settings (admin only)
+        if is_admin:
+            try:
+                ctx["ai_alert_settings"] = db.get_ai_alert_settings()
+            except Exception:
+                ctx["ai_alert_settings"] = {
+                    "enabled": True, "threshold_pct": 35,
+                    "alert_hour_msk": 10, "metrics": ["revenue"],
+                }
 
         # Scheduled notifications (admin only)
         if is_admin:
@@ -606,6 +618,53 @@ async def settings_email_registration(
     _conn.commit()
     _conn.close()
     return RedirectResponse(url="/settings#email-auth", status_code=303)
+
+
+@router.post("/settings/ai-alerts")
+async def settings_ai_alerts(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    enabled: str = Form(default=""),
+    threshold_pct: int = Form(default=35),
+    alert_hour_msk: int = Form(default=10),
+    metric_revenue: str = Form(default=""),
+    metric_avg_check: str = Form(default=""),
+    metric_transactions: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/settings", status_code=303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings?error=csrf", status_code=303)
+
+    threshold_pct = max(5, min(90, threshold_pct))
+    alert_hour_msk = max(0, min(23, alert_hour_msk))
+    metrics = []
+    if metric_revenue:
+        metrics.append("revenue")
+    if metric_avg_check:
+        metrics.append("avg_check")
+    if metric_transactions:
+        metrics.append("transactions")
+    if not metrics:
+        metrics = ["revenue"]
+
+    try:
+        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db.save_ai_alert_settings(
+            enabled=bool(enabled),
+            threshold_pct=threshold_pct,
+            alert_hour_msk=alert_hour_msk,
+            metrics=metrics,
+        )
+    except Exception:
+        pass
+
+    return RedirectResponse(url="/settings?saved=1#ai-alerts", status_code=303)
 
 
 @router.get("/settings/backup")

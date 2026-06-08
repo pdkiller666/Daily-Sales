@@ -91,7 +91,7 @@
         </div>
 
         <!-- Description -->
-        <div class="mb-5" x-data="{ aiLoading: false, aiError: '' }">
+        <div class="mb-5" x-data="{ aiLoading: false, aiError: '', descStyle: 'technical' }">
             <div class="flex items-center justify-between mb-1.5">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="f-desc">
                     Описание
@@ -108,7 +108,8 @@
                                     body: JSON.stringify({
                                         name,
                                         category: document.getElementById('f-cat')?.value?.trim() || '',
-                                        price: parseFloat(document.getElementById('f-price')?.value || 0)
+                                        price: parseFloat(document.getElementById('f-price')?.value || 0),
+                                        style: descStyle
                                     })
                                 });
                                 const d = await r.json();
@@ -127,6 +128,18 @@
                                hover:bg-purple-100 transition-colors disabled:opacity-50">
                     <span x-text="aiLoading ? '⏳ Генерирую...' : '✨ Сгенерировать'"></span>
                 </button>
+            </div>
+            <!-- Description style selector -->
+            <div class="flex items-center gap-1.5 mb-2">
+                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Стиль:</span>
+                <template x-for="s in [{k:'technical',l:'Технич.'},{k:'marketing',l:'Маркетинг.'},{k:'short',l:'Кратко'}]" :key="s.k">
+                    <button type="button" @click="descStyle=s.k"
+                            :class="descStyle===s.k
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600 hover:border-purple-300'"
+                            class="px-2.5 py-0.5 rounded-lg text-xs border font-medium transition-colors"
+                            x-text="s.l"></button>
+                </template>
             </div>
             <textarea id="f-desc" name="description" rows="5"
                       placeholder="Дополнительная информация о товаре (необязательно)"

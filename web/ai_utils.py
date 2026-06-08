@@ -243,6 +243,10 @@ def build_report_explain_prompt(
     avg_check: float,
     growth_pct: float | None,
     top_items: list[dict],
+    focus: str = "summary",
+    shop: str = "",
+    group_by: str = "",
+    prev_revenue: float | None = None,
 ) -> str:
     top_str = ""
     if top_items:
@@ -256,32 +260,72 @@ def build_report_explain_prompt(
     if growth_pct is not None:
         direction = "выросла" if growth_pct >= 0 else "упала"
         growth_str = f"\nДинамика: {direction} на {abs(growth_pct):.1f}% по сравнению с предыдущим периодом."
+    elif prev_revenue is not None and prev_revenue > 0 and total_revenue > 0:
+        diff_pct = (total_revenue - prev_revenue) / prev_revenue * 100
+        direction = "выросла" if diff_pct >= 0 else "упала"
+        growth_str = f"\nДинамика: {direction} на {abs(diff_pct):.1f}% по сравнению с предыдущим периодом."
+
+    context_str = ""
+    if shop:
+        context_str += f"\nМагазин: {shop}."
+    if group_by and group_by not in ("product", ""):
+        group_labels = {"category": "по категориям", "seller": "по продавцам", "shop": "по магазинам"}
+        context_str += f"\nГруппировка: {group_labels.get(group_by, group_by)}."
+
+    focus_instructions = {
+        "summary":  "Дай общий аналитический комментарий: что хорошо, что насторожило, что можно улучшить. Максимум 4 предложения.",
+        "products": "Сфокусируйся на топ-позициях: какие товары лидируют, какие отстают, что стоит продвигать. Максимум 4 предложения.",
+        "risks":    "Выяви главные риски: что может ухудшиться, на какие тревожные сигналы стоит обратить внимание прямо сейчас. Максимум 4 предложения.",
+        "actions":  "Предложи 3–4 конкретных действия для роста продаж в следующем периоде. Пиши кратко, без воды, каждое действие с новой строки.",
+    }
+    instruction = focus_instructions.get(focus, focus_instructions["summary"])
 
     return (
         f"Период: {period_label}\n"
         f"Транзакций: {total_transactions}, продано единиц: {total_qty}, "
         f"выручка: {int(total_revenue):,} ₽, средний чек: {int(avg_check):,} ₽."
         f"{growth_str}"
+        f"{context_str}"
         f"{top_str}\n\n"
-        "Дай краткий аналитический комментарий: что хорошо, что насторожило, "
-        "что можно сделать для улучшения. Максимум 4 предложения."
+        f"{instruction}"
     )
 
 
-def build_product_description_prompt(name: str, category: str, price: float) -> str:
+def build_product_description_prompt(name: str, category: str, price: float, style: str = "technical") -> str:
     price_str = f"{int(price):,} ₽" if price > 0 else "цена не указана"
     cat_str = f"Категория: {category}." if category else ""
-    return (
-        f"Напиши описание товара для карточки в розничном магазине.\n"
-        f"Название: {name}. {cat_str} Цена: {price_str}.\n\n"
-        "Требования к описанию:\n"
-        "1. Определи конкретные технические характеристики товара по его названию "
-        "(процессор, камера, экран, объём памяти, материал, размер, мощность — в зависимости от типа товара).\n"
-        "2. Укажи 3–5 ключевых характеристик с конкретными значениями.\n"
-        "3. Добавь 1–2 предложения о главных преимуществах для покупателя.\n"
-        "Формат: сначала характеристики через запятую или точку с запятой, потом предложение о выгоде. "
-        "Без markdown, без кавычек, без заголовков. Объём: 4–6 предложений."
-    )
+
+    if style == "marketing":
+        return (
+            f"Напиши продающее описание товара для розничного магазина.\n"
+            f"Название: {name}. {cat_str} Цена: {price_str}.\n\n"
+            "Требования:\n"
+            "1. Начни с яркого преимущества или выгоды для покупателя.\n"
+            "2. Используй эмоциональные, убеждающие формулировки.\n"
+            "3. Упомяни 2–3 ключевые характеристики товара.\n"
+            "4. Заверши призывом к покупке или подчёркиванием ценности.\n"
+            "Без markdown, без кавычек, без заголовков. Объём: 3–5 предложений."
+        )
+    elif style == "short":
+        return (
+            f"Напиши очень краткое описание товара для ценника.\n"
+            f"Название: {name}. {cat_str} Цена: {price_str}.\n\n"
+            "Требования: 1–2 предложения, только самое главное. "
+            "Назови тип товара и 1–2 ключевых параметра. "
+            "Без markdown, без кавычек."
+        )
+    else:
+        return (
+            f"Напиши описание товара для карточки в розничном магазине.\n"
+            f"Название: {name}. {cat_str} Цена: {price_str}.\n\n"
+            "Требования к описанию:\n"
+            "1. Определи конкретные технические характеристики товара по его названию "
+            "(процессор, камера, экран, объём памяти, материал, размер, мощность — в зависимости от типа товара).\n"
+            "2. Укажи 3–5 ключевых характеристик с конкретными значениями.\n"
+            "3. Добавь 1–2 предложения о главных преимуществах для покупателя.\n"
+            "Формат: сначала характеристики через запятую или точку с запятой, потом предложение о выгоде. "
+            "Без markdown, без кавычек, без заголовков. Объём: 4–6 предложений."
+        )
 
 
 def build_sales_forecast_prompt(
@@ -294,6 +338,9 @@ def build_sales_forecast_prompt(
     min_nonzero: float = 0,
     zero_days: int = 0,
     last7: list | None = None,
+    horizon: int = 7,
+    scenario: str = "realistic",
+    shop: str = "",
 ) -> str:
     trend_str = ""
     if trend_pct is not None:
@@ -311,17 +358,26 @@ def build_sales_forecast_prompt(
 
     zero_str = f"\nДней без продаж: {zero_days}." if zero_days > 0 else ""
     dow_str = f"\nЛучший день недели: {best_dow}." if best_dow else ""
+    shop_str = f"\nМагазин: {shop}." if shop else ""
+
+    scenario_instructions = {
+        "realistic":    f"Сделай реалистичный прогноз на следующие {horizon} дней — текущий тренд продолжится.",
+        "optimistic":   f"Сделай оптимистичный прогноз на следующие {horizon} дней — предположи позитивный сдвиг, рост сохранится.",
+        "conservative": f"Сделай консервативный прогноз на следующие {horizon} дней — рассчитывай на откат и минимальные показатели.",
+    }
+    scenario_str = scenario_instructions.get(scenario, scenario_instructions["realistic"])
 
     return (
         f"Период анализа: {period_days} дней. "
         f"Суммарная выручка: {int(total_revenue):,} ₽. "
         f"Средняя в день: {int(avg_daily):,} ₽."
+        f"{shop_str}"
         f"{trend_str}"
         f"{last7_str}"
         f"{range_str}"
         f"{zero_str}"
         f"{dow_str}"
-        "\n\nСделай прогноз продаж на следующие 7 дней."
+        f"\n\n{scenario_str}"
     )
 
 

@@ -530,6 +530,84 @@
         </div>
         {% endif %}
 
+        <!-- AI alert settings (admin only) -->
+        {% if is_admin and ai_alert_settings is not none %}
+        <div class="card p-5" id="ai-alerts">
+            <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🤖 AI-алерты</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Ежедневные уведомления о падении продаж с AI-комментарием</p>
+            <form method="post" action="/settings/ai-alerts" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <!-- Enabled toggle -->
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-700 dark:text-slate-300">Включить AI-алерты</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="enabled" value="1" class="sr-only peer"
+                               {% if ai_alert_settings.enabled %}checked{% endif %}>
+                        <div class="w-10 h-5 bg-slate-200 dark:bg-slate-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer
+                                    peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-0.5 after:left-0.5
+                                    after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all
+                                    peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
+                <!-- Threshold -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-1.5">Порог падения выручки для алерта</label>
+                    <select name="threshold_pct"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for pct in [10, 15, 20, 25, 30, 35, 40, 50] %}
+                        <option value="{{ pct }}" {% if ai_alert_settings.threshold_pct == pct %}selected{% endif %}>
+                            {{ pct }}% от среднего за 7 дней
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Alert time (MSK) -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-1.5">Время отправки (московское)</label>
+                    <select name="alert_hour_msk"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for h in [7, 8, 9, 10, 11, 12] %}
+                        <option value="{{ h }}" {% if ai_alert_settings.alert_hour_msk == h %}selected{% endif %}>
+                            {{ '%02d'|format(h) }}:05 МСК
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Metrics -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-2">Что мониторить</label>
+                    <div class="space-y-2">
+                        {% set metrics = ai_alert_settings.metrics %}
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="metric_revenue" value="1" class="rounded"
+                                   {% if 'revenue' in metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">💰 Выручка (основное)</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="metric_avg_check" value="1" class="rounded"
+                                   {% if 'avg_check' in metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🧾 Средний чек</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="metric_transactions" value="1" class="rounded"
+                                   {% if 'transactions' in metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🔢 Количество транзакций</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit"
+                        class="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                    Сохранить настройки AI-алертов
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
         <!-- Backup card -->
         {% if is_admin %}
         <div class="card p-5">

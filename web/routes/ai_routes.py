@@ -49,6 +49,11 @@ async def ai_explain_report(request: Request):
         summary = body.get("summary", [0, 0, 0, 0])
         growth_pct = body.get("growth_pct")
         top_items = body.get("top_items", [])
+        focus = str(body.get("focus", "summary"))
+        shop = str(body.get("shop", ""))
+        group_by = str(body.get("group_by", ""))
+        prev_revenue_raw = body.get("prev_revenue")
+        prev_revenue = float(prev_revenue_raw) if prev_revenue_raw is not None else None
 
         prompt = build_report_explain_prompt(
             period_label=period_label,
@@ -58,9 +63,13 @@ async def ai_explain_report(request: Request):
             avg_check=float(summary[3] or 0),
             growth_pct=float(growth_pct) if growth_pct is not None else None,
             top_items=top_items,
+            focus=focus,
+            shop=shop,
+            group_by=group_by,
+            prev_revenue=prev_revenue,
         )
 
-        result = await ask_llm(prompt, max_tokens=400)
+        result = await ask_llm(prompt, max_tokens=450)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
@@ -97,14 +106,21 @@ async def ai_product_description(request: Request):
 
     category = str(body.get("category", "")).strip()
     price = float(body.get("price", 0) or 0)
+    style = str(body.get("style", "technical"))
 
     try:
-        system = (
-            "Ты — эксперт по товарным карточкам. Знаешь технические характеристики популярных товаров. "
-            "Пиши конкретно: называй точные цифры и параметры. Без markdown, без эмодзи, без заголовков. "
-            "Только русский язык."
-        )
-        prompt = build_product_description_prompt(name, category, price)
+        system_by_style = {
+            "technical":  ("Ты — эксперт по товарным карточкам. Знаешь технические характеристики популярных товаров. "
+                           "Пиши конкретно: называй точные цифры и параметры. Без markdown, без эмодзи, без заголовков. "
+                           "Только русский язык."),
+            "marketing":  ("Ты — опытный копирайтер розничного магазина. Пишешь убедительные, "
+                           "живые описания товаров, которые побуждают к покупке. "
+                           "Без markdown, без эмодзи, без заголовков. Только русский язык."),
+            "short":      ("Ты — редактор ценников. Пишешь очень краткие, чёткие описания. "
+                           "Без markdown, без эмодзи. Только русский язык."),
+        }
+        system = system_by_style.get(style, system_by_style["technical"])
+        prompt = build_product_description_prompt(name, category, price, style=style)
         result = await ask_llm(prompt, system=system, max_tokens=400)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
@@ -179,6 +195,12 @@ async def ai_sales_forecast(request: Request):
         zero_days = len(daily_data) - len(non_zero)
         last7 = daily_data[-7:] if len(daily_data) >= 7 else daily_data
 
+        horizon = int(body.get("horizon", 7))
+        if horizon not in (7, 14, 30):
+            horizon = 7
+        scenario = str(body.get("scenario", "realistic"))
+        shop = str(body.get("shop", ""))
+
         prompt = build_sales_forecast_prompt(
             period_days=period_days,
             avg_daily=avg_daily,
@@ -189,12 +211,16 @@ async def ai_sales_forecast(request: Request):
             min_nonzero=min_nonzero,
             zero_days=zero_days,
             last7=last7,
+            horizon=horizon,
+            scenario=scenario,
+            shop=shop,
         )
+        horizon_str = {7: "неделю", 14: "14 дней", 30: "месяц"}.get(horizon, "неделю")
         system = (
             "Ты — аналитик продаж розничного магазина. "
             "Дай конкретный прогноз на основе предоставленных данных. "
-            "Пиши на русском, без markdown, цифры в рублях. "
-            "Строго 3 предложения: 1) диапазон выручки на неделю, 2) на какие дни акцент, 3) главный риск."
+            f"Пиши на русском, без markdown, цифры в рублях. "
+            f"Строго 3 предложения: 1) диапазон выручки на {horizon_str}, 2) на какие дни акцент, 3) главный риск."
         )
         result = await ask_llm(prompt, system=system, max_tokens=350)
         if not result:
