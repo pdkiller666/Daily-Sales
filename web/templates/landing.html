@@ -1470,101 +1470,68 @@
             <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">Модули — подключайте по необходимости</p>
         </div>
 
-        <!-- Module cards -->
+        <!-- Module cards — dynamic from DB -->
+        {% set _module_themes = {
+            'analytics':        {'border':'hover:border-blue-300',   'shadow':'hover:shadow-blue-50',   'icon_bg':'bg-blue-500/10',   'price':'text-blue-600'},
+            'team':             {'border':'hover:border-purple-300', 'shadow':'hover:shadow-purple-50', 'icon_bg':'bg-purple-500/10', 'price':'text-purple-600'},
+            'plans_motivation': {'border':'hover:border-amber-300',  'shadow':'hover:shadow-amber-50',  'icon_bg':'bg-amber-500/10',  'price':'text-amber-600'},
+            'notifications':    {'border':'hover:border-rose-300',   'shadow':'hover:shadow-rose-50',   'icon_bg':'bg-rose-500/10',   'price':'text-rose-600'},
+            'integrations':     {'border':'hover:border-teal-300',   'shadow':'hover:shadow-teal-50',   'icon_bg':'bg-teal-500/10',   'price':'text-teal-600'},
+            'chat':             {'border':'hover:border-emerald-300','shadow':'hover:shadow-emerald-50','icon_bg':'bg-emerald-500/10','price':'text-emerald-600'},
+            'ai_assistant':     {'border':'hover:border-indigo-300', 'shadow':'hover:shadow-indigo-50', 'icon_bg':'bg-indigo-500/10', 'price':'text-indigo-600'},
+        } %}
+        {% set _fallback_themes = [
+            {'border':'hover:border-blue-300',   'shadow':'hover:shadow-blue-50',   'icon_bg':'bg-blue-500/10',   'price':'text-blue-600'},
+            {'border':'hover:border-violet-300', 'shadow':'hover:shadow-violet-50', 'icon_bg':'bg-violet-500/10', 'price':'text-violet-600'},
+            {'border':'hover:border-cyan-300',   'shadow':'hover:shadow-cyan-50',   'icon_bg':'bg-cyan-500/10',   'price':'text-cyan-600'},
+            {'border':'hover:border-pink-300',   'shadow':'hover:shadow-pink-50',   'icon_bg':'bg-pink-500/10',   'price':'text-pink-600'},
+        ] %}
+        {% set _delay_classes = ['d1','d2','d3','d4'] %}
+        {% set _fallback_features = {
+            'analytics':        ['Отчёты и графики','Рейтинги продавцов','ABC-анализ товаров','Экспорт в Excel'],
+            'team':             ['Сотрудники и роли','Зарплата и смены','График и отсутствия','Расчёт ФОТ'],
+            'plans_motivation': ['Планы продаж','KPI и комиссии','Конкурсы','Алерты по вехам'],
+            'notifications':    ['Push-уведомления','Рассылки команде','Дневные отчёты','Алерты по остаткам'],
+            'integrations':     ['Google Sheets','Авто-экспорт продаж','OAuth авторизация','Настраиваемые листы'],
+            'chat':             ['Темы и треды','Личные сообщения','Файлы и фото','Реальное время'],
+            'ai_assistant':     ['Умные алерты','Анализ продаж','Рекомендации','DeepSeek / Gemini'],
+        } %}
+
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
+            {% if billing_modules %}
+                {% for m in billing_modules %}
+                    {% set _t = _module_themes.get(m.key, _fallback_themes[loop.index0 % 4]) %}
+                    {% set _feats = m.features if m.features else _fallback_features.get(m.key, []) %}
+                    {% set _delay = _delay_classes[(loop.index0) % 4] %}
+                    <div class="border border-slate-200 rounded-2xl p-6 bg-white {{ _t.border }} hover:shadow-lg {{ _t.shadow }} transition-all duration-300 hover:-translate-y-0.5 reveal {{ _delay }}">
+                        <div class="w-10 h-10 rounded-xl {{ _t.icon_bg }} flex items-center justify-center text-xl mb-4">{{ m.icon }}</div>
+                        <div class="text-base font-bold text-slate-900 mb-1">{{ m.name }}</div>
+                        <div class="text-2xl font-extrabold {{ _t.price }} mb-3">{{ m.price }} <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                        <ul class="space-y-1.5 text-xs text-slate-500">
+                            {% for feat in _feats[:4] %}
+                            <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>{{ feat }}</li>
+                            {% endfor %}
+                            {% if not _feats and m.description %}
+                            <li class="text-slate-400 italic">{{ m.description }}</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-xl mb-4">📈</div>
+                    <div class="text-base font-bold text-slate-900 mb-1">Аналитика</div>
+                    <div class="text-2xl font-extrabold text-blue-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                    <ul class="space-y-1.5 text-xs text-slate-500">
+                        <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Отчёты и графики</li>
+                        <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рейтинги продавцов</li>
+                        <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>ABC-анализ товаров</li>
+                        <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Экспорт в Excel</li>
+                    </ul>
+                </div>
+            {% endif %}
 
-            <!-- Аналитика -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
-                <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-xl mb-4">📈</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Аналитика</div>
-                <div class="text-2xl font-extrabold text-blue-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Отчёты и графики</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рейтинги продавцов</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>ABC-анализ товаров</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Экспорт в Excel</li>
-                </ul>
-            </div>
-
-            <!-- Команда -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-purple-300 hover:shadow-lg hover:shadow-purple-50 transition-all duration-300 hover:-translate-y-0.5 reveal d2">
-                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-xl mb-4">👥</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Команда</div>
-                <div class="text-2xl font-extrabold text-purple-600 mb-3">399 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Сотрудники и роли</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Зарплата и смены</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>График и отсутствия</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Расчёт ФОТ</li>
-                </ul>
-            </div>
-
-            <!-- Планы и мотивация -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-amber-300 hover:shadow-lg hover:shadow-amber-50 transition-all duration-300 hover:-translate-y-0.5 reveal d3">
-                <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-xl mb-4">🎯</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Планы и мотивация</div>
-                <div class="text-2xl font-extrabold text-amber-600 mb-3">249 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Планы продаж</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>KPI и комиссии</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Конкурсы</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Алерты по вехам</li>
-                </ul>
-            </div>
-
-            <!-- Уведомления -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-rose-300 hover:shadow-lg hover:shadow-rose-50 transition-all duration-300 hover:-translate-y-0.5 reveal d4">
-                <div class="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-xl mb-4">🔔</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Уведомления</div>
-                <div class="text-2xl font-extrabold text-rose-600 mb-3">199 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Push-уведомления</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рассылки команде</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Дневные отчёты</span></li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Алерты по остаткам</li>
-                </ul>
-            </div>
-
-            <!-- Интеграции -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-teal-300 hover:shadow-lg hover:shadow-teal-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
-                <div class="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-xl mb-4">🔗</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Интеграции</div>
-                <div class="text-2xl font-extrabold text-teal-600 mb-3">399 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Google Sheets</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Авто-экспорт продаж</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>OAuth авторизация</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Настраиваемые листы</li>
-                </ul>
-            </div>
-
-            <!-- Чат -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-50 transition-all duration-300 hover:-translate-y-0.5 reveal d2">
-                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-xl mb-4">💬</div>
-                <div class="text-base font-bold text-slate-900 mb-1">Чат команды</div>
-                <div class="text-2xl font-extrabold text-emerald-600 mb-3">149 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Темы и треды</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Личные сообщения</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Файлы и фото</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Реальное время</li>
-                </ul>
-            </div>
-
-            <!-- ИИ-помощник -->
-            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-50 transition-all duration-300 hover:-translate-y-0.5 reveal d3">
-                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-xl mb-4">🤖</div>
-                <div class="text-base font-bold text-slate-900 mb-1">ИИ-помощник</div>
-                <div class="text-2xl font-extrabold text-indigo-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
-                <ul class="space-y-1.5 text-xs text-slate-500">
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Умные алерты</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Анализ продаж</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рекомендации</li>
-                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>DeepSeek / Gemini</li>
-                </ul>
-            </div>
-
-            <!-- Расширить лимиты -->
+            <!-- Расширения лимитов — всегда статичная карточка -->
             <div class="border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50/50 reveal d4">
                 <div class="w-10 h-10 rounded-xl bg-slate-200/60 flex items-center justify-center text-xl mb-4">➕</div>
                 <div class="text-base font-bold text-slate-700 mb-1">Расширения лимитов</div>

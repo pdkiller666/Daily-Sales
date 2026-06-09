@@ -447,6 +447,42 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['nav_modules'] = _nav_modules
 
+    def _landing_billing_modules() -> list:
+        """Читает активные billing_modules из DB для лендинга."""
+        import json as _json
+        try:
+            conn = sqlite3.connect(_SHOP_BOT_DB)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT key, name, icon, price_monthly, description, features_json
+                FROM billing_modules
+                WHERE is_active = 1
+                ORDER BY sort_order ASC, id ASC
+            """)
+            rows = cur.fetchall()
+            conn.close()
+            result = []
+            for key, name, icon, price, desc, feat_json in rows:
+                features = []
+                if feat_json:
+                    try:
+                        features = _json.loads(feat_json)
+                    except Exception:
+                        pass
+                result.append({
+                    "key": key,
+                    "name": name,
+                    "icon": icon or "📦",
+                    "price": int(price or 0),
+                    "description": desc or "",
+                    "features": features,
+                })
+            return result
+        except Exception:
+            return []
+
+    templates.env.globals['landing_billing_modules'] = _landing_billing_modules
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -546,6 +582,7 @@ def create_web_app() -> FastAPI:
             return RedirectResponse(url="/dashboard", status_code=302)
         return templates.TemplateResponse(request, "landing.html", {
             "bot_username": templates.env.globals.get("bot_username", ""),
+            "billing_modules": _landing_billing_modules(),
         })
 
     @app.exception_handler(404)
