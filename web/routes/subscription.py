@@ -337,6 +337,57 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
     )
 
 
+@router.post("/subscription/cancel-request")
+def subscription_cancel_request(
+    request: Request,
+    plan_type: str = Form(...),
+    item_name: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Клиентская заявка на отключение модуля/расширения/пакета."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    token = os.environ.get("BOT_TOKEN", "")
+    admin_id = os.environ.get("ADMIN_CHAT_ID", "")
+    if token and admin_id:
+        user_display = user.get("first_name", user.get("email", "—"))
+        safe_name = item_name or _plan_type_label(plan_type)
+        text = (
+            "❌ <b>Запрос на отключение!</b>\n\n"
+            f"👤 <b>Пользователь:</b> {user_display}\n"
+            f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
+            f"📦 <b>Позиция:</b> {safe_name}\n\n"
+            "Пожалуйста, отключите доступ вручную в <b>/admin/billing/grants</b>."
+        )
+        payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()
+        try:
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10):
+                pass
+        except Exception as exc:
+            logging.warning("subscription_cancel_request notify: %s", exc)
+
+    tab = "modules"
+    if plan_type.startswith("bundle_"):
+        tab = "bundles"
+    elif plan_type.startswith("extension_"):
+        tab = "extensions"
+    return RedirectResponse(url=f"/subscription?tab={tab}&msg=cancel_request_sent", status_code=303)
+
+
 @router.post("/subscription/module-request")
 def subscription_module_request(
     request: Request,

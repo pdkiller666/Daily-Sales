@@ -1447,7 +1447,7 @@ class Database:
                 cursor.execute("""
                     INSERT OR IGNORE INTO billing_extensions
                         (module_key, key, name, icon, description, price_monthly, sort_order, is_active)
-                    VALUES ('analytics','ai_smart_alerts','ИИ-алерты','🤖',
+                    VALUES ('analytics','ai_smart_alerts','Умные алерты AI','🤖',
                             'AI-детектирование аномалий в продажах', 199, 6, 1)""")
             # Migration: hide gs_realtime (not yet implemented, no gate checks in code)
             cursor.execute(
@@ -1588,21 +1588,21 @@ class Database:
             ('analytics',        'trend_forecast',     '📉', 'Прогноз тренда',           'Прогноз продаж на 7/30 дней',                       149, 5),
             # team
             ('team',             'contests',           '🏆', 'Конкурсы',                 'Создание конкурсов между продавцами',               199, 1),
-            ('team',             'salary_export',      '📊', 'ФОТ-экспорт Excel',        'Выгрузка зарплатных данных в Excel',                 99, 2),
+            ('team',             'salary_export',      '📊', 'Выгрузка зарплат в Excel', 'Выгрузка зарплатных данных в Excel',                 99, 2),
             ('team',             'joint_motivation',   '💰', 'Совместная мотивация',     'Общий мотивационный фонд для команды',              149, 3),
             # notifications
             ('notifications',    'scheduled_notifs',   '📅', 'Плановые рассылки',        'Отложенные и повторяющиеся уведомления',            149, 1),
-            ('notifications',    'smart_alerts',       '🤖', 'Смарт-алерты',             'Автоматические алерты при отклонении',              199, 2),
+            ('notifications',    'smart_alerts',       '🤖', 'Умные алерты',             'Автоматические уведомления при отклонениях',        199, 2),
             # plans_motivation
-            ('plans_motivation', 'plan_filters',       '🔍', 'Планы с фильтрами',        'Фильтрация планов по категориям и товарам',          99, 1),
-            ('plans_motivation', 'milestone_alerts',   '🎯', 'Вехи и алерты',            'Уведомления при достижении вех плана',               99, 2),
+            ('plans_motivation', 'plan_filters',       '🔍', 'Планы с детализацией',     'Фильтрация планов по категориям и товарам',          99, 1),
+            ('plans_motivation', 'milestone_alerts',   '🎯', 'Контрольные точки',        'Уведомления при достижении вех плана',               99, 2),
             ('plans_motivation', 'plan_coefficients',  '⚖️', 'Коэффициенты плана',       'Мотивационные коэффициенты выполнения',             149, 3),
             # ai_assistant
             ('ai_assistant',     'ai_forecast',        '🔮', 'Прогноз продаж (AI)',      'ML-прогноз продаж на 7–30 дней',                   149, 1),
-            ('ai_assistant',     'ai_smart_alerts',    '🚨', 'Смарт-алерты (AI)',        'AI-детектирование аномалий в продажах',             199, 2),
-            ('ai_assistant',     'ai_high_limit',      '⚡', 'Лимит: 200 запросов/д',   'Увеличенный дневной лимит запросов к AI',            99, 3),
+            ('ai_assistant',     'ai_smart_alerts',    '🚨', 'Умные алерты AI',          'AI-детектирование аномалий в продажах',             199, 2),
+            ('ai_assistant',     'ai_high_limit',      '⚡', 'До 200 AI-запросов в день','Увеличенный дневной лимит запросов к AI',            99, 3),
             # integrations
-            ('integrations',     'gs_realtime',        '🔄', 'Реал-тайм в Таблицы',     'Авто-синхронизация в Google Таблицы по событию',    99, 1),
+            ('integrations',     'gs_realtime',        '🔄', 'Реалтайм в Google Таблицы','Авто-синхронизация в Google Таблицы по событию',    99, 1),
         ]
         for module_key, key, icon, name, description, price, sort in DEFAULT_EXTENSIONS:
             cursor.execute(
