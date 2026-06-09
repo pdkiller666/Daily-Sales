@@ -352,8 +352,10 @@
 ══════════════════════════════════════ #}
 {% if _qtab == 'modules' %}
 
-<div class="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300">
-    Подключайте только нужные функции — каждый модуль оплачивается отдельно каждый месяц.
+<div class="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300 space-y-1">
+    <p class="font-semibold">🧩 Как работают модули</p>
+    <p>Подключайте только нужные функции — каждый модуль оплачивается отдельно каждый месяц.</p>
+    <p class="text-xs opacity-80">⚠️ <strong>Важно:</strong> если модуль отключить, все его расширения также перестанут работать автоматически — даже если срок их подписки ещё не истёк. При повторном включении модуля расширения возобновятся, только если их подписка ещё действует.</p>
 </div>
 
 {% if modules %}
@@ -406,12 +408,26 @@
             {% endif %}
 
             {% if is_active and sub_info %}
-            <form method="POST" action="/subscription/cancel-request">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <input type="hidden" name="item_name" value="{{ mod.name_display }}">
-                <button type="submit" class="btn-cancel">Отключить</button>
-            </form>
+            <div x-data="{ warn: false }" class="relative">
+                <button type="button" @click="warn = !warn" class="btn-cancel">Отключить</button>
+                <div x-show="warn" x-cloak @click.outside="warn = false"
+                     class="absolute right-0 bottom-full mb-2 w-64 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-xl shadow-xl p-3 z-20 text-xs text-slate-700 dark:text-slate-200">
+                    <p class="font-bold text-amber-700 dark:text-amber-400 mb-1.5">⚠️ Последствия отключения</p>
+                    <ul class="space-y-1 text-[11px] text-slate-500 dark:text-slate-400 mb-3">
+                        <li>• Доступ к модулю закроется немедленно</li>
+                        <li>• Все расширения этого модуля также перестанут работать</li>
+                        <li>• Оставшийся оплаченный период <strong class="text-slate-700 dark:text-slate-200">не компенсируется</strong></li>
+                    </ul>
+                    <form method="POST" action="/subscription/cancel-request">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
+                        <input type="hidden" name="item_name" value="{{ mod.name_display }}">
+                        <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition-colors">
+                            Да, отключить модуль
+                        </button>
+                    </form>
+                </div>
+            </div>
             {% endif %}
         </div>
     </div>
@@ -432,8 +448,10 @@
 ══════════════════════════════════════ #}
 {% if _qtab == 'extensions' %}
 
-<div class="mb-4 px-4 py-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800 rounded-xl text-sm text-violet-700 dark:text-violet-300">
-    Расширения дополняют модули — нажмите на группу, чтобы развернуть.
+<div class="mb-4 px-4 py-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800 rounded-xl text-sm text-violet-700 dark:text-violet-300 space-y-1">
+    <p class="font-semibold">⚡ Как работают расширения</p>
+    <p>Расширения дополняют модули дополнительными возможностями. Нажмите на группу, чтобы развернуть.</p>
+    <p class="text-xs opacity-80">⚠️ <strong>Важно:</strong> расширение работает <strong>только если активен его родительский модуль</strong>. Группы с пометкой «⚠ нет модуля» недоступны до подключения модуля.</p>
 </div>
 
 {% if extensions %}

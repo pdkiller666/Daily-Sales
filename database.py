@@ -11143,16 +11143,87 @@ class Database:
             logger.error('grant_billing_item: %s', exc)
             return 0
 
-    def revoke_billing_item(self, sub_id: int) -> bool:
+    def revoke_billing_item(self, sub_id: int, cascade: bool = True) -> dict:
+        """Отзыв доступа.
+
+        Логика:
+        - Если end_date в будущем → устанавливаем end_date = now() (soft-expire:
+          запись остаётся, история сохраняется, доступ закрывается немедленно).
+        - Если end_date в прошлом или NULL → is_active=0 (hard deactivate).
+        - cascade=True и item_type='module' → каскадно отзываем все расширения
+          этого модуля у того же пользователя.
+
+        Возвращает {'revoked': 1, 'cascaded': N}
+        """
+        result = {'revoked': 0, 'cascaded': 0}
         try:
+            from datetime import datetime as _dt
             conn = self.get_connection()
-            conn.execute('UPDATE billing_module_subs SET is_active=0 WHERE id=?', (sub_id,))
+            cur = conn.cursor()
+
+            row = cur.execute(
+                'SELECT user_telegram_id, item_type, item_key, end_date, is_active '
+                'FROM billing_module_subs WHERE id=?',
+                (sub_id,)
+            ).fetchone()
+            if not row:
+                conn.close()
+                return result
+            tg_id, item_type, item_key, end_date, is_active = row
+            if not is_active:
+                conn.close()
+                return result
+
+            def _has_future_end(ed):
+                if not ed:
+                    return False
+                try:
+                    return _dt.strptime(ed[:19], '%Y-%m-%d %H:%M:%S') > _dt.utcnow()
+                except Exception:
+                    return False
+
+            if _has_future_end(end_date):
+                cur.execute(
+                    "UPDATE billing_module_subs SET end_date=datetime('now') WHERE id=?",
+                    (sub_id,)
+                )
+            else:
+                cur.execute(
+                    'UPDATE billing_module_subs SET is_active=0 WHERE id=?',
+                    (sub_id,)
+                )
+            result['revoked'] = 1
+
+            if cascade and item_type == 'module':
+                ext_keys = [r[0] for r in cur.execute(
+                    'SELECT key FROM billing_extensions WHERE module_key=?', (item_key,)
+                ).fetchall()]
+                if ext_keys:
+                    ph = ','.join('?' * len(ext_keys))
+                    cur.execute(
+                        f"""UPDATE billing_module_subs
+                            SET end_date=datetime('now')
+                            WHERE user_telegram_id=? AND item_type='extension'
+                              AND item_key IN ({ph}) AND is_active=1
+                              AND end_date > datetime('now')""",
+                        (tg_id, *ext_keys)
+                    )
+                    n = cur.rowcount
+                    cur.execute(
+                        f"""UPDATE billing_module_subs
+                            SET is_active=0
+                            WHERE user_telegram_id=? AND item_type='extension'
+                              AND item_key IN ({ph}) AND is_active=1
+                              AND (end_date IS NULL OR end_date <= datetime('now'))""",
+                        (tg_id, *ext_keys)
+                    )
+                    result['cascaded'] = n + cur.rowcount
+
             conn.commit()
             conn.close()
-            return True
         except Exception as exc:
             logger.error('revoke_billing_item: %s', exc)
-            return False
+        return result
 
     def get_billing_module_subs(
         self,

@@ -123,6 +123,19 @@ def _module_from_bundles(tg_id: int, key: str) -> bool:
     return False
 
 
+def _ext_module_key(ext_key: str) -> str | None:
+    """Return parent module_key for an extension, or None if not in DB."""
+    try:
+        db = _conn()
+        row = db.execute(
+            'SELECT module_key FROM billing_extensions WHERE key=? LIMIT 1', (ext_key,)
+        ).fetchone()
+        db.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def has_module(tg_id: int, module_key: str) -> bool:
@@ -146,20 +159,24 @@ def has_module(tg_id: int, module_key: str) -> bool:
 
 
 def has_extension(tg_id: int, ext_key: str) -> bool:
-    """True if user has access to the extension within a module.
+    """True if user has access to the extension AND its parent module is active.
 
-    Priority: super_admin → trial → direct grant → bundle
+    Priority: super_admin → trial → (direct grant OR bundle) + parent module check.
+    Расширение недоступно, если родительский модуль отозван — даже при активной
+    записи в billing_module_subs для самого расширения.
     """
     try:
         if _env_mgr.is_super_admin(tg_id):
             return True
         if _is_trial(tg_id):
             return True
-        if _has_direct_item(tg_id, ext_key):
-            return True
-        if _module_from_bundles(tg_id, ext_key):
-            return True
-        return False
+        ext_ok = _has_direct_item(tg_id, ext_key) or _module_from_bundles(tg_id, ext_key)
+        if not ext_ok:
+            return False
+        mod_key = _ext_module_key(ext_key)
+        if mod_key and not has_module(tg_id, mod_key):
+            return False
+        return True
     except Exception as e:
         logging.error(f"has_extension({tg_id},{ext_key}): {e}")
         return False

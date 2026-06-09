@@ -472,5 +472,7 @@ async def billing_revoke(
     user = get_session_user(request)
     if _guard(user) or not verify_csrf_token(request, csrf_token):
         return RedirectResponse("/dashboard", 303)
-    _db().revoke_billing_item(sub_id)
-    return RedirectResponse("/admin/billing/grants?msg=revoked", 303)
+    result = _db().revoke_billing_item(sub_id, cascade=True)
+    cascaded = result.get("cascaded", 0)
+    msg = f"revoked_cascade_{cascaded}" if cascaded else "revoked"
+    return RedirectResponse(f"/admin/billing/grants?msg={msg}", 303)
