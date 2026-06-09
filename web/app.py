@@ -429,6 +429,24 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['dm_unread_count'] = _dm_unread_count
 
+    _NAV_MODULE_KEYS = ('analytics', 'team', 'plans_motivation', 'chat',
+                        'integrations', 'notifications', 'ai_assistant')
+
+    def _nav_modules(request):
+        """Returns dict {module_key: bool} for nav visibility gating. Fails open."""
+        try:
+            from web.auth import get_session_user
+            from billing_utils import has_module
+            user = get_session_user(request)
+            if not user:
+                return {k: False for k in _NAV_MODULE_KEYS}
+            tg_id = int(user["sub"])
+            return {k: has_module(tg_id, k) for k in _NAV_MODULE_KEYS}
+        except Exception:
+            return {k: True for k in _NAV_MODULE_KEYS}
+
+    templates.env.globals['nav_modules'] = _nav_modules
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -528,7 +546,6 @@ def create_web_app() -> FastAPI:
             return RedirectResponse(url="/dashboard", status_code=302)
         return templates.TemplateResponse(request, "landing.html", {
             "bot_username": templates.env.globals.get("bot_username", ""),
-            "plans": _get_landing_plans(),
         })
 
     @app.exception_handler(404)

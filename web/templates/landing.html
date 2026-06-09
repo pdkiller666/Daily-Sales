@@ -50,8 +50,8 @@
         "@type": "AggregateOffer",
         "priceCurrency": "RUB",
         "lowPrice": "0",
-        "highPrice": "4000",
-        "offerCount": "4"
+        "highPrice": "399",
+        "offerCount": "8"
       },
       "aggregateRating": {
         "@type": "AggregateRating",
@@ -466,7 +466,7 @@
         <div class="inline-flex items-center gap-2.5 badge-glow rounded-full px-4 py-1.5 text-sm text-slate-300 mb-10"
              style="animation:slide-up .6s ease both">
             <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow shadow-sm shadow-emerald-400/60"></span>
-            14 дней Премиум — бесплатно, без оплаты
+            14 дней — все модули бесплатно, без карты
         </div>
 
         <!-- Headline -->
@@ -1056,7 +1056,7 @@
                 <div class="mt-5 flex justify-center lg:justify-end">
                     <div class="inline-flex items-center gap-3 bg-slate-900/80 border border-white/[0.08] backdrop-blur-sm rounded-2xl px-5 py-3 text-sm text-slate-300">
                         <span class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse-slow"></span>
-                        Доступен на тарифе Базовый и выше
+                        Модуль «Чат» · 149 ₽/мес
                     </div>
                 </div>
             </div>
@@ -1424,113 +1424,166 @@
 <section id="pricing" class="bg-white py-28 px-4">
     <div class="max-w-6xl mx-auto">
 
-        <div class="text-center mb-20 reveal">
-            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Тарифы</div>
-            <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Прозрачные цены</h2>
-            <p class="text-xl text-slate-500">Начните бесплатно, расширяйтесь по мере роста</p>
+        <div class="text-center mb-16 reveal">
+            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Модульные цены</div>
+            <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Платите только за то, что используете</h2>
+            <p class="text-xl text-slate-500 max-w-2xl mx-auto">Базовый функционал — бесплатно навсегда. Подключайте нужные модули по отдельности.</p>
         </div>
 
-        {% set _d_free = {'price_fmt': '0\u00a0₽', 'duration_label': 'навсегда', 'max_products': '50', 'max_shops': '1', 'max_sales': '100', 'can_export': false, 'can_analytics': false, 'can_notifications': false, 'can_integrations': false} %}
-        {% set _d_basic = {'price_fmt': '500\u00a0₽', 'duration_label': '30 дней', 'max_products': '200', 'max_shops': '3', 'max_sales': '500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': false} %}
-        {% set _d_std = {'price_fmt': '1\u00a0200\u00a0₽', 'duration_label': '90 дней', 'max_products': '500', 'max_shops': '10', 'max_sales': '1500', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
-        {% set _d_prem = {'price_fmt': '4\u00a0000\u00a0₽', 'duration_label': '365 дней', 'max_products': '∞', 'max_shops': '∞', 'max_sales': '∞', 'can_export': true, 'can_analytics': true, 'can_notifications': true, 'can_integrations': true} %}
-
-        {% set pf = plans.get('Бесплатный', _d_free) %}
-        {% set pb = plans.get('Базовый',    _d_basic) %}
-        {% set ps = plans.get('Стандарт',   _d_std) %}
-        {% set pp = plans.get('Премиум',    _d_prem) %}
-
-        {% macro cta(label, cls) %}
-            {% if bot_username %}
-            <a href="https://t.me/{{ bot_username }}" target="_blank" class="{{ cls }}">{{ label }}</a>
-            {% else %}
-            <a href="/dashboard" class="{{ cls }}">{{ label }}</a>
-            {% endif %}
-        {% endmacro %}
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
-
-            <!-- Бесплатный -->
-            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d1">
-                <div class="mb-7">
-                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Бесплатный</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pf.price_fmt }}</div>
-                    <div class="text-sm text-slate-400 mt-1.5">{{ pf.duration_label }}</div>
+        <!-- Free base -->
+        <div class="bg-gradient-to-r from-slate-50 to-blue-50/40 border border-slate-200 rounded-2xl p-8 mb-10 reveal">
+            <div class="flex flex-col md:flex-row md:items-center gap-6">
+                <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-3">
+                        <span class="text-2xl">🎁</span>
+                        <span class="text-xl font-extrabold text-slate-900">Базовый план — бесплатно навсегда</span>
+                        <span class="hidden sm:inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full">0 ₽</span>
+                    </div>
+                    <p class="text-slate-500 text-sm mb-4">Начните прямо сейчас без оплаты. Базовые инструменты для учёта продаж включены в каждый аккаунт.</p>
+                    <div class="flex flex-wrap gap-x-6 gap-y-2">
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>До 50 товаров</span>
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>1 магазин</span>
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>100 продаж/мес</span>
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Касса POS</span>
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Дашборд</span>
+                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Остатки</span>
+                    </div>
                 </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{% if pf.max_products == '∞' %}<strong>∞</strong>&nbsp;товаров{% else %}До {{ pf.max_products }} товаров{% endif %}</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pf.max_shops }} магазин</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pf.max_sales }} продаж / мес</li>
-                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Google Sheets</li>
+                <div class="shrink-0">
+                    {% if bot_username %}
+                    <a href="https://t.me/{{ bot_username }}" target="_blank"
+                       class="inline-flex items-center gap-2 border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-7 py-3 rounded-xl transition-all text-sm">
+                        Начать бесплатно
+                    </a>
+                    {% else %}
+                    <a href="/dashboard"
+                       class="inline-flex items-center gap-2 border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-7 py-3 rounded-xl transition-all text-sm">
+                        Начать бесплатно
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Module label -->
+        <div class="text-center mb-8 reveal">
+            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">Модули — подключайте по необходимости</p>
+        </div>
+
+        <!-- Module cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
+
+            <!-- Аналитика -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
+                <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-xl mb-4">📈</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Аналитика</div>
+                <div class="text-2xl font-extrabold text-blue-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Отчёты и графики</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рейтинги продавцов</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>ABC-анализ товаров</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Экспорт в Excel</li>
                 </ul>
-                {{ cta('Начать бесплатно', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- Базовый -->
-            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d2">
-                <div class="mb-7">
-                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Базовый</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pb.price_fmt }}</div>
-                    <div class="text-sm text-slate-400 mt-1.5">{{ pb.duration_label }}</div>
-                </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До {{ pb.max_products }} товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>До {{ pb.max_shops }} магазинов</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>{{ pb.max_sales }} продаж / мес</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5 opacity-35"><span class="leading-none">—</span>Google Sheets</li>
+            <!-- Команда -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-purple-300 hover:shadow-lg hover:shadow-purple-50 transition-all duration-300 hover:-translate-y-0.5 reveal d2">
+                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-xl mb-4">👥</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Команда</div>
+                <div class="text-2xl font-extrabold text-purple-600 mb-3">399 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Сотрудники и роли</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Зарплата и смены</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>График и отсутствия</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Расчёт ФОТ</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
 
-            <!-- Стандарт (popular) -->
-            <div class="card-popular rounded-2xl p-7 relative shadow-2xl -mt-3 lg:-mt-5 reveal d3">
-                <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-400 text-slate-900 text-xs font-extrabold px-4 py-1 rounded-full uppercase tracking-wide shadow-md">
-                    Популярный
-                </div>
-                <div class="mb-7">
-                    <div class="text-xs font-bold text-blue-200 uppercase tracking-widest mb-3">Стандарт</div>
-                    <div class="text-5xl font-extrabold text-white tracking-tight">{{ ps.price_fmt }}</div>
-                    <div class="text-sm text-blue-200 mt-1.5">{{ ps.duration_label }}</div>
-                </div>
-                <ul class="space-y-3 text-sm text-white/90 mb-8 min-h-[172px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До {{ ps.max_products }} товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>До {{ ps.max_shops }} магазинов</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>{{ ps.max_sales }} продаж / мес</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Аналитика и отчёты</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Экспорт в Excel</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-300 font-bold leading-none">✓</span>Google Sheets</li>
+            <!-- Планы и мотивация -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-amber-300 hover:shadow-lg hover:shadow-amber-50 transition-all duration-300 hover:-translate-y-0.5 reveal d3">
+                <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-xl mb-4">🎯</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Планы и мотивация</div>
+                <div class="text-2xl font-extrabold text-amber-600 mb-3">249 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Планы продаж</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>KPI и комиссии</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Конкурсы</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Алерты по вехам</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center bg-white hover:bg-blue-50 text-blue-700 font-bold py-3 rounded-xl transition-colors text-sm shadow-lg') }}
             </div>
 
-            <!-- Премиум -->
-            <div class="border border-slate-200 rounded-2xl p-7 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-1 reveal d4">
-                <div class="mb-7">
-                    <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Премиум</div>
-                    <div class="text-5xl font-extrabold text-slate-900 tracking-tight">{{ pp.price_fmt }}</div>
-                    <div class="text-sm text-slate-400 mt-1.5">{{ pp.duration_label }}</div>
-                </div>
-                <ul class="space-y-3 text-sm text-slate-600 mb-8 min-h-[172px]">
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;товаров</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;магазинов</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span><strong>∞</strong>&nbsp;продаж</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Все функции</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Google Sheets</li>
-                    <li class="flex items-start gap-2.5"><span class="mt-0.5 text-emerald-500 font-bold leading-none">✓</span>Приоритетная поддержка</li>
+            <!-- Уведомления -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-rose-300 hover:shadow-lg hover:shadow-rose-50 transition-all duration-300 hover:-translate-y-0.5 reveal d4">
+                <div class="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-xl mb-4">🔔</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Уведомления</div>
+                <div class="text-2xl font-extrabold text-rose-600 mb-3">199 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Push-уведомления</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рассылки команде</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Дневные отчёты</span></li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Алерты по остаткам</li>
                 </ul>
-                {{ cta('Выбрать тариф', 'block w-full text-center border border-slate-200 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold py-3 rounded-xl transition-all text-sm') }}
             </div>
+
+            <!-- Интеграции -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-teal-300 hover:shadow-lg hover:shadow-teal-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
+                <div class="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-xl mb-4">🔗</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Интеграции</div>
+                <div class="text-2xl font-extrabold text-teal-600 mb-3">399 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Google Sheets</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Авто-экспорт продаж</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>OAuth авторизация</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Настраиваемые листы</li>
+                </ul>
+            </div>
+
+            <!-- Чат -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-50 transition-all duration-300 hover:-translate-y-0.5 reveal d2">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-xl mb-4">💬</div>
+                <div class="text-base font-bold text-slate-900 mb-1">Чат команды</div>
+                <div class="text-2xl font-extrabold text-emerald-600 mb-3">149 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Темы и треды</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Личные сообщения</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Файлы и фото</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Реальное время</li>
+                </ul>
+            </div>
+
+            <!-- ИИ-помощник -->
+            <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-50 transition-all duration-300 hover:-translate-y-0.5 reveal d3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-xl mb-4">🤖</div>
+                <div class="text-base font-bold text-slate-900 mb-1">ИИ-помощник</div>
+                <div class="text-2xl font-extrabold text-indigo-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Умные алерты</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Анализ продаж</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>Рекомендации</li>
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>DeepSeek / Gemini</li>
+                </ul>
+            </div>
+
+            <!-- Расширить лимиты -->
+            <div class="border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50/50 reveal d4">
+                <div class="w-10 h-10 rounded-xl bg-slate-200/60 flex items-center justify-center text-xl mb-4">➕</div>
+                <div class="text-base font-bold text-slate-700 mb-1">Расширения лимитов</div>
+                <div class="text-2xl font-extrabold text-slate-500 mb-3">от 99 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
+                <ul class="space-y-1.5 text-xs text-slate-500">
+                    <li class="flex items-center gap-1.5"><span class="text-slate-400">+</span>Дополнительные магазины</li>
+                    <li class="flex items-center gap-1.5"><span class="text-slate-400">+</span>Больше товаров</li>
+                    <li class="flex items-center gap-1.5"><span class="text-slate-400">+</span>Больше продаж в месяц</li>
+                    <li class="flex items-center gap-1.5"><span class="text-slate-400">+</span>Гибко, без переплат</li>
+                </ul>
+            </div>
+
         </div>
 
         <!-- Trial notice -->
-        <div class="mt-10 text-center reveal">
+        <div class="mt-4 text-center reveal">
             <div class="inline-flex items-center gap-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-7 py-4 text-sm text-emerald-800">
                 <svg class="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                Каждая новая организация получает <strong class="mx-1">14 дней Премиум-доступа бесплатно</strong> — оплата не нужна
+                Каждая новая организация получает <strong class="mx-1">14 дней — все модули бесплатно</strong> — оплата не нужна, карта не нужна
             </div>
         </div>
         <div class="mt-4 text-center text-sm text-slate-400 reveal">

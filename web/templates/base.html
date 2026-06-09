@@ -281,6 +281,7 @@ function toastMgr() {
 
     <!-- Nav -->
     <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+        {% set _nm = nav_modules(request) %}
 
         <a href="/dashboard"
            class="nav-link {% if request.url.path=='/dashboard' %}nav-active{% endif %}">
@@ -316,6 +317,7 @@ function toastMgr() {
         </a>
         {% endif %}
 
+        {% if _nm.analytics %}
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Аналитика</p>
 
         <a href="/reports"
@@ -326,9 +328,11 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/rankings') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🏆</span>Рейтинги
         </a>
+        {% endif %}
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Команда</p>
 
+        {% if _nm.team %}
         <a href="/staff"
            class="nav-link {% if request.url.path.startswith('/staff') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">👥</span>Сотрудники
@@ -350,6 +354,8 @@ function toastMgr() {
             <span class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-amber-500 text-white">{{ _abscnt }}</span>
             {% endif %}
         </a>
+        {% endif %}
+        {% if _nm.plans_motivation %}
         <a href="/plans"
            class="nav-link {% if request.url.path.startswith('/plans') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎯</span>Планы
@@ -358,6 +364,7 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/contests') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🎁</span>Конкурсы
         </a>
+        {% endif %}
         {% set _tskcnt = open_tasks_count(request) %}
         <a href="/tasks"
            class="nav-link {% if request.url.path.startswith('/tasks') %}nav-active{% endif %}">
@@ -375,22 +382,28 @@ function toastMgr() {
         </a>
         {% endif %}
         {% if user and user.role in ('owner', 'admin', 'super_admin') %}
+        {% if _nm.notifications %}
         <a href="/notifications"
            class="nav-link {% if request.url.path.startswith('/notifications') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🔔</span>Рассылки
         </a>
+        {% endif %}
+        {% if _nm.plans_motivation %}
         <a href="/motivation"
            class="nav-link {% if request.url.path.startswith('/motivation') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💎</span>Мотивация
         </a>
         {% endif %}
+        {% endif %}
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Система</p>
 
+        {% if _nm.integrations %}
         <a href="/integration"
            class="nav-link {% if request.url.path.startswith('/integration') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🔗</span>Интеграции
         </a>
+        {% endif %}
         {% if user and user.role == 'owner' %}
         <a href="/subscription"
            class="nav-link {% if request.url.path.startswith('/subscription') %}nav-active{% endif %}">
@@ -1740,6 +1753,7 @@ function mainApp() {
 
     <!-- Sheet content -->
     <div class="px-4 py-4 space-y-5">
+        {% set _nm = nav_modules(request) %}
 
         <!-- Операции -->
         <div>
@@ -1776,9 +1790,11 @@ function mainApp() {
         </div>
 
         <!-- Аналитика -->
+        {% if _nm.analytics or _nm.plans_motivation %}
         <div>
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Аналитика</p>
             <div class="grid grid-cols-4 gap-2">
+                {% if _nm.analytics %}
                 <a href="/reports" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/reports') %}sht-active{% endif %}">
                     <span class="sht-icon">📈</span>
@@ -1789,18 +1805,23 @@ function mainApp() {
                     <span class="sht-icon">🏆</span>
                     <span class="sht-label">Рейтинги</span>
                 </a>
+                {% endif %}
+                {% if _nm.plans_motivation %}
                 <a href="/plans" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/plans') %}sht-active{% endif %}">
                     <span class="sht-icon">🎯</span>
                     <span class="sht-label">Планы</span>
                 </a>
+                {% endif %}
             </div>
         </div>
+        {% endif %}
 
         <!-- Команда -->
         <div>
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Команда</p>
             <div class="grid grid-cols-4 gap-2">
+                {% if _nm.team %}
                 <a href="/staff" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/staff') %}sht-active{% endif %}">
                     <span class="sht-icon">👥</span>
@@ -1816,11 +1837,14 @@ function mainApp() {
                     <span class="sht-icon">📅</span>
                     <span class="sht-label">График</span>
                 </a>
+                {% endif %}
+                {% if _nm.plans_motivation %}
                 <a href="/contests" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/contests') %}sht-active{% endif %}">
                     <span class="sht-icon">🎁</span>
                     <span class="sht-label">Конкурсы</span>
                 </a>
+                {% endif %}
                 <a href="/tasks" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/tasks') %}sht-active{% endif %}">
                     <span class="sht-icon">📋</span>
@@ -1834,16 +1858,20 @@ function mainApp() {
                 </a>
                 {% endif %}
                 {% if user and user.role in ('owner','admin','super_admin') %}
+                {% if _nm.notifications %}
                 <a href="/notifications" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/notifications') %}sht-active{% endif %}">
                     <span class="sht-icon">🔔</span>
                     <span class="sht-label">Рассылки</span>
                 </a>
+                {% endif %}
+                {% if _nm.plans_motivation %}
                 <a href="/motivation" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/motivation') %}sht-active{% endif %}">
                     <span class="sht-icon">💎</span>
                     <span class="sht-label">Мотивация</span>
                 </a>
+                {% endif %}
                 {% endif %}
             </div>
         </div>
