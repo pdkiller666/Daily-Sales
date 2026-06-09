@@ -2,6 +2,7 @@
 Super-Admin Hub — web equivalent of system_admin_panel in the bot.
 All routes require user.role == 'super_admin'.
 """
+import contextlib
 import os
 import sqlite3
 from datetime import datetime
@@ -17,6 +18,14 @@ from web.auth import get_csrf_token, get_session_user, verify_csrf_token
 router = APIRouter(prefix="/admin")
 
 SHOP_BOT_DB = "data/shop_bot.db"
+
+
+def _raw_conn(path: str = SHOP_BOT_DB) -> sqlite3.Connection:
+    """Open a raw SQLite connection with WAL mode and busy timeout."""
+    conn = sqlite3.connect(path, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=3000")
+    return conn
 
 
 def _guard(user) -> bool:
@@ -178,17 +187,9 @@ async def admin_stats(request: Request):
     db = _db()
     detailed = db.get_detailed_payment_statistics()
 
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT pr.id, u.first_name, u.last_name, pr.plan_type, pr.amount, pr.created_at
-            FROM payment_requests pr
-            JOIN users u ON pr.user_id = u.id
-            WHERE pr.status = 'approved'
-            ORDER BY pr.created_at DESC LIMIT 30
-        """)
+        conn = _raw_conn()
         recent = [
             {
                 "id": r[0],
@@ -197,19 +198,25 @@ async def admin_stats(request: Request):
                 "amount": r[4] or 0,
                 "date": (r[5] or "")[:10],
             }
-            for r in cur.fetchall()
+            for r in conn.execute("""
+                SELECT pr.id, u.first_name, u.last_name, pr.plan_type, pr.amount, pr.created_at
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                WHERE pr.status = 'approved'
+                ORDER BY pr.created_at DESC LIMIT 30
+            """).fetchall()
         ]
-
-        cur.execute("""
+        chart_raw = conn.execute("""
             SELECT strftime('%Y-%m', created_at) as mo, SUM(amount)
             FROM payment_requests WHERE status = 'approved'
             GROUP BY mo ORDER BY mo ASC
-        """)
-        chart_raw = cur.fetchall()
-        conn.close()
+        """).fetchall()
     except Exception:
         recent = []
         chart_raw = []
+    finally:
+        if conn:
+            conn.close()
 
     chart = [{"month": r[0], "revenue": float(r[1] or 0)} for r in chart_raw]
 
@@ -517,45 +524,52 @@ async def admin_delete_backup(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _count_active_subs() -> int:
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM subscriptions WHERE end_date > CURRENT_TIMESTAMP")
-        n = cur.fetchone()[0]
-        conn.close()
+        conn = _raw_conn()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM subscriptions WHERE end_date > CURRENT_TIMESTAMP"
+        ).fetchone()[0]
         return n
     except Exception:
         return 0
+    finally:
+        if conn:
+            conn.close()
 
 
 def _count_pending() -> int:
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM payment_requests WHERE status='pending'")
-        n = cur.fetchone()[0]
-        conn.close()
+        conn = _raw_conn()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM payment_requests WHERE status='pending'"
+        ).fetchone()[0]
         return n
     except Exception:
         return 0
+    finally:
+        if conn:
+            conn.close()
 
 
 def _get_active_subs(q: str = "") -> list[dict]:
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("""
+        conn = _raw_conn()
+        rows = conn.execute("""
             SELECT s.id, s.user_id, s.plan_type, s.end_date,
                    u.first_name, u.last_name, u.username, u.shop_name, u.telegram_id
             FROM subscriptions s
             JOIN users u ON s.user_id = u.id
             WHERE s.end_date > CURRENT_TIMESTAMP
             ORDER BY s.end_date ASC
-        """)
-        rows = cur.fetchall()
-        conn.close()
+        """).fetchall()
     except Exception:
         return []
+    finally:
+        if conn:
+            conn.close()
 
     result = []
     for r in rows:
@@ -578,15 +592,13 @@ def _get_active_subs(q: str = "") -> list[dict]:
 
 
 def _get_all_shop_bot_users() -> list[dict]:
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute(
+        conn = _raw_conn()
+        rows = conn.execute(
             "SELECT id, first_name, last_name, username, shop_name "
             "FROM users ORDER BY first_name, last_name"
-        )
-        rows = cur.fetchall()
-        conn.close()
+        ).fetchall()
         return [
             {
                 "id": r[0],
@@ -598,6 +610,9 @@ def _get_all_shop_bot_users() -> list[dict]:
         ]
     except Exception:
         return []
+    finally:
+        if conn:
+            conn.close()
 
 
 def _search_global_users(q: str) -> list[dict]:
@@ -607,10 +622,10 @@ def _search_global_users(q: str) -> list[dict]:
     q_lo = q.lower()
 
     # shop_bot.db users
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("""
+        conn = _raw_conn()
+        for r in conn.execute("""
             SELECT u.id, u.first_name, u.last_name, u.username, u.shop_name,
                    u.telegram_id, s.plan_type, s.end_date
             FROM users u
@@ -619,8 +634,7 @@ def _search_global_users(q: str) -> list[dict]:
                         || ' ' || COALESCE(u.username,'')) LIKE ?
                OR CAST(u.telegram_id AS TEXT) LIKE ?
             ORDER BY u.first_name LIMIT 50
-        """, (f"%{q_lo}%", f"%{q}%"))
-        for r in cur.fetchall():
+        """, (f"%{q_lo}%", f"%{q}%")).fetchall():
             results.append({
                 "source": "Центральная БД",
                 "source_type": "central",
@@ -632,9 +646,11 @@ def _search_global_users(q: str) -> list[dict]:
                 "plan": r[6] or "Бесплатный",
                 "sub_end": (r[7] or "")[:10] or "—",
             })
-        conn.close()
     except Exception:
         pass
+    finally:
+        if conn:
+            conn.close()
 
     # Per-org tenant DBs
     try:
@@ -643,18 +659,17 @@ def _search_global_users(q: str) -> list[dict]:
             org_id, org_name, db_path = org_row[0], org_row[1], org_row[2]
             if not db_path or not os.path.exists(db_path):
                 continue
+            org_conn = None
             try:
-                conn = sqlite3.connect(db_path)
-                cur = conn.cursor()
-                cur.execute("""
+                org_conn = _raw_conn(db_path)
+                for r in org_conn.execute("""
                     SELECT id, first_name, last_name, phone, shop_name, telegram_id
                     FROM users
                     WHERE LOWER(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')
                                 || ' ' || COALESCE(phone,'')) LIKE ?
                        OR CAST(telegram_id AS TEXT) LIKE ?
                     LIMIT 20
-                """, (f"%{q_lo}%", f"%{q}%"))
-                for r in cur.fetchall():
+                """, (f"%{q_lo}%", f"%{q}%")).fetchall():
                     results.append({
                         "source": org_name,
                         "source_type": "org",
@@ -665,9 +680,11 @@ def _search_global_users(q: str) -> list[dict]:
                         "plan": "—",
                         "sub_end": "—",
                     })
-                conn.close()
             except Exception:
                 continue
+            finally:
+                if org_conn:
+                    org_conn.close()
     except Exception:
         pass
 

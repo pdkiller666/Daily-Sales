@@ -6,6 +6,22 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai")
 
+
+def _api_csrf_ok(request: Request) -> bool:
+    """Same-origin guard for JSON API endpoints.
+    Returns False only when Origin header is present but doesn't match the host.
+    Same-site fetch calls either omit Origin or match the host.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    host = request.headers.get("host", "")
+    try:
+        from urllib.parse import urlparse
+        return urlparse(origin).netloc == host
+    except Exception:
+        return False
+
 # Simple per-user rate limit (in-memory, resets on restart)
 # Base: 20 req/hour. With ai_high_limit extension: 50 req/hour.
 import time as _time
@@ -31,6 +47,8 @@ def _ai_rate_ok(key: str, high_limit: bool = False) -> bool:
 
 @router.post("/explain-report")
 async def ai_explain_report(request: Request):
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
     from web.auth import get_session_user
     from web.ai_utils import ask_llm, build_report_explain_prompt, is_configured
 
@@ -93,6 +111,8 @@ async def ai_explain_report(request: Request):
 
 @router.post("/product-description")
 async def ai_product_description(request: Request):
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
     from web.auth import get_session_user
     from web.ai_utils import ask_llm, build_product_description_prompt, is_configured
 
@@ -149,6 +169,8 @@ async def ai_product_description(request: Request):
 
 @router.post("/sales-forecast")
 async def ai_sales_forecast(request: Request):
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
     from web.auth import get_session_user
     from web.ai_utils import ask_llm, build_sales_forecast_prompt, is_configured
 

@@ -11202,22 +11202,12 @@ class Database:
                     ph = ','.join('?' * len(ext_keys))
                     cur.execute(
                         f"""UPDATE billing_module_subs
-                            SET end_date=datetime('now')
+                            SET is_active=0, end_date=datetime('now')
                             WHERE user_telegram_id=? AND item_type='extension'
-                              AND item_key IN ({ph}) AND is_active=1
-                              AND end_date > datetime('now')""",
+                              AND item_key IN ({ph}) AND is_active=1""",
                         (tg_id, *ext_keys)
                     )
-                    n = cur.rowcount
-                    cur.execute(
-                        f"""UPDATE billing_module_subs
-                            SET is_active=0
-                            WHERE user_telegram_id=? AND item_type='extension'
-                              AND item_key IN ({ph}) AND is_active=1
-                              AND (end_date IS NULL OR end_date <= datetime('now'))""",
-                        (tg_id, *ext_keys)
-                    )
-                    result['cascaded'] = n + cur.rowcount
+                    result['cascaded'] = cur.rowcount
 
             conn.commit()
             conn.close()

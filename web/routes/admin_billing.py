@@ -47,15 +47,20 @@ def _flash(request: Request) -> str:
 
 def _all_users_with_ids() -> list:
     """Return list of {telegram_id, first_name} for the grant form dropdown."""
+    conn = None
     try:
-        conn = sqlite3.connect(SHOP_BOT_DB)
+        conn = sqlite3.connect(SHOP_BOT_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
         rows = conn.execute(
             "SELECT telegram_id, first_name, last_name FROM users ORDER BY first_name LIMIT 500"
         ).fetchall()
-        conn.close()
         return [{"telegram_id": r[0], "name": f"{r[1]} {r[2] or ''}".strip()} for r in rows]
     except Exception:
         return []
+    finally:
+        if conn:
+            conn.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

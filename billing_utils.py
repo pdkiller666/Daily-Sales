@@ -21,8 +21,10 @@ SHOP_BOT_DB = "data/shop_bot.db"
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(SHOP_BOT_DB)
+    c = sqlite3.connect(SHOP_BOT_DB, timeout=10)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=3000")
     return c
 
 

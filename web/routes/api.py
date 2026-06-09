@@ -300,6 +300,12 @@ async def push_unsubscribe(request: Request):
     from web.auth import get_session_user
     from database import Database
 
+    origin = request.headers.get("origin")
+    if origin:
+        from urllib.parse import urlparse
+        if urlparse(origin).netloc != request.headers.get("host", ""):
+            return JSONResponse({"ok": False}, status_code=403)
+
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False}, status_code=401)

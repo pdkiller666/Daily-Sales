@@ -243,13 +243,19 @@ function toastMgr() {
         list: [],
         init() {
             const p = new URLSearchParams(location.search);
-            const s = p.get('success'), e = p.get('error');
+            const s = p.get('success'), e = p.get('error'), m = p.get('msg');
             if (s) this.show(true, decodeURIComponent(s));
             if (e) this.show(false, decodeURIComponent(e));
-            if (s || e) {
+            if (m) {
+                const _ok = /^(saved|updated|ok|done|success|created)/.test(m);
+                const _bad = /^(error|fail|denied|deleted|invalid)/.test(m);
+                if (_ok || _bad) this.show(_ok, decodeURIComponent(m));
+            }
+            if (s || e || m) {
                 const u = new URL(location);
                 u.searchParams.delete('success');
                 u.searchParams.delete('error');
+                u.searchParams.delete('msg');
                 history.replaceState({}, '', u);
             }
         },
