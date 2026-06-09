@@ -461,6 +461,28 @@ def check_notifications_permission(telegram_id):
         return get_plan_limits(telegram_id)['can_use_notifications']
 
 
+def check_team_permission(telegram_id):
+    """Проверка разрешения на командные функции (модуль 'team'): оклады, графики, отсутствия."""
+    if env_manager.is_super_admin(telegram_id):
+        return True
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'team')
+    except Exception:
+        return False
+
+
+def check_plans_motivation_permission(telegram_id):
+    """Проверка разрешения на планы продаж и мотивацию (модуль 'plans_motivation')."""
+    if env_manager.is_super_admin(telegram_id):
+        return True
+    try:
+        from billing_utils import has_module
+        return has_module(telegram_id, 'plans_motivation')
+    except Exception:
+        return False
+
+
 def get_subscription_warning_message(telegram_id):
     """Предупреждающее сообщение о недоступности функции."""
     return (

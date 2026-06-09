@@ -143,10 +143,28 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                  else f"• Магазины: до {limits['max_shops']}\n")
         text += ("• Продажи/мес: ∞ Безлимит\n" if limits['max_sales_per_month'] == -1
                  else f"• Продажи/мес: до {limits['max_sales_per_month']}\n")
-        text += f"• Экспорт отчётов: {'✅' if limits['can_export_reports'] else '❌'}\n"
-        text += f"• Аналитика: {'✅' if limits['can_view_analytics'] else '❌'}\n"
-        text += f"• Уведомления: {'✅' if limits['can_use_notifications'] else '❌'}\n"
-        text += f"• Google Таблицы: {'✅' if limits.get('can_use_integrations', False) else '❌'}\n"
+
+        # Статус всех 7 модулей через billing_utils
+        text += "\n<b>Подключённые модули:</b>\n"
+        try:
+            from billing_utils import has_module as _hm
+            modules_status = [
+                ("📊 Аналитика",          _hm(telegram_id, 'analytics')),
+                ("👥 Команда",             _hm(telegram_id, 'team')),
+                ("🔔 Уведомления",         _hm(telegram_id, 'notifications')),
+                ("📈 Планы и мотивация",   _hm(telegram_id, 'plans_motivation')),
+                ("🤖 AI-ассистент",        _hm(telegram_id, 'ai_assistant')),
+                ("🔗 Интеграции",          _hm(telegram_id, 'integrations')),
+                ("💬 Внутренний чат",      _hm(telegram_id, 'chat')),
+            ]
+        except Exception:
+            modules_status = [
+                ("📊 Аналитика",   limits.get('can_view_analytics', False)),
+                ("🔔 Уведомления", limits.get('can_use_notifications', False)),
+                ("🔗 Интеграции",  limits.get('can_use_integrations', False)),
+            ]
+        for mod_name, mod_active in modules_status:
+            text += f"• {mod_name}: {'✅' if mod_active else '❌'}\n"
 
         if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
             try:

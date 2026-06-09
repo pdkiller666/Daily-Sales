@@ -184,6 +184,18 @@ async def admin_salary_menu_handler(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
+    if not env_manager.is_super_admin(uid):
+        from subscription_utils import check_team_permission
+        if not check_team_permission(uid):
+            await callback.message.edit_text(
+                "🔒 <b>Модуль «Команда» не подключён</b>\n\n"
+                "Функции управления окладами и графиками работы доступны при активном модуле <b>Команда</b>.\n\n"
+                "Подключите модуль в веб-кабинете:\n"
+                "<b>Подписка → Модули → 👥 Команда</b>",
+                parse_mode="HTML"
+            )
+            await callback.answer()
+            return
     builder = InlineKeyboardBuilder()
     builder.button(text="💵 Ставки сотрудников", callback_data="slr_rates")
     builder.button(text="📅 Графики работы", callback_data="slr_scheds")
@@ -1036,6 +1048,11 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
+    if not env_manager.is_super_admin(uid):
+        from subscription_utils import check_team_permission
+        if not check_team_permission(uid):
+            await callback.answer("🔒 Требуется модуль «Команда»", show_alert=True)
+            return
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
     current_db = await get_db(uid, state)
@@ -1256,6 +1273,11 @@ async def slr_adj_menu(callback: CallbackQuery, state: FSMContext):
     if not (env_manager.is_super_admin(uid) or is_any_admin(uid)):
         await callback.answer("❌ Нет доступа", show_alert=True)
         return
+    if not env_manager.is_super_admin(uid):
+        from subscription_utils import check_team_permission
+        if not check_team_permission(uid):
+            await callback.answer("🔒 Требуется модуль «Команда»", show_alert=True)
+            return
     current_db = await get_db(uid, state)
     user_tz = await current_db.get_user_timezone(uid)
     now = get_current_user_time(user_tz)

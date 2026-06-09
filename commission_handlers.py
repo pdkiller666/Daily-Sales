@@ -66,9 +66,22 @@ class ExtraConditionStates(StatesGroup):
 @commission_router.callback_query(F.data == "admin_motivation")
 async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
     """Главное меню управления мотивацией"""
-    if not is_any_admin(callback.from_user.id):
+    uid = callback.from_user.id
+    if not is_any_admin(uid):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
+    if not env_manager.is_super_admin(uid):
+        from subscription_utils import check_plans_motivation_permission
+        if not check_plans_motivation_permission(uid):
+            await callback.message.edit_text(
+                "🔒 <b>Модуль «Планы и мотивация» не подключён</b>\n\n"
+                "Управление мотивацией продавцов доступно при активном модуле <b>Планы и мотивация</b>.\n\n"
+                "Подключите модуль в веб-кабинете:\n"
+                "<b>Подписка → Модули → 📈 Планы и мотивация</b>",
+                parse_mode="HTML"
+            )
+            await callback.answer()
+            return
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
