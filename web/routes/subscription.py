@@ -66,6 +66,13 @@ def _get_user_id_in_shop_bot(telegram_id: int) -> int | None:
         return None
 
 
+def _strip_leading_emoji(name: str, icon: str) -> str:
+    """Возвращает name без ведущего эмодзи+пробел, если name начинается с icon."""
+    if icon and name and name.startswith(icon):
+        return name[len(icon):].lstrip()
+    return name
+
+
 def _get_all_billing_modules() -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
@@ -82,10 +89,12 @@ def _get_all_billing_modules() -> list[dict]:
                 features = json.loads(feats_json or "[]")
             except Exception:
                 features = []
+            _icon = icon or "🔧"
             result.append({
                 "key": key,
                 "name": name,
-                "icon": icon or "🔧",
+                "name_display": _strip_leading_emoji(name, _icon),
+                "icon": _icon,
                 "description": desc or "",
                 "price_monthly": int(price or 0),
                 "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
@@ -109,11 +118,13 @@ def _get_all_billing_extensions() -> list[dict]:
         result = []
         for r in rows:
             module_key, key, name, icon, desc, price = r
+            _icon = icon or "🔧"
             result.append({
                 "module_key": module_key,
                 "key": key,
                 "name": name,
-                "icon": icon or "🔧",
+                "name_display": _strip_leading_emoji(name, _icon),
+                "icon": _icon,
                 "description": desc or "",
                 "price_monthly": int(price or 0),
                 "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
@@ -127,10 +138,10 @@ def _modules_map(modules: list[dict], extensions: list[dict] | None = None) -> d
     """key → {name, icon} для отображения дружественных названий в шаблоне.
     Включает и модули, и расширения, чтобы chips в hero-карточке показывали
     friendly names для всех активных подписок."""
-    result = {m["key"]: {"name": m["name"], "icon": m["icon"]} for m in modules}
+    result = {m["key"]: {"name": m["name"], "name_display": m.get("name_display", m["name"]), "icon": m["icon"]} for m in modules}
     if extensions:
         for e in extensions:
-            result[e["key"]] = {"name": e["name"], "icon": e["icon"]}
+            result[e["key"]] = {"name": e["name"], "name_display": e.get("name_display", e["name"]), "icon": e["icon"]}
     return result
 
 

@@ -369,7 +369,7 @@
 
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-bold text-slate-800 dark:text-white text-sm">{{ mod.name }}</span>
+                <span class="font-bold text-slate-800 dark:text-white text-sm">{{ mod.name_display }}</span>
                 {% if is_active %}
                 <span class="text-[10px] px-2 py-0.5 bg-emerald-100 dark:bg-emerald-800 text-emerald-700 dark:text-emerald-300 rounded-full font-bold">✓ Активен</span>
                 {% endif %}
@@ -409,7 +409,7 @@
             <form method="POST" action="/subscription/cancel-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <input type="hidden" name="item_name" value="{{ mod.name }}">
+                <input type="hidden" name="item_name" value="{{ mod.name_display }}">
                 <button type="submit" class="btn-cancel">Отключить</button>
             </form>
             {% endif %}
@@ -433,7 +433,7 @@
 {% if _qtab == 'extensions' %}
 
 <div class="mb-4 px-4 py-3 bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800 rounded-xl text-sm text-violet-700 dark:text-violet-300">
-    Расширения дополняют модули — для подключения нужен активный родительский модуль.
+    Расширения дополняют модули — нажмите на группу, чтобы развернуть.
 </div>
 
 {% if extensions %}
@@ -444,17 +444,42 @@
 {% set parent_mod = modules_map.get(ext.module_key, {}) %}
 {% set parent_active = ('*' in active_items.modules) or (ext.module_key in active_items.modules) %}
 
-<div class="mb-5">
-    <div class="flex items-center gap-2 mb-2 px-1">
-        <span>{{ parent_mod.icon if parent_mod.icon else '🔧' }}</span>
-        <span class="font-bold text-slate-700 dark:text-slate-200 text-sm">{{ parent_mod.name if parent_mod.name else ext.module_key }}</span>
-        <span class="ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold
-            {{ 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300' if parent_active else 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300' }}">
-            {{ '✓ Модуль активен' if parent_active else '⚠ Нужен модуль' }}
-        </span>
-    </div>
+{# Считаем активные расширения в группе #}
+{% set ns = namespace(active_in_group=0, total_in_group=0) %}
+{% for ext2 in extensions if ext2.module_key == ext.module_key %}
+    {% set ns.total_in_group = ns.total_in_group + 1 %}
+    {% if ('*' in active_items.extensions) or (ext2.key in active_items.extensions) %}
+        {% set ns.active_in_group = ns.active_in_group + 1 %}
+    {% endif %}
+{% endfor %}
 
-    <div class="card overflow-hidden {{ 'opacity-60' if not parent_active else '' }}">
+{# Группа: аккордеон — открыта, если есть активные расширения #}
+<div class="mb-3" x-data="{ open: {{ 'true' if ns.active_in_group > 0 else 'false' }} }">
+
+    {# Заголовок группы — кликабельный #}
+    <button type="button" @click="open = !open"
+        class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1 transition-colors
+               {{ 'bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30' if parent_active else 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700' }}">
+        <span class="text-base shrink-0">{{ parent_mod.icon if parent_mod.icon else '🔧' }}</span>
+        <span class="font-bold text-slate-700 dark:text-slate-200 text-sm flex-1 text-left">
+            {{ parent_mod.name_display if parent_mod.name_display else (parent_mod.name if parent_mod.name else ext.module_key) }}
+        </span>
+        {# Счётчик: x активных из total #}
+        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0
+            {{ 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300' if ns.active_in_group > 0 else ('bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300' if not parent_active else 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400') }}">
+            {% if ns.active_in_group > 0 %}{{ ns.active_in_group }}/{{ ns.total_in_group }} активно
+            {% elif not parent_active %}⚠ нет модуля
+            {% else %}{{ ns.total_in_group }} доступно{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-slate-400 shrink-0 transition-transform" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </button>
+
+    {# Список расширений группы #}
+    <div x-show="open" x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+         class="card overflow-hidden {{ 'opacity-60' if not parent_active else '' }}">
         {% for ext2 in extensions if ext2.module_key == ext.module_key %}
         {% set is_ext_active = ('*' in active_items.extensions) or (ext2.key in active_items.extensions) %}
         {% set ext_sub_info = user_mod_subs.get(ext2.key) %}
@@ -466,7 +491,7 @@
             </div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-semibold text-slate-800 dark:text-white text-sm">{{ ext2.name }}</span>
+                    <span class="font-semibold text-slate-800 dark:text-white text-sm">{{ ext2.name_display }}</span>
                     {% if is_ext_active %}
                     <span class="text-[10px] px-1.5 py-0.5 bg-violet-100 dark:bg-violet-800 text-violet-700 dark:text-violet-300 rounded-full font-bold">✓</span>
                     {% endif %}
@@ -507,7 +532,7 @@
                 <form method="POST" action="/subscription/cancel-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
-                    <input type="hidden" name="item_name" value="{{ ext2.name }}">
+                    <input type="hidden" name="item_name" value="{{ ext2.name_display }}">
                     <button type="submit" class="btn-cancel">Отключить</button>
                 </form>
                 {% endif %}
