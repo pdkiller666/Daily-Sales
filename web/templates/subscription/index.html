@@ -84,7 +84,7 @@
             {% for key, info in user_mod_subs.items() %}
             {% set minfo = modules_map.get(key, {}) %}
             <span class="inline-flex items-center gap-1 text-xs bg-white/20 text-white px-2.5 py-1 rounded-full font-medium backdrop-blur-sm">
-                {% if minfo.icon %}{{ minfo.icon }} {% endif %}{{ minfo.name if minfo.name else key }}
+                {{ minfo.name if minfo.name else key }}
             </span>
             {% endfor %}
         </div>

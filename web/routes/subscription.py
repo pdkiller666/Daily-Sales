@@ -123,9 +123,15 @@ def _get_all_billing_extensions() -> list[dict]:
         return []
 
 
-def _modules_map(modules: list[dict]) -> dict:
-    """key → {name, icon} для отображения дружественных названий в шаблоне."""
-    return {m["key"]: {"name": m["name"], "icon": m["icon"]} for m in modules}
+def _modules_map(modules: list[dict], extensions: list[dict] | None = None) -> dict:
+    """key → {name, icon} для отображения дружественных названий в шаблоне.
+    Включает и модули, и расширения, чтобы chips в hero-карточке показывали
+    friendly names для всех активных подписок."""
+    result = {m["key"]: {"name": m["name"], "icon": m["icon"]} for m in modules}
+    if extensions:
+        for e in extensions:
+            result[e["key"]] = {"name": e["name"], "icon": e["icon"]}
+    return result
 
 
 def _get_all_billing_bundles() -> list[dict]:
@@ -273,7 +279,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
     modules = _get_all_billing_modules()
     bundles = _get_all_billing_bundles()
     extensions = _get_all_billing_extensions()
-    mmap = _modules_map(modules)
+    mmap = _modules_map(modules, extensions)
     requisites = _get_payment_requisites()
 
     if user.get("role") == "super_admin":
