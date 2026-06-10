@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="{ tab: {{ active_tab | tojson }}, editMod: null, editExt: null }" class="space-y-6">
+<div x-data='{ "tab": {{ active_tab | tojson }}, "editMod": null, "editExt": null }' class="space-y-6">
 
 {% from "admin/_macros.html" import page_header %}
 {{ page_header('🧩', 'Модули и расширения', 'Цены, расширения, статусы', '/admin/billing', 'Биллинг') }}
