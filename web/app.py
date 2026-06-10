@@ -212,7 +212,6 @@ Disallow: /push
 Disallow: /stats
 Disallow: /subs
 Disallow: /switch_org
-Disallow: /tariffs
 Disallow: /unread-count
 Disallow: /users
 

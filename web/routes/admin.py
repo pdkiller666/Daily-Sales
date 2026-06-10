@@ -254,137 +254,6 @@ async def admin_stats(request: Request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Tariff Plans
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get("/tariffs")
-async def admin_tariffs(request: Request):
-    user = get_session_user(request)
-    if _guard(user):
-        return RedirectResponse("/dashboard", 303)
-    db = _db()
-    plans_raw = db.get_all_subscription_plans()
-    # get_subscription_plan_details column order:
-    # id[0] name[1] duration_days[2] price[3] description[4]
-    # max_products[5] max_shops[6] max_sales_per_month[7]
-    # can_export_reports[8] can_view_analytics[9] can_use_notifications[10]
-    # can_use_integrations[11] is_active[12] created_at[13]
-    # But get_all_subscription_plans uses SELECT * FROM subscription_plans ORDER BY price
-    # which may have a different order. We fetch details per plan to be safe.
-    plans = []
-    for row in plans_raw:
-        plan_id = row[0]
-        detail = db.get_subscription_plan_details(plan_id)
-        if not detail:
-            continue
-        plans.append({
-            "id": detail[0],
-            "name": detail[1],
-            "duration_days": detail[2],
-            "price": detail[3],
-            "description": detail[4] or "",
-            "max_products": detail[5],
-            "max_shops": detail[6],
-            "max_sales": detail[7],
-            "can_export": bool(detail[8]),
-            "can_analytics": bool(detail[9]),
-            "can_notifications": bool(detail[10]),
-            "can_integrations": bool(detail[11]),
-            "is_active": bool(detail[12]),
-        })
-    return request.app.state.templates.TemplateResponse(
-        request,
-        "admin/tariffs.html",
-        _ctx(request, user, {
-            "plans": plans,
-            "csrf_token": get_csrf_token(request),
-            "msg": _flash(request),
-        }),
-    )
-
-
-@router.post("/tariffs/{plan_id}/toggle")
-async def admin_toggle_tariff(
-    request: Request,
-    plan_id: int,
-    csrf_token: str = Form(""),
-):
-    user = get_session_user(request)
-    if _guard(user):
-        return RedirectResponse("/dashboard", 303)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse("/dashboard", 303)
-    db = _db()
-    detail = db.get_subscription_plan_details(plan_id)
-    if detail:
-        new_val = 0 if bool(detail[12]) else 1
-        db.update_subscription_plan_field(plan_id, "is_active", new_val)
-    return RedirectResponse("/admin/tariffs?msg=updated", 303)
-
-
-@router.post("/tariffs/{plan_id}/update")
-async def admin_update_tariff(
-    request: Request,
-    plan_id: int,
-    csrf_token: str = Form(""),
-    name: str = Form(""),
-    price: str = Form(""),
-    duration_days: str = Form(""),
-    description: str = Form(""),
-    max_products: str = Form(""),
-    max_shops: str = Form(""),
-    max_sales: str = Form(""),
-    can_export: str = Form(default=""),
-    can_analytics: str = Form(default=""),
-    can_notifications: str = Form(default=""),
-    can_integrations: str = Form(default=""),
-):
-    user = get_session_user(request)
-    if _guard(user):
-        return RedirectResponse("/dashboard", 303)
-    if not verify_csrf_token(request, csrf_token):
-        return RedirectResponse("/dashboard", 303)
-    db = _db()
-    kwargs = {}
-    if name.strip():
-        kwargs["name"] = name.strip()
-    if price.strip():
-        try:
-            kwargs["price"] = float(price.replace(",", "."))
-        except ValueError:
-            pass
-    if duration_days.strip():
-        try:
-            kwargs["duration_days"] = int(duration_days)
-        except ValueError:
-            pass
-    if description.strip():
-        kwargs["description"] = description.strip()
-    if max_products.strip():
-        try:
-            kwargs["max_products"] = int(max_products)
-        except ValueError:
-            pass
-    if max_shops.strip():
-        try:
-            kwargs["max_shops"] = int(max_shops)
-        except ValueError:
-            pass
-    if max_sales.strip():
-        try:
-            kwargs["max_sales_per_month"] = int(max_sales)
-        except ValueError:
-            pass
-    kwargs["can_export_reports"] = 1 if can_export == "on" else 0
-    kwargs["can_view_analytics"] = 1 if can_analytics == "on" else 0
-    kwargs["can_use_notifications"] = 1 if can_notifications == "on" else 0
-    kwargs["can_use_integrations"] = 1 if can_integrations == "on" else 0
-    if kwargs:
-        db.update_subscription_plan(plan_id, **kwargs)
-    return RedirectResponse("/admin/tariffs?msg=updated", 303)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 #  Payment Settings
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -398,9 +267,10 @@ async def admin_pay_settings(request: Request):
     web_url = db.get_web_interface_url() or ""
     provider = db.get_payment_provider() or "sbp"
 
-    # Trial settings stored in payment_settings table
+    # Trial settings stored in payment_settings table.
+    # Под модульным биллингом пробный период = полный доступ ко всем модулям
+    # (см. billing_utils._is_trial), поэтому отдельного «тарифа триала» больше нет.
     trial_days = settings.get("trial_days", "14")
-    trial_plan = settings.get("trial_plan", "Премиум")
     payment_instruction = settings.get("payment_instruction", "")
 
     return request.app.state.templates.TemplateResponse(
@@ -411,9 +281,7 @@ async def admin_pay_settings(request: Request):
             "web_url": web_url,
             "provider": provider,
             "trial_days": trial_days,
-            "trial_plan": trial_plan,
             "payment_instruction": payment_instruction,
-            "plans": ["Базовый", "Стандарт", "Премиум"],
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
         }),
@@ -431,7 +299,6 @@ async def admin_pay_settings_save(
     web_url: str = Form(""),
     provider: str = Form("sbp"),
     trial_days: str = Form("14"),
-    trial_plan: str = Form("Премиум"),
 ):
     user = get_session_user(request)
     if _guard(user):
@@ -449,8 +316,6 @@ async def admin_pay_settings_save(
         db.update_payment_setting("payment_instruction", payment_instruction.strip())
     if trial_days.strip():
         db.update_payment_setting("trial_days", trial_days.strip())
-    if trial_plan.strip():
-        db.update_payment_setting("trial_plan", trial_plan.strip())
     db.set_web_interface_url(web_url.strip() or None)
     if provider in ("sbp", "yookassa"):
         db.set_payment_provider(provider)
@@ -653,7 +518,8 @@ def _search_global_users(q: str) -> list[dict]:
             FROM users u
             LEFT JOIN subscriptions s ON s.user_id = u.id
             WHERE LOWER(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')
-                        || ' ' || COALESCE(u.username,'')) LIKE ?
+                        || ' ' || COALESCE(u.username,'') || ' '
+                        || COALESCE(u.shop_name,'')) LIKE ?
                OR CAST(u.telegram_id AS TEXT) LIKE ?
             ORDER BY u.first_name LIMIT 50
         """, (f"%{q_lo}%", f"%{q}%")).fetchall():
@@ -681,17 +547,29 @@ def _search_global_users(q: str) -> list[dict]:
             org_id, org_name, db_path = org_row[0], org_row[1], org_row[2]
             if not db_path or not os.path.exists(db_path):
                 continue
+            # Если запрос совпадает с названием организации — показываем всех
+            # её пользователей (поиск «Huawei» → все юзеры орг. Huawei).
+            org_match = q_lo in (org_name or "").lower()
             org_conn = None
             try:
                 org_conn = _raw_conn(db_path)
-                for r in org_conn.execute("""
-                    SELECT id, first_name, last_name, phone, shop_name, telegram_id
-                    FROM users
-                    WHERE LOWER(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')
-                                || ' ' || COALESCE(phone,'')) LIKE ?
-                       OR CAST(telegram_id AS TEXT) LIKE ?
-                    LIMIT 20
-                """, (f"%{q_lo}%", f"%{q}%")).fetchall():
+                if org_match:
+                    rows = org_conn.execute("""
+                        SELECT id, first_name, last_name, phone, shop_name, telegram_id
+                        FROM users
+                        ORDER BY first_name LIMIT 50
+                    """).fetchall()
+                else:
+                    rows = org_conn.execute("""
+                        SELECT id, first_name, last_name, phone, shop_name, telegram_id
+                        FROM users
+                        WHERE LOWER(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')
+                                    || ' ' || COALESCE(phone,'') || ' '
+                                    || COALESCE(shop_name,'')) LIKE ?
+                           OR CAST(telegram_id AS TEXT) LIKE ?
+                        LIMIT 20
+                    """, (f"%{q_lo}%", f"%{q}%")).fetchall()
+                for r in rows:
                     results.append({
                         "source": org_name,
                         "source_type": "org",

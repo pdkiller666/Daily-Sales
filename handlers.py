@@ -957,9 +957,8 @@ async def process_city(message: Message, state: FSMContext):
         _sdb = _ShopDB2('data/shop_bot.db')
         _ts = _sdb.get_payment_settings()
         _td = int(_ts.get('trial_days', '14'))
-        _tp = _ts.get('trial_plan', 'Премиум')
         if _td > 0 and user_data.get('usage_mode') in ('personal', 'corporate'):
-            trial_days_info = f"\n🎁 Пробный период: <b>{_td} дн.</b> тариф <b>{_tp}</b> активирован!"
+            trial_days_info = f"\n🎁 Пробный период: <b>{_td} дн.</b> — полный доступ ко всем модулям активирован!"
     except Exception:
         pass
 
