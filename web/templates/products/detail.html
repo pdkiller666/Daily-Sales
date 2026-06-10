@@ -35,7 +35,7 @@
 
 {# ── Lightbox + gallery component ── #}
 {% if _photo_urls %}
-<div x-data="gallery({{ _photo_urls | tojson }})"
+<div x-data="gallery({{ _photo_urls | tojson | forceescape }})"
      @keydown.escape.window="closeLightbox()"
      @keydown.arrow-left.window="if(lightboxOpen) prev()"
      @keydown.arrow-right.window="if(lightboxOpen) next()"

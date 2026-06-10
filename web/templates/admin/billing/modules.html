@@ -88,7 +88,7 @@
                     {% endif %}
                 </div>
                 <div class="flex flex-col gap-1 shrink-0">
-                    <button @click="editMod={{ m | tojson | e }}"
+                    <button @click="editMod={{ m | tojson | forceescape }}"
                             class="px-3 py-1.5 text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg font-semibold transition-colors">✏️ Изм.</button>
                     <form method="post" action="/admin/billing/modules/{{ m.id }}/toggle">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -177,7 +177,7 @@
                 {% if ext.description %}<p class="text-xs text-slate-400 mt-0.5">{{ ext.description }}</p>{% endif %}
             </div>
             <div class="flex gap-1 shrink-0">
-                <button @click="editExt={{ ext | tojson | e }}"
+                <button @click="editExt={{ ext | tojson | forceescape }}"
                         class="px-2.5 py-1 text-xs bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-300 rounded-lg font-semibold">✏️</button>
                 <form method="post" action="/admin/billing/extensions/{{ ext.id }}/toggle">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

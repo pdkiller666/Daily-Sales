@@ -89,7 +89,7 @@
                 </div>
             </div>
             <div class="flex flex-col gap-1 shrink-0">
-                <button @click="editBnd={{ b | tojson | e }}"
+                <button @click="editBnd={{ b | tojson | forceescape }}"
                         class="px-3 py-1.5 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg font-semibold">✏️ Изм.</button>
                 <form method="post" action="/admin/billing/bundles/{{ b.id }}/toggle">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
