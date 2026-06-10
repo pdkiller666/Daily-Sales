@@ -495,7 +495,7 @@ build:
 | Таблица | Ключевые колонки |
 |---|---|
 | `organizations` | id, name, owner_id, invite_code, db_path, subscription_plan, is_active, invite_preset_role (NULL/'admin'/'user'), invite_preset_shop (NULL/str) |
-| `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title |
+| `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title, **org_role_id** (логич. back-ref на `org_roles`, без SQL FK), **department_id**, **scope_shops**, **scope_cities** — 4 последние NULL = старое поведение; ALTER TABLE без FK (`org_roles`/`departments` в org_*.db, не в main.db) |
 
 ### data/shop_bot.db и data/tenants/org_*.db — идентичная схема
 
@@ -528,6 +528,9 @@ build:
 | `user_product_recent` | user_id, product_id, last_used |
 | `absence_type_settings` | id, type TEXT UNIQUE (vacation/sick/compensatory/absence/other), is_paid, annual_limit, penalty_mode ('none'/'no_pay'), penalty_amount, updated_at — 5 строк по умолчанию; absence=0/no_pay, остальные=1/none |
 | `absence_records` | id, user_id, type, start_date, end_date, status (pending/approved/rejected/cancelled), is_paid, comment, admin_comment, created_by, reviewed_by, created_at, reviewed_at |
+| `departments` | id, name, type (default 'department'), parent_id (FK self → иерархия), manager_tg_id, sort_order, is_active, created_at — подразделения/регионы; **оргструктура** |
+| `org_roles` | id, name, icon, color, base_role, scope_type, scope_values, can_manage_users, can_manage_products, can_view_salary, can_manage_salary, can_view_reports, can_manage_plans, modules (TEXT), is_active, created_at — кастомные роли; **оргструктура** |
+| `user_module_access` | id, telegram_id, module_key, access ('allow'/'deny'), created_at — UNIQUE(telegram_id, module_key); персональный доступ к модулям; **оргструктура** |
 
 ### data/shop_bot.db ТОЛЬКО (платежи централизованы):
 
@@ -560,6 +563,8 @@ get_user_org_scope(telegram_id)       → (scope_type, list[str])
 get_user_full_scope(telegram_id)      → (scope_type, list[str], custom_title)
 get_role_display_label(role, scope_type, scope_values, custom_title=None) → str
 clear_state_keep_org(state, extra_keys=None) → None
+org_structure_level(telegram_id)      → 'full'|'minimal'  — 'full' если has_module(owner_tg,'org_structure'), иначе 'minimal'
+get_user_module_access(telegram_id, module_key) → 'allow'|'deny'|None  — персональный override поверх биллинга (None = наследует)
 ```
 
 **AsyncDatabase:**

@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-08 · 52 модуля · GitHub актуально · Amvera актуально
+> Последнее обновление: 2026-06-10 · 55 модулей · GitHub актуально · Amvera актуально
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -61,7 +61,7 @@ Telegram API
 | Таблица | Описание |
 |---|---|
 | `organizations` | id, name, owner_id, invite_code, db_path, subscription_plan, is_active |
-| `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title |
+| `user_org_mapping` | telegram_id, org_id, role (owner/admin/user), scope_type, scope_value (JSON array), custom_title, **org_role_id** (логич. back-ref на `org_roles` в org-БД, без SQL FK), **department_id** (логич. ref на `departments`), **scope_shops**, **scope_cities** — 4 последние NULL = старое поведение; добавлены ALTER TABLE без FK-ограничений (`org_roles`/`departments` живут в org_*.db, не в main.db) |
 
 ### data/shop_bot.db  и  data/tenants/org_*.db  (идентичная схема)
 
@@ -90,6 +90,9 @@ Telegram API
 | `user_product_recent` | user_id, product_id, last_used |
 | `absence_type_settings` | id, type (vacation/sick/compensatory/absence/other), is_paid, annual_limit, penalty_mode, penalty_amount, updated_at — UNIQUE(type); 5 записей по умолчанию |
 | `absence_records` | id, user_id, type, start_date, end_date, status (pending/approved/rejected/cancelled), is_paid, comment, admin_comment, created_by, reviewed_by, created_at, reviewed_at |
+| `departments` | id, name, type (default 'department'), parent_id (FK self → иерархия), manager_tg_id, sort_order, is_active, created_at — подразделения/регионы; **оргструктура** |
+| `org_roles` | id, name, icon, color, base_role (owner/admin/user), scope_type, scope_values, can_manage_users, can_manage_products, can_view_salary, can_manage_salary, can_view_reports, can_manage_plans, modules (TEXT), is_active, created_at — кастомные роли; **оргструктура** |
+| `user_module_access` | id, telegram_id, module_key, access ('allow'/'deny'), created_at — UNIQUE(telegram_id, module_key); персональный доступ к модулям; **оргструктура** (override поверх биллинга) |
 
 ### data/shop_bot.db ТОЛЬКО (платежи всегда централизованы)
 
@@ -600,6 +603,8 @@ _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant
 
 **is_any_admin():** owner/admin в org → True; user → False (даже если env_manager.is_admin() = True).
 
+**Гибкая оргструктура (платный модуль `org_structure`, 349₽):** owner создаёт подразделения/регионы (иерархия `departments`), кастомные роли (`org_roles` с `can_*`-правами и списком модулей) и выдаёт персональный доступ к модулям (`user_module_access`). Назначение кастомной роли раскладывается в существующие поля `user_org_mapping` (`role`=base_role, scope, `custom_title`, `org_role_id`) — весь старый authz работает без изменений; `can_*`-флаги — метаданные. Уровень доступа: `org_structure_level(tg)` → 'full' если `has_module(owner_tg,'org_structure')`, иначе 'minimal' (≤3 отдела flat, без кастомных ролей). Подробности — §10.2. Scope сети — `network`, НЕ `trade_network`.
+
 ---
 
 ## 7. ПАТТЕРН ДОСТУПА К БД
@@ -888,7 +893,7 @@ web/
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
 - `billing_utils.py` — `has_module(tg_id, key)`, `has_extension(tg_id, key)`, `get_active_billing_items(tg_id)` — feature-gate API; priority: super_admin → trial → direct grant → bundle
 - `web/routes/` — route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`, `admin_billing`, `org_structure`
-- `web/routes/org_structure.py` — owner-only `/org-structure` (3 вкладки: подразделения/роли/инфо); CRUD departments + org_roles; gate via `org_structure_level()`; scope vocab — `network` (НЕ `trade_network`)
+- `web/routes/org_structure.py` — `/org-structure` (owner + super_admin) (3 вкладки: подразделения/роли/инфо); CRUD departments + org_roles; gate via `org_structure_level()`; scope vocab — `network` (НЕ `trade_network`)
 - `web/routes/admin.py` — супер-кабинет `/admin/*` (орги, подписки, тарифы, статистика, реквизиты, бэкапы, глоб.поиск); `POST /admin/subs/{user_id}/cancel` — реальный сброс legacy-подписки до «Бесплатный» (`DELETE FROM subscriptions WHERE user_id=? AND end_date>now` в shop_bot.db, CSRF + `_guard`); все admin-роуты используют `request.app.state.templates`
 - `web/routes/admin_billing.py` — 19 маршрутов `/admin/billing/*`: хаб, CRUD модулей/расширений/пакетов, выдача/отзыв доступов; все POST с CSRF + `_guard(role=super_admin)`
 - `web/templates/admin/_macros.html` — `page_header(icon, title, subtitle='', back_url='/admin', back_label='Супер-Кабинет')` — единый тёмный hero-баннер для всех подстраниц супер-кабинета; поддерживает `{% call %}` для кнопки-действия справа (через `{% if caller %}`); импортировать ВНУТРИ `{% block content %}`, не на верхнем уровне
@@ -910,7 +915,7 @@ web/
 - **Anchor message pattern**: all FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` MUST be called AFTER `fsm_edit()`, never before
 - **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — auto-creates missing tables including `shift_templates`, `start_time`/`end_time` in `work_schedule`
 - **Subscription tiers**: Бесплатный (0₽, 50 products/1 shop/100 sales, no features) → Базовый (500₽/30d, 200/3/500, export+analytics+notifications, NO integrations) → Стандарт (1200₽/90d, 500/10/1500, + Google Sheets) → Премиум (4000₽/365d, unlimited all). Migration always enforces `can_use_integrations=0` for Базовый. Default `trial_plan='Премиум'`.
-- **Modular billing system**: `billing_modules`, `billing_extensions`, `billing_bundles`, `billing_module_subs` в `shop_bot.db` (guard: `if 'shop_bot' in self.db_file`); `_init_billing_defaults()` заполняет 7 модулей + 17 расширений + 3 пакета при первом старте (идемпотентно); `billing_utils.py` — feature-gate API; super admin UI на `/admin/billing`; `tab` query-param в `/admin/billing/modules` whitelist-защищён от XSS; `get_all_billing_bundles()` возвращает предпарсенный `includes` dict — в шаблонах `b.includes.get('modules', [])`, НЕ `fromjson` фильтр
+- **Modular billing system**: `billing_modules`, `billing_extensions`, `billing_bundles`, `billing_module_subs` в `shop_bot.db` (guard: `if 'shop_bot' in self.db_file`); `_init_billing_defaults()` заполняет 8 модулей + 17 расширений + 3 пакета при первом старте (идемпотентно); `_ensure_billing_extra_modules()` докатывает новые модули (напр. `org_structure`) на уже инициализированный прод через INSERT OR IGNORE; `billing_utils.py` — feature-gate API; super admin UI на `/admin/billing`; `tab` query-param в `/admin/billing/modules` whitelist-защищён от XSS; `get_all_billing_bundles()` возвращает предпарсенный `includes` dict — в шаблонах `b.includes.get('modules', [])`, НЕ `fromjson` фильтр
 - **Flexible org structure (модуль `org_structure`, 349₽)**: кастомная роль раскладывается в существующие поля `user_org_mapping` (`role`=base_role, `scope_type/value`, `custom_title`, `org_role_id` back-ref) — весь старый authz (`is_any_admin`/`get_user_org_scope`) работает БЕЗ изменений; `org_roles.can_*` — метаданные, не enforce'ятся отдельно. Гейт `org_structure_level(tg)` смотрит биллинг ВЛАДЕЛЬЦА (`get_org_owner_tg`). `_nav_modules` override: `deny`→скрыть, `allow`→`has_module(owner_tg)` (НЕ безусловный True — биллинг не обходится), None→`has_module(tg)`. Scope сети = `network` (НЕ `trade_network`). Миграция main.db (`user_org_mapping` +4 NULL-колонки) обратносовместима.
 - **deploy.sh always pushes to both GitHub + Amvera** (default); `--no-amvera` to skip; hash verification runs after every Amvera push; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
 - **Login nonce (stateless CSRF for `/auth/code`)**: `generate_login_nonce()` создаёт HMAC-SHA256(secret, timestamp//300); `verify_login_nonce()` принимает nonce ±1 окно (10 мин tolerance); не хранится в БД — чистый stateless
@@ -971,5 +976,5 @@ web/
 - Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
 - Web feedback form: `/support` — форма обратной связи в веб-кабинете; категория + тема + сообщение; отправляет супер-админу в Telegram через Bot API; rate limit 3/час/user; доступна всем авторизованным пользователям через шторку «Ещё»
 - Email + пароль вход: `/register` (по инвайт-коду + email + пароль) + `/auth/email` (login); подтверждение email через письмо (`/auth/verify?token=…`); сброс пароля через письмо (`/auth/reset` → `/auth/reset/confirm`); привязка/отвязка email в `/settings`; смена пароля в `/settings`; привязка к Telegram через `/setweblogin` в боте; email-only пользователи получают synthetic_tg_id для совместимости с существующей сессионной системой
-- Modular billing configurator: `/admin/billing` — super admin панель управления модулями, расширениями, пакетами; выдача/отзыв доступов любому пользователю; статистика выручки; дефолтные модули: analytics(299₽), team(399₽), notifications(199₽), plans_motivation(249₽), ai_assistant(299₽), integrations(399₽), chat(149₽)
-- Flexible org structure: `/org-structure` (owner) — подразделения (иерархия), кастомные роли с правами, гранулярный доступ к модулям per-employee; платный модуль `org_structure` (349₽), для бесплатного тарифа — минимум (≤3 отдела, без кастомных ролей)
+- Modular billing configurator: `/admin/billing` — super admin панель управления модулями, расширениями, пакетами; выдача/отзыв доступов любому пользователю; статистика выручки; дефолтные модули: analytics(299₽), team(399₽), notifications(199₽), plans_motivation(249₽), ai_assistant(299₽), integrations(399₽), chat(149₽), org_structure(349₽)
+- Flexible org structure: `/org-structure` (owner + super_admin) — подразделения (иерархия), кастомные роли с правами, гранулярный доступ к модулям per-employee; платный модуль `org_structure` (349₽), для бесплатного тарифа — минимум (≤3 отдела, без кастомных ролей)
