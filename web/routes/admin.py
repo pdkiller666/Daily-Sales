@@ -165,14 +165,36 @@ async def admin_subs(request: Request, q: str = ""):
     )
 
 
-@router.post("/subs/grant")
-async def admin_grant_sub(request: Request):
-    return RedirectResponse("/admin/billing/grants", 303)
-
-
 @router.post("/subs/{user_id}/cancel")
-async def admin_cancel_sub(request: Request, user_id: int):
-    return RedirectResponse("/admin/billing/grants", 303)
+async def admin_cancel_sub(
+    request: Request,
+    user_id: int,
+    csrf_token: str = Form(""),
+):
+    """Reset a user's legacy subscription back to «Бесплатный» by removing
+    their active subscription rows in shop_bot.db."""
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/dashboard", 303)
+
+    conn = None
+    try:
+        conn = _raw_conn()
+        conn.execute(
+            "DELETE FROM subscriptions "
+            "WHERE user_id = ? AND datetime(end_date) > datetime('now')",
+            (user_id,),
+        )
+        conn.commit()
+        msg = "cancelled"
+    except Exception:
+        msg = "error"
+    finally:
+        if conn:
+            conn.close()
+    return RedirectResponse(f"/admin/subs?msg={msg}", 303)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,16 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Поиск пользователей — Супер-Кабинет{% endblock %}
 {% block breadcrumb %}
-<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
 <span class="mx-1 text-slate-300">/</span>
 <span class="font-medium text-slate-700 dark:text-slate-200">Глобальный поиск</span>
 {% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🔍 Глобальный поиск пользователей</h1>
-    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Поиск по всем организациям и центральной БД</p>
-</div>
+{% from "admin/_macros.html" import page_header %}
+{{ page_header('🔍', 'Глобальный поиск пользователей', 'Поиск по всем организациям и центральной БД') }}
 
 <form method="get" class="flex gap-2 mb-6">
     <input name="q" value="{{ q }}" autofocus

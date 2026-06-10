@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-06-09 (сессия 611)
+> Последнее обновление: 2026-06-10 (сессия 612)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -34,6 +34,14 @@ Workflow: "Start application" → python main.py
 - `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
+
+**Сессия 612 (2026-06-10) — Аудит + фикс супер-кабинета (`/admin/*`):**
+- **🔴 Сломанный сброс подписки исправлен**: кнопка «Сбросить» на `/admin/subs` постила в `POST /admin/subs/{id}/cancel`, который был мёртвой заглушкой (`return RedirectResponse('/admin/billing/grants')` — ничего не делал). Теперь `admin_cancel_sub` реально сбрасывает legacy-подписку: `DELETE FROM subscriptions WHERE user_id=? AND datetime(end_date)>datetime('now')` в shop_bot.db (raw conn) + `_guard(super_admin)` + `verify_csrf_token`; flash `?msg=cancelled|error`. Удаление активной строки → `get_user_subscription`/limits отдают дефолт «Бесплатный»
+- **Удалён мёртвый код**: `POST /admin/subs/grant` (заглушка, ни одним шаблоном не использовалась — выдача доступов переехала на `/admin/billing/grants`)
+- **🎨 Единый дизайн всех подстраниц**: создан `web/templates/admin/_macros.html` → макрос `page_header(icon, title, subtitle, back_url, back_label)` (тёмный hero-баннер как у хабов; поддержка `{% call %}` для кнопки справа через `{% if caller %}`). Применён к 10 подстраницам (orgs, subs, tariffs, stats, users, payment_settings, backups + billing/modules,grants,bundles) — раньше у них был простой `<h1>` без баннера и разнобой в кнопках «Назад»
+- **Импорт макроса — ВНУТРИ `{% block content %}`** (`{% from "admin/_macros.html" import page_header %}`), не на верхнем уровне — иначе extends-дочерний шаблон его не подхватит
+- **Нормализована dark-mode подсветка хлебных крошек** (`dark:hover:text-slate-300`) на 7 admin-страницах, где её не было
+- **Проверки**: `test_imports.py` 0 ошибок; все 13 admin-шаблонов компилируются в Jinja2; макрос протестирован в обоих режимах (plain + `{% call %}`); code-review (architect) → PASS, severe issues нет
 
 **Сессия 529 (2026-06-06) — Фикс: DM-поиск + FAB badge DM + аудит Web Push:**
 - **DM search**: `search_dm_messages(query, user_id, limit)` в `database.py` — поиск по `direct_messages` (15 колонок: id, from_uid, peer_id, msg, файлы, created_at, from_name, peer_name); `_fmt_search_result_dm(row, my_db_id)` formatter в `chat.py`

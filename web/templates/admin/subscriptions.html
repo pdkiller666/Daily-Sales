@@ -1,25 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Подписки — Супер-Кабинет{% endblock %}
 {% block breadcrumb %}
-<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
 <span class="mx-1 text-slate-300">/</span>
 <span class="font-medium text-slate-700 dark:text-slate-200">Подписки</span>
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">💳 Управление подписками</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ active_subs|length }} активных подписок</p>
-    </div>
-</div>
+{% from "admin/_macros.html" import page_header %}
+{{ page_header('💳', 'Управление подписками', active_subs|length ~ ' активных подписок') }}
 
-{% if msg.startswith('granted_') %}
-<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Подписка выдана пользователю ID {{ msg.split('_')[1] }}.</div>
-{% elif msg == 'cancelled' %}
-<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-slate-50 text-slate-700 border border-slate-200">↩️ Подписка сброшена до «Бесплатный».</div>
-{% elif msg == 'invalid_plan' %}
-<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200">⚠️ Неверный тарифный план.</div>
+{% if msg == 'cancelled' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">↩️ Подписка сброшена до «Бесплатный».</div>
+{% elif msg == 'error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/30 dark:text-red-300">⚠️ Ошибка при сбросе подписки.</div>
 {% endif %}
 
 <!-- Grant section -->

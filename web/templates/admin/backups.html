@@ -1,25 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Бэкапы — Супер-Кабинет{% endblock %}
 {% block breadcrumb %}
-<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
 <span class="mx-1 text-slate-300">/</span>
 <span class="font-medium text-slate-700 dark:text-slate-200">Резервные копии</span>
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">💾 Резервные копии</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ backups|length }} файлов в хранилище</p>
-    </div>
+{% from "admin/_macros.html" import page_header %}
+{% call page_header('💾', 'Резервные копии', backups|length ~ ' файлов в хранилище') %}
     <form method="post" action="/admin/backups/create">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+                class="bg-white/10 hover:bg-white/20 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
             ➕ Создать бэкап
         </button>
     </form>
-</div>
+{% endcall %}
 
 {% if msg == 'created' %}
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Резервная копия создана.</div>

@@ -1,18 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Организации — Супер-Кабинет{% endblock %}
 {% block breadcrumb %}
-<a href="/admin" class="text-slate-400 hover:text-slate-600">Супер-Кабинет</a>
+<a href="/admin" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Супер-Кабинет</a>
 <span class="mx-1 text-slate-300">/</span>
 <span class="font-medium text-slate-700 dark:text-slate-200">Организации</span>
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🏢 Все организации</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ orgs|length }} зарегистрировано</p>
-    </div>
-</div>
+{% from "admin/_macros.html" import page_header %}
+{{ page_header('🏢', 'Все организации', orgs|length ~ ' зарегистрировано') }}
 
 {% if msg == 'deleted' %}
 <div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200">✅ Организация удалена.</div>

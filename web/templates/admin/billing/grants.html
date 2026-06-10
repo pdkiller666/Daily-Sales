@@ -9,13 +9,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🎟️ Выдача доступов</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Выдать/отозвать модуль, расширение или пакет любому пользователю</p>
-    </div>
-    <a href="/admin/billing" class="text-sm text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">← Назад</a>
-</div>
+{% from "admin/_macros.html" import page_header %}
+{{ page_header('🎟️', 'Выдача доступов', 'Выдать/отозвать модуль, расширение или пакет', '/admin/billing', 'Биллинг') }}
 
 {% if msg == 'granted' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300">✅ Доступ выдан.</div>
 {% elif msg == 'revoked' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🔒 Доступ отозван. Расширений этого модуля не было.</div>

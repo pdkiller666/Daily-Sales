@@ -33,3 +33,4 @@
 - [admin routes templates state](admin-templates-state.md) — admin.py + admin_billing.py must use `request.app.state.templates`; `request.state.templates` is per-request and never set → 500 on every admin page
 - [Legacy plan removal](legacy-plan-removal.md) — web layer fully migrated to modular billing; legacy PLAN_ORDER/GRANT_PLANS/ALL_PLANS/chat_min_plan removed; stub _get_chat_min_plan/org_plan remain in chat.py for backward compat; migrate_to_modules.py for future prod migrations
 - [Dynamic landing pricing](dynamic-landing-pricing.md) — `_landing_billing_modules()` in web/app.py reads billing_modules from shop_bot.db; passed to landing.html as `billing_modules`; theme map per key in template; fallback hardcoded features per key
+- [Super-admin page header](admin-page-header.md) — все /admin/* подстраницы используют page_header macro (admin/_macros.html); импорт ВНУТРИ {% block content %}, не на верхнем уровне (extends-child)
