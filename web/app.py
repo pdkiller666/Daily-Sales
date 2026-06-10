@@ -463,6 +463,18 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['nav_modules'] = _nav_modules
 
+    import re as _re
+    _EMOJI_PREFIX_RE = _re.compile(
+        r'^[\U0001F000-\U0001FAFF\u2190-\u2BFF\u2600-\u27BF\uFE0F\u200D\s]+'
+    )
+
+    def _strip_emoji_prefix(s: str) -> str:
+        """Убирает ведущий эмодзи+пробел из name (иконка показывается отдельно)."""
+        if not s:
+            return s
+        cleaned = _EMOJI_PREFIX_RE.sub('', s).strip()
+        return cleaned or s
+
     def _landing_billing_modules() -> list:
         """Читает активные billing_modules из DB для лендинга."""
         import json as _json
@@ -487,7 +499,7 @@ def create_web_app() -> FastAPI:
                         pass
                 result.append({
                     "key": key,
-                    "name": name,
+                    "name": _strip_emoji_prefix(name),
                     "icon": icon or "📦",
                     "price": int(price or 0),
                     "description": desc or "",
@@ -518,7 +530,7 @@ def create_web_app() -> FastAPI:
             by_mod: dict = {}
             for mk, name, icon, price, desc in ext_rows:
                 by_mod.setdefault(mk, []).append({
-                    "name": name,
+                    "name": _strip_emoji_prefix(name),
                     "icon": icon or "🔧",
                     "price": int(price or 0),
                     "description": desc or "",
@@ -529,7 +541,7 @@ def create_web_app() -> FastAPI:
                 if items:
                     result.append({
                         "module_key": mk,
-                        "module_name": mname,
+                        "module_name": _strip_emoji_prefix(mname),
                         "module_icon": micon or "📦",
                         "exts": items,
                     })

@@ -296,6 +296,23 @@
         .d8 { transition-delay: .54s; }
         .d9 { transition-delay: .61s; }
 
+        /* ── Horizontal auto-carousel ── */
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .ds-carousel { position: relative; }
+        .ds-carousel::before,
+        .ds-carousel::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 56px;
+            z-index: 3; pointer-events: none;
+        }
+        .ds-carousel::before { left: 0;  background: linear-gradient(90deg,  #fff, rgba(255,255,255,0)); }
+        .ds-carousel::after  { right: 0; background: linear-gradient(270deg, #fff, rgba(255,255,255,0)); }
+        .ds-track { cursor: grab; }
+        .ds-track.dragging { cursor: grabbing; user-select: none; scroll-snap-type: none; }
+        @media (max-width: 640px) {
+            .ds-carousel::before, .ds-carousel::after { width: 28px; }
+        }
+
         /* ── Scroll progress ── */
         #scroll-progress {
             position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999;
@@ -1507,13 +1524,14 @@
             'org_structure':    ['Кастомные роли и права','Отделы и иерархия','Сети из нескольких точек','Гибкий доступ'],
         } %}
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
+        <div class="ds-carousel -mx-4 sm:-mx-6 mb-10 reveal">
+          <div class="ds-track flex gap-4 overflow-x-auto no-scrollbar px-4 sm:px-6 py-2 snap-x" data-carousel data-speed="0.45">
             {% if billing_modules %}
                 {% for m in billing_modules %}
                     {% set _t = _module_themes.get(m.key, _fallback_themes[loop.index0 % 4]) %}
                     {% set _feats = m.features if m.features else _fallback_features.get(m.key, []) %}
                     {% set _delay = _delay_classes[(loop.index0) % 4] %}
-                    <div class="border border-slate-200 rounded-2xl p-6 bg-white {{ _t.border }} hover:shadow-lg {{ _t.shadow }} transition-all duration-300 hover:-translate-y-0.5 reveal {{ _delay }}">
+                    <div class="ds-item w-[260px] flex-shrink-0 snap-start border border-slate-200 rounded-2xl p-6 bg-white {{ _t.border }} hover:shadow-lg {{ _t.shadow }} transition-all duration-300 hover:-translate-y-0.5">
                         <div class="w-10 h-10 rounded-xl {{ _t.icon_bg }} flex items-center justify-center text-xl mb-4">{{ m.icon }}</div>
                         <div class="text-base font-bold text-slate-900 mb-1">{{ m.name }}</div>
                         <div class="text-2xl font-extrabold {{ _t.price }} mb-3">{{ m.price }} <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
@@ -1528,7 +1546,7 @@
                     </div>
                 {% endfor %}
             {% else %}
-                <div class="border border-slate-200 rounded-2xl p-6 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-0.5 reveal d1">
+                <div class="ds-item w-[260px] flex-shrink-0 snap-start border border-slate-200 rounded-2xl p-6 bg-white hover:border-blue-300 hover:shadow-lg hover:shadow-blue-50 transition-all duration-300 hover:-translate-y-0.5">
                     <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-xl mb-4">📈</div>
                     <div class="text-base font-bold text-slate-900 mb-1">Аналитика</div>
                     <div class="text-2xl font-extrabold text-blue-600 mb-3">299 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
@@ -1542,7 +1560,7 @@
             {% endif %}
 
             <!-- Расширения лимитов — всегда статичная карточка -->
-            <div class="border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50/50 reveal d4">
+            <div class="ds-item w-[260px] flex-shrink-0 snap-start border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50/50">
                 <div class="w-10 h-10 rounded-xl bg-slate-200/60 flex items-center justify-center text-xl mb-4">➕</div>
                 <div class="text-base font-bold text-slate-700 mb-1">Дополнительные лимиты</div>
                 <div class="text-2xl font-extrabold text-slate-500 mb-3">от 99 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
@@ -1554,6 +1572,7 @@
                 </ul>
             </div>
 
+          </div>
         </div>
 
         <!-- ── Extensions (axis 3: fine-tuning inside modules) ── -->
@@ -1563,32 +1582,26 @@
             <p class="text-xs text-slate-400 mt-2 max-w-xl mx-auto">Точечные функции, которые подключаются по одной. Работают при активном родительском модуле — платите только за то, что реально нужно.</p>
         </div>
 
-        <div class="space-y-4 mb-12">
+        <div class="ds-carousel -mx-4 sm:-mx-6 mb-12 reveal">
+          <div class="ds-track flex gap-4 overflow-x-auto no-scrollbar px-4 sm:px-6 py-2 snap-x" data-carousel data-speed="0.4">
             {% for grp in landing_extensions %}
-            <div class="border border-slate-200 rounded-2xl p-5 bg-white reveal">
-                <div class="flex items-center gap-2 mb-4">
-                    <span class="text-lg">{{ grp.module_icon }}</span>
-                    <span class="text-sm font-bold text-slate-900">{{ grp.module_name }}</span>
-                    <span class="text-[11px] font-medium text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">+{{ grp.exts|length }}</span>
+              {% for ext in grp.exts %}
+              <div class="ds-item w-[260px] flex-shrink-0 snap-start border border-slate-200 rounded-2xl p-5 bg-white">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-xl flex-shrink-0">{{ ext.icon }}</span>
+                    <span class="text-[11px] font-medium text-slate-500 bg-slate-100 rounded-full px-2 py-0.5 inline-flex items-center gap-1 whitespace-nowrap">{{ grp.module_icon }} {{ grp.module_name }}</span>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {% for ext in grp.exts %}
-                    <div class="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
-                        <span class="text-lg flex-shrink-0 mt-0.5">{{ ext.icon }}</span>
-                        <div class="min-w-0 flex-1">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-sm font-semibold text-slate-800 leading-snug">{{ ext.name }}</span>
-                                <span class="text-xs font-bold text-blue-600 flex-shrink-0 whitespace-nowrap">{{ ext.price }} ₽</span>
-                            </div>
-                            {% if ext.description %}
-                            <p class="text-xs text-slate-500 leading-snug mt-0.5">{{ ext.description }}</p>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endfor %}
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-sm font-bold text-slate-800 leading-snug">{{ ext.name }}</span>
+                    <span class="text-xs font-bold text-blue-600 flex-shrink-0 whitespace-nowrap">{{ ext.price }} ₽</span>
                 </div>
-            </div>
+                {% if ext.description %}
+                <p class="text-xs text-slate-500 leading-snug">{{ ext.description }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
             {% endfor %}
+          </div>
         </div>
         {% endif %}
 
@@ -1763,6 +1776,84 @@
 
     document.querySelectorAll('.reveal, .reveal-scale, .reveal-left, .reveal-right')
         .forEach(el => observer.observe(el));
+
+    /* ── Horizontal auto-carousels ── */
+    const _reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.querySelectorAll('[data-carousel]').forEach(track => {
+        const speed = _reduceMotion ? 0 : parseFloat(track.dataset.speed || '0.4');
+        const originals = Array.prototype.slice.call(track.children);
+        if (!originals.length) return;
+
+        // Duplicate content once for a seamless loop
+        originals.forEach(node => {
+            const clone = node.cloneNode(true);
+            clone.setAttribute('aria-hidden', 'true');
+            track.appendChild(clone);
+        });
+
+        let loopW = 0;
+        const recalc = () => {
+            const firstClone = track.children[originals.length];
+            loopW = firstClone ? firstClone.offsetLeft : track.scrollWidth / 2;
+        };
+
+        let paused = false, resumeTimer = null;
+        const pause = () => {
+            paused = true;
+            if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
+        };
+        const resumeLater = (ms) => {
+            if (resumeTimer) clearTimeout(resumeTimer);
+            resumeTimer = setTimeout(() => { paused = false; resumeTimer = null; }, ms);
+        };
+
+        const wrap = () => {
+            if (loopW <= 0) return;
+            if (track.scrollLeft >= loopW) track.scrollLeft -= loopW;
+            else if (track.scrollLeft < 0) track.scrollLeft += loopW;
+        };
+
+        // Desktop hover
+        track.addEventListener('mouseenter', pause);
+        track.addEventListener('mouseleave', () => resumeLater(500));
+        // Touch / tap: stop while interacting, resume after idle
+        track.addEventListener('touchstart', pause, { passive: true });
+        track.addEventListener('touchend', () => resumeLater(3000), { passive: true });
+        track.addEventListener('wheel', () => { pause(); resumeLater(2000); }, { passive: true });
+        track.addEventListener('scroll', wrap, { passive: true });
+
+        // Desktop click-drag
+        let down = false, startX = 0, startScroll = 0;
+        track.addEventListener('pointerdown', e => {
+            pause();
+            if (e.pointerType === 'mouse') {
+                down = true; startX = e.clientX; startScroll = track.scrollLeft;
+                track.classList.add('dragging');
+            }
+        });
+        track.addEventListener('pointermove', e => {
+            if (!down) return;
+            track.scrollLeft = startScroll - (e.clientX - startX);
+        });
+        const endDrag = () => {
+            if (down) { down = false; track.classList.remove('dragging'); }
+            resumeLater(2000);
+        };
+        track.addEventListener('pointerup', endDrag);
+        track.addEventListener('pointercancel', endDrag);
+        track.addEventListener('pointerleave', () => { if (down) endDrag(); });
+
+        window.addEventListener('resize', recalc, { passive: true });
+
+        function tick() {
+            if (!paused && speed > 0) {
+                track.scrollLeft += speed;
+                wrap();
+            }
+            requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(() => { recalc(); requestAnimationFrame(tick); });
+    });
 
     /* ── Animated counters ── */
     function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
