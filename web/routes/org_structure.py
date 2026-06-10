@@ -78,6 +78,11 @@ def org_structure_page(request: Request, tab: str = "depts", msg: str = ""):
         ctx["dept_count"] = len(depts)
         ctx["can_add_dept"] = (level == "full") or (len(depts) < MINIMAL_DEPT_LIMIT)
 
+        try:
+            ctx["existing_shops"] = db.get_all_shops() or []
+        except Exception:
+            ctx["existing_shops"] = []
+
         if level == "full":
             ctx["roles"] = db.get_org_roles() or []
     except Exception as exc:

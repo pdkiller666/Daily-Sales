@@ -151,10 +151,44 @@
             <p class="text-sm">Подразделений пока нет.</p>
         </div>
         {% endif %}
+
+        {% if existing_shops %}
+        <div class="mt-6 pt-5 border-t border-slate-100">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Магазины организации</p>
+            <p class="text-xs text-slate-500 mb-3">Действующие магазины — можно добавить как подразделение типа «Магазин».</p>
+            <div class="flex flex-wrap gap-2">
+                {% for shop in existing_shops %}
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 text-blue-700 rounded-lg text-xs font-medium">
+                    🏪 {{ shop }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     {# ── Tab: Roles ───────────────────────────────────────────────────── #}
     <div x-show="tab==='roles'" x-cloak>
+
+        {# Базовые роли — всегда видны #}
+        <div class="mb-6">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Базовые роли (встроенные)</p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="p-4 bg-white border border-slate-200 rounded-xl">
+                    <div class="font-semibold text-slate-800">👑 Владелец</div>
+                    <div class="text-xs text-slate-500 mt-1">Полный доступ. Управление тарифом, сотрудниками, всеми настройками.</div>
+                </div>
+                <div class="p-4 bg-white border border-slate-200 rounded-xl">
+                    <div class="font-semibold text-slate-800">🔧 Администратор</div>
+                    <div class="text-xs text-slate-500 mt-1">Управление в рамках своей зоны: продажи, сотрудники, отчёты.</div>
+                </div>
+                <div class="p-4 bg-white border border-slate-200 rounded-xl">
+                    <div class="font-semibold text-slate-800">👤 Сотрудник</div>
+                    <div class="text-xs text-slate-500 mt-1">Базовый доступ: добавление продаж, просмотр своих данных.</div>
+                </div>
+            </div>
+        </div>
+
         {% if level != 'full' %}
         <div class="text-center py-12 px-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl">
             <div class="text-4xl mb-3">🔒</div>

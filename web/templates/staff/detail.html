@@ -293,34 +293,34 @@
 {% if can_manage %}
 <div class="card p-5 mt-5" x-data="{confirmRemove: false}">
     <h2 class="font-semibold text-slate-800 mb-4">⚙️ Управление</h2>
-    <div class="flex flex-wrap gap-4 items-start">
-        <form method="post" action="/staff/{{ member_id }}/set-role" class="flex items-center gap-2">
+    <div class="space-y-3">
+        <form method="post" action="/staff/{{ member_id }}/set-role" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label class="text-sm text-slate-600 font-medium">Роль:</label>
+            <label class="text-sm text-slate-600 font-medium shrink-0">Роль:</label>
             <select name="new_role"
-                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="user" {% if member.role == 'user' %}selected{% endif %}>Сотрудник</option>
                 <option value="admin" {% if member.role == 'admin' %}selected{% endif %}>Администратор</option>
             </select>
             <button type="submit"
-                    class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                    class="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
                 Сохранить
             </button>
         </form>
 
         {% if shops %}
-        <form method="post" action="/staff/{{ member_id }}/set-shop" class="flex items-center gap-2">
+        <form method="post" action="/staff/{{ member_id }}/set-shop" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label class="text-sm text-slate-600 font-medium">Магазин:</label>
+            <label class="text-sm text-slate-600 font-medium shrink-0">Магазин:</label>
             <select name="new_shop"
-                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[140px]">
+                    class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="" {% if member.shop_name == '—' or not member.shop_name %}selected{% endif %}>— Не назначен —</option>
                 {% for s in shops %}
                 <option value="{{ s }}" {% if s == member.shop_name %}selected{% endif %}>{{ s }}</option>
                 {% endfor %}
             </select>
             <button type="submit"
-                    class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                    class="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
                 Сохранить
             </button>
         </form>
@@ -329,24 +329,25 @@
 
     {% if is_owner %}
     <!-- Scope and custom title controls (owner/super_admin only) -->
-    <div class="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-4 items-start"
-         x-data="{scopeType: '{{ member.scope_type if member.scope_type else "all" }}'}">
+    <div class="mt-4 pt-4 border-t border-slate-100 space-y-3">
 
         <!-- Scope type -->
-        <form method="post" action="/staff/{{ member_id }}/set-scope" class="flex flex-wrap items-center gap-2">
+        <form method="post" action="/staff/{{ member_id }}/set-scope"
+              class="flex flex-wrap items-center gap-2"
+              x-data="{scopeType: '{{ member.scope_type if member.scope_type else "all" }}'}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label class="text-sm text-slate-600 font-medium">Зона доступа:</label>
+            <label class="text-sm text-slate-600 font-medium shrink-0">Зона доступа:</label>
             <select name="scope_type" x-model="scopeType"
-                    class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    class="flex-1 min-w-[110px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="all">Весь орг</option>
                 <option value="shop">По магазину</option>
                 <option value="city">По городу</option>
                 <option value="network">По сети</option>
             </select>
-            <div x-show="scopeType !== 'all'" class="flex items-center gap-2">
+            <div x-show="scopeType !== 'all'" class="flex flex-wrap items-center gap-2 w-full">
                 {% if shops %}
                 <select name="scope_values" x-show="scopeType === 'shop'"
-                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]" multiple>
+                        class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" multiple>
                     {% for s in shops %}
                     <option value="{{ s }}" {% if s in member.scope_values %}selected{% endif %}>{{ s }}</option>
                     {% endfor %}
@@ -354,7 +355,7 @@
                 {% endif %}
                 {% if cities %}
                 <select name="scope_values" x-show="scopeType === 'city'"
-                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]" multiple>
+                        class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" multiple>
                     {% for c in cities %}
                     <option value="{{ c }}" {% if c in member.scope_values %}selected{% endif %}>{{ c }}</option>
                     {% endfor %}
@@ -363,14 +364,14 @@
                 <input x-show="scopeType === 'network'" type="text" name="scope_values"
                        value="{{ member.scope_values|join(',') if member.scope_type == 'network' else '' }}"
                        placeholder="Название сети..."
-                       class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-36">
+                       class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
             </div>
             <button type="submit"
-                    class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+                    class="shrink-0 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
                 Сохранить
             </button>
             {% if member.scope_type and member.scope_type != 'all' %}
-            <span class="text-xs text-slate-400">
+            <span class="text-xs text-slate-400 w-full">
                 Сейчас: {{ {'shop':'магазин','city':'город','network':'сеть'}.get(member.scope_type, member.scope_type) }}
                 {% if member.scope_values %} — {{ member.scope_values|join(', ') }}{% endif %}
             </span>
@@ -378,14 +379,14 @@
         </form>
 
         <!-- Custom title -->
-        <form method="post" action="/staff/{{ member_id }}/set-custom-title" class="flex items-center gap-2">
+        <form method="post" action="/staff/{{ member_id }}/set-custom-title" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label class="text-sm text-slate-600 font-medium">Должность:</label>
+            <label class="text-sm text-slate-600 font-medium shrink-0">Должность:</label>
             <input type="text" name="custom_title" value="{{ member.custom_title }}" maxlength="50"
                    placeholder="Оставьте пустым для сброса..."
-                   class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-44">
+                   class="flex-1 min-w-[160px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
             <button type="submit"
-                    class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+                    class="shrink-0 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
                 Сохранить
             </button>
         </form>
@@ -400,34 +401,34 @@
             <a href="/org-structure" class="text-xs text-blue-500 hover:text-blue-700">Управление →</a>
         </div>
 
-        <div class="flex flex-wrap gap-4 items-start">
+        <div class="space-y-3">
             <!-- Department -->
-            <form method="post" action="/staff/{{ member_id }}/set-department" class="flex items-center gap-2">
+            <form method="post" action="/staff/{{ member_id }}/set-department" class="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <label class="text-sm text-slate-600 font-medium">Подразделение:</label>
+                <label class="text-sm text-slate-600 font-medium shrink-0">Подразделение:</label>
                 <select name="department_id"
-                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]">
+                        class="flex-1 min-w-[120px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                     <option value="">— не задано —</option>
                     {% for d in departments %}
                     <option value="{{ d.id }}" {% if d.id == member_dept_id %}selected{% endif %}>{{ d.name }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Сохранить</button>
+                <button type="submit" class="shrink-0 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Сохранить</button>
             </form>
 
             <!-- Custom org role (full mode only) -->
             {% if org_level == 'full' %}
-            <form method="post" action="/staff/{{ member_id }}/set-org-role" class="flex items-center gap-2">
+            <form method="post" action="/staff/{{ member_id }}/set-org-role" class="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <label class="text-sm text-slate-600 font-medium">Кастомная роль:</label>
+                <label class="text-sm text-slate-600 font-medium shrink-0">Кастомная роль:</label>
                 <select name="org_role_id"
-                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[160px]">
+                        class="flex-1 min-w-[140px] border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
                     <option value="">— стандартная —</option>
                     {% for r in org_roles_list %}
                     <option value="{{ r.id }}" {% if r.id == member_org_role_id %}selected{% endif %}>{{ r.icon }} {{ r.name }}</option>
                     {% endfor %}
                 </select>
-                <button type="submit" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Назначить</button>
+                <button type="submit" class="shrink-0 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Назначить</button>
             </form>
             {% endif %}
         </div>
