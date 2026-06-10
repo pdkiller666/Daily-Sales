@@ -32,24 +32,54 @@
   </div>
   {% endif %}
 
-  {% if edit_task %}
-    {% if edit_task.get('assign_all') %}
-      {% set _init_mode = 'all' %}
-    {% elif edit_task.get('assigned_shop') %}
-      {% set _init_mode = 'shop' %}
-    {% elif edit_task.get('assigned_to') %}
-      {% set _init_mode = 'person' %}
-    {% else %}
-      {% set _init_mode = 'person' %}
-    {% endif %}
-  {% else %}
-    {% set _init_mode = 'person' %}
-  {% endif %}
+  <!-- Alpine.js search data for recipient picker -->
+  <script>
+    const _taskSearchItems = {{ search_items_json|safe }};
+    const _taskInitSelected = {{ init_selected_json|safe }};
+    const _taskInitAll = {{ init_assign_all|safe }};
+    function taskFormData() {
+      return {
+        fileNames: [],
+        onFileChange(e) { this.fileNames = Array.from(e.target.files).map(f => f.name); },
+        recips: JSON.parse(JSON.stringify(_taskInitSelected)),
+        assignAll: _taskInitAll,
+        srchQ: '',
+        srchOpen: false,
+        get srchItems() {
+          if (!this.srchQ || this.assignAll) return [];
+          const q = this.srchQ.toLowerCase();
+          return _taskSearchItems.filter(i =>
+            i.label.toLowerCase().includes(q) &&
+            !this.recips.some(r => r.key === i.key)
+          ).slice(0, 8);
+        },
+        pick(item) { this.recips.push(item); this.srchQ = ''; this.srchOpen = false; },
+        remove(key) { this.recips = this.recips.filter(r => r.key !== key); },
+        toggleAll() {
+          this.assignAll = !this.assignAll;
+          if (this.assignAll) { this.recips = []; this.srchQ = ''; }
+        },
+        get assignMode() {
+          if (this.assignAll) return 'all';
+          if (!this.recips.length) return 'none';
+          if (this.recips.length === 1) return this.recips[0].type === 'user' ? 'person' : 'shop';
+          return 'multi';
+        },
+        get assignedTo() {
+          return this.recips.length === 1 && this.recips[0].type === 'user' ? this.recips[0].id : '';
+        },
+        get assignedShop() {
+          return this.recips.length === 1 && this.recips[0].type === 'shop' ? this.recips[0].name : '';
+        },
+        get recipientsJson() { return JSON.stringify(this.recips); }
+      };
+    }
+  </script>
 
   <form method="POST" action="{{ '/tasks/' + (edit_task.id|string) + '/edit' if edit_task else '/tasks/new' }}"
         enctype="multipart/form-data"
         class="card p-6 dark:bg-slate-900 space-y-5"
-        x-data="{ mode: '{{ _init_mode }}', fileNames: [], onFileChange(e) { this.fileNames = Array.from(e.target.files).map(f=>f.name); } }">
+        x-data="taskFormData()">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <!-- Title -->
@@ -100,83 +130,93 @@
       </div>
     </div>
 
-    <!-- Assignment -->
+    <!-- Assignment — universal multi-recipient search -->
     <div>
       <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Назначить задачу</label>
 
-      <!-- Mode selector -->
-      <div class="flex gap-2 mb-3">
-        <label class="flex-1">
-          <input type="radio" name="assign_mode" value="person" x-model="mode" class="sr-only">
-          <span :class="mode === 'person'
-            ? 'bg-indigo-600 text-white border-indigo-600'
-            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'"
-            class="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-colors cursor-pointer select-none">
-            👤 Сотруднику
-          </span>
-        </label>
-        {% if shops_list %}
-        <label class="flex-1">
-          <input type="radio" name="assign_mode" value="shop" x-model="mode" class="sr-only">
-          <span :class="mode === 'shop'
-            ? 'bg-indigo-600 text-white border-indigo-600'
-            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'"
-            class="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-colors cursor-pointer select-none">
-            🏪 Магазину
-          </span>
-        </label>
-        {% endif %}
-        <label class="flex-1">
-          <input type="radio" name="assign_mode" value="all" x-model="mode" class="sr-only">
-          <span :class="mode === 'all'
-            ? 'bg-indigo-600 text-white border-indigo-600'
-            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'"
-            class="flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border transition-colors cursor-pointer select-none">
-            👥 Всей команде
-          </span>
-        </label>
-      </div>
+      <!-- Hidden fields kept in sync by Alpine -->
+      <input type="hidden" name="assign_mode"    :value="assignMode">
+      <input type="hidden" name="assigned_to"    :value="assignedTo">
+      <input type="hidden" name="assigned_shop"  :value="assignedShop">
+      <input type="hidden" name="recipients_json" :value="recipientsJson">
 
-      <!-- Person dropdown -->
-      <div x-show="mode === 'person'" style="display:none">
-        {% if staff_list %}
-        <select name="assigned_to"
-                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <option value="">— Не назначено —</option>
-          {% for s in staff_list %}
-          <option value="{{ s.id }}" {{ 'selected' if edit_task and edit_task.assigned_to == s.id else '' }}>
-            {{ s.name }}{% if s.shop %} ({{ s.shop }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-        {% else %}
-        <div class="px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-500 dark:text-slate-400">
-          👤 Нет активных сотрудников в организации
+      <!-- "Всей команде" toggle -->
+      <button type="button" @click="toggleAll()"
+              :class="assignAll
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors mb-3 select-none">
+        👥 Всей команде
+      </button>
+
+      <!-- Search + chips (hidden when assignAll) -->
+      <div x-show="!assignAll">
+
+        <!-- Selected chips -->
+        <div x-show="recips.length > 0" style="display:none" class="flex flex-wrap gap-1.5 mb-2.5">
+          <template x-for="r in recips" :key="r.key">
+            <span class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-xs font-medium
+                         bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200
+                         border border-indigo-200 dark:border-indigo-700">
+              <span x-text="(r.type === 'user' ? '👤 ' : '🏪 ') + r.name"></span>
+              <button type="button" @click.prevent="remove(r.key)"
+                      class="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full
+                             hover:bg-indigo-200 dark:hover:bg-indigo-700 text-indigo-600
+                             dark:text-indigo-300 transition-colors font-bold text-sm leading-none">×</button>
+            </span>
+          </template>
         </div>
-        {% endif %}
-      </div>
 
-      <!-- Shop dropdown -->
-      {% if shops_list %}
-      <div x-show="mode === 'shop'" style="display:none">
-        <select name="assigned_shop"
-                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <option value="">— Выберите магазин —</option>
-          {% for sh in shops_list %}
-          <option value="{{ sh.name }}" {{ 'selected' if edit_task and edit_task.get('assigned_shop') == sh.name else '' }}>
-            {{ sh.name }}
-          </option>
-          {% endfor %}
-        </select>
-        <p class="text-xs text-slate-400 mt-1.5">Задача будет назначена всем сотрудникам этого магазина</p>
-      </div>
-      {% endif %}
+        <!-- Search input + dropdown -->
+        <div class="relative">
+          <input type="text" x-model="srchQ"
+                 @focus="srchOpen = true" @input="srchOpen = true"
+                 @keydown.escape="srchOpen = false; srchQ = ''"
+                 placeholder="🔍 Поиск: имя сотрудника или магазин…"
+                 autocomplete="off"
+                 class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700
+                        bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200
+                        placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500">
 
-      <!-- All team info -->
-      <div x-show="mode === 'all'" style="display:none">
-        <div class="px-3 py-2.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
-          👥 Задача будет назначена всем активным сотрудникам организации
+          <!-- Dropdown results -->
+          <div x-show="srchOpen && srchItems.length > 0"
+               @click.outside="srchOpen = false"
+               style="display:none"
+               class="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800
+                      border border-slate-200 dark:border-slate-700
+                      rounded-xl shadow-xl overflow-hidden">
+            <template x-for="item in srchItems" :key="item.key">
+              <button type="button" @click.prevent="pick(item)"
+                      class="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-sm
+                             hover:bg-indigo-50 dark:hover:bg-slate-700 text-left
+                             transition-colors border-b border-slate-100 dark:border-slate-700 last:border-0">
+                <span class="text-base shrink-0" x-text="item.type === 'user' ? '👤' : '🏪'"></span>
+                <span class="text-slate-700 dark:text-slate-200 truncate" x-text="item.label"></span>
+              </button>
+            </template>
+          </div>
         </div>
+
+        <!-- Hint text -->
+        <p x-show="srchQ && srchItems.length === 0"
+           class="text-xs text-slate-400 mt-1.5">Ничего не найдено</p>
+        <p x-show="!srchQ && recips.length === 0"
+           class="text-xs text-slate-400 mt-1.5">Начните вводить имя или название магазина</p>
+
+        <!-- Multi-recipient note -->
+        <div x-show="recips.length > 1" style="display:none"
+             class="mt-2 flex items-center gap-2 px-3 py-2
+                    bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <span class="text-xs text-amber-700 dark:text-amber-300">
+            ⚡ Будет создана отдельная задача для каждого (<span x-text="recips.length" class="font-semibold"></span>)
+          </span>
+        </div>
+      </div>
+
+      <!-- All-team banner -->
+      <div x-show="assignAll" style="display:none"
+           class="px-3 py-2.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+        👥 Задача будет назначена всем активным сотрудникам организации
       </div>
     </div>
 
@@ -235,7 +275,7 @@
         <span class="text-xs text-slate-400">до 10 · 20 МБ каждый</span>
         <input type="file" name="files" multiple class="hidden" @change="onFileChange">
       </label>
-      <!-- Превью выбранных файлов (display-only, input не трогаем) -->
+      <!-- Превью выбранных файлов -->
       <div x-show="fileNames.length > 0" class="mt-2 flex flex-wrap gap-2">
         <template x-for="(name, i) in fileNames" :key="i">
           <div class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-full text-xs text-slate-600 dark:text-slate-300">

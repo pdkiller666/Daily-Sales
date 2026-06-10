@@ -187,6 +187,37 @@ def _get_shops_list(db) -> list:
         return []
 
 
+def _build_search_items_json(staff_list: list, shops_list: list) -> str:
+    """JSON-массив для динамического поиска получателей задачи."""
+    items = []
+    for s in staff_list:
+        label = s['name'] + (f" ({s['shop']})" if s.get('shop') else '')
+        items.append({"type": "user", "id": s['id'], "name": s['name'],
+                      "label": label, "key": f"u{s['id']}"})
+    for sh in shops_list:
+        items.append({"type": "shop", "id": None, "name": sh['name'],
+                      "label": f"🏪 {sh['name']}", "key": f"s{sh['name']}"})
+    return json.dumps(items, ensure_ascii=False)
+
+
+def _build_init_selected_json(task: dict | None) -> tuple[str, str]:
+    """Возвращает (init_selected_json, init_assign_all) для формы редактирования."""
+    if not task:
+        return "[]", "false"
+    if task.get('assign_all'):
+        return "[]", "true"
+    if task.get('assigned_to') and task.get('assigned_name'):
+        name = task['assigned_name']
+        uid = task['assigned_to']
+        return json.dumps([{"type": "user", "id": uid, "name": name,
+                            "label": name, "key": f"u{uid}"}], ensure_ascii=False), "false"
+    if task.get('assigned_shop'):
+        shop = task['assigned_shop']
+        return json.dumps([{"type": "shop", "id": None, "name": shop,
+                            "label": f"🏪 {shop}", "key": f"s{shop}"}], ensure_ascii=False), "false"
+    return "[]", "false"
+
+
 def _get_shop_members_tg_ids(db, shop_name: str) -> list[tuple]:
     """Возвращает [(users.id, telegram_id)] всех активных сотрудников магазина."""
     try:
@@ -326,12 +357,16 @@ def tasks_new_form(request: Request):
         "priority_labels": PRIORITY_LABELS,
         "csrf_token": get_csrf_token(request),
         "edit_task": None, "error": None,
+        "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
     }
     try:
         db = get_web_db(telegram_id, org_db)
         ctx["topics"] = db.get_task_topics()
         ctx["staff_list"] = _get_staff_list(db)
         ctx["shops_list"] = _get_shops_list(db)
+        ctx["search_items_json"] = _build_search_items_json(ctx["staff_list"], ctx["shops_list"])
+        ctx["init_selected_json"] = "[]"
+        ctx["init_assign_all"] = "false"
     except Exception as e:
         logger.error("tasks_new_form: %s", e)
 
@@ -355,6 +390,7 @@ async def tasks_new_post(
     recurrence: str = Form("none"),
     create_chat_topic: str = Form(""),
     checklist_items: str = Form(""),
+    recipients_json: str = Form(""),
     files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -399,6 +435,42 @@ async def tasks_new_post(
             _assigned_shop = assigned_shop.strip() or None
         elif assign_mode == "all":
             _assign_all = 1
+        elif assign_mode == "multi":
+            # Multiple recipients — create one task per recipient, return early
+            _recip_list = []
+            if recipients_json:
+                try:
+                    _recip_list = json.loads(recipients_json)
+                except Exception:
+                    pass
+            if _recip_list:
+                _items = [s.strip() for s in checklist_items.split("\n") if s.strip()]
+                for _rec in _recip_list:
+                    _r_to = _rec.get('id') if _rec.get('type') == 'user' else None
+                    _r_shop = _rec.get('name') if _rec.get('type') == 'shop' else None
+                    _rtid = db.create_task(
+                        title=title,
+                        description=description.strip(),
+                        topic_id=_topic_id,
+                        created_by=my_db_id,
+                        assigned_to=_r_to,
+                        assigned_shop=_r_shop,
+                        assign_all=0,
+                        priority=priority,
+                        deadline=_deadline,
+                        linked_chat_topic_id=None,
+                        checklist=_items,
+                        recurrence=recurrence if recurrence not in ('none', '') else None,
+                    )
+                    if _r_to and _rtid:
+                        try:
+                            db.add_notification_to_history(
+                                _r_to, "task_assign",
+                                f"📋 Назначена задача: {title}"
+                            )
+                        except Exception:
+                            pass
+                return RedirectResponse(url="/tasks?msg=created", status_code=303)
 
         _linked_chat_topic_id = None
         if create_chat_topic == "1" and title:
@@ -1266,6 +1338,7 @@ def task_edit_form(request: Request, task_id: int):
         "priority_labels": PRIORITY_LABELS,
         "csrf_token": get_csrf_token(request),
         "edit_task": None, "error": None,
+        "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
     }
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1276,6 +1349,10 @@ def task_edit_form(request: Request, task_id: int):
         ctx["topics"] = db.get_task_topics()
         ctx["staff_list"] = _get_staff_list(db)
         ctx["shops_list"] = _get_shops_list(db)
+        ctx["search_items_json"] = _build_search_items_json(ctx["staff_list"], ctx["shops_list"])
+        init_sel, init_all = _build_init_selected_json(task)
+        ctx["init_selected_json"] = init_sel
+        ctx["init_assign_all"] = init_all
     except Exception as e:
         logger.error("task_edit_form: %s", e)
 
@@ -1298,6 +1375,7 @@ def task_edit_post(
     priority: str = Form("normal"),
     deadline: str = Form(""),
     recurrence: str = Form("none"),
+    recipients_json: str = Form(""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
