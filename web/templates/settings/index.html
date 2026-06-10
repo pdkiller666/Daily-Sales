@@ -485,10 +485,13 @@
             </div>
             {% endif %}
             <div class="mt-4 pt-3 border-t border-slate-100">
-                <a href="/logout"
-                   class="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:text-red-500 hover:border-red-200 transition-colors">
-                    🚪 Выйти из аккаунта
-                </a>
+                <form method="post" action="/logout">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token_for(request) }}">
+                    <button type="submit"
+                       class="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:text-red-500 hover:border-red-200 transition-colors">
+                        🚪 Выйти из аккаунта
+                    </button>
+                </form>
             </div>
         </div>
 

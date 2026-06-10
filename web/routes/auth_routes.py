@@ -320,10 +320,13 @@ def _get_display_name(telegram_id: int, org_db: str) -> str:
     return "Пользователь"
 
 
-@router.get("/logout")
 @router.post("/logout")
 async def logout(request: Request):
-    from web.auth import COOKIE_NAME
+    from web.auth import COOKIE_NAME, verify_csrf_token
+    form = await request.form()
+    if not verify_csrf_token(request, str(form.get("csrf_token", ""))):
+        # CSRF-провал → не разлогиниваем (защита от forced-logout через подделку)
+        return RedirectResponse(url="/dashboard", status_code=302)
     response = RedirectResponse(url="/login", status_code=302)
     response.delete_cookie(COOKIE_NAME)
     return response

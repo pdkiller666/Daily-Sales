@@ -38,6 +38,18 @@ def _yandex_creds() -> tuple[str, str]:
     return os.getenv('YANDEX_EMAIL', ''), os.getenv('YANDEX_SMTP_PASSWORD', '')
 
 
+def _mask_email(addr: str) -> str:
+    """Маскирует email для логов: ivan@mail.ru → i***@mail.ru (PII-минимизация)."""
+    try:
+        if not addr or '@' not in addr:
+            return '***'
+        local, domain = addr.split('@', 1)
+        head = local[0] if local else ''
+        return f"{head}***@{domain}"
+    except Exception:
+        return '***'
+
+
 def _send(to_email: str, subject: str, html: str) -> bool:
     from_email, password = _yandex_creds()
     if not from_email or not password:
@@ -53,10 +65,10 @@ def _send(to_email: str, subject: str, html: str) -> bool:
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as srv:
             srv.login(from_email, password)
             srv.sendmail(from_email, to_email, msg.as_string())
-        logger.info("email_utils: sent '%s' → %s", subject, to_email)
+        logger.info("email_utils: sent '%s' → %s", subject, _mask_email(to_email))
         return True
     except Exception as exc:
-        logger.error("email_utils: send error → %s: %s", to_email, exc)
+        logger.error("email_utils: send error → %s: %s", _mask_email(to_email), exc)
         return False
 
 
