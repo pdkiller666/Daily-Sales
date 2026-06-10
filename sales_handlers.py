@@ -1460,6 +1460,7 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
     results = []
     processed_sales = []
     failed = False
+    _sales_committed = False
 
     try:
         # Сначала проверяем остатки для всех товаров
@@ -1534,6 +1535,12 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
             return
+
+        # ── Точка невозврата ──────────────────────────────────────────────
+        # Продажи зафиксированы в БД. Любая ошибка НИЖЕ (формирование сообщения,
+        # уведомления, экспорт в Google Sheets) НЕ должна откатывать продажи —
+        # иначе сбой в побочном эффекте приведёт к потере реальной продажи.
+        _sales_committed = True
 
         # Планы, которые только что перешли через 100%
         try:
@@ -1729,12 +1736,14 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logging.error(f"Ошибка в complete_sale: {e!r}", exc_info=True)
 
-        # Откатываем все продажи в случае общей ошибки
-        for sale_id in processed_sales:
-            try:
-                await current_db.delete_sale(sale_id)
-            except Exception:
-                pass
+        # Откатываем продажи ТОЛЬКО если ошибка произошла ДО фиксации (этап
+        # регистрации). После точки невозврата реальные продажи не трогаем.
+        if not _sales_committed:
+            for sale_id in processed_sales:
+                try:
+                    await current_db.delete_sale(sale_id)
+                except Exception:
+                    pass
 
         try:
             await callback.answer("❌ Произошла ошибка при обработке продажи. Попробуйте еще раз.", show_alert=True)

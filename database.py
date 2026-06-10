@@ -3392,12 +3392,17 @@ class Database:
 
             user_id, plan_type, promocode_id = request_data
 
-            # Обновляем статус заявки
+            # Атомарный переход pending → approved.
+            # Защита от двойной обработки/гонки: если параллельная конфирмация уже
+            # перевела заявку, rowcount=0 → выходим, НЕ выдавая грант/надстройку повторно.
             cursor.execute('''
                 UPDATE payment_requests 
                 SET status = 'approved', processed_at = CURRENT_TIMESTAMP, processed_by = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'pending'
             ''', (admin_id, request_id))
+            if cursor.rowcount == 0:
+                conn.close()
+                return False
 
             conn.commit()
             conn.close()
@@ -3470,6 +3475,10 @@ class Database:
                     logger.error(f"confirm_payment_request: не удалось откатить статус заявки {request_id}: {rb_err}")
                 return False
 
+            # Единый путь бота и веб-кабинета: продлеваем тариф организации (main.db),
+            # если плательщик — владелец/админ организации. Раньше это делал только бот.
+            self._apply_org_subscription_after_payment(user_id, plan_type)
+
             # Автоматически выдаём модульные гранты для legacy-планов (бот-покупки СБП).
             # billing_utils больше не читает таблицу subscriptions, поэтому каждое
             # подтверждение legacy-плана сразу конвертируется в гранты billing_module_subs.
@@ -3525,6 +3534,49 @@ class Database:
         except Exception as e:
             logger.error(f"Общая ошибка в confirm_payment_request: {e}")
             return False
+
+    def _apply_org_subscription_after_payment(self, user_id, plan_type):
+        """Продлевает тариф организации (organizations в main.db) при подтверждении
+        оплаты её владельцем/админом. Единый путь для бота и веб-кабинета —
+        вызывается из confirm_payment_request (legacy-планы)."""
+        try:
+            import sqlite3 as _sql3
+            from datetime import datetime as _dt, timedelta as _td
+            _user_info = self.get_user_by_id(user_id)
+            if not _user_info:
+                return
+            user_telegram_id = _user_info[1]
+            _sb = _sql3.connect('data/shop_bot.db')
+            _row = _sb.execute(
+                "SELECT duration_days FROM subscription_plans WHERE name = ?",
+                (plan_type,)
+            ).fetchone()
+            _sb.close()
+            _duration = _row[0] if _row and _row[0] else 0
+            _org_expires = (
+                (_dt.now() + _td(days=_duration)).strftime('%Y-%m-%d %H:%M:%S')
+                if _duration > 0 else None
+            )
+            main_conn = _sql3.connect('data/main.db')
+            main_cursor = main_conn.cursor()
+            main_cursor.execute(
+                "SELECT o.id FROM organizations o "
+                "JOIN user_org_mapping m ON o.id = m.org_id "
+                "WHERE m.telegram_id = ? AND m.role IN ('owner', 'admin')",
+                (user_telegram_id,)
+            )
+            org_row = main_cursor.fetchone()
+            if org_row:
+                main_cursor.execute(
+                    "UPDATE organizations SET subscription_plan = ?, subscription_end = ? WHERE id = ?",
+                    (plan_type, _org_expires, org_row[0])
+                )
+                main_conn.commit()
+            main_conn.close()
+        except Exception as e:
+            logger.error(
+                f"_apply_org_subscription_after_payment: user_id={user_id}, plan={plan_type}: {e}"
+            )
 
     def get_user_by_id(self, user_id):
         conn = self.get_connection()

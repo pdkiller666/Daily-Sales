@@ -63,5 +63,12 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
             conn.commit()
             conn.close()
             return True
-        except Exception:
-            return True  # fail open — availability > strict limiting
+        except Exception as e:
+            # fail-closed: для auth-эндпоинтов сбой стора НЕ должен отключать
+            # защиту от перебора. Запрос блокируется, пользователь может повторить.
+            try:
+                import logging
+                logging.error(f"check_rate_limit({key}): {e} — fail-closed")
+            except Exception:
+                pass
+            return False

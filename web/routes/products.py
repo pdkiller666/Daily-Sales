@@ -499,8 +499,8 @@ async def products_create(
         _ok, _msg = check_product_limit(telegram_id)
         if not _ok:
             return _re_render(_msg or "Достигнут лимит товаров по вашему тарифу.")
-    except Exception:
-        pass
+    except Exception as _lim_err:
+        logging.error(f"check_product_limit failed (fail-open): {_lim_err}")
 
     name_clean = name.strip()
     if not name_clean:

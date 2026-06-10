@@ -255,43 +255,9 @@ async def confirm_payment_request(callback: CallbackQuery):
                 user_id, plan_type, user_telegram_id, first_name, last_name = result
                 plan_name = plan_type
 
-                # Если пользователь — org-admin, обновляем тариф организации + срок
-                try:
-                    import sqlite3 as _sql3
-                    from datetime import datetime as _dt, timedelta as _td
-                    # Получаем длительность плана из shop_bot.db
-                    _sb = _sql3.connect('data/shop_bot.db')
-                    _sb_cur = _sb.cursor()
-                    _sb_cur.execute(
-                        "SELECT duration_days FROM subscription_plans WHERE name = ?",
-                        (plan_type,)
-                    )
-                    _plan_row = _sb_cur.fetchone()
-                    _sb.close()
-                    _duration = _plan_row[0] if _plan_row and _plan_row[0] else 0
-                    _org_expires = (
-                        (_dt.now() + _td(days=_duration)).strftime('%Y-%m-%d %H:%M:%S')
-                        if _duration > 0 else None
-                    )
-
-                    main_conn = _sql3.connect('data/main.db')
-                    main_cursor = main_conn.cursor()
-                    main_cursor.execute(
-                        "SELECT o.id FROM organizations o "
-                        "JOIN user_org_mapping m ON o.id = m.org_id "
-                        "WHERE m.telegram_id = ? AND m.role IN ('owner', 'admin')",
-                        (user_telegram_id,)
-                    )
-                    org_row = main_cursor.fetchone()
-                    if org_row:
-                        main_cursor.execute(
-                            "UPDATE organizations SET subscription_plan = ?, subscription_end = ? WHERE id = ?",
-                            (plan_type, _org_expires, org_row[0])
-                        )
-                        main_conn.commit()
-                    main_conn.close()
-                except Exception:
-                    pass
+                # Тариф организации (main.db) теперь продлевается ВНУТРИ
+                # confirm_payment_request → единый путь для бота и веб-кабинета
+                # (см. Database._apply_org_subscription_after_payment).
 
                 try:
                     # Получаем детали плана для квитанции

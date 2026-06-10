@@ -478,8 +478,9 @@ def sales_create(
             if not _ok:
                 from urllib.parse import quote as _q
                 return RedirectResponse(url=f"/sales?error={_q(_msg or 'Достигнут лимит продаж по тарифу')}", status_code=302)
-        except Exception:
-            pass
+        except Exception as _lim_err:
+            import logging as _lg
+            _lg.error(f"check_sales_limit failed (fail-open): {_lim_err}")
 
         result = db.add_sale(
             product_id=product_id,

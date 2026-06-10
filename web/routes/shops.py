@@ -87,8 +87,9 @@ def shops_create(
             if not _ok:
                 from urllib.parse import quote as _q
                 return RedirectResponse(url=f"/shops?error={_q(_msg or 'Достигнут лимит магазинов по тарифу')}", status_code=302)
-        except Exception:
-            pass
+        except Exception as _lim_err:
+            import logging as _lg
+            _lg.error(f"check_shop_limit failed (fail-open): {_lim_err}")
 
         ok = db.add_shop(name_clean)
         if not ok:
