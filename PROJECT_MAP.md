@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-10 · 55 модулей · GitHub актуально · Amvera актуально
+> Последнее обновление: 2026-06-10 (G1–G5 модульный биллинг в боте) · 55 модулей · GitHub актуально · Amvera актуально
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -325,7 +325,7 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `SalesPlanStates` | sales_plans_handlers.py | Мастер создания плана |
 | `ContestStates` | contests_handlers.py | Мастер создания конкурса |
 | `BackupStates` | backup_handlers.py | Восстановление из бэкапа |
-| `PaymentSystemStates` | payment_system_admin.py | Настройка ЮKassa (shop_id, secret_key, return_url) |
+| `PaymentSystemStates` | payment_system_admin.py | Настройка ЮKassa (shop_id, secret_key, return_url); `waiting_grant_billing` — ручная выдача модуля/пакета/расширения (G3) |
 | `AddonStates` | addon_handlers.py | `entering_qty` — ввод кол-ва надстроек |
 | `AbsenceStates` | absence_handlers.py | `new_start_date`, `new_end_date`, `new_comment`, `reject_comment` — флоу заявки/отклонения |
 
@@ -496,7 +496,17 @@ pay_{plan}              — начало оплаты; маршрутизаци�
 proceed_to_payment      — СБП: экран с реквизитами; ЮKassa: создать платёж + URL
 check_yookassa_payment  "yk_check_{payment_id}" — проверить статус → auto-confirm при 'succeeded'
 upload_payment_proof    — загрузка скриншота (СБП)
-subscription_menu       — меню подписки (содержит кнопки «🔗 Реферальная» + «➕ Надстройки»)
+subscription_menu       — меню подписки (содержит кнопки «🔗 Реферальная» + «➕ Надстройки» +
+                          «🧩 Подключить модули»); список модулей динамический (G2)
+buy_modules             — список активных модулей+пакетов с ценами и статусами (G1)
+                          plan_type = module_<key> / bundle_<key>
+buymod_{key}            — выбрать модуль → start_module_purchase (64-байт guard)
+buybnd_{key}            — выбрать пакет  → start_module_purchase (64-байт guard)
+start_module_purchase   — provider routing: СБП → SubscriptionStates.waiting_payment_proof
+                          ЮKassa → create_yookassa_payment + yk_check_{id};
+                          tenant→shop_bot fallback для org-пользователей (G1)
+# Ключевое: confirm_payment_request УЖЕ грантит module_/bundle_ через grant_billing_item(30d)
+# start_module_purchase только создаёт payment_request — выдача доступа через существующую инфру
 ```
 
 ### referral_handlers.py (referral_router)

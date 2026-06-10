@@ -8,6 +8,32 @@
 
 ## История изменений интерфейса
 
+### v9 — 2026-06-10: G1–G5 — самостоятельная покупка модулей в боте
+
+**G1 — Самостоятельная покупка модулей/пакетов (subscription_handlers.py):**
+- **Кнопка «🧩 Подключить модули»** в `subscription_menu` (обе ветки: org-admin и личный режим)
+- **`buy_modules`** `[buy_modules]` — список активных модулей с ценами и статусами (✅/❌), список пакетов; кнопки `buymod_{key}` / `buybnd_{key}` (guard: len ≤ 64 байта)
+- **`start_module_purchase`** `[buymod_{key}]` / `[buybnd_{key}]` — выбор провайдера:
+  - СБП → состояние `SubscriptionStates.waiting_payment_proof` (upload_payment_proof)
+  - ЮKassa → `create_yookassa_payment` + `[yk_check_{id}]` (авто-подтверждение)
+- Выдача доступа через существующую `confirm_payment_request → grant_billing_item(30d)`; `plan_type = module_<key> / bundle_<key>`
+
+**G2 — Динамический список модулей:**
+- `subscription_menu` — список статусов модулей динамический (`get_all_billing_modules()` + `has_module()`); fallback на legacy-флаги
+
+**G3/G4 — Суперадмин: модули и гранты (payment_system_admin.py):**
+- Кнопка **«🧩 Модули и пакеты»** в меню платёжной системы → `billing_modules_admin`
+- `billing_modules_admin` — обзор: активные подписки, кол-во клиентов, выручка за 30 дней
+- `grant_billing` → промпт `TELEGRAM_ID KEY [days]`; state `PaymentSystemStates.waiting_grant_billing`
+- `process_grant_billing` — определяет `item_type` (module/bundle/extension) → `grant_billing_item`
+- Квитанция при подтверждении: красивое название модуля/пакета вместо сырого ключа
+
+**G5 — Статистика модульного биллинга:**
+- `payment_statistics_menu` — блок статистики по модулям из `get_billing_stats()` (clients_count, revenue_30d, top per_module)
+- `payment_charts` — текстовая разбивка выручки по модулям (убрана заглушка «в разработке»)
+
+---
+
 ### v8 — 2026-06-10: Гибкая оргструктура (web, owner + super_admin)
 - Новый раздел веб-кабинета **`/org-structure`** (owner и super_admin) — 3 вкладки:
   - **Подразделения** — иерархия (parent_id), регионы; CRUD; для бесплатного тарифа ≤3 отдела без вложенности
@@ -744,18 +770,27 @@
 💳 Подписка
  ├─ 📊 Мой статус / Мои лимиты  [subscription_limits]
  │    └─ Текущий тариф, лимиты (товары / магазины / продажи)
- └─ 💳 Купить подписку          [subscription_plans]
-      ├─ Тарифная сетка:
-      │    Бесплатный (0₽) / Базовый (500₽/30д) / Стандарт (1200₽/90д) / Премиум (4000₽/365д)
-      ├─ При выборе плана → [plan_{key}]
-      │    ├─ ⏰ Отложенная активация  [schedule_{key}]
-      │    └─ ⚡ Немедленная замена    [immediate_{key}]
-      ├─ 🎁 Промокод                   [enter_promocode_{key}]
-      └─ 💳 К оплате                  [proceed_payment_{key}]
-           ├─ СБП (скриншот)
-           │    └─ Загрузка фото → создание payment_request → ожидание подтверждения admin
-           └─ YooKassa (автоматически)
-                └─ Платёжная ссылка → [yk_check_{id}] проверка статуса
+ ├─ 💳 Купить подписку          [subscription_plans]
+ │    ├─ Тарифная сетка:
+ │    │    Бесплатный (0₽) / Базовый (500₽/30д) / Стандарт (1200₽/90д) / Премиум (4000₽/365д)
+ │    ├─ При выборе плана → [plan_{key}]
+ │    │    ├─ ⏰ Отложенная активация  [schedule_{key}]
+ │    │    └─ ⚡ Немедленная замена    [immediate_{key}]
+ │    ├─ 🎁 Промокод                   [enter_promocode_{key}]
+ │    └─ 💳 К оплате                  [proceed_payment_{key}]
+ │         ├─ СБП (скриншот)
+ │         │    └─ Загрузка фото → создание payment_request → ожидание подтверждения admin
+ │         └─ YooKassa (автоматически)
+ │              └─ Платёжная ссылка → [yk_check_{id}] проверка статуса
+ └─ 🧩 Подключить модули       [buy_modules]  (G1 — самостоятельная покупка)
+      ├─ Список модулей с ценами и статусами
+      │    └─ [buymod_{key}]  → start_module_purchase (если не подключён)
+      ├─ Список пакетов
+      │    └─ [buybnd_{key}]  → start_module_purchase
+      └─ start_module_purchase:
+           ├─ СБП → SubscriptionStates.waiting_payment_proof (upload_payment_proof)
+           └─ ЮKassa → create_yookassa_payment → [yk_check_{id}]
+                grant через confirm_payment_request → grant_billing_item(30d)
 ```
 
 **Тарифные ограничения:**
@@ -774,6 +809,7 @@
 💰 Платёжная система
  ├─ 💳 Заявки на оплату       [pending_payments]
  │    └─ [view_payment_{id}] → [confirm_payment_{id}] / [reject_payment_{id}]
+ │         └─ Квитанция для module_/bundle_: красивое название из get_all_billing_modules/bundles (G4)
  ├─ ⚙️ Настройки оплаты       [payment_settings]
  │    ├─ Провайдер: СБП / YooKassa  [payment_provider_select]
  │    ├─ Номер карты           [set_card_number]
@@ -786,8 +822,16 @@
  │    ├─ 🔄 Вкл/Выкл          [toggle_plan]
  │    ├─ 🗑 Удалить            [delete_plan]
  │    └─ 🎯 Скидки            [set_discounts]
+ ├─ 🧩 Модули и пакеты         [billing_modules_admin]  (G3)
+ │    ├─ Список модулей: активные пользователи, выручка 30д
+ │    ├─ Список пакетов: состав, клиентов, выручка
+ │    └─ 🎁 Выдать модуль/пакет  [grant_billing]
+ │         └─ FSM waiting_grant_billing: ввод "TELEGRAM_ID KEY [days]"
+ │              → process_grant_billing → grant_billing_item(item_type, item_key, days)
  ├─ 📊 Статистика платежей     [payment_statistics]
- │    └─ За период [stats_by_period] / Экспорт [export_payment_report] / Графики [payment_charts]
+ │    ├─ За период [stats_by_period] / Экспорт [export_payment_report]
+ │    ├─ Графики [payment_charts] — разбивка выручки по модулям (G5)
+ │    └─ Блок модульного биллинга: clients_count, revenue_30d, top per_module (G5)
  ├─ 👥 Управление подписками   [manage_subscriptions]
  │    ├─ 🔍 Найти              [find_user_subscription]
  │    ├─ 🎁 Выдать             [grant_subscription]
@@ -842,7 +886,7 @@
 | `SalesPlanStates` | entering_target |
 | `AdminShopStates` | waiting_for_city, waiting_for_network, waiting_for_notes |
 | `SalaryStates` | entering_rate, entering_adjustment |
-| `PaymentSystemStates` | waiting_card_number, waiting_recipient_name, waiting_bank_name, waiting_plan_name, waiting_plan_price, ... |
+| `PaymentSystemStates` | waiting_card_number, waiting_recipient_name, waiting_bank_name, waiting_plan_name, waiting_plan_price, **waiting_grant_billing** (G3), ... |
 | `IntegrationStates` | waiting_spreadsheet_id, waiting_sheet_name, ... |
 
 ---

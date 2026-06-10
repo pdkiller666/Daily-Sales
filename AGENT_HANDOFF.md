@@ -28,12 +28,21 @@ Workflow: "Start application" → python main.py
 - `YANDEX_EMAIL` — адрес Яндекс Почты для SMTP (email-auth)
 - `YANDEX_SMTP_PASSWORD` — **пароль приложения** Яндекс (16 симв.), НЕ пароль аккаунта
 
-**Последний деплой:** GitHub `c439191` · Amvera `44d4720` (2026-06-10, сессия 629). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `660633c` · Amvera `44d4720` (2026-06-10, сессия 629 — G1–G5 модульный биллинг). Оба хэша верифицированы через `git ls-remote`.
 
 **Новые секреты (Web Push VAPID):**
 - `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
+
+**Сессия 629 (2026-06-10) — G1–G5: консистентность модульного биллинга в боте:**
+- **G2**: `subscription_menu` — список модулей теперь динамический (`get_all_billing_modules()`); статус каждого через `has_module()`; fallback на legacy-флаги при ошибке
+- **G1**: Самостоятельная покупка модулей/пакетов в боте — кнопка «🧩 Подключить модули» в меню подписки; `buy_modules` — список с ценами и статусами; `start_module_purchase` — СБП (скриншот) или ЮKassa. `plan_type = module_<key> / bundle_<key>`; выдача через уже существующую `confirm_payment_request → grant_billing_item(30d)`. Зарегистрировано в `subscription_router.py`
+- **G4**: Квитанция в `payment_admin_handlers.py` теперь показывает красивое название модуля/пакета вместо сырого ключа
+- **G3**: `payment_system_admin.py` — кнопка «🧩 Модули и пакеты» в платёжной системе → `billing_modules_admin` (обзор: активные подписки, кол-во клиентов, выручка); `grant_billing` / `process_grant_billing` (state `PaymentSystemStates.waiting_grant_billing`) — ручная выдача модуля/пакета/расширения через `grant_billing_item`
+- **G5**: `payment_statistics_menu` — блок статистики по модулям из `get_billing_stats()`; `payment_charts` переписан с заглушки на текстовую разбивку выручки по модулям
+- **Фиксы (architect review)**: `from utils import he` на уровне модуля в `subscription_handlers.py` (было NameError); `he()` на всех названиях модулей из БД; tenant→shop_bot fallback для ЮKassa-ветки + hard guard при `user_id is None`; 64-байтный guard для callback_data кнопок `buymod_`/`buybnd_`
+- **Тесты**: test_imports 5 OK · test_callbacks 0 проблем · test_scenarios 708/708; бот стартует чисто
 
 **Сессия 612 (2026-06-10) — Аудит + фикс супер-кабинета (`/admin/*`):**
 - **🔴 Сломанный сброс подписки исправлен**: кнопка «Сбросить» на `/admin/subs` постила в `POST /admin/subs/{id}/cancel`, который был мёртвой заглушкой (`return RedirectResponse('/admin/billing/grants')` — ничего не делал). Теперь `admin_cancel_sub` реально сбрасывает legacy-подписку: `DELETE FROM subscriptions WHERE user_id=? AND datetime(end_date)>datetime('now')` в shop_bot.db (raw conn) + `_guard(super_admin)` + `verify_csrf_token`; flash `?msg=cancelled|error`. Удаление активной строки → `get_user_subscription`/limits отдают дефолт «Бесплатный»
@@ -212,8 +221,8 @@ main.py  — polling, регистрация     web/app.py — FastAPI (пор�
 main.py  — polling, регистрация роутеров, APScheduler (9 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
-│  22 РОУТЕРА (handlers)                                           │
-│  router               ← handlers.py         (старт, профиль)    │
+│  25 РОУТЕРОВ (handlers)                                          │
+│  main_router          ← handlers.py         (старт, профиль)    │
 │  admin_router         ← admin_handlers.py   (орг, юзеры)        │
 │  sales_router         ← sales_handlers.py   (продажи)           │
 │  products_router      ← products_handlers.py (каталог, остатки) │
@@ -235,13 +244,15 @@ main.py  — polling, регистрация роутеров, APScheduler (9 з
 │  integration_router   ← integration_handlers.py (Google Sheets) │
 │  referral_router      ← referral_handlers.py  (реф. программа)  │
 │  addon_router         ← addon_handlers.py     (надстройки)      │
+│  web_auth_router      ← web_auth_handlers.py  (Telegram WebApp) │
 │  absence_router       ← absence_handlers.py   (отсутствия)      │
+│  tasks_bot_router     ← tasks_handlers.py     (задачи)          │
 └──────────────────────────────────────────────────────────────────┘
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  СЛОЙ ДАННЫХ                                                     │
 │  db_utils.py        — get_db(), is_any_admin() [ГЛАВНЫЙ]        │
-│  database.py        — класс Database (170+ методов)             │
+│  database.py        — класс Database (396 методов)              │
 │  tenant_manager.py  — маршрутизация БД по организации           │
 │  env_manager.py     — BOT_TOKEN, ADMIN_CHAT_ID                  │
 └──────────────────────────────────────────────────────────────────┘

@@ -72,6 +72,7 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 ## User Preferences
 
 - Deploy always goes to GitHub + Amvera directly (`--no-amvera` to skip Amvera push)
+- **Deploy запускать всегда напрямую**: `bash deploy.sh "сообщение"` — никаких фоновых задач, никаких Project Task для деплоя
 - Amvera hash verification (`git ls-remote`) runs after every push to confirm sync
 - Amvera "write outside persistenceMount" warnings are **FALSE POSITIVES** — all `data/` paths correctly resolve to `/app/data` (persistenceMount)
 - No `.db`, `.pkl`, `data/tenants/` in GitHub repo — runtime data only on Amvera persistent volume
