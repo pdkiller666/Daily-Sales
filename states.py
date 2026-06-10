@@ -151,6 +151,7 @@ class PaymentSystemStates(StatesGroup):
     waiting_payment_instruction = State()
     waiting_user_telegram_id = State()
     waiting_grant_user_id = State()
+    waiting_grant_billing = State()
     waiting_extend_user_id = State()
     waiting_cancel_user_id = State()
     waiting_trial_days = State()

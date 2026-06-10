@@ -333,6 +333,29 @@ async def confirm_payment_request(callback: CallbackQuery):
                             f"📅 <b>Действует:</b> 30 дней\n"
                             f"\n🎉 Надстройка добавлена к вашим лимитам прямо сейчас."
                         )
+                    elif plan_name and (plan_name.startswith('module_') or plan_name.startswith('bundle_')):
+                        # Модульный биллинг: красивое имя модуля/пакета
+                        _is_bundle = plan_name.startswith('bundle_')
+                        _bkey = plan_name[len('bundle_') if _is_bundle else len('module_'):]
+                        _bitem_name = _bkey
+                        try:
+                            from database import Database as _DBr
+                            _dbr = _DBr('data/shop_bot.db')
+                            _items = _dbr.get_all_billing_bundles() if _is_bundle else _dbr.get_all_billing_modules()
+                            for _it in _items:
+                                if _it.get('key') == _bkey:
+                                    _bitem_name = _it.get('name') or _bkey
+                                    break
+                        except Exception:
+                            pass
+                        _kind = 'Пакет' if _is_bundle else 'Модуль'
+                        receipt_text = (
+                            f"✅ <b>{_fname}, {_kind.lower()} подключён!</b>\n\n"
+                            f"🧩 <b>{_kind}:</b> {he(_bitem_name)}\n"
+                            f"{_plan_price_str}"
+                            f"📅 <b>Действует:</b> 30 дней\n"
+                            f"\n🎉 Все функции уже доступны в боте и веб-кабинете."
+                        )
                     else:
                         receipt_text = (
                             f"✅ <b>{_fname}, подписка активирована!</b>\n\n"

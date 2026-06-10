@@ -2666,6 +2666,44 @@ try:
 except Exception as _me:
     check(f"check_and_mark_plan_milestones: план+вехи без исключений (err={_me})", False)
 
+# ─────────────────────────────────────────────────────────
+# СЦЕНАРИЙ 45: can_* флаги определяются модулями, НЕ тарифом
+# (регрессия задачи «убрать устаревшие галочки функций из тарифов»)
+# ─────────────────────────────────────────────────────────
+section("Сценарий 45: can_* доступ определяется модулями, не колонками тарифа")
+
+from subscription_utils import _apply_billing_modules, _plan_limits_from_shop_bot
+
+# _apply_billing_modules ДОЛЖЕН перекрыть любые legacy can_* значения тарифа.
+# Для несуществующего пользователя модулей нет → все флаги False, даже если
+# на входе они были True (имитация «галочек» из старого тарифа).
+_legacy_on = {
+    'max_products': 500,
+    'can_export_reports': True,
+    'can_view_analytics': True,
+    'can_use_notifications': True,
+    'can_use_integrations': True,
+}
+_after = _apply_billing_modules(-987654321, dict(_legacy_on))
+check("subscription_utils: legacy can_export_reports=True перекрыт модулями → False",
+      _after.get('can_export_reports') is False)
+check("subscription_utils: legacy can_view_analytics=True перекрыт модулями → False",
+      _after.get('can_view_analytics') is False)
+check("subscription_utils: legacy can_use_notifications=True перекрыт модулями → False",
+      _after.get('can_use_notifications') is False)
+check("subscription_utils: legacy can_use_integrations=True перекрыт модулями → False",
+      _after.get('can_use_integrations') is False)
+check("subscription_utils: жёсткие лимиты (max_products) НЕ трогаются модулями",
+      _after.get('max_products') == 500)
+
+# _plan_limits_from_shop_bot НЕ должен возвращать can_* колонки как источник истины.
+_pl = _plan_limits_from_shop_bot('Премиум')
+if _pl is not None:
+    check("subscription_utils: _plan_limits_from_shop_bot не отдаёт can_* колонки",
+          not any(str(k).startswith('can_') for k in _pl))
+else:
+    check("subscription_utils: _plan_limits_from_shop_bot (план не найден) → None — OK", True)
+
 passed = sum(1 for r in results if r[0] == PASS)
 failed = sum(1 for r in results if r[0] == FAIL)
 total  = len(results)

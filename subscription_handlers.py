@@ -15,6 +15,7 @@ from env_manager import env_manager
 from notif_utils import add_read_btn
 from message_utils import safe_edit_message, safe_answer_callback, fsm_edit
 from db_utils import get_user_org_role, clear_state_keep_org, wrap_db
+from utils import he
 
 
 
@@ -141,19 +142,16 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         text += ("• Продажи/мес: ∞ Безлимит\n" if limits['max_sales_per_month'] == -1
                  else f"• Продажи/мес: до {limits['max_sales_per_month']}\n")
 
-        # Статус всех 7 модулей через billing_utils
+        # Статус модулей (динамически из billing_modules) через billing_utils
         text += "\n<b>Подключённые модули:</b>\n"
         try:
             from billing_utils import has_module as _hm
-            modules_status = [
-                ("📊 Аналитика",          _hm(telegram_id, 'analytics')),
-                ("👥 Команда",             _hm(telegram_id, 'team')),
-                ("🔔 Уведомления",         _hm(telegram_id, 'notifications')),
-                ("📈 Планы и мотивация",   _hm(telegram_id, 'plans_motivation')),
-                ("🤖 AI-ассистент",        _hm(telegram_id, 'ai_assistant')),
-                ("🔗 Интеграции",          _hm(telegram_id, 'integrations')),
-                ("💬 Внутренний чат",      _hm(telegram_id, 'chat')),
-            ]
+            _sb_mods = Database('data/shop_bot.db')
+            _all_mods = [m for m in _sb_mods.get_all_billing_modules() if m.get('is_active')]
+            if _all_mods:
+                modules_status = [(m['name'], _hm(telegram_id, m['key'])) for m in _all_mods]
+            else:
+                raise ValueError("no active modules")
         except Exception:
             modules_status = [
                 ("📊 Аналитика",   limits.get('can_view_analytics', False)),
@@ -161,7 +159,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                 ("🔗 Интеграции",  limits.get('can_use_integrations', False)),
             ]
         for mod_name, mod_active in modules_status:
-            text += f"• {mod_name}: {'✅' if mod_active else '❌'}\n"
+            text += f"• {he(mod_name)}: {'✅' if mod_active else '❌'}\n"
 
         if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
             try:
@@ -184,6 +182,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
             org_buttons = [[InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")]]
             if is_org_admin:
                 org_buttons.append([InlineKeyboardButton(text="💳 Купить подписку для организации", callback_data="subscription_plans")])
+                org_buttons.append([InlineKeyboardButton(text="🧩 Подключить модули", callback_data="buy_modules")])
                 org_buttons.append([InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")])
             org_buttons.append([InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")])
             org_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")])
@@ -191,12 +190,226 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         else:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Купить подписку", callback_data="subscription_plans")],
+                [InlineKeyboardButton(text="🧩 Подключить модули", callback_data="buy_modules")],
                 [InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")],
                 [InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")],
                 [InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
             ])
 
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def buy_modules(callback: CallbackQuery, state: FSMContext):
+    """G1: список модулей и пакетов, доступных для самостоятельного подключения."""
+    await callback.answer()
+    await clear_state_keep_org(state)
+    telegram_id = callback.from_user.id
+
+    from billing_utils import has_module as _hm
+    _sb = Database('data/shop_bot.db')
+    try:
+        modules = [m for m in _sb.get_all_billing_modules() if m.get('is_active')]
+    except Exception:
+        modules = []
+    try:
+        bundles = [b for b in _sb.get_all_billing_bundles() if b.get('is_active')]
+    except Exception:
+        bundles = []
+
+    text = "🧩 <b>Подключение модулей</b>\n\n"
+    text += "Модули добавляют функции к любому тарифу — оплата на 30 дней.\n\n"
+
+    buttons = []
+    if modules:
+        text += "<b>Отдельные модули:</b>\n"
+        for m in modules:
+            price = m.get('price_monthly') or 0
+            active = False
+            try:
+                active = _hm(telegram_id, m['key'])
+            except Exception:
+                active = False
+            text += f"• {he(m['name'])} — {price:.0f}₽/мес{' ✅ подключён' if active else ''}\n"
+            _cb = f"buymod_{m['key']}"
+            if not active and len(_cb.encode()) <= 64:
+                buttons.append([InlineKeyboardButton(
+                    text=f"{m['name']} — {price:.0f}₽",
+                    callback_data=_cb
+                )])
+
+    if bundles:
+        text += "\n<b>Пакеты (выгоднее):</b>\n"
+        for b in bundles:
+            price = b.get('price_monthly') or 0
+            text += f"• 📦 {he(b['name'])} — {price:.0f}₽/мес\n"
+            _cb = f"buybnd_{b['key']}"
+            if len(_cb.encode()) <= 64:
+                buttons.append([InlineKeyboardButton(
+                    text=f"📦 {b['name']} — {price:.0f}₽",
+                    callback_data=_cb
+                )])
+
+    if not modules and not bundles:
+        text += "<i>Модули пока не настроены администратором.</i>"
+
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_menu")])
+    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+
+async def start_module_purchase(callback: CallbackQuery, state: FSMContext):
+    """G1: оформление покупки модуля/пакета. plan_type = module_<key> / bundle_<key>.
+
+    confirm_payment_request (и авто-подтверждение ЮKassa) уже выдают грант
+    через grant_billing_item, поэтому достаточно создать payment_request.
+    """
+    db = _get_db()
+    data_str = callback.data
+    if data_str.startswith("buymod_"):
+        item_type, key = "module", data_str[len("buymod_"):]
+    elif data_str.startswith("buybnd_"):
+        item_type, key = "bundle", data_str[len("buybnd_"):]
+    else:
+        await callback.answer("Ошибка: неверный формат данных")
+        return
+
+    _sb = Database('data/shop_bot.db')
+    item = None
+    if item_type == "module":
+        for m in _sb.get_all_billing_modules():
+            if m.get('key') == key and m.get('is_active'):
+                item = m
+                break
+    else:
+        for b in _sb.get_all_billing_bundles():
+            if b.get('key') == key and b.get('is_active'):
+                item = b
+                break
+
+    if not item:
+        await callback.answer("Этот элемент недоступен", show_alert=True)
+        return
+
+    await callback.answer()
+    price = float(item.get('price_monthly') or 0)
+    plan_type = f"{item_type}_{key}"
+    item_name = item['name']
+
+    text = f"🧩 <b>Подключение: {he(item_name)}</b>\n\n"
+    if item.get('description'):
+        text += f"📝 {he(item['description'])}\n\n"
+    text += f"💳 <b>К оплате:</b> {price:.0f}₽\n"
+    text += "📅 <b>Срок действия:</b> 30 дней\n\n"
+
+    from payment_provider import get_active_provider, create_yookassa_payment
+    provider = get_active_provider(db)
+
+    if provider == 'yookassa':
+        cfg = await db.get_yookassa_config()
+        return_url = cfg.get('return_url') or "https://t.me/"
+        user_id = await db.get_user_id(callback.from_user.id)
+
+        # Org-пользователь может отсутствовать в shop_bot.db — копируем из tenant DB,
+        # иначе yookassa-запись не создастся и авто-подтверждение упадёт.
+        if user_id is None:
+            try:
+                from tenant_manager import tenant_manager
+                from database import Database as _DB
+                db_path = tenant_manager.get_user_db_path(callback.from_user.id)
+                if db_path != 'data/shop_bot.db':
+                    org_db = _DB(db_path)
+                    u = org_db.get_user(callback.from_user.id)
+                    if u:
+                        await db.add_user(
+                            telegram_id=u[1], first_name=u[2], last_name=u[3],
+                            middle_name=u[4], phone=u[5], email=u[6],
+                            trade_network=u[7], shop_name=u[8], city=u[9],
+                            username=u[12] if len(u) > 12 else None
+                        )
+                        user_id = await db.get_user_id(callback.from_user.id)
+            except Exception as _fb_err:
+                import logging
+                logging.warning(f"start_module_purchase: tenant fallback failed: {_fb_err}")
+
+        if not user_id:
+            text += ("❌ <b>Профиль не найден.</b>\n"
+                     "Обратитесь в поддержку или попробуйте оплату по реквизитам (СБП).")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_modules")]
+            ])
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            return
+
+        payment_result = create_yookassa_payment(
+            amount=price,
+            description=f"Подключение {item_name} (30 дней)",
+            metadata={
+                "user_id": str(callback.from_user.id),
+                "plan_type": plan_type,
+                "plan_key": key,
+            },
+            return_url=return_url,
+            shop_id=cfg.get('shop_id', ''),
+            secret_key=cfg.get('secret_key', ''),
+        )
+
+        if payment_result is None:
+            text += ("❌ <b>Не удалось создать платёж через ЮKassa.</b>\n"
+                     "Обратитесь к администратору или попробуйте позже.")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_modules")]
+            ])
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            return
+
+        yk_payment_id = payment_result['payment_id']
+        confirmation_url = payment_result['confirmation_url']
+        if user_id:
+            await db.create_yookassa_payment_record(
+                yookassa_payment_id=yk_payment_id,
+                user_id=user_id,
+                plan_type=plan_type,
+                amount=price,
+                promocode_id=None,
+                is_scheduled=False,
+                schedule_date=None,
+            )
+
+        text += ("🏦 <b>Оплата через ЮKassa</b>\n\n"
+                 "Нажмите кнопку ниже для перехода на страницу оплаты.\n"
+                 "После оплаты вернитесь в бот и нажмите «✅ Я оплатил — проверить».")
+        await state.update_data(
+            plan_type=plan_type,
+            amount=price,
+            promocode_data=None,
+            anchor_msg_id=callback.message.message_id,
+            yk_payment_id=yk_payment_id,
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
+            [InlineKeyboardButton(text="✅ Я оплатил — проверить", callback_data=f"yk_check_{yk_payment_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_modules")],
+        ])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        return
+
+    # --- СБП: классический поток (скриншот) ---
+    payment_settings = await db.get_payment_settings()
+    text += "📋 <b>Реквизиты для оплаты:</b>\n"
+    text += f"💳 Карта: {payment_settings.get('card_number', 'Не указана')}\n"
+    text += f"👤 Получатель: {payment_settings.get('recipient_name', 'Не указан')}\n"
+    text += f"🏦 Банк: {payment_settings.get('bank_name', 'Не указан')}\n\n"
+    text += payment_settings.get('payment_instruction',
+                                 "📝 Переведите указанную сумму и отправьте скриншот перевода.")
+
+    await state.update_data(
+        plan_type=plan_type,
+        amount=price,
+        promocode_data=None,
+        anchor_msg_id=callback.message.message_id,
+    )
+    await state.set_state(SubscriptionStates.waiting_payment_proof)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_modules")]
+    ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 async def subscription_plans(callback: CallbackQuery):

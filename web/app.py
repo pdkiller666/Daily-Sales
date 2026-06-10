@@ -29,12 +29,11 @@ def _get_landing_plans() -> dict:
         cur = conn.cursor()
         cur.execute("""
             SELECT name, price, duration_days, max_products, max_shops,
-                   max_sales_per_month, can_export_reports, can_view_analytics,
-                   can_use_notifications, can_use_integrations
+                   max_sales_per_month
             FROM subscription_plans WHERE is_active = 1 ORDER BY price ASC
         """)
         for row in cur.fetchall():
-            name, price, days, mp, ms, msal, exp, anal, notif, integ = row
+            name, price, days, mp, ms, msal = row
             price_int = int(price)
             plans[name] = {
                 "price": price_int,
@@ -47,10 +46,6 @@ def _get_landing_plans() -> dict:
                 "max_products": _fmt_plan_lim(mp),
                 "max_shops": _fmt_plan_lim(ms),
                 "max_sales": _fmt_plan_lim(msal),
-                "can_export": bool(exp),
-                "can_analytics": bool(anal),
-                "can_notifications": bool(notif),
-                "can_integrations": bool(integ),
             }
         conn.close()
     except Exception:

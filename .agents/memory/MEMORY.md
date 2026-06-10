@@ -36,3 +36,4 @@
 - [Flexible org structure](org-structure.md) — paid org_structure module; custom roles decompose into legacy user_org_mapping fields (no new authz path); per-user module `allow` must gate on OWNER billing (not unconditional True); scope vocab = 'network' not 'trade_network'
 - [Super-admin page header](admin-page-header.md) — все /admin/* подстраницы используют page_header macro (admin/_macros.html); импорт ВНУТРИ {% block content %}, не на верхнем уровне (extends-child)
 - [SQLite Cyrillic search](sqlite-cyrillic-search.md) — SQL LOWER()/LIKE fold ASCII only; Cyrillic search returns nothing → register Python lower_u() on the connection
+- [Bot module self-purchase](bot-module-purchase.md) — бот покупка модулей/пакетов опирается на confirm_payment_request: plan_type module_<key>/bundle_<key> уже грантит через grant_billing_item(30d); UI только создаёт payment_request

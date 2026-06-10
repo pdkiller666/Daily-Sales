@@ -12,7 +12,7 @@ from subscription_handlers import (
     upload_payment_proof, process_payment_proof, subscription_limits,
     handle_scheduled_purchase, handle_immediate_purchase,
     enter_promocode, process_promocode, proceed_to_payment,
-    check_yookassa_payment,
+    check_yookassa_payment, buy_modules, start_module_purchase,
 )
 from payment_admin_handlers import (
     pending_payments_menu, view_payment_request, show_payment_proof,
@@ -31,6 +31,10 @@ subscription_router.callback_query.register(start_subscription_purchase, lambda 
 subscription_router.callback_query.register(handle_scheduled_purchase, lambda c: c.data.startswith("schedule_"))
 subscription_router.callback_query.register(handle_immediate_purchase, lambda c: c.data.startswith("immediate_"))
 subscription_router.callback_query.register(upload_payment_proof, lambda c: c.data.startswith("upload_payment_proof_"))
+
+# Самостоятельное подключение модулей/пакетов (G1)
+subscription_router.callback_query.register(buy_modules, lambda c: c.data == "buy_modules")
+subscription_router.callback_query.register(start_module_purchase, lambda c: c.data.startswith("buymod_") or c.data.startswith("buybnd_"))
 
 # Обработчики промокодов
 subscription_router.callback_query.register(enter_promocode, lambda c: c.data.startswith("enter_promocode_"))

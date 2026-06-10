@@ -41,13 +41,17 @@ _FREE_FALLBACK = {
 
 
 def _plan_limits_from_shop_bot(plan_name):
-    """Читает лимиты плана из централизованной shop_bot.db по названию плана."""
+    """Читает ЖЁСТКИЕ лимиты плана из централизованной shop_bot.db по названию.
+
+    can_* флаги (экспорт/аналитика/уведомления/интеграции) НЕ читаются из
+    subscription_plans — они определяются исключительно модульной биллинг-системой
+    (см. _apply_billing_modules). Колонки can_* в БД оставлены только для обратной
+    совместимости и больше не являются источником истины."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT max_products, max_shops, max_sales_per_month, "
-            "can_export_reports, can_view_analytics, can_use_notifications, can_use_integrations "
+            "SELECT max_products, max_shops, max_sales_per_month "
             "FROM subscription_plans WHERE name = ? AND is_active = 1",
             (plan_name,)
         )
@@ -58,10 +62,6 @@ def _plan_limits_from_shop_bot(plan_name):
                 'max_products': row[0],
                 'max_shops': row[1],
                 'max_sales_per_month': row[2],
-                'can_export_reports': bool(row[3]),
-                'can_view_analytics': bool(row[4]),
-                'can_use_notifications': bool(row[5]),
-                'can_use_integrations': bool(row[6]),
             }
     except Exception:
         pass
@@ -148,9 +148,14 @@ def invalidate_plan_cache(telegram_id: int) -> None:
 
 
 def _apply_billing_modules(telegram_id: int, limits: dict) -> dict:
-    """Перекрывает can_* флаги значениями из модульной биллинг-системы.
-    Вызывается только для обычных пользователей (не super_admin, не trial).
-    При недоступности billing_utils — оставляет legacy-значения из БД без изменений."""
+    """Устанавливает can_* флаги ИСКЛЮЧИТЕЛЬНО из модульной биллинг-системы.
+
+    Вызывается для обычных пользователей (не super_admin, не trial). Колонки can_*
+    в subscription_plans больше НЕ являются источником истины — флаги доступа
+    полностью определяются модулями (billing_utils.has_module).
+
+    При недоступности billing_utils флаги фейлятся ЗАКРЫТО (всё False), а не
+    откатываются к legacy-значениям из тарифа."""
     try:
         from billing_utils import has_module as _bm
         limits['can_view_analytics']    = _bm(telegram_id, 'analytics')
@@ -158,7 +163,11 @@ def _apply_billing_modules(telegram_id: int, limits: dict) -> dict:
         limits['can_use_notifications'] = _bm(telegram_id, 'notifications')
         limits['can_use_integrations']  = _bm(telegram_id, 'integrations')
     except Exception:
-        pass
+        _logger.exception("billing_utils недоступен — can_* флаги фейлятся закрыто")
+        limits['can_view_analytics']    = False
+        limits['can_export_reports']    = False
+        limits['can_use_notifications'] = False
+        limits['can_use_integrations']  = False
     return limits
 
 
@@ -425,13 +434,28 @@ def check_export_permission(telegram_id, org_db: str = None):
     org_db — путь к БД организации; обязателен для email-only пользователей (tg_id < 0)."""
     if env_manager.is_super_admin(telegram_id):
         return True
-    # Email-only users have synthetic (negative) tg_id — look up via org db path
+    # Email-only users have synthetic (negative) tg_id — look up via org db path.
+    # У них нет биллинг-модулей (модули привязаны к реальному telegram_id), поэтому
+    # для legacy email-only пути источником истины остаётся колонка can_export_reports
+    # тарифа. _plan_limits_from_shop_bot отдаёт только жёсткие лимиты, поэтому читаем
+    # флаг напрямую из subscription_plans.
     if telegram_id < 0 and org_db:
         plan_name = _get_org_plan_by_db_path(org_db)
         if plan_name is None:
             return False
-        limits = _plan_limits_from_shop_bot(plan_name) or _FREE_FALLBACK
-        return bool(limits.get('can_export_reports', False))
+        try:
+            conn = sqlite3.connect(SHOP_BOT_DB)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT can_export_reports FROM subscription_plans "
+                "WHERE name = ? AND is_active = 1",
+                (plan_name,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return bool(row[0]) if row else False
+        except Exception:
+            return False
     try:
         from billing_utils import has_module
         return has_module(telegram_id, 'analytics')

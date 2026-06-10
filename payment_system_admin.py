@@ -66,6 +66,7 @@ async def payment_system_admin_menu(callback: CallbackQuery):
         [InlineKeyboardButton(text="💎 Управление тарифами", callback_data="manage_plans")],
         [InlineKeyboardButton(text="📊 Статистика платежей", callback_data="payment_statistics")],
         [InlineKeyboardButton(text="👥 Управление подписками", callback_data="manage_subscriptions")],
+        [InlineKeyboardButton(text="🧩 Модули и пакеты", callback_data="billing_modules_admin")],
         [InlineKeyboardButton(text="🎁 Промокоды", callback_data="manage_promocodes")],
         [InlineKeyboardButton(text="🎫 Пробный период", callback_data="trial_settings")],
         [back_button("system_admin_panel")]
@@ -171,7 +172,21 @@ async def payment_statistics_menu(callback: CallbackQuery):
     
     text += f"\n📊 <b>Конверсия:</b> {stats['conversion_rate']:.1f}%\n"
     text += f"🔄 <b>Продления:</b> {stats['renewal_rate']:.1f}%\n"
-    
+
+    # G5: модульный биллинг
+    try:
+        bstats = db.get_billing_stats()
+        text += "\n🧩 <b>Модульный биллинг:</b>\n"
+        text += f"📦 Активных модулей: {bstats['modules_active']} · пакетов: {bstats['bundles_active']}\n"
+        text += f"👥 Клиентов с модулями: {bstats['clients_count']}\n"
+        text += f"💰 Выручка модулей (30 дн.): {bstats['revenue_30d']:,.0f} ₽\n"
+        if bstats['per_module']:
+            text += "🔝 <b>Топ модулей:</b>\n"
+            for pm in bstats['per_module'][:5]:
+                text += f"   • {he(pm['key'])}: {pm['count']} ({pm['revenue']:,.0f} ₽)\n"
+    except Exception:
+        pass
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 За период", callback_data="stats_by_period")],
         [InlineKeyboardButton(text="📋 Экспорт отчета", callback_data="export_payment_report")],
@@ -605,7 +620,13 @@ async def process_max_shops(message: Message, state: FSMContext):
 
 @payment_system_router.message(PaymentSystemStates.waiting_max_sales)
 async def process_max_sales(message: Message, state: FSMContext):
-    """Обработка максимального количества продаж"""
+    """Обработка максимального количества продаж и создание плана.
+
+    Возможности (экспорт отчётов, аналитика, уведомления, интеграции) теперь
+    определяются модульной биллинг-системой (billing_utils.has_module), а не
+    тарифом, поэтому отдельных вопросов про них в мастере создания больше нет.
+    """
+    db = _get_db()
     try:
         max_sales = int(message.text.strip())
         if max_sales < -1 or max_sales == 0:
@@ -614,7 +635,6 @@ async def process_max_sales(message: Message, state: FSMContext):
         await fsm_edit(state, message, "❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
     await state.update_data(max_sales=max_sales)
-    db = _get_db()
     data = await state.get_data()
     _plans_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Управление тарифами", callback_data="manage_plans")]])
     # Возможности (аналитика, уведомления, интеграции) определяются модулями
@@ -629,7 +649,7 @@ async def process_max_sales(message: Message, state: FSMContext):
             description=data['plan_description'],
             max_products=data['max_products'],
             max_shops=data['max_shops'],
-            max_sales_per_month=max_sales,
+            max_sales_per_month=data['max_sales'],
             can_export_reports=True,
             can_view_analytics=True,
             can_use_notifications=True,
@@ -650,7 +670,7 @@ async def process_max_sales(message: Message, state: FSMContext):
         f"<b>📦 Объём тарифа:</b>\n"
         f"📦 Товары: {'∞ Безлимит' if data['max_products'] == -1 else data['max_products']}\n"
         f"🏪 Магазины: {'∞ Безлимит' if data['max_shops'] == -1 else data['max_shops']}\n"
-        f"💰 Продажи/месяц: {'∞ Безлимит' if max_sales == -1 else max_sales}\n\n"
+        f"💰 Продажи/месяц: {'∞ Безлимит' if data['max_sales'] == -1 else data['max_sales']}\n\n"
         f"🧩 Возможности (аналитика, команда, уведомления, интеграции) "
         f"подключаются модулями — в любом тарифе."
     )
@@ -1643,24 +1663,212 @@ async def process_grant_subscription(message: Message, state: FSMContext):
         )
     await clear_state_keep_org(state)
 
-@payment_system_router.callback_query(F.data == "payment_charts")
-async def payment_charts(callback: CallbackQuery):
-    """Графики платежей"""
+@payment_system_router.callback_query(F.data == "billing_modules_admin")
+async def billing_modules_admin(callback: CallbackQuery):
+    """G3: обзор модулей/пакетов биллинга для супер-админа."""
+    db = _get_db()
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора", show_alert=True)
+        return
+
+    await callback.answer()
+    modules = db.get_all_billing_modules()
+    bundles = db.get_all_billing_bundles()
+    try:
+        bstats = db.get_billing_stats()
+        per_module = {pm['key']: pm for pm in bstats.get('per_module', [])}
+    except Exception:
+        per_module = {}
+
+    text = "🧩 <b>Модули и пакеты</b>\n\n"
+    text += "<b>Модули:</b>\n"
+    if modules:
+        for m in modules:
+            status = "✅" if m.get('is_active') else "❌"
+            price = m.get('price_monthly') or 0
+            clients = per_module.get(m['key'], {}).get('count', 0)
+            text += (f"{status} <code>{he(m['key'])}</code> — {he(m['name'])}\n"
+                     f"    {price:.0f}₽/мес · клиентов: {clients}\n")
+    else:
+        text += "  <i>нет модулей</i>\n"
+
+    text += "\n<b>Пакеты:</b>\n"
+    if bundles:
+        for b in bundles:
+            status = "✅" if b.get('is_active') else "❌"
+            price = b.get('price_monthly') or 0
+            text += f"{status} <code>{he(b['key'])}</code> — {he(b['name'])} · {price:.0f}₽/мес\n"
+    else:
+        text += "  <i>нет пакетов</i>\n"
+
+    text += "\n💡 Тонкая настройка модулей и цен — в веб-кабинете (/admin/billing)."
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Выдать модуль/пакет", callback_data="grant_billing")],
+        [InlineKeyboardButton(text="📈 Выручка по модулям", callback_data="payment_charts")],
+        [back_button("payment_system_admin")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+@payment_system_router.callback_query(F.data == "grant_billing")
+async def grant_billing(callback: CallbackQuery, state: FSMContext):
+    """G4: выдача модуля/пакета/расширения пользователю по Telegram ID."""
     db = _get_db()
     if not env_manager.is_super_admin(callback.from_user.id):
         await callback.answer("❌ Доступ только для супер-администратора")
         return
-    
+
     await callback.answer()
-    text = "📈 <b>Графики и аналитика</b>\n\n" \
-           "Функция визуализации данных находится в разработке.\n" \
-           "Пока доступна текстовая статистика."
-    
+    _keys = []
+    try:
+        _keys += [m['key'] for m in db.get_all_billing_modules() if m.get('is_active')]
+    except Exception:
+        pass
+    try:
+        _keys += [b['key'] for b in db.get_all_billing_bundles() if b.get('is_active')]
+    except Exception:
+        pass
+    keys_str = ", ".join(_keys) if _keys else "—"
+
+    text = ("🎁 <b>Выдача модуля/пакета</b>\n\n"
+            "Введите данные в формате:\n"
+            "<code>TELEGRAM_ID КЛЮЧ [ДНИ]</code>\n\n"
+            "Пример: <code>123456789 analytics 30</code>\n"
+            "Если дни не указаны — выдаётся на 30 дней (0 = бессрочно).\n\n"
+            f"📋 <b>Доступные ключи:</b>\n<code>{he(keys_str)}</code>")
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="billing_modules_admin")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(PaymentSystemStates.waiting_grant_billing)
+
+@payment_system_router.message(PaymentSystemStates.waiting_grant_billing)
+async def process_grant_billing(message: Message, state: FSMContext):
+    """G4: парсинг и выдача модуля/пакета через grant_billing_item."""
+    db = _get_db()
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="billing_modules_admin")]
+    ])
+    parts = (message.text or "").strip().split()
+    if len(parts) < 2:
+        await fsm_edit(state, message,
+            "❌ Формат: <code>TELEGRAM_ID КЛЮЧ [ДНИ]</code>\n"
+            "Пример: <code>123456789 analytics 30</code>",
+            reply_markup=_back_kb)
+        return
+
+    raw_id, key = parts[0], parts[1]
+    if not raw_id.lstrip('-').isdigit():
+        await fsm_edit(state, message, "❌ Telegram ID должен быть числом:", reply_markup=_back_kb)
+        return
+    tg_id = int(raw_id)
+
+    days = 30
+    if len(parts) >= 3:
+        if parts[2].isdigit():
+            days = int(parts[2])
+        else:
+            await fsm_edit(state, message, "❌ Дни должны быть числом (0 = бессрочно):", reply_markup=_back_kb)
+            return
+
+    # Определяем тип элемента по ключу
+    item_type = None
+    item_name = key
+    try:
+        for m in db.get_all_billing_modules():
+            if m.get('key') == key:
+                item_type, item_name = 'module', m.get('name') or key
+                break
+        if item_type is None:
+            for b in db.get_all_billing_bundles():
+                if b.get('key') == key:
+                    item_type, item_name = 'bundle', b.get('name') or key
+                    break
+        if item_type is None:
+            for e in db.get_all_billing_extensions():
+                if e.get('key') == key:
+                    item_type, item_name = 'extension', e.get('name') or key
+                    break
+    except Exception:
+        pass
+
+    if item_type is None:
+        await fsm_edit(state, message,
+            f"❌ Ключ <code>{he(key)}</code> не найден среди модулей, пакетов и расширений.",
+            reply_markup=_back_kb)
+        return
+
+    sub_id = db.grant_billing_item(
+        user_telegram_id=tg_id,
+        item_type=item_type,
+        item_key=key,
+        duration_days=days,
+        price_paid=0.0,
+        granted_by='admin_grant',
+        note='Выдано супер-админом из бота',
+    )
+
+    if sub_id:
+        try:
+            from subscription_utils import invalidate_plan_cache
+            invalidate_plan_cache(tg_id)
+        except Exception:
+            pass
+        _term = "бессрочно" if days == 0 else f"{days} дн."
+        await fsm_edit(state, message,
+            f"✅ <b>{he(item_name)}</b> выдан пользователю {tg_id} ({_term}).",
+            reply_markup=_back_kb)
+        # Уведомляем пользователя
+        try:
+            await message.bot.send_message(
+                chat_id=tg_id,
+                text=(f"🧩 <b>Вам подключён доступ:</b> {he(item_name)}\n"
+                      f"📅 Срок: {_term}\n\nВсе функции уже доступны."),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    else:
+        await fsm_edit(state, message,
+            "❌ Не удалось выдать доступ. Проверьте данные и попробуйте снова.",
+            reply_markup=_back_kb)
+    await clear_state_keep_org(state)
+
+@payment_system_router.callback_query(F.data == "payment_charts")
+async def payment_charts(callback: CallbackQuery):
+    """G5: текстовая визуализация выручки по модулям."""
+    db = _get_db()
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ только для супер-администратора")
+        return
+
+    await callback.answer()
+    text = "📈 <b>Выручка по модулям</b>\n\n"
+    try:
+        bstats = db.get_billing_stats()
+        per_module = bstats.get('per_module', [])
+        if not per_module:
+            text += "📭 Пока нет продаж модулей."
+        else:
+            max_rev = max((pm['revenue'] or 0) for pm in per_module) or 1
+            text += f"💰 Всего за 30 дней: {bstats['revenue_30d']:,.0f} ₽\n"
+            text += f"👥 Клиентов: {bstats['clients_count']}\n\n"
+            for pm in per_module:
+                rev = pm['revenue'] or 0
+                bar_len = int(round((rev / max_rev) * 12)) if max_rev else 0
+                bar = "█" * bar_len + "░" * (12 - bar_len)
+                text += f"{he(pm['key'])}\n  {bar} {rev:,.0f} ₽ ({pm['count']})\n"
+    except Exception:
+        text += "❌ Не удалось получить данные."
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="payment_statistics")],
+        [InlineKeyboardButton(text="🧩 Модули и пакеты", callback_data="billing_modules_admin")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="payment_system_admin")]
     ])
-    
+
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 @payment_system_router.callback_query(F.data == "edit_plan")
