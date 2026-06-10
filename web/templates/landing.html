@@ -49,14 +49,9 @@
       "offers": {
         "@type": "AggregateOffer",
         "priceCurrency": "RUB",
-        "lowPrice": "0",
-        "highPrice": "399",
-        "offerCount": "8"
-      },
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "4.9",
-        "ratingCount": "120"
+        "lowPrice": "{{ pricing_meta.low if pricing_meta else 0 }}",
+        "highPrice": "{{ pricing_meta.high if pricing_meta else 4000 }}",
+        "offerCount": "{{ pricing_meta.count if pricing_meta else 31 }}"
       },
       "author": {
         "@type": "Organization",
@@ -79,7 +74,10 @@
         "Конкурсы продаж с автоматическим подведением итогов",
         "Рейтинги продавцов и магазинов",
         "Вход по email и паролю без Telegram",
-        "Регистрация по инвайт-коду"
+        "Регистрация по инвайт-коду",
+        "ИИ-ассистент: умные алерты и прогноз продаж",
+        "Гибкая оргструктура с кастомными ролями и отделами",
+        "Модульная подписка: тарифы, модули, расширения и пакеты"
       ],
       "screenshot": "https://dailysales.app/static/og-image.jpg",
       "softwareVersion": "2.0",
@@ -1427,7 +1425,7 @@
         <div class="text-center mb-16 reveal">
             <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Объём + возможности</div>
             <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Платите только за то, что используете</h2>
-            <p class="text-xl text-slate-500 max-w-2xl mx-auto">Тариф задаёт <strong class="text-slate-700">объём</strong> — товары, магазины и продажи. Модули добавляют <strong class="text-slate-700">возможности</strong> и подключаются по отдельности в любом тарифе.</p>
+            <p class="text-xl text-slate-500 max-w-2xl mx-auto"><strong class="text-slate-700">Тариф</strong> задаёт объём (товары, магазины, продажи). <strong class="text-slate-700">Модули</strong> добавляют возможности, <strong class="text-slate-700">расширения</strong> — точечные функции внутри модулей, а <strong class="text-slate-700">пакеты</strong> собирают модули со скидкой. Всё подключается по отдельности в любом тарифе.</p>
         </div>
 
         <!-- Tariff lineup (axis 1: capacity) -->
@@ -1489,6 +1487,7 @@
             'integrations':     {'border':'hover:border-teal-300',   'shadow':'hover:shadow-teal-50',   'icon_bg':'bg-teal-500/10',   'price':'text-teal-600'},
             'chat':             {'border':'hover:border-emerald-300','shadow':'hover:shadow-emerald-50','icon_bg':'bg-emerald-500/10','price':'text-emerald-600'},
             'ai_assistant':     {'border':'hover:border-indigo-300', 'shadow':'hover:shadow-indigo-50', 'icon_bg':'bg-indigo-500/10', 'price':'text-indigo-600'},
+            'org_structure':    {'border':'hover:border-slate-400',  'shadow':'hover:shadow-slate-100', 'icon_bg':'bg-slate-500/10',  'price':'text-slate-700'},
         } %}
         {% set _fallback_themes = [
             {'border':'hover:border-blue-300',   'shadow':'hover:shadow-blue-50',   'icon_bg':'bg-blue-500/10',   'price':'text-blue-600'},
@@ -1505,6 +1504,7 @@
             'integrations':     ['Google Sheets','Авто-экспорт продаж','OAuth авторизация','Настраиваемые листы'],
             'chat':             ['Темы и треды','Личные сообщения','Файлы и фото','Реальное время'],
             'ai_assistant':     ['Умные алерты','Анализ продаж','Рекомендации','DeepSeek / Gemini'],
+            'org_structure':    ['Кастомные роли и права','Отделы и иерархия','Сети из нескольких точек','Гибкий доступ'],
         } %}
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
@@ -1544,7 +1544,7 @@
             <!-- Расширения лимитов — всегда статичная карточка -->
             <div class="border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50/50 reveal d4">
                 <div class="w-10 h-10 rounded-xl bg-slate-200/60 flex items-center justify-center text-xl mb-4">➕</div>
-                <div class="text-base font-bold text-slate-700 mb-1">Расширения лимитов</div>
+                <div class="text-base font-bold text-slate-700 mb-1">Дополнительные лимиты</div>
                 <div class="text-2xl font-extrabold text-slate-500 mb-3">от 99 <span class="text-sm font-semibold text-slate-400">₽/мес</span></div>
                 <ul class="space-y-1.5 text-xs text-slate-500">
                     <li class="flex items-center gap-1.5"><span class="text-slate-400">+</span>Дополнительные магазины</li>
@@ -1555,6 +1555,74 @@
             </div>
 
         </div>
+
+        <!-- ── Extensions (axis 3: fine-tuning inside modules) ── -->
+        {% if landing_extensions %}
+        <div class="text-center mb-8 reveal">
+            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">🔧 Расширения — тонкая настройка внутри модулей</p>
+            <p class="text-xs text-slate-400 mt-2 max-w-xl mx-auto">Точечные функции, которые подключаются по одной. Работают при активном родительском модуле — платите только за то, что реально нужно.</p>
+        </div>
+
+        <div class="space-y-4 mb-12">
+            {% for grp in landing_extensions %}
+            <div class="border border-slate-200 rounded-2xl p-5 bg-white reveal">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-lg">{{ grp.module_icon }}</span>
+                    <span class="text-sm font-bold text-slate-900">{{ grp.module_name }}</span>
+                    <span class="text-[11px] font-medium text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">+{{ grp.exts|length }}</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {% for ext in grp.exts %}
+                    <div class="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-3">
+                        <span class="text-lg flex-shrink-0 mt-0.5">{{ ext.icon }}</span>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-sm font-semibold text-slate-800 leading-snug">{{ ext.name }}</span>
+                                <span class="text-xs font-bold text-blue-600 flex-shrink-0 whitespace-nowrap">{{ ext.price }} ₽</span>
+                            </div>
+                            {% if ext.description %}
+                            <p class="text-xs text-slate-500 leading-snug mt-0.5">{{ ext.description }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- ── Bundles (discounted module packs) ── -->
+        {% if landing_bundles %}
+        <div class="text-center mb-8 reveal">
+            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">🎁 Пакеты — несколько модулей со скидкой</p>
+            <p class="text-xs text-slate-400 mt-2 max-w-xl mx-auto">Готовые наборы модулей под типовые задачи. Дешевле, чем подключать модули по отдельности.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+            {% for b in landing_bundles %}
+            <div class="border-2 border-slate-200 rounded-2xl p-6 bg-gradient-to-br from-slate-50 to-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-100 transition-all duration-300 reveal {{ ['d1','d2','d3'][loop.index0 % 3] }}">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-xl">{{ b.icon }}</div>
+                    {% if b.save and b.save > 0 %}
+                    <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">выгода {{ b.save }} ₽/мес</span>
+                    {% endif %}
+                </div>
+                <div class="text-base font-bold text-slate-900 mb-1">{{ b.name }}</div>
+                <div class="flex items-end gap-2 mb-3">
+                    <span class="text-2xl font-extrabold text-indigo-600">{{ b.price }} <span class="text-sm font-semibold text-slate-400">₽/мес</span></span>
+                    {% if b.save and b.save > 0 %}<span class="text-xs text-slate-400 line-through mb-1">{{ b.full_price }} ₽</span>{% endif %}
+                </div>
+                {% if b.description %}<p class="text-xs text-slate-500 mb-3 leading-snug">{{ b.description }}</p>{% endif %}
+                <ul class="space-y-1.5 text-xs text-slate-600">
+                    {% for mn in b.module_names %}
+                    <li class="flex items-center gap-1.5"><span class="text-emerald-500">✓</span>{{ mn }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
         <!-- Trial notice -->
         <div class="mt-4 text-center reveal">

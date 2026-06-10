@@ -499,6 +499,106 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['landing_billing_modules'] = _landing_billing_modules
 
+    def _landing_extensions() -> list:
+        """Активные расширения, сгруппированные по родительскому модулю."""
+        try:
+            with sqlite3.connect(_SHOP_BOT_DB) as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT key, name, icon FROM billing_modules
+                    WHERE is_active = 1 ORDER BY sort_order ASC, id ASC
+                """)
+                modules = cur.fetchall()
+                cur.execute("""
+                    SELECT module_key, name, icon, price_monthly, description
+                    FROM billing_extensions
+                    WHERE is_active = 1 ORDER BY sort_order ASC, id ASC
+                """)
+                ext_rows = cur.fetchall()
+            by_mod: dict = {}
+            for mk, name, icon, price, desc in ext_rows:
+                by_mod.setdefault(mk, []).append({
+                    "name": name,
+                    "icon": icon or "🔧",
+                    "price": int(price or 0),
+                    "description": desc or "",
+                })
+            result = []
+            for mk, mname, micon in modules:
+                items = by_mod.get(mk)
+                if items:
+                    result.append({
+                        "module_key": mk,
+                        "module_name": mname,
+                        "module_icon": micon or "📦",
+                        "exts": items,
+                    })
+            return result
+        except Exception:
+            return []
+
+    def _landing_bundles() -> list:
+        """Активные пакеты модулей со скидкой для лендинга."""
+        import json as _json
+        try:
+            with sqlite3.connect(_SHOP_BOT_DB) as conn:
+                cur = conn.cursor()
+                # Все модули (включая выключенные): состав/цена пакета должны
+                # отражать реальную конфигурацию пакета, а не текущий статус модуля.
+                cur.execute("SELECT key, name, price_monthly FROM billing_modules")
+                mod_map = {r[0]: (r[1], int(r[2] or 0)) for r in cur.fetchall()}
+                cur.execute("""
+                    SELECT key, name, icon, description, includes_json, price_monthly
+                    FROM billing_bundles
+                    WHERE is_active = 1 ORDER BY sort_order ASC, id ASC
+                """)
+                rows = cur.fetchall()
+            result = []
+            for key, name, icon, desc, inc_json, price in rows:
+                try:
+                    inc = _json.loads(inc_json or "{}")
+                except Exception:
+                    inc = {}
+                mod_keys = inc.get("modules", []) or []
+                names = [mod_map[k][0] for k in mod_keys if k in mod_map]
+                full = sum(mod_map[k][1] for k in mod_keys if k in mod_map)
+                price_i = int(price or 0)
+                result.append({
+                    "name": name,
+                    "icon": icon or "🎁",
+                    "price": price_i,
+                    "description": desc or "",
+                    "module_names": names,
+                    "count": len(names),
+                    "full_price": int(full),
+                    "save": int(full - price_i) if full > price_i else 0,
+                })
+            return result
+        except Exception:
+            return []
+
+    def _landing_pricing_meta() -> dict:
+        """Реальные границы цен и число офферов для JSON-LD."""
+        try:
+            with sqlite3.connect(_SHOP_BOT_DB) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT price FROM subscription_plans WHERE is_active = 1")
+                plans = [float(r[0] or 0) for r in cur.fetchall()]
+                cur.execute("SELECT price_monthly FROM billing_modules WHERE is_active = 1")
+                mods = [float(r[0] or 0) for r in cur.fetchall()]
+                cur.execute("SELECT price_monthly FROM billing_extensions WHERE is_active = 1")
+                exts = [float(r[0] or 0) for r in cur.fetchall()]
+                cur.execute("SELECT price_monthly FROM billing_bundles WHERE is_active = 1")
+                bund = [float(r[0] or 0) for r in cur.fetchall()]
+            all_prices = plans + mods + exts + bund
+            return {
+                "low": int(min(all_prices)) if all_prices else 0,
+                "high": int(max(all_prices)) if all_prices else 4000,
+                "count": len(plans) + len(mods) + len(exts) + len(bund),
+            }
+        except Exception:
+            return {"low": 0, "high": 4000, "count": 31}
+
     app.state.templates = templates
 
     static_dir = BASE_DIR / "static"
@@ -602,6 +702,9 @@ def create_web_app() -> FastAPI:
             "bot_username": templates.env.globals.get("bot_username", ""),
             "billing_modules": _landing_billing_modules(),
             "landing_plans": _get_landing_plans(),
+            "landing_extensions": _landing_extensions(),
+            "landing_bundles": _landing_bundles(),
+            "pricing_meta": _landing_pricing_meta(),
         })
 
     @app.exception_handler(404)
