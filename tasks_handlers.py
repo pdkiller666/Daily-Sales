@@ -392,8 +392,8 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             await callback.message.edit_text(
                 f"✅ <b>Статус обновлён</b>: {status_label}\n\n"
-                f"📷 Хотите прикрепить фото-отчёт к задаче\n«{he(task['title'][:50])}»?\n\n"
-                "<i>Отправьте фото сообщением или нажмите «Пропустить»</i>",
+                f"📎 Хотите прикрепить файл к задаче\n«{he(task['title'][:50])}»?\n\n"
+                "<i>Отправьте фото, документ, видео или любой файл — или нажмите «Пропустить»</i>",
                 reply_markup=kb.as_markup(),
                 parse_mode="HTML"
             )
@@ -450,22 +450,59 @@ async def task_photo_skip_cb(callback: CallbackQuery, state: FSMContext):
     await _show_tasks_list(callback, state, page=0)
 
 
-# ── Фото-отчёт: получить фото ────────────────────────────────────────────────
+# ── Вложение при завершении: любой файл (фото / документ / видео / аудио / голос) ──
 
-@tasks_router.message(TaskPhotoStates.waiting_photo, F.photo)
-async def task_photo_handler(message: Message, state: FSMContext, bot: Bot):
+@tasks_router.message(
+    TaskPhotoStates.waiting_photo,
+    F.photo | F.document | F.video | F.audio | F.voice | F.video_note
+)
+async def task_attachment_handler(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     task_id = data.get('tsk_photo_task_id')
     db = await get_db(state)
 
     if not task_id or db is None:
         await state.set_state(None)
-        await message.answer("⚠️ Не удалось сохранить фото.")
+        await message.answer("⚠️ Не удалось сохранить файл.")
         return
 
     try:
-        photo = message.photo[-1]
-        file_info = await bot.get_file(photo.file_id)
+        # Определяем тип файла и метаданные
+        if message.photo:
+            file_obj   = message.photo[-1]
+            file_name  = "фото_отчёт.jpg"
+            file_type  = "image/jpeg"
+            ext        = ".jpg"
+        elif message.document:
+            file_obj   = message.document
+            file_name  = message.document.file_name or "документ"
+            file_type  = message.document.mime_type or "application/octet-stream"
+            ext        = os.path.splitext(file_name)[1] or ""
+        elif message.video:
+            file_obj   = message.video
+            file_name  = message.video.file_name or "видео_отчёт.mp4"
+            file_type  = message.video.mime_type or "video/mp4"
+            ext        = os.path.splitext(file_name)[1] or ".mp4"
+        elif message.audio:
+            file_obj   = message.audio
+            file_name  = message.audio.file_name or "аудио.mp3"
+            file_type  = message.audio.mime_type or "audio/mpeg"
+            ext        = os.path.splitext(file_name)[1] or ".mp3"
+        elif message.voice:
+            file_obj   = message.voice
+            file_name  = "голосовой_отчёт.ogg"
+            file_type  = "audio/ogg"
+            ext        = ".ogg"
+        elif message.video_note:
+            file_obj   = message.video_note
+            file_name  = "кружок_отчёт.mp4"
+            file_type  = "video/mp4"
+            ext        = ".mp4"
+        else:
+            await message.answer("⚠️ Неподдерживаемый тип файла.")
+            return
+
+        file_info = await bot.get_file(file_obj.file_id)
 
         org_db_path = db.db_file
         base = os.path.splitext(org_db_path)[0]
@@ -475,14 +512,14 @@ async def task_photo_handler(message: Message, state: FSMContext, bot: Bot):
         os.makedirs(dest_dir, exist_ok=True)
 
         uid = uuid.uuid4().hex[:12]
-        dest = os.path.join(dest_dir, f"{uid}_report.jpg")
+        dest = os.path.join(dest_dir, f"{uid}_report{ext}")
 
-        photo_data = await bot.download_file(file_info.file_path)
+        file_data = await bot.download_file(file_info.file_path)
         with open(dest, 'wb') as f:
-            if hasattr(photo_data, 'read'):
-                f.write(photo_data.read())
+            if hasattr(file_data, 'read'):
+                f.write(file_data.read())
             else:
-                f.write(photo_data)
+                f.write(file_data)
 
         tg_id = message.from_user.id
         conn = db.get_connection()
@@ -492,29 +529,29 @@ async def task_photo_handler(message: Message, state: FSMContext, bot: Bot):
 
         db.add_task_attachments(task_id, my_db_id, [{
             "file_path": dest,
-            "file_name": "фото_отчёт.jpg",
-            "file_type": "image/jpeg",
+            "file_name": file_name,
+            "file_type": file_type,
             "file_size": os.path.getsize(dest),
             "uploaded_by": my_db_id,
         }])
 
         await state.set_state(None)
         await state.update_data(tsk_photo_task_id=None)
-        await message.answer("📷 Фото-отчёт прикреплён к задаче!")
+        await message.answer("📎 Файл прикреплён к задаче!")
         await _show_tasks_list(message, state, page=0)
 
     except Exception as e:
-        logger.error("task_photo_handler: %s", e)
+        logger.error("task_attachment_handler: %s", e)
         await state.set_state(None)
-        await message.answer("⚠️ Ошибка сохранения фото. Попробуйте снова.")
+        await message.answer("⚠️ Ошибка сохранения файла. Попробуйте снова.")
 
 
 @tasks_router.message(TaskPhotoStates.waiting_photo)
-async def task_photo_wrong_input(message: Message, state: FSMContext):
+async def task_attachment_wrong_input(message: Message, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="tsk_photo_skip"))
     await message.answer(
-        "📷 Пожалуйста, отправьте <b>фото</b> или нажмите «Пропустить».",
+        "📎 Пожалуйста, отправьте <b>фото, документ, видео или аудио</b> — или нажмите «Пропустить».",
         reply_markup=kb.as_markup(),
         parse_mode="HTML"
     )
@@ -561,8 +598,8 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         await callback.message.edit_text(
             f"✅ <b>Отмечено как выполнено!</b>\n\n"
-            f"📷 Хотите прикрепить фото-отчёт?\n"
-            "<i>Отправьте фото или нажмите «Пропустить»</i>",
+            f"📎 Хотите прикрепить файл к задаче?\n"
+            "<i>Отправьте фото, документ, видео или любой файл — или нажмите «Пропустить»</i>",
             reply_markup=kb.as_markup(),
             parse_mode="HTML"
         )
