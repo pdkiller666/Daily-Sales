@@ -132,10 +132,7 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
 
         limits = get_plan_limits(telegram_id)
 
-        if plan_type in ('Бесплатный', 'free'):
-            text += "⚠️ <b>Ограничения плана:</b>\n"
-        else:
-            text += "✅ <b>Возможности плана:</b>\n"
+        text += "\n📦 <b>Объём тарифа:</b>\n"
 
         text += ("• Товары: ∞ Безлимит\n" if limits['max_products'] == -1
                  else f"• Товары: до {limits['max_products']}\n")
@@ -178,7 +175,8 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                 pass
 
         if plan_type in ('Бесплатный', 'free'):
-            text += "\n💎 <b>Обновите план для получения больших возможностей!</b>"
+            text += ("\n💎 <b>Нужен больший объём</b> — повысьте тариф."
+                     "\n🧩 <b>Нужны функции</b> — подключите модули (в любом тарифе).")
 
         if is_org_user:
             org_role = get_user_org_role(telegram_id)
@@ -258,12 +256,13 @@ async def subscription_plans(callback: CallbackQuery):
                         text += "💰 Продажи/месяц: ∞ Безлимит\n"
                     else:
                         text += f"💰 Продажи/месяц: до {plan_details['max_sales_per_month']}\n"
-                    
-                    # Доступные функции
-                    text += f"📋 Экспорт: {'✅' if plan_details['can_export_reports'] else '❌'}\n"
-                    text += f"📈 Аналитика: {'✅' if plan_details['can_view_analytics'] else '❌'}\n"
-                    text += f"🔔 Уведомления: {'✅' if plan_details['can_use_notifications'] else '❌'}\n"
                     text += "\n"
+
+            text += (
+                "ℹ️ <b>Тариф = объём</b> (товары, магазины, продажи).\n"
+                "🧩 <b>Возможности</b> — аналитика, команда, уведомления, "
+                "интеграции и др. — подключаются отдельными модулями в любом тарифе.\n"
+            )
         
         keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="subscription_menu")])
     

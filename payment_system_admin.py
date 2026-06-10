@@ -614,56 +614,13 @@ async def process_max_sales(message: Message, state: FSMContext):
         await fsm_edit(state, message, "❌ Неверный формат. Введите -1 для безлимита или число больше 0", reply_markup=_CANCEL_PLAN_KB)
         return
     await state.update_data(max_sales=max_sales)
-    text = f"💰 Продажи/месяц: {'Безлимит' if max_sales == -1 else max_sales}\n\n📋 Разрешить экспорт отчетов?\nВведите: да/нет"
-    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
-    await state.set_state(PaymentSystemStates.waiting_export_reports)
-
-@payment_system_router.message(PaymentSystemStates.waiting_export_reports)
-async def process_export_reports(message: Message, state: FSMContext):
-    """Обработка настройки экспорта отчетов"""
-    answer = message.text.strip().lower()
-    if answer in ['да', 'yes', '1', 'true']:
-        can_export = True
-    elif answer in ['нет', 'no', '0', 'false']:
-        can_export = False
-    else:
-        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
-        return
-    await state.update_data(can_export_reports=can_export)
-    text = f"📋 Экспорт отчетов: {'Да' if can_export else 'Нет'}\n\n📈 Разрешить расширенную аналитику?\nВведите: да/нет"
-    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
-    await state.set_state(PaymentSystemStates.waiting_analytics)
-
-@payment_system_router.message(PaymentSystemStates.waiting_analytics)
-async def process_analytics(message: Message, state: FSMContext):
-    """Обработка настройки аналитики"""
-    answer = message.text.strip().lower()
-    if answer in ['да', 'yes', '1', 'true']:
-        can_analytics = True
-    elif answer in ['нет', 'no', '0', 'false']:
-        can_analytics = False
-    else:
-        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
-        return
-    await state.update_data(can_view_analytics=can_analytics)
-    text = f"📈 Аналитика: {'Да' if can_analytics else 'Нет'}\n\n🔔 Разрешить уведомления?\nВведите: да/нет"
-    await fsm_edit(state, message, text, reply_markup=_CANCEL_PLAN_KB)
-    await state.set_state(PaymentSystemStates.waiting_notifications)
-
-@payment_system_router.message(PaymentSystemStates.waiting_notifications)
-async def process_notifications(message: Message, state: FSMContext):
-    """Обработка настройки уведомлений и создание плана"""
     db = _get_db()
-    answer = message.text.strip().lower()
-    if answer in ['да', 'yes', '1', 'true']:
-        can_notifications = True
-    elif answer in ['нет', 'no', '0', 'false']:
-        can_notifications = False
-    else:
-        await fsm_edit(state, message, "❌ Введите 'да' или 'нет'", reply_markup=_CANCEL_PLAN_KB)
-        return
     data = await state.get_data()
     _plans_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Управление тарифами", callback_data="manage_plans")]])
+    # Возможности (аналитика, уведомления, интеграции) определяются модулями
+    # биллинга (billing_utils.has_module), а не тарифом. Тариф задаёт только ОБЪЁМ.
+    # Колонки can_* оставлены для обратной совместимости (legacy email-only путь);
+    # для новых тарифов не ограничиваем на уровне плана — гейтят модули.
     try:
         db.create_subscription_plan_with_limits(
             name=data['plan_name'],
@@ -672,13 +629,14 @@ async def process_notifications(message: Message, state: FSMContext):
             description=data['plan_description'],
             max_products=data['max_products'],
             max_shops=data['max_shops'],
-            max_sales_per_month=data['max_sales'],
-            can_export_reports=data['can_export_reports'],
-            can_view_analytics=data['can_view_analytics'],
-            can_use_notifications=can_notifications
+            max_sales_per_month=max_sales,
+            can_export_reports=True,
+            can_view_analytics=True,
+            can_use_notifications=True,
+            can_use_integrations=True,
         )
     except Exception as e:
-        logging.error(f"process_notifications: create_subscription_plan_with_limits error: {e}")
+        logging.error(f"process_max_sales: create_subscription_plan_with_limits error: {e}")
         await fsm_edit(state, message, "❌ Ошибка при создании тарифного плана. Попробуйте позже.", reply_markup=_plans_kb)
         await clear_state_keep_org(state)
         return
@@ -689,13 +647,12 @@ async def process_notifications(message: Message, state: FSMContext):
         f"💰 Цена: {data['plan_price']:,.0f} ₽\n"
         f"⏱ Длительность: {data['plan_duration']} дней\n"
         f"📝 Описание: {data['plan_description']}\n\n"
-        f"<b>🎯 Лимиты и возможности:</b>\n"
+        f"<b>📦 Объём тарифа:</b>\n"
         f"📦 Товары: {'∞ Безлимит' if data['max_products'] == -1 else data['max_products']}\n"
         f"🏪 Магазины: {'∞ Безлимит' if data['max_shops'] == -1 else data['max_shops']}\n"
-        f"💰 Продажи/месяц: {'∞ Безлимит' if data['max_sales'] == -1 else data['max_sales']}\n"
-        f"📋 Экспорт отчетов: {'✅ Да' if data['can_export_reports'] else '❌ Нет'}\n"
-        f"📈 Аналитика: {'✅ Да' if data['can_view_analytics'] else '❌ Нет'}\n"
-        f"🔔 Уведомления: {'✅ Да' if can_notifications else '❌ Нет'}"
+        f"💰 Продажи/месяц: {'∞ Безлимит' if max_sales == -1 else max_sales}\n\n"
+        f"🧩 Возможности (аналитика, команда, уведомления, интеграции) "
+        f"подключаются модулями — в любом тарифе."
     )
     await fsm_edit(state, message, text, reply_markup=_plans_kb)
     await clear_state_keep_org(state)
@@ -767,13 +724,11 @@ async def edit_plan_details(callback: CallbackQuery, state: FSMContext):
     text += f"💰 Цена: {plan_details['price']:,.0f} ₽\n"
     text += f"⏱ Длительность: {plan_details['duration_days']} дней\n"
     text += f"📝 Описание: {plan_details['description']}\n\n"
-    text += f"<b>🎯 Текущие лимиты:</b>\n"
+    text += f"<b>📦 Объём тарифа:</b>\n"
     text += f"📦 Товары: {'∞ Безлимит' if plan_details['max_products'] == -1 else plan_details['max_products']}\n"
     text += f"🏪 Магазины: {'∞ Безлимит' if plan_details['max_shops'] == -1 else plan_details['max_shops']}\n"
-    text += f"💰 Продажи/месяц: {'∞ Безлимит' if plan_details['max_sales_per_month'] == -1 else plan_details['max_sales_per_month']}\n"
-    text += f"📋 Экспорт: {'✅ Да' if plan_details['can_export_reports'] else '❌ Нет'}\n"
-    text += f"📈 Аналитика: {'✅ Да' if plan_details['can_view_analytics'] else '❌ Нет'}\n"
-    text += f"🔔 Уведомления: {'✅ Да' if plan_details['can_use_notifications'] else '❌ Нет'}\n\n"
+    text += f"💰 Продажи/месяц: {'∞ Безлимит' if plan_details['max_sales_per_month'] == -1 else plan_details['max_sales_per_month']}\n\n"
+    text += "🧩 Возможности (аналитика, команда, уведомления, интеграции) определяются модулями, а не тарифом.\n\n"
     text += "Выберите, что хотите изменить:"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -783,9 +738,6 @@ async def edit_plan_details(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="📦 Лимит товаров", callback_data="edit_field_max_products")],
         [InlineKeyboardButton(text="🏪 Лимит магазинов", callback_data="edit_field_max_shops")],
         [InlineKeyboardButton(text="💰 Лимит продаж", callback_data="edit_field_max_sales")],
-        [InlineKeyboardButton(text="📋 Экспорт отчетов", callback_data="edit_field_export")],
-        [InlineKeyboardButton(text="📈 Аналитика", callback_data="edit_field_analytics")],
-        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="edit_field_notifications")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="edit_plan")]
     ])
     
@@ -811,50 +763,36 @@ async def edit_plan_field_start(callback: CallbackQuery, state: FSMContext):
         'max_products': '📦 лимит товаров',
         'max_shops': '🏪 лимит магазинов',
         'max_sales': '💰 лимит продаж',
-        'export': '📋 экспорт отчетов',
-        'analytics': '📈 аналитику',
-        'notifications': '🔔 уведомления'
     }
-    
+
+    if field not in field_names:
+        await callback.answer("❌ Неизвестное поле")
+        return
+
     await state.update_data(editing_field=field)
-    
-    if field in ['export', 'analytics', 'notifications']:
-        # Переключение булевых значений
-        plan_details = db.get_subscription_plan_details(plan_id)
-        current_value = plan_details.get(f'can_{field}' if field != 'export' else 'can_export_reports')
-        new_value = not current_value
-        
-        success = db.update_subscription_plan_field(plan_id, f'can_{field}' if field != 'export' else 'can_export_reports', new_value)
-        
-        if success:
-            status = "включено" if new_value else "отключено"
-            await callback.answer(f"✅ {field_names[field].capitalize()} {status}")
-            await edit_plan_details(callback, state)
-        else:
-            await callback.answer("❌ Ошибка при обновлении")
-    else:
-        # Ввод нового значения
-        await callback.answer()
-        text = f"✏️ <b>Редактирование поля: {field_names[field]}</b>\n\n"
-        
-        if field == 'price':
-            text += "Введите новую цену в рублях:\n"
-            text += "Пример: 990, 2700, 4900"
-        elif field == 'duration':
-            text += "Введите новую длительность в днях:\n"
-            text += "Пример: 30, 90, 365"
-        elif field == 'description':
-            text += "Введите новое описание тарифа:"
-        elif field in ['max_products', 'max_shops', 'max_sales']:
-            text += f"Введите новый лимит (-1 для безлимита):"
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Назад", callback_data=f"edit_plan_{plan_id}")]
-        ])
-        
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        await state.update_data(anchor_msg_id=callback.message.message_id)
-        await state.set_state(PaymentSystemStates.editing_plan_field)
+
+    # Ввод нового значения
+    await callback.answer()
+    text = f"✏️ <b>Редактирование поля: {field_names[field]}</b>\n\n"
+
+    if field == 'price':
+        text += "Введите новую цену в рублях:\n"
+        text += "Пример: 990, 2700, 4900"
+    elif field == 'duration':
+        text += "Введите новую длительность в днях:\n"
+        text += "Пример: 30, 90, 365"
+    elif field == 'description':
+        text += "Введите новое описание тарифа:"
+    elif field in ['max_products', 'max_shops', 'max_sales']:
+        text += f"Введите новый лимит (-1 для безлимита):"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"edit_plan_{plan_id}")]
+    ])
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(PaymentSystemStates.editing_plan_field)
 
 @payment_system_router.message(PaymentSystemStates.editing_plan_field)
 async def process_plan_field_edit(message: Message, state: FSMContext):

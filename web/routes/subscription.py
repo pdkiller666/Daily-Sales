@@ -262,6 +262,183 @@ def _has_pending_request(user_id: int) -> bool:
         return False
 
 
+def _fmt_cap(value) -> str:
+    """Форматирует лимит: -1 → ∞, иначе число с неразрывным пробелом."""
+    try:
+        v = int(value)
+    except Exception:
+        return "—"
+    if v < 0:
+        return "∞"
+    return f"{v:,}".replace(",", "\u00a0")
+
+
+def _get_tariff_overview(telegram_id: int) -> dict | None:
+    """Текущий тариф (ось «объём»): план, лимиты объёма и фактическое использование.
+    Не меняет логику гейтинга — только читает данные для отображения."""
+    try:
+        import subscription_utils as su
+    except Exception:
+        return None
+
+    try:
+        org_plan = su._get_org_plan_for_user(telegram_id)
+        plan_name = org_plan if org_plan is not None else su._get_personal_plan(telegram_id)
+        limits = su.get_plan_limits(telegram_id)
+        days_remaining = su.get_subscription_days_remaining(telegram_id)
+        addons = su._get_addon_totals_for_user(telegram_id)
+    except Exception:
+        return None
+
+    extra_products = int(addons.get("extra_products", 0) or 0) * 100
+    extra_shops = int(addons.get("extra_shops", 0) or 0)
+
+    def _eff(base, extra):
+        try:
+            b = int(base)
+        except Exception:
+            return base
+        return b if b < 0 else b + extra
+
+    max_products = _eff(limits.get("max_products", 0), extra_products)
+    max_shops = _eff(limits.get("max_shops", 0), extra_shops)
+    max_sales = limits.get("max_sales_per_month", 0)
+
+    used_products = used_shops = used_sales = None
+    try:
+        from tenant_manager import tenant_manager
+        from database import Database
+        from datetime import datetime as _dt
+        db_path = tenant_manager.get_user_db_path(telegram_id)
+        db = Database(db_path)
+        used_products = len(db.get_all_products())
+        used_shops = len(db.get_all_shops())
+        month_start = _dt.now().strftime("%Y-%m-01")
+        conn = db.get_connection()
+        used_sales = conn.execute(
+            "SELECT COUNT(*) FROM sales WHERE sale_date >= ?", (month_start,)
+        ).fetchone()[0]
+        conn.close()
+    except Exception:
+        pass
+
+    def _pct(used, cap):
+        try:
+            c = int(cap)
+            u = int(used)
+        except Exception:
+            return None
+        if c <= 0:
+            return None
+        return min(100, round(u * 100 / c))
+
+    return {
+        "plan_name": plan_name or "Бесплатный",
+        "is_trial": bool(su._has_active_trial(telegram_id)),
+        "days_remaining": days_remaining,
+        "addon_products": extra_products,
+        "addon_shops": extra_shops,
+        "rows": [
+            {"icon": "🛍", "label": "Товары", "used": used_products,
+             "cap": max_products, "cap_fmt": _fmt_cap(max_products),
+             "pct": _pct(used_products, max_products)},
+            {"icon": "🏪", "label": "Магазины", "used": used_shops,
+             "cap": max_shops, "cap_fmt": _fmt_cap(max_shops),
+             "pct": _pct(used_shops, max_shops)},
+            {"icon": "🧾", "label": "Продажи в месяц", "used": used_sales,
+             "cap": max_sales, "cap_fmt": _fmt_cap(max_sales),
+             "pct": _pct(used_sales, max_sales)},
+        ],
+    }
+
+
+def _get_tariff_plans(current_plan_name: str | None, user_id: int | None = None) -> list[dict]:
+    """Доступные тарифы (ось «объём») из subscription_plans для смены прямо из веба.
+    Только активные платные планы; текущий помечается is_current.
+
+    Понижение тарифа определяется канонической логикой бота
+    (Database.check_subscription_downgrade) — без дублирования enforcement:
+    помеченные is_downgrade тарифы предупреждают владельца, что остаток
+    текущей подписки сгорит при немедленной замене."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        rows = conn.execute(
+            """SELECT id, name, duration_days, price, description,
+                      max_products, max_shops, max_sales_per_month
+               FROM subscription_plans
+               WHERE is_active=1 AND price > 0
+               ORDER BY price"""
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return []
+
+    # Канонический downgrade-чек из бота (Database.check_subscription_downgrade).
+    _dg_db = None
+    if user_id:
+        try:
+            from database import Database
+            _dg_db = Database(SHOP_BOT_DB)
+        except Exception:
+            _dg_db = None
+
+    result = []
+    for r in rows:
+        pid, name, duration, price, desc, mp, ms, msl = r
+        _price = int(price or 0)
+        is_downgrade = False
+        dg_current_plan = ""
+        dg_end_date = ""
+        dg_days_left = None
+        if _dg_db is not None:
+            try:
+                _is_dg, _info = _dg_db.check_subscription_downgrade(user_id, name)
+                if _is_dg and _info:
+                    from datetime import datetime as _dt
+                    is_downgrade = True
+                    dg_current_plan = _info.get("current_plan") or ""
+                    _end = _info.get("end_datetime")
+                    if _end is not None:
+                        dg_end_date = _end.strftime("%d.%m.%Y")
+                        dg_days_left = max(0, (_end - _dt.now()).days)
+            except Exception:
+                pass
+        result.append({
+            "id": pid,
+            "name": name,
+            "duration_days": int(duration or 30),
+            "price": _price,
+            "price_fmt": f"{_price:,}".replace(",", "\u00a0") + "\u00a0₽",
+            "description": desc or "",
+            "max_products_fmt": _fmt_cap(mp),
+            "max_shops_fmt": _fmt_cap(ms),
+            "max_sales_fmt": _fmt_cap(msl),
+            "is_current": bool(current_plan_name and name == current_plan_name),
+            "is_downgrade": is_downgrade,
+            "downgrade_current_plan": dg_current_plan,
+            "downgrade_end_date": dg_end_date,
+            "downgrade_days_left": dg_days_left,
+        })
+    return result
+
+
+def _get_tariff_plan_by_name(name: str) -> dict | None:
+    """Валидация: активный платный тариф с таким именем (для заявки из веба)."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        row = conn.execute(
+            """SELECT name, price FROM subscription_plans
+               WHERE name=? AND is_active=1 AND price > 0""",
+            (name,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return {"name": row[0], "price": int(row[1] or 0)}
+        return None
+    except Exception:
+        return None
+
+
 def _get_payment_requisites() -> str:
     """Возвращает реквизиты оплаты из payment_settings."""
     try:
@@ -312,11 +489,15 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
                 "has_pending": False,
                 "history": [],
                 "requisites": requisites,
+                "tariff": None,
+                "tariff_plans": [],
             },
         )
 
     user_id = _get_user_id_in_shop_bot(telegram_id)
     trial = _get_active_trial(user_id)
+    tariff = _get_tariff_overview(telegram_id)
+    tariff_plans = _get_tariff_plans(tariff.get("plan_name") if tariff else None, user_id)
     history = _get_payment_history(user_id) if user_id else []
     has_pending = _has_pending_request(user_id) if user_id else False
     user_mod_subs = _get_user_active_module_subs(telegram_id)
@@ -344,6 +525,8 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
             "has_pending": has_pending,
             "history": history,
             "requisites": requisites,
+            "tariff": tariff,
+            "tariff_plans": tariff_plans,
         },
     )
 
@@ -449,4 +632,56 @@ def subscription_module_request(
         return RedirectResponse(url="/subscription?msg=module_request_sent", status_code=303)
     except Exception as exc:
         logging.error("subscription_module_request error: %s", exc)
+        return RedirectResponse(url="/subscription?msg=error", status_code=303)
+
+
+@router.post("/subscription/tariff-request")
+def subscription_tariff_request(
+    request: Request,
+    plan_name: str = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    """Клиентская заявка на смену тарифа (ось «объём»).
+    Использует тот же механизм, что и модули: создаёт payment_requests с
+    plan_type = имя тарифа. Подтверждение супер-админом (бот/веб) идёт через
+    штатный confirm_payment_request → create_subscription, без дублирования логики."""
+    from web.auth import get_session_user, verify_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/subscription?msg=csrf_error", status_code=303)
+
+    plan = _get_tariff_plan_by_name(plan_name)
+    if not plan:
+        return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
+
+    telegram_id = int(user["sub"])
+    user_id = _get_user_id_in_shop_bot(telegram_id)
+    if not user_id:
+        return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
+
+    if _has_pending_request(user_id):
+        return RedirectResponse(url="/subscription?msg=already_pending", status_code=303)
+
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        conn.execute(
+            """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
+               VALUES (?, ?, ?, 'web_tariff_request')""",
+            (user_id, plan["name"], plan["price"]),
+        )
+        conn.commit()
+        conn.close()
+        _notify_admin_new_request(
+            plan["name"], plan["price"],
+            user.get("first_name", user.get("email", "—")),
+            telegram_id,
+        )
+        return RedirectResponse(url="/subscription?msg=tariff_request_sent", status_code=303)
+    except Exception as exc:
+        logging.error("subscription_tariff_request error: %s", exc)
         return RedirectResponse(url="/subscription?msg=error", status_code=303)

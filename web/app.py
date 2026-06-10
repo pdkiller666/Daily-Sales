@@ -606,6 +606,7 @@ def create_web_app() -> FastAPI:
         return templates.TemplateResponse(request, "landing.html", {
             "bot_username": templates.env.globals.get("bot_username", ""),
             "billing_modules": _landing_billing_modules(),
+            "landing_plans": _get_landing_plans(),
         })
 
     @app.exception_handler(404)

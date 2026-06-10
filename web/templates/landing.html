@@ -1425,49 +1425,59 @@
     <div class="max-w-6xl mx-auto">
 
         <div class="text-center mb-16 reveal">
-            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Модульные цены</div>
+            <div class="inline-block text-blue-600 text-xs font-bold uppercase tracking-[0.2em] mb-4 px-3 py-1 bg-blue-50 rounded-full border border-blue-100">Объём + возможности</div>
             <h2 class="text-4xl sm:text-5xl font-extrabold text-slate-900 mb-5 tracking-tight">Платите только за то, что используете</h2>
-            <p class="text-xl text-slate-500 max-w-2xl mx-auto">Базовый функционал — бесплатно навсегда. Подключайте нужные модули по отдельности.</p>
+            <p class="text-xl text-slate-500 max-w-2xl mx-auto">Тариф задаёт <strong class="text-slate-700">объём</strong> — товары, магазины и продажи. Модули добавляют <strong class="text-slate-700">возможности</strong> и подключаются по отдельности в любом тарифе.</p>
         </div>
 
-        <!-- Free base -->
-        <div class="bg-gradient-to-r from-slate-50 to-blue-50/40 border border-slate-200 rounded-2xl p-8 mb-10 reveal">
-            <div class="flex flex-col md:flex-row md:items-center gap-6">
-                <div class="flex-1">
-                    <div class="flex items-center gap-3 mb-3">
-                        <span class="text-2xl">🎁</span>
-                        <span class="text-xl font-extrabold text-slate-900">Базовый план — бесплатно навсегда</span>
-                        <span class="hidden sm:inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full">0 ₽</span>
-                    </div>
-                    <p class="text-slate-500 text-sm mb-4">Начните прямо сейчас без оплаты. Базовые инструменты для учёта продаж включены в каждый аккаунт.</p>
-                    <div class="flex flex-wrap gap-x-6 gap-y-2">
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>До 50 товаров</span>
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>1 магазин</span>
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>100 продаж/мес</span>
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Касса POS</span>
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Дашборд</span>
-                        <span class="flex items-center gap-2 text-sm text-slate-700"><span class="text-emerald-500 font-bold">✓</span>Остатки</span>
-                    </div>
+        <!-- Tariff lineup (axis 1: capacity) -->
+        <div class="text-center mb-8 reveal">
+            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">📦 Объём — выбирайте тариф</p>
+            <p class="text-xs text-slate-400 mt-2 max-w-xl mx-auto">Тариф задаёт лимиты: товары, магазины и продажи в месяц. Возможности добавляются модулями (ниже) в любом тарифе.</p>
+        </div>
+
+        {% if landing_plans %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+            {% for pname, p in landing_plans.items() %}
+            {% set _free = p.price == 0 %}
+            <div class="border rounded-2xl p-6 bg-white flex flex-col transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg reveal {{ 'border-blue-300 ring-1 ring-blue-200 hover:shadow-blue-50' if _free else 'border-slate-200 hover:shadow-slate-100' }}">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-base font-bold text-slate-900">{{ pname }}</span>
+                    {% if _free %}<span class="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">старт</span>{% endif %}
                 </div>
-                <div class="shrink-0">
-                    {% if bot_username %}
-                    <a href="https://t.me/{{ bot_username }}" target="_blank"
-                       class="inline-flex items-center gap-2 border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-7 py-3 rounded-xl transition-all text-sm">
-                        Начать бесплатно
-                    </a>
+                <div class="text-3xl font-extrabold text-slate-900">{{ p.price_fmt }}</div>
+                <div class="text-xs text-slate-400 mb-5">{{ p.duration_label }}</div>
+                <ul class="space-y-2.5 text-sm text-slate-600 flex-1">
+                    <li class="flex items-center gap-2"><span class="text-base">🛍</span>{{ p.max_products }} товаров</li>
+                    <li class="flex items-center gap-2"><span class="text-base">🏪</span>{{ p.max_shops }} магазин(ов)</li>
+                    <li class="flex items-center gap-2"><span class="text-base">🧾</span>{{ p.max_sales }} продаж / мес</li>
+                </ul>
+                <div class="mt-5">
+                    {% if _free %}
+                        {% if bot_username %}
+                        <a href="https://t.me/{{ bot_username }}" target="_blank"
+                           class="block text-center border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-5 py-2.5 rounded-xl transition-all text-sm">
+                            Начать бесплатно
+                        </a>
+                        {% else %}
+                        <a href="/dashboard"
+                           class="block text-center border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-5 py-2.5 rounded-xl transition-all text-sm">
+                            Начать бесплатно
+                        </a>
+                        {% endif %}
                     {% else %}
-                    <a href="/dashboard"
-                       class="inline-flex items-center gap-2 border border-slate-300 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 text-slate-700 font-semibold px-7 py-3 rounded-xl transition-all text-sm">
-                        Начать бесплатно
-                    </a>
+                        <span class="block text-center text-xs text-slate-400 py-2.5">Повышение тарифа — в боте</span>
                     {% endif %}
                 </div>
             </div>
+            {% endfor %}
         </div>
+        {% endif %}
 
         <!-- Module label -->
         <div class="text-center mb-8 reveal">
-            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">Модули — подключайте по необходимости</p>
+            <p class="text-sm font-semibold text-slate-500 uppercase tracking-widest">🧩 Возможности — подключайте модулями по необходимости</p>
+            <p class="text-xs text-slate-400 mt-2 max-w-xl mx-auto">Работают в любом тарифе. Нужен больший объём (товары / магазины / продажи) — повысьте тариф в боте.</p>
         </div>
 
         <!-- Module cards — dynamic from DB -->
