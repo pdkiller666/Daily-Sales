@@ -12,273 +12,329 @@
 {% from "admin/_macros.html" import page_header %}
 {{ page_header('🎟️', 'Выдача доступов', 'Выдать/отозвать модуль, расширение или пакет', '/admin/billing', 'Биллинг') }}
 
-{% if msg == 'granted' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300">✅ Доступ выдан.</div>
-{% elif msg == 'revoked' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🔒 Доступ отозван. Расширений этого модуля не было.</div>
-{% elif msg and msg.startswith('revoked_cascade_') %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300">🔒 Доступ отозван. Также каскадно отозваны расширения: <strong>{{ msg.split('_')[-1] }} шт.</strong></div>
-{% elif msg == 'error' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">❌ Ошибка при выдаче.</div>
-{% elif msg == 'bad_input' %}<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300">⚠️ Заполните все поля.</div>{% endif %}
+{% if msg == 'granted' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">✅ Доступ выдан.</div>
+{% elif msg == 'revoked' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">🔒 Доступ отозван.</div>
+{% elif msg and msg.startswith('revoked_cascade_') %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">🔒 Доступ отозван. Каскадно отозваны расширения: <strong>{{ msg.split('_')[-1] }} шт.</strong></div>
+{% elif msg == 'error' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">❌ Ошибка при выдаче.</div>
+{% elif msg == 'bad_input' %}
+<div class="mb-4 px-4 py-3 rounded-xl text-sm bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">⚠️ Заполните все обязательные поля.</div>
+{% endif %}
 
-<!-- Grant form -->
+<!-- ═══ Grant form ═══ -->
 <div class="card p-5 mb-6" x-data="{ itemType: 'module' }">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4">➕ Выдать доступ</h2>
-    <form method="post" action="/admin/billing/grant" class="space-y-4">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+    <span class="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center text-base shrink-0">➕</span>
+    Выдать доступ
+  </h2>
+  <form method="post" action="/admin/billing/grant" class="space-y-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <!-- User selection -->
-            <div>
-                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Пользователь (Telegram ID)*</label>
-                <div class="flex gap-2">
-                    <input name="user_telegram_id" type="number" placeholder="123456789" required
-                           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                    <select onchange="this.previousElementSibling.value=this.value"
-                            class="border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 max-w-[200px]">
-                        <option value="">— или выбрать —</option>
-                        {% for u in users %}<option value="{{ u.telegram_id }}">{{ u.name }} ({{ u.telegram_id }})</option>{% endfor %}
-                    </select>
-                </div>
-                <p class="text-xs text-slate-400 mt-1">Введите Telegram ID вручную или выберите из списка</p>
-            </div>
+    <!-- User selection — stacked on mobile -->
+    <div>
+      <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+        Пользователь (Telegram ID) <span class="text-red-500">*</span>
+      </label>
+      <input name="user_telegram_id" type="number" placeholder="123456789" required
+             class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 mb-2">
+      {% if users %}
+      <select onchange="if(this.value) document.querySelector('[name=user_telegram_id]').value=this.value; this.value=''"
+              class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+        <option value="">— или выбрать из списка ({{ users|length }}) —</option>
+        {% for u in users %}<option value="{{ u.telegram_id }}">{{ u.name }} · {{ u.telegram_id }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      <p class="text-xs text-slate-400 mt-1">Введите ID вручную или выберите из списка</p>
+    </div>
 
-            <!-- Item type -->
-            <div>
-                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Тип доступа*</label>
-                <select name="item_type" x-model="itemType"
-                        class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                    <option value="module">🧩 Модуль</option>
-                    <option value="extension">⚡ Расширение</option>
-                    <option value="bundle">🎁 Пакет</option>
-                </select>
-            </div>
+    <!-- Type + Key row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+          Тип доступа <span class="text-red-500">*</span>
+        </label>
+        <select name="item_type" x-model="itemType"
+                class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+          <option value="module">🧩 Модуль</option>
+          <option value="extension">⚡ Расширение</option>
+          <option value="bundle">🎁 Пакет</option>
+        </select>
+      </div>
 
-            <!-- Item key -->
-            <div>
-                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Ключ (что выдаём)*</label>
-                <div x-show="itemType==='module'">
-                    <select name="item_key_mod" onchange="document.getElementById('item_key_val').value=this.value"
-                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                        <option value="">— выберите модуль —</option>
-                        {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
-                    </select>
-                </div>
-                <div x-show="itemType==='extension'">
-                    <select name="item_key_ext" onchange="document.getElementById('item_key_val').value=this.value"
-                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                        <option value="">— выберите расширение —</option>
-                        {% for e in extensions %}<option value="{{ e.key }}">{{ e.icon }} {{ e.name }} ({{ e.module_key }}) — {{ e.price_monthly|int }}₽/мес</option>{% endfor %}
-                    </select>
-                </div>
-                <div x-show="itemType==='bundle'">
-                    <select name="item_key_bnd" onchange="document.getElementById('item_key_val').value=this.value"
-                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                        <option value="">— выберите пакет —</option>
-                        {% for b in bundles %}<option value="{{ b.key }}">{{ b.icon }} {{ b.name }} — {{ b.price_monthly|int }}₽/мес</option>{% endfor %}
-                    </select>
-                </div>
-                <input type="hidden" name="item_key" id="item_key_val">
-            </div>
-
-            <!-- Duration + price -->
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Срок (дней, 0 = бессрочно)</label>
-                    <input name="duration_days" type="number" value="30" min="0"
-                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Оплачено ₽ (0 = бесплатно)</label>
-                    <input name="price_paid" type="number" step="0.01" value="0"
-                           class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                </div>
-            </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+          Ключ (что выдаём) <span class="text-red-500">*</span>
+        </label>
+        <div x-show="itemType==='module'" style="display:none">
+          <select name="item_key_mod" onchange="document.getElementById('item_key_val').value=this.value"
+                  class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+            <option value="">— выберите модуль —</option>
+            {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
+          </select>
         </div>
-
-        <div>
-            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Заметка (необязательно)</label>
-            <input name="note" placeholder="Тест, акция, подарок..." maxlength="200"
-                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+        <div x-show="itemType==='extension'">
+          <select name="item_key_ext" onchange="document.getElementById('item_key_val').value=this.value"
+                  class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+            <option value="">— выберите расширение —</option>
+            {% for e in extensions %}<option value="{{ e.key }}">{{ e.icon }} {{ e.name }} ({{ e.module_key }}) — {{ e.price_monthly|int }}₽/мес</option>{% endfor %}
+          </select>
         </div>
-
-        <div>
-            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors">🎟️ Выдать доступ</button>
+        <div x-show="itemType==='bundle'">
+          <select name="item_key_bnd" onchange="document.getElementById('item_key_val').value=this.value"
+                  class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+            <option value="">— выберите пакет —</option>
+            {% for b in bundles %}<option value="{{ b.key }}">{{ b.icon }} {{ b.name }} — {{ b.price_monthly|int }}₽/мес</option>{% endfor %}
+          </select>
         </div>
-    </form>
+        <input type="hidden" name="item_key" id="item_key_val">
+      </div>
+    </div>
+
+    <!-- Duration + price + note -->
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Срок, дней <span class="text-slate-400 font-normal">(0 = ∞)</span></label>
+        <input name="duration_days" type="number" value="30" min="0"
+               class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Оплачено ₽ <span class="text-slate-400 font-normal">(0 = бесплатно)</span></label>
+        <input name="price_paid" type="number" step="0.01" value="0"
+               class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Заметка <span class="text-slate-400 font-normal">(необязательно)</span></label>
+      <input name="note" placeholder="Тест, акция, подарок..." maxlength="200"
+             class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+    </div>
+
+    <button type="submit"
+            class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
+      🎟️ Выдать доступ
+    </button>
+  </form>
 </div>
 
-<!-- Search -->
+<!-- ═══ Search ═══ -->
 <form method="get" action="/admin/billing/grants" class="flex gap-2 mb-4">
-    <input name="q" value="{{ q }}" placeholder="Поиск по Telegram ID, ключу, источнику..."
-           class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-    <button type="submit" class="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors">🔍 Найти</button>
-    {% if q %}<a href="/admin/billing/grants" class="bg-slate-100 dark:bg-slate-700 text-slate-500 text-sm px-4 py-2 rounded-lg hover:bg-slate-200 transition-colors flex items-center">✕</a>{% endif %}
+  <input name="q" value="{{ q }}" placeholder="Поиск по Telegram ID, ключу, источнику…"
+         class="flex-1 min-w-0 border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+  <button type="submit"
+          class="shrink-0 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-1.5">
+    🔍 <span class="hidden sm:inline">Найти</span>
+  </button>
+  {% if q %}
+  <a href="/admin/billing/grants"
+     class="shrink-0 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-sm px-3 py-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center">✕</a>
+  {% endif %}
 </form>
 
-<!-- Revoke confirmation modal (Alpine) -->
+<!-- ═══ Summary line ═══ -->
+{% if total is defined %}
+<div class="flex items-center justify-between mb-3">
+  <p class="text-xs text-slate-400">
+    {% if q %}Найдено: <strong class="text-slate-600 dark:text-slate-300">{{ total }}</strong>{% else %}Всего выдано: <strong class="text-slate-600 dark:text-slate-300">{{ total }}</strong>{% endif %}
+  </p>
+  {% if total_pages > 1 %}
+  <p class="text-xs text-slate-400">Стр. {{ page }} / {{ total_pages }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ═══ Revoke confirmation modal ═══ -->
 <div x-data="revokeModal()" @keydown.escape.window="close()">
-    <div x-show="open" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+  <div x-show="open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+
+    <div class="absolute inset-0 bg-black/40" @click="close()"></div>
+
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 z-10"
          x-transition:enter="transition ease-out duration-150"
-         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+         x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
 
-        <div class="absolute inset-0 bg-black/40" @click="close()"></div>
-
-        <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6 z-10"
-             x-transition:enter="transition ease-out duration-150"
-             x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
-
-            <div class="flex items-center gap-3 mb-4">
-                <div class="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center text-xl shrink-0">🔒</div>
-                <div>
-                    <p class="font-bold text-slate-800 dark:text-slate-100 text-sm">Отозвать доступ</p>
-                    <p class="text-xs text-slate-400 mt-0.5">Действие вступает в силу немедленно</p>
-                </div>
-            </div>
-
-            <!-- Key info -->
-            <div class="bg-slate-50 dark:bg-slate-700/50 rounded-xl px-4 py-3 mb-4 space-y-1.5">
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">Ключ</span>
-                    <code class="font-bold text-slate-800 dark:text-slate-100" x-text="data.key"></code>
-                </div>
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">Telegram ID</span>
-                    <code class="text-slate-700 dark:text-slate-300" x-text="data.tg_id"></code>
-                </div>
-                <div class="flex justify-between text-xs" x-show="data.price_paid > 0">
-                    <span class="text-slate-500">Оплачено</span>
-                    <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="data.price_paid + ' ₽'"></span>
-                </div>
-                <div class="flex justify-between text-xs">
-                    <span class="text-slate-500">Активно до</span>
-                    <span class="font-semibold" :class="data.end_date ? 'text-slate-700 dark:text-slate-200' : 'text-emerald-600'"
-                          x-text="data.end_date || '∞ (бессрочно)'"></span>
-                </div>
-            </div>
-
-            <!-- Warnings -->
-            <div class="space-y-2 mb-5">
-                <!-- Paid period warning -->
-                <div x-show="data.end_date" class="flex gap-2.5 px-3 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl text-xs text-amber-800 dark:text-amber-300">
-                    <span class="shrink-0 text-base">⚠️</span>
-                    <span>Подписка оплачена до <strong x-text="data.end_date"></strong>. Доступ закроется немедленно, оставшийся оплаченный период <strong>сгорает безвозвратно</strong>.</span>
-                </div>
-                <!-- Cascade warning -->
-                <div x-show="data.is_module" class="flex gap-2.5 px-3 py-2.5 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700 rounded-xl text-xs text-violet-800 dark:text-violet-300">
-                    <span class="shrink-0 text-base">🔗</span>
-                    <span>Это <strong>модуль</strong>. Все расширения, подключённые к этому модулю у данного пользователя, также будут отозваны автоматически.</span>
-                </div>
-                <!-- Extension parent warning -->
-                <div x-show="data.is_extension" class="flex gap-2.5 px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl text-xs text-blue-800 dark:text-blue-300">
-                    <span class="shrink-0 text-base">ℹ️</span>
-                    <span>Это <strong>расширение</strong>. Родительский модуль останется активным — только это конкретное расширение будет отозвано.</span>
-                </div>
-            </div>
-
-            <!-- Buttons -->
-            <div class="flex gap-2.5">
-                <button @click="close()" type="button"
-                        class="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                    Отмена
-                </button>
-                <form :action="'/admin/billing/revoke/' + data.id" method="post" class="flex-1">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit"
-                            class="w-full px-4 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm">
-                        🔒 Да, отозвать
-                    </button>
-                </form>
-            </div>
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center text-xl shrink-0">🔒</div>
+        <div>
+          <p class="font-bold text-slate-800 dark:text-slate-100 text-sm">Отозвать доступ</p>
+          <p class="text-xs text-slate-400 mt-0.5">Действие вступает в силу немедленно</p>
         </div>
+      </div>
+
+      <div class="bg-slate-50 dark:bg-slate-700/50 rounded-xl px-4 py-3 mb-4 space-y-1.5">
+        <div class="flex justify-between text-xs">
+          <span class="text-slate-500">Ключ</span>
+          <code class="font-bold text-slate-800 dark:text-slate-100" x-text="data.key"></code>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-slate-500">Telegram ID</span>
+          <code class="text-slate-700 dark:text-slate-300" x-text="data.tg_id"></code>
+        </div>
+        <div class="flex justify-between text-xs" x-show="data.price_paid > 0">
+          <span class="text-slate-500">Оплачено</span>
+          <span class="font-semibold text-slate-700 dark:text-slate-200" x-text="data.price_paid + ' ₽'"></span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-slate-500">Активно до</span>
+          <span class="font-semibold" :class="data.end_date ? 'text-slate-700 dark:text-slate-200' : 'text-emerald-600'"
+                x-text="data.end_date || '∞ (бессрочно)'"></span>
+        </div>
+      </div>
+
+      <div class="space-y-2 mb-5">
+        <div x-show="data.end_date" class="flex gap-2.5 px-3 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl text-xs text-amber-800 dark:text-amber-300">
+          <span class="shrink-0 text-base">⚠️</span>
+          <span>Подписка оплачена до <strong x-text="data.end_date"></strong>. Оставшийся период <strong>сгорает безвозвратно</strong>.</span>
+        </div>
+        <div x-show="data.is_module" class="flex gap-2.5 px-3 py-2.5 bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700 rounded-xl text-xs text-violet-800 dark:text-violet-300">
+          <span class="shrink-0 text-base">🔗</span>
+          <span>Это <strong>модуль</strong>. Все расширения у данного пользователя будут отозваны автоматически.</span>
+        </div>
+        <div x-show="data.is_extension" class="flex gap-2.5 px-3 py-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl text-xs text-blue-800 dark:text-blue-300">
+          <span class="shrink-0 text-base">ℹ️</span>
+          <span>Это <strong>расширение</strong>. Родительский модуль останется активным.</span>
+        </div>
+      </div>
+
+      <div class="flex gap-2.5">
+        <button @click="close()" type="button"
+                class="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+          Отмена
+        </button>
+        <form :action="'/admin/billing/revoke/' + data.id" method="post" class="flex-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"
+                  class="w-full px-4 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm">
+            🔒 Да, отозвать
+          </button>
+        </form>
+      </div>
     </div>
+  </div>
 </div>
 
-<!-- Grants table -->
+<!-- ═══ Grants list ═══ -->
 {% if subs %}
-<div class="card overflow-hidden">
-    <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="border-b border-slate-100 dark:border-slate-700">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">ID / Тип</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Telegram ID</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Ключ</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Оплачено</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Активно до</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Источник</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Статус</th>
-                    <th class="px-4 py-3"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
-                {% for s in subs %}
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 {% if not s.is_active %}opacity-50{% endif %}">
-                    <td class="px-4 py-3">
-                        <span class="text-xs text-slate-400">#{{ s.id }}</span><br>
-                        <span class="text-xs font-semibold {% if s.item_type == 'module' %}text-indigo-600{% elif s.item_type == 'extension' %}text-violet-600{% else %}text-blue-600{% endif %}">
-                            {% if s.item_type == 'module' %}🧩{% elif s.item_type == 'extension' %}⚡{% else %}🎁{% endif %} {{ item_type_labels.get(s.item_type, s.item_type) }}
-                        </span>
-                    </td>
-                    <td class="px-4 py-3">
-                        <code class="text-xs text-slate-700 dark:text-slate-300">{{ s.user_telegram_id }}</code>
-                    </td>
-                    <td class="px-4 py-3">
-                        <code class="text-xs font-semibold text-slate-800 dark:text-slate-100">{{ s.item_key }}</code>
-                        {% if s.note %}<p class="text-[10px] text-slate-400 mt-0.5">{{ s.note }}</p>{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
-                        {% if s.price_paid %}<span class="font-semibold">{{ "{:,.0f}".format(s.price_paid) }} ₽</span>
-                        {% else %}<span class="text-slate-400">бесплатно</span>{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-xs text-slate-500">
-                        {% if s.end_date %}{{ s.end_date[:10] }}{% else %}<span class="text-emerald-600 font-semibold">∞</span>{% endif %}
-                    </td>
-                    <td class="px-4 py-3 text-xs text-slate-400">{{ s.granted_by or '—' }}</td>
-                    <td class="px-4 py-3">
-                        {% if s.is_active %}<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">Активно</span>
-                        {% else %}<span class="text-xs px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full font-semibold">Отозвано</span>{% endif %}
-                    </td>
-                    <td class="px-4 py-3">
-                        {% if s.is_active %}
-                        <button type="button"
-                                @click="$dispatch('open-revoke', { id: {{ s.id }}, key: '{{ s.item_key|e }}', tg_id: {{ s.user_telegram_id }}, price_paid: {{ s.price_paid|int }}, end_date: '{{ s.end_date[:10] if s.end_date else '' }}', is_module: {{ 'true' if s.item_type == 'module' else 'false' }}, is_extension: {{ 'true' if s.item_type == 'extension' else 'false' }} })"
-                                class="text-xs px-2.5 py-1 bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg font-semibold transition-colors">🔒 Отозвать</button>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<div class="space-y-2">
+  {% for s in subs %}
+  <div class="card p-4 {% if not s.is_active %}opacity-60{% endif %} hover:shadow-md transition-shadow">
+    <div class="flex items-start gap-3">
+      <!-- Type icon -->
+      <div class="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center text-lg
+                  {% if s.item_type == 'module' %}bg-indigo-100 dark:bg-indigo-900/40
+                  {% elif s.item_type == 'extension' %}bg-violet-100 dark:bg-violet-900/40
+                  {% else %}bg-blue-100 dark:bg-blue-900/40{% endif %}">
+        {% if s.item_type == 'module' %}🧩{% elif s.item_type == 'extension' %}⚡{% else %}🎁{% endif %}
+      </div>
+
+      <!-- Main info -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-bold text-slate-400">#{{ s.id }}</span>
+          <code class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{{ s.item_key }}</code>
+          {% if s.is_active %}
+          <span class="text-[10px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">Активно</span>
+          {% else %}
+          <span class="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-400 rounded-full font-semibold">Отозвано</span>
+          {% endif %}
+        </div>
+
+        <!-- Details row -->
+        <div class="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+          <span class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+            <span class="text-slate-300">TG</span>
+            <code class="text-slate-600 dark:text-slate-300">{{ s.user_telegram_id }}</code>
+          </span>
+          <span class="text-xs text-slate-500 dark:text-slate-400">
+            {% if s.end_date %}до {{ s.end_date[:10] }}{% else %}<span class="text-emerald-600 font-semibold">∞ бессрочно</span>{% endif %}
+          </span>
+          {% if s.price_paid %}
+          <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">{{ "{:,.0f}".format(s.price_paid) }} ₽</span>
+          {% else %}
+          <span class="text-xs text-slate-400">бесплатно</span>
+          {% endif %}
+          {% if s.granted_by %}
+          <span class="text-xs text-slate-400">{{ s.granted_by }}</span>
+          {% endif %}
+        </div>
+
+        {% if s.note %}
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 italic">{{ s.note }}</p>
+        {% endif %}
+      </div>
+
+      <!-- Revoke button -->
+      {% if s.is_active %}
+      <button type="button"
+              @click="$dispatch('open-revoke', { id: {{ s.id }}, key: '{{ s.item_key|e }}', tg_id: {{ s.user_telegram_id }}, price_paid: {{ s.price_paid|int }}, end_date: '{{ s.end_date[:10] if s.end_date else '' }}', is_module: {{ 'true' if s.item_type == 'module' else 'false' }}, is_extension: {{ 'true' if s.item_type == 'extension' else 'false' }} })"
+              class="shrink-0 text-xs px-2.5 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-lg font-semibold transition-colors">
+        🔒
+      </button>
+      {% endif %}
     </div>
+  </div>
+  {% endfor %}
 </div>
+
+<!-- ═══ Pagination ═══ -->
+{% if total_pages > 1 %}
+<div class="flex items-center justify-center gap-1 mt-6 flex-wrap">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}{% if q %}&q={{ q }}{% endif %}"
+     class="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-colors">‹ Назад</a>
+  {% endif %}
+
+  {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <span class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white font-semibold">{{ p }}</span>
+    {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+    <a href="?page={{ p }}{% if q %}&q={{ q }}{% endif %}"
+       class="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-colors">{{ p }}</a>
+    {% elif p == page - 3 or p == page + 3 %}
+    <span class="px-1 text-slate-400">…</span>
+    {% endif %}
+  {% endfor %}
+
+  {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}{% if q %}&q={{ q }}{% endif %}"
+     class="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400 transition-colors">Вперёд ›</a>
+  {% endif %}
+</div>
+{% endif %}
+
 {% else %}
 <div class="card p-10 text-center text-slate-400">
-    <p class="text-4xl mb-3">🎟️</p>
-    <p>{% if q %}Ничего не найдено.{% else %}Доступы ещё не выдавались.{% endif %}</p>
+  <p class="text-4xl mb-3">🎟️</p>
+  <p>{% if q %}Ничего не найдено по запросу «{{ q }}».{% else %}Доступы ещё не выдавались.{% endif %}</p>
 </div>
 {% endif %}
 
 <script>
 function revokeModal() {
-    return {
-        open: false,
-        data: {},
-        init() {
-            window.addEventListener('open-revoke', e => {
-                this.data = e.detail;
-                this.open = true;
-            });
-        },
-        close() { this.open = false; }
-    };
+  return {
+    open: false,
+    data: {},
+    init() {
+      window.addEventListener('open-revoke', e => {
+        this.data = e.detail;
+        this.open = true;
+      });
+    },
+    close() { this.open = false; }
+  };
 }
-
-// Sync selects → hidden item_key on type change
 document.addEventListener('alpine:initialized', () => {
-    document.querySelectorAll('[x-model="itemType"]').forEach(el => {
-        el.addEventListener('change', () => {
-            document.getElementById('item_key_val').value = '';
-        });
+  document.querySelectorAll('[x-model="itemType"]').forEach(el => {
+    el.addEventListener('change', () => {
+      document.getElementById('item_key_val').value = '';
     });
+  });
 });
 </script>
 {% endblock %}

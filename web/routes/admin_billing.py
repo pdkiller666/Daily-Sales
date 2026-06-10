@@ -399,12 +399,12 @@ async def billing_bundle_delete(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/grants")
-async def billing_grants_page(request: Request, q: str = ""):
+async def billing_grants_page(request: Request, q: str = "", page: int = 1):
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
     db = _db()
-    subs = db.get_billing_module_subs(active_only=False, limit=300)
+    subs = db.get_billing_module_subs(active_only=False, limit=1000)
 
     # Filter by tg_id or item_key
     if q.strip():
@@ -416,6 +416,14 @@ async def billing_grants_page(request: Request, q: str = ""):
             or q_low in (s["granted_by"] or "").lower()
         ]
 
+    # Pagination
+    per_page = 20
+    total = len(subs)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * per_page
+    subs_page = subs[offset: offset + per_page]
+
     # Build item options for the grant form
     modules = db.get_all_billing_modules()
     extensions = db.get_all_billing_extensions()
@@ -426,7 +434,10 @@ async def billing_grants_page(request: Request, q: str = ""):
         request,
         "admin/billing/grants.html",
         _ctx(request, user, {
-            "subs": subs,
+            "subs": subs_page,
+            "total": total,
+            "page": page,
+            "total_pages": total_pages,
             "modules": modules,
             "extensions": extensions,
             "bundles": bundles,
