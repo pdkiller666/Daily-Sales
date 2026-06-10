@@ -430,6 +430,17 @@ async def billing_grants_page(request: Request, q: str = "", page: int = 1):
     bundles = db.get_all_billing_bundles()
     users = _all_users_with_ids()
 
+    # Build key → human name lookup for the list display
+    key_name_map = {}
+    for m in modules:
+        key_name_map[m['key']] = m['name']
+    for e in extensions:
+        icon = e.get('icon', '')
+        key_name_map[e['key']] = f"{icon} {e['name']}".strip() if icon else e['name']
+    for b in bundles:
+        icon = b.get('icon', '')
+        key_name_map[b['key']] = f"{icon} {b['name']}".strip() if icon else b['name']
+
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/billing/grants.html",
@@ -442,6 +453,7 @@ async def billing_grants_page(request: Request, q: str = "", page: int = 1):
             "extensions": extensions,
             "bundles": bundles,
             "users": users,
+            "key_name_map": key_name_map,
             "q": q,
             "msg": _flash(request),
             "csrf_token": get_csrf_token(request),

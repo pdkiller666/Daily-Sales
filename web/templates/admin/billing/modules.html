@@ -123,7 +123,7 @@
                 <label class="block text-xs font-semibold text-slate-500 mb-1">Модуль*</label>
                 <select name="module_key" required class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
                     <option value="">— выберите —</option>
-                    {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }}</option>{% endfor %}
+                    {% for m in modules %}<option value="{{ m.key }}">{{ m.name }}</option>{% endfor %}
                 </select>
             </div>
             <div>
@@ -160,7 +160,7 @@
             {% set ns.prev_module = ext.module_key %}
             {% set parent = modules | selectattr('key', 'equalto', ext.module_key) | first %}
             <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mt-4 mb-2">
-                {% if parent %}{{ parent.icon }} {{ parent.name }}{% else %}{{ ext.module_key }}{% endif %}
+                {% if parent %}{{ parent.name }}{% else %}{{ ext.module_key }}{% endif %}
             </h3>
             <div class="space-y-2">
         {% endif %}
@@ -255,7 +255,7 @@
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 mb-1">Модуль</label>
                     <select name="module_key" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
-                        {% for m in modules %}<option :selected="editExt.module_key==='{{ m.key }}'" value="{{ m.key }}">{{ m.icon }} {{ m.name }}</option>{% endfor %}
+                        {% for m in modules %}<option :selected="editExt.module_key==='{{ m.key }}'" value="{{ m.key }}">{{ m.name }}</option>{% endfor %}
                     </select>
                 </div>
                 <div class="grid grid-cols-2 gap-3">

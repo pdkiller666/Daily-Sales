@@ -72,7 +72,7 @@
           <select name="item_key_mod" onchange="document.getElementById('item_key_val').value=this.value"
                   class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
             <option value="">— выберите модуль —</option>
-            {% for m in modules %}<option value="{{ m.key }}">{{ m.icon }} {{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
+            {% for m in modules %}<option value="{{ m.key }}">{{ m.name }} — {{ m.price_monthly|int }}₽/мес</option>{% endfor %}
           </select>
         </div>
         <div x-show="itemType==='extension'">
@@ -237,12 +237,17 @@
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-xs font-bold text-slate-400">#{{ s.id }}</span>
-          <code class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{{ s.item_key }}</code>
+          <span class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+            {{ key_name_map.get(s.item_key, s.item_key) }}
+          </span>
           {% if s.is_active %}
           <span class="text-[10px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">Активно</span>
           {% else %}
           <span class="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-400 rounded-full font-semibold">Отозвано</span>
           {% endif %}
+        </div>
+        <div>
+          <code class="text-[10px] text-slate-400 dark:text-slate-500">{{ s.item_key }}</code>
         </div>
 
         <!-- Details row -->
