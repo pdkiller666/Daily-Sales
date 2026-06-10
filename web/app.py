@@ -105,7 +105,7 @@ _CSP = (
     "font-src 'self' https://fonts.gstatic.com data:; "
     "img-src 'self' data: blob: https:; "
     "connect-src 'self'; "
-    "frame-src https://telegram.org; "
+    "frame-src https://telegram.org https://oauth.telegram.org; "
     "frame-ancestors 'self'; "
     "base-uri 'self'; "
     "form-action 'self'; "
