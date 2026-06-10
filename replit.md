@@ -1,6 +1,8 @@
 ## Overview
 
-This project is a professional, multi-tenant Telegram bot designed for comprehensive shop management. It allows users to manage products, track sales, and handle subscriptions with isolated databases for each organization.
+This project is a professional, multi-tenant Telegram bot designed for comprehensive shop management. It allows users to manage products, track sales, and handle subscriptions with isolated databases for each organization. It ships with a full FastAPI web cabinet (PWA).
+
+> **Это краткий README.** Подробный справочник веб-слоя, полный каталог архитектурных решений и список фич — в `PROJECT_MAP.md` (раздел 10). Схемы callback-ов хендлеров и API модулей — там же.
 
 ## Run & Operate
 
@@ -10,6 +12,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Env vars required**: `BOT_TOKEN`, `ADMIN_CHAT_ID`, `GITHUB_TOKEN` (all in Replit Secrets)
 - **Google Sheets OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (in Replit Secrets)
 - **Web Push VAPID**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_MAILTO` (in Replit Secrets)
+- **Email/SMTP (optional)**: `YANDEX_EMAIL`, `YANDEX_SMTP_PASSWORD` (пароль приложения, не аккаунта)
 
 ## Stack
 
@@ -18,122 +21,53 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 **Landing Page:** standalone `/` route — public promo page for unauthenticated visitors; redirects to `/dashboard` when logged in
 **Infra:** Amvera (production hosting) · GitHub (version control)
 
-## Where things live
+## Where things live (high-level)
 
-### Bot
-- `main.py` — bot entry, router registration, 10 APScheduler jobs
-- `web_auth_handlers.py` — `/setweblogin` команда: привязка email к Telegram-аккаунту прямо из бота
-- `database.py` — Database class, 181+ methods, all migrations in `create_tables()`
-- `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()` — **main entry points**
-- `timezone_utils.py` — `get_user_time()`, `get_current_user_time()`, `format_user_datetime()`, `get_utc_time()`
-- `dashboard_handlers.py` — `build_admin_dashboard(..., period)`, `build_user_dashboard(...)`, `_plan_summary_line()`
-- `salary_handlers.py` — smeny calendar, shift templates (`slr_tmpl_`, `tmpl_*`), hour pickers (`slr_te/tw`, `tmpl_te/tw`); `salary_summary` — ФОТ-сводка (Оклад + Мотивация + Корр. на сотрудника, `asyncio.gather` для параллельного fetch мотивации)
-- `pagination_utils.py` — `paginate()`, `page_nav_row()`, `PAGE_SIZE_*`
-- `reports_handlers.py` — reports + rankings; `_ranking_period()`, `_period_kb()`
-- `sales_plans_handlers.py` — plan wizard + edit; `_plan_summary_line()`
-- `filter_utils.py` — `empty_filter()`, `get_available_filter_values()`, `merge_scope_with_filter()`, `build_filter_keyboard()`
-- `filter_handlers.py` — `filter_router`: `flt_open_{back_cb}`, `ftog_s/c/n_*`, `flt_reset`
-- `hints.py` — `hint_suffix()`, `maybe_send_welcome()`, `HINT_TEXTS`
-- `notif_utils.py` — `add_read_btn()` adds «✅ Прочитано» to all push notifications
-- `integration/` — Google Sheets integration; `integration/auth/google_oauth.py` (Device Flow); `integration/manager.py` (trigger_export)
-- `data/main.db` — organizations, user_org_mapping
-- `data/shop_bot.db` — personal mode + payments/subscriptions (centralized)
-- `data/tenants/org_*.db` — isolated per-org DBs (Amvera: only `org_huawei.db`)
+### Bot core
+- `main.py` — bot entry, router registration, APScheduler jobs
+- `database.py` — `Database` class, all methods + all migrations in `create_tables()`
+- `db_utils.py` — `get_db()`, `is_any_admin()`, `clear_state_keep_org()`, `org_structure_level()` — **main entry points**
+- `tenant_manager.py` — multi-tenancy routing, org/role/department assignment
+- `timezone_utils.py` — `get_user_time()`, `format_user_datetime()`, `get_utc_time()` (Amvera = UTC!)
+- `*_handlers.py` — per-feature routers (sales, salary, reports, dashboard, plans, contests, absences, tasks…)
+- `filter_utils.py` / `filter_handlers.py`, `pagination_utils.py`, `hints.py`, `notif_utils.py` — shared helpers
+- `integration/` — Google Sheets (Device Flow OAuth, `trigger_export`)
+- `billing_utils.py` — `has_module()`, `has_extension()` feature-gate API
 
-### Web Interface (`web/`)
-- `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals; `SecurityHeadersMiddleware` (5 security headers on every response); `/robots.txt` and `/sitemap.xml` routes; `_api_rate_ok()` rate limiter (60 req/min/IP)
-- `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`, `generate_login_nonce()`, `verify_login_nonce()` (5-min HMAC stateless nonce for `/auth/code`); `hash_password()` / `verify_password()` (PBKDF2-SHA256, 390k iterations, stdlib only)
-- `web/email_utils.py` — `send_verification_email()`, `send_reset_email()`, `send_link_notification()`; SMTP via `smtp.yandex.ru:465` SSL; secrets `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; `is_configured()` guard — all routes degrade gracefully if SMTP not configured
-- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `bool`; survives restarts; used by `auth_routes.py` and `email_auth.py`
-- `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
-- `billing_utils.py` — `has_module(tg_id, key)`, `has_extension(tg_id, key)`, `get_active_billing_items(tg_id)` — feature-gate API; priority: super_admin → trial → direct grant → bundle → legacy plan
-- `web/routes/` — route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`, `admin_billing`, `org_structure`
-- `web/routes/org_structure.py` — owner-only `/org-structure` (3 вкладки: подразделения/роли/инфо); CRUD departments + org_roles; gate via `org_structure_level()`; scope vocab — `network` (НЕ `trade_network`)
-- `web/routes/admin.py` — супер-кабинет `/admin/*` (орги, подписки, тарифы, статистика, реквизиты, бэкапы, глоб.поиск); `POST /admin/subs/{user_id}/cancel` — реальный сброс legacy-подписки до «Бесплатный» (`DELETE FROM subscriptions WHERE user_id=? AND end_date>now` в shop_bot.db, CSRF + `_guard`); все admin-роуты используют `request.app.state.templates`
-- `web/routes/admin_billing.py` — 19 маршрутов `/admin/billing/*`: хаб, CRUD модулей/расширений/пакетов, выдача/отзыв доступов; все POST с CSRF + `_guard(role=super_admin)`
-- `web/templates/admin/_macros.html` — `page_header(icon, title, subtitle='', back_url='/admin', back_label='Супер-Кабинет')` — единый тёмный hero-баннер для всех подстраниц супер-кабинета; поддерживает `{% call %}` для кнопки-действия справа (через `{% if caller %}`); импортировать ВНУТРИ `{% block content %}`, не на верхнем уровне
-- `web/routes/email_auth.py` — 9 маршрутов: `GET/POST /register`, `GET/POST /auth/email`, `GET /auth/verify`, `POST /auth/resend-verify`, `GET/POST /auth/reset`, `GET/POST /auth/reset/confirm`, `POST /settings/email-change`, `POST /settings/password-change`, `POST /settings/email-unlink`; rate limit 5 req/10min/IP на login/register/reset
-- `web/routes/support.py` — `GET /support` (форма обратной связи), `POST /support/send` (отправка через Telegram Bot API с rate limit 3 req/hour/user; `urllib.request` stdlib)
-- `web/routes/pos.py` — GET `/pos`: передаёт `sales_limit_reached` + `sales_limit_msg` в шаблон; красный 🚫 баннер при достижении лимита продаж
-- `web/routes/api.py` — `GET /api/sales-feed?since=ISO` (browser notification polling; rate-limited 60 req/min/IP; returns sales by other users; каждый item содержит поле `url` через `_notif_url()` для навигации по клику)
-- `web/routes/notifications.py` — история уведомлений содержит поле `url` через `_notif_url(type)`; items с url — кликабельные ссылки (`<a>` в templates)
-- `web/templates/base.html` — sidebar nav, PWA meta tags + manifest, swipe gestures JS, SW registration, browser notifications prompt+polling; уведомления кликабельны (mobile sheet + desktop dropdown): `@click` → navigate по `url`; иконки по типу (📦 low_stock, 📊 daily_report, 💳 payment и др.)
-- `web/templates/auth/` — `login.html` (Telegram + email tabs), `register.html`, `reset_request.html`, `reset_confirm.html`, `verify_sent.html`
-- `web/templates/landing.html` — public promo landing page (served at `/` for unauthenticated visitors); full SEO head: canonical, OG tags, Twitter card, JSON-LD SoftwareApplication schema, robots meta, keywords, favicon
-- `web/templates/products/form.html` — product add/edit form (admin only)
-- `web/templates/*/` — per-module Jinja2 templates
-- `web/static/og-image.jpg` — OG social preview image 1200×630px (referenced in og:image + twitter:image meta tags)
-- `web/static/og-image.png` — original PNG source of OG image
+### Web cabinet (`web/`)
+- `web/app.py` — `create_web_app()`: FastAPI, Jinja2 globals, security headers, robots/sitemap, nav/module gating
+- `web/auth.py` — sessions, CSRF, login nonce, password hashing
+- `web/deps.py` — `get_web_db()` (sync `Database` + WAL); `web/rate_store.py` — persistent rate limiter
+- `web/email_utils.py`, `web/push_utils.py` — email (SMTP) + Web Push VAPID
+- `web/routes/` — one file per feature module (sales, products, staff, salary, admin, admin_billing, org_structure, email_auth, support…)
+- `web/templates/` — per-module Jinja2; `base.html` (nav/PWA/dark-mode), `landing.html` (SEO)
 
-## Architecture decisions
+### Data (SQLite, isolated per org)
+- `data/main.db` — organizations, `user_org_mapping`
+- `data/shop_bot.db` — personal mode + payments/subscriptions/billing (centralized)
+- `data/tenants/org_*.db` — isolated per-org DBs (departments, org_roles, chat, etc.)
 
-- **Multi-tenancy**: each org gets its own SQLite DB; `get_db()` routes automatically
-- **Anchor message pattern**: all FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` MUST be called AFTER `fsm_edit()`, never before
-- **Migrations run on access**: `create_tables()` is called inside `get_db()` for every DB path — auto-creates missing tables including `shift_templates`, `start_time`/`end_time` in `work_schedule`
-- **Subscription tiers**: Бесплатный (0₽, 50 products/1 shop/100 sales, no features) → Базовый (500₽/30d, 200/3/500, export+analytics+notifications, NO integrations) → Стандарт (1200₽/90d, 500/10/1500, + Google Sheets) → Премиум (4000₽/365d, unlimited all). Migration always enforces `can_use_integrations=0` for Базовый. Default `trial_plan='Премиум'`.
-- **Modular billing system**: `billing_modules`, `billing_extensions`, `billing_bundles`, `billing_module_subs` в `shop_bot.db` (guard: `if 'shop_bot' in self.db_file`); `_init_billing_defaults()` заполняет 7 модулей + 17 расширений + 3 пакета при первом старте (идемпотентно); `billing_utils.py` — feature-gate API; super admin UI на `/admin/billing`; `tab` query-param в `/admin/billing/modules` whitelist-защищён от XSS; `get_all_billing_bundles()` возвращает предпарсенный `includes` dict — в шаблонах `b.includes.get('modules', [])`, НЕ `fromjson` фильтр
-- **Flexible org structure (модуль `org_structure`, 349₽)**: кастомная роль раскладывается в существующие поля `user_org_mapping` (`role`=base_role, `scope_type/value`, `custom_title`, `org_role_id` back-ref) — весь старый authz (`is_any_admin`/`get_user_org_scope`) работает БЕЗ изменений; `org_roles.can_*` — метаданные, не enforce'ятся отдельно. Гейт `org_structure_level(tg)` смотрит биллинг ВЛАДЕЛЬЦА (`get_org_owner_tg`). `_nav_modules` override: `deny`→скрыть, `allow`→`has_module(owner_tg)` (НЕ безусловный True — биллинг не обходится), None→`has_module(tg)`. Scope сети = `network` (НЕ `trade_network`). Миграция main.db (`user_org_mapping` +4 NULL-колонки) обратносовместима.
-- **deploy.sh always pushes to both GitHub + Amvera** (default); `--no-amvera` to skip; hash verification runs after every Amvera push; `AMVERA_ONLY_EXCLUDE_FILES` excludes AGENT_HANDOFF.md, replit.md, PROJECT_MAP.md, README.md from Amvera
-- **Login nonce (stateless CSRF for `/auth/code`)**: `generate_login_nonce()` создаёт HMAC-SHA256(secret, timestamp//300); `verify_login_nonce()` принимает nonce ±1 окно (10 мин tolerance); не хранится в БД — чистый stateless
-- **Persistent rate limiting**: `web/rate_store.py` — SQLite `data/rate_limits.db`; `check_rate_limit(key, limit, window_sec)` — выдерживает рестарты; используется в `auth_routes.py`; `_api_rate_ok()` (in-memory) остаётся для `/api/*`
-- **FSM cleanup job**: `sqlite_storage.py` таблица `fsm_data` имеет колонку `updated_at TEXT`; еженедельный job `cleanup_fsm_storage` (воскресенье 04:30) удаляет записи старше 30 дней → 10-й APScheduler job
-- **Timezone-aware**: `datetime.now()` on Amvera = UTC; all display uses `timezone_utils`; scheduled_notifications stored as UTC (`get_utc_time()` on write, `format_user_datetime()` on display)
-- **Filter system**: `ADMIN_FILTER_KEY="admin_filter"` in FSM data; `flt_open_{back_cb}` opens panel; scope = ceiling, filter = floor (`merge_scope_with_filter`); `admin_filter` preserved by `clear_state_keep_org()`
-- **plan_milestone_alerts**: UNIQUE(user_id, plan_id, milestone, period_start) — fires once per period
-- **is_any_admin() priority**: org role in `user_org_mapping` takes precedence over `env_manager`
-- **Role hierarchy**: `owner` → `admin`+scope → `user`; global super_admin (env_manager) is separate
-- **Multi-scope**: `scope_value` stores JSON array; `get_user_org_scope()` → `(scope_type, list[str])`
-- **Custom role titles**: `custom_title` in `user_org_mapping`; `get_role_display_label(..., custom_title)` uses it over computed label
-- **Shift templates**: `shift_templates` table UNIQUE(user_id, weekday 0=Пн..6=Вс); `work_schedule` has `start_time`/`end_time`; slr_tog auto-applies template
-- **Salary unified formula**: `Итого = Оклад (смены+оплач.отсутствия × ставка) + Мотивация (get_seller_total_earnings) + Корректировки (get_salary_adjustments_sum)`; применяется одинаково в боте `salary_summary`, веб admin `GET /salary`, Excel-экспорте; super_admin всегда исключается из всех зарплатных списков; detail-панель admin показывает построчные комиссии (`get_seller_earnings`); страница сотрудника `/salary/earnings` показывает построчные корректировки (`get_salary_adjustments`)
-- **PWA**: `web/static/manifest.json` + SW v4 at `/sw.js`; SW caches `/static/` assets cache-first, authenticated routes network-only; handles `push` events → `showNotification()` + `setAppBadge()`; `notificationclick` → `clients.openWindow(data.url)`
-- **Web Push VAPID**: `web/push_utils.py` — `send_web_push(subscription, payload)` via pywebpush 2.3.0; `push_subscriptions` table in `shop_bot.db` UNIQUE(telegram_id, endpoint); env vars `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_MAILTO`; triggered from pos.py/tasks.py/chat.py; subscribe validation: endpoint must start `https://`, ≤2048; p256dh ≤256; auth ≤128
-- **App Badge API**: `/api/unread-count` → `{ok, notifications, dms, total}`; `_setAppBadge(n)` + `window.dsRefreshBadge()` in base.html; SW sets badge on push; `visibilitychange` clears badge on tab focus
-- **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
-- **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
-- **Internal org chat (DM)**: `direct_messages` table in org_*.db; 9 DB-methods (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 file methods; WS /ws/chat/dm for real-time delivery; `chat_search?topic_id=0` merges topic+DM results; FAB badge = topicNew + dmUnread (`/api/unread-count .dms`)
-- **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
-- **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
-- **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod
-- **Session cookie security**: `httponly=True`, `secure=True`, `samesite='lax'`, `max_age=7d`; secret derived from `SHA256(BOT_TOKEN)` — rotates automatically if BOT_TOKEN changes
-- **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`; GET `/auth/code` serves `login_nonce`; POST verifies via `verify_login_nonce()`
-- **Telegram auth**: `verify_telegram_auth()` checks HMAC against BOT_TOKEN + rejects `auth_date` older than 24h
-- **Rate limiting**: auth routes — 5 req/60s/IP (`check_rate_limit` из `web/rate_store.py`, **persistent** SQLite); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`, in-memory); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`, in-memory)
-- **Clickable notifications**: `_notif_url(notification_type)` в `api.py` и `notifications.py` роутит тип → URL (`/sales`, `/products`, `/dashboard` и др.); `base.html` mobile sheet и desktop dropdown рендерят `<div @click>` с навигацией; `notifications/index.html` history items с url — `<a>` теги
-- **robots.txt**: `/robots.txt` route in `web/app.py` — allows only `/$` and `/static/`; disallows all 25 app routes (`/dashboard`, `/sales`, `/api/`, `/support`, `/absences`, etc.) to prevent crawl budget waste and structure leakage; `Sitemap:` pointer included; **when adding a new route — always add `Disallow:` to `_ROBOTS_TXT` in `web/app.py`**
-- **sitemap.xml**: `/sitemap.xml` route — single entry `https://dailysales.app/` with `priority=1.0`, `changefreq=weekly`; submit to Google Search Console + Яндекс.Вебмастер for fast indexing
-- **SEO meta (landing.html)**: canonical `https://dailysales.app/`; `og:image/url/locale(ru_RU)/site_name`; `twitter:card=summary_large_image`; JSON-LD `SoftwareApplication` with offers (0–4000₽), aggregateRating, featureList; `<link rel="icon">` for favicon in browser tab; `keywords` meta; `robots: index, follow`
-- **OG image**: `web/static/og-image.jpg` (118KB, 1408×768 → served as 1200×630 crop by social platforms); source PNG at `web/static/og-image.png` (824KB); both in git repo (not excluded)
-- **Email auth (web_credentials)**: таблица в `shop_bot.db`; поля: `id, email, password_hash, telegram_id (nullable), synthetic_tg_id, org_db, first_name, email_verified, verify_token, verify_expires, reset_token, reset_expires, last_login, created_at`; synthetic_tg_id = `-(10_000_000 + cred_id)` для пользователей без Telegram; сессия создаётся так же как при Telegram-входе — одинаковый JWT с `tg_id`; для email-only юзеров `org_db` хранится прямо в `web_credentials`
-- **Email rate limiting**: `/auth/email` (login) + `/register` + `/auth/reset` — `check_rate_limit(f"email_auth:{ip}", 5, 600)` → 5 попыток / 10 мин / IP; persistent SQLite (выдерживает рестарты); отдельно от Telegram-auth rate limit
-- **SMTP graceful degradation**: `web/email_utils.is_configured()` проверяет `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; при отсутствии — `/register` и `/auth/reset` отдают HTTP 503; `/auth/verify` и `/auth/resend-verify` тоже disabled; login по паролю работает без SMTP
+## Key architecture principles
 
-## Product
+Полный каталог — `PROJECT_MAP.md` §10.2. Самое нагруженное:
 
-- Sales management: products, inventory, sales recording, daily reports
-- Quick search: «🔍 Найти товар» — case-insensitive search among in-stock products; qty buttons [1,2,3,5,10,20,50]
-- Cross-shop sale: сотрудник торговой сети может продавать/списывать с другого магазина
-- Multi-org: invite codes, role system (super-admin / owner / admin / user), isolated data
-- Sales plans: per-seller or per-shop, weekly/monthly, turnover/quantity, category/product filter, milestone alerts
-- Dashboard: period toggle (Сегодня/Неделя/Месяц); admin sees staff + earnings + plans; user sees salary + period sales + plans
-- Contests: create, auto-finish, winner calculation via APScheduler; archive clear with confirmation
-- Work schedule: admin marks days, hour-level time pickers, shift templates (⏰ Расписание смен) per weekday
-- Salary transparency: все три вида — бот ФОТ-сводка, веб admin `/salary`, веб user `/salary/earnings` — показывают Оклад + Мотивация + Корр. = Итого; admin detail-панель раскрывает комиссии по каждой продаже; пользователь видит каждую корректировку с комментарием; Excel-экспорт содержит колонку Мотивация (7 колонок итого)
-- Subscriptions/payments: tariff plans (Бесплатный/Базовый/Стандарт/Премиум), promocodes, Excel export; SBP (manual screenshot) + YooKassa (auto); trial 14d = Премиум-level access via `_has_active_trial()` → `_UNLIMITED`
-- Rankings: sellers / shops / cities; period toggle (7д / месяц / прошлый); user's own position if outside top-10
-- Favorites & Recent: ⭐ Избранное + 🔄 Недавние in product selection
-- Excel import: 📊 Импорт из Excel; openpyxl parse + preview + confirm
-- Pagination: продукты, продажи, пользователи, орги, конкурсы
-- Manual filters: 🔍 Фильтр in Reports, Rankings, Users, Plans progress; scope=ceiling, filter=floor
-- Push notifications: «✅ Прочитано» on all notifications; scheduled notifications with UTC-correct timing
-- Onboarding & hints: welcome popup (once, role-aware); section hints (once per section); «✅ Понятно!»
-- Google Sheets integration: экспорт продаж в таблицу; авторизация через Device Flow (OAuth 2.0); триггер `trigger_export(db, 'sales', event)` в `complete_sale`; таблицы `integration_connections`, `integration_exports`, `integration_log`, `gs_bonus_cache` в org_*.db; **только тариф Стандарт+** (can_use_integrations=0 для Базового)
-- Shift sale alerts: push-уведомление коллегам в магазине при каждой продаже (если стоит смена + включена настройка `shift_sale_alerts`)
-- Trial upsell: `send_trial_expired_upsell` (ежечасно :05) + reminders at 14/7/3/1d (`send_payment_alerts`); dedup via `subscription_reminder_log` (threshold -1 = expired)
-- Auto-reject stale payments: `auto_reject_stale_payments` (ежедневно 10:15) отклоняет pending СБП-заявки >72ч и уведомляет пользователя
-- Web feedback form: `/support` — форма обратной связи в веб-кабинете; категория + тема + сообщение; отправляет супер-админу в Telegram через Bot API; rate limit 3/час/user; доступна всем авторизованным пользователям через шторку «Ещё»
-- Email + пароль вход: `/register` (по инвайт-коду + email + пароль) + `/auth/email` (login); подтверждение email через письмо (`/auth/verify?token=…`); сброс пароля через письмо (`/auth/reset` → `/auth/reset/confirm`); привязка/отвязка email в `/settings`; смена пароля в `/settings`; привязка к Telegram через `/setweblogin` в боте; email-only пользователи получают synthetic_tg_id для совместимости с существующей сессионной системой
-- Modular billing configurator: `/admin/billing` — super admin панель управления модулями, расширениями, пакетами; выдача/отзыв доступов любому пользователю; статистика выручки; дефолтные модули: analytics(299₽), team(399₽), notifications(199₽), plans_motivation(249₽), ai_assistant(299₽), integrations(399₽), chat(149₽)
+- **Multi-tenancy**: each org gets its own SQLite DB; `get_db()` routes automatically; migrations run on access (`create_tables()` inside `get_db()`)
+- **Anchor message pattern**: FSM flows edit one message via `fsm_edit()`; `clear_state_keep_org()` AFTER `fsm_edit()`, never before
+- **Role hierarchy**: `owner` → `admin`+scope → `user`; global super_admin (env_manager) separate; `is_any_admin()` — org role beats env_manager
+- **Multi-scope**: `scope_value` = JSON array; `get_user_org_scope()` → `(scope_type, list[str])`; scope сети = `network`
+- **Modular billing**: `billing_modules/extensions/bundles/module_subs` в `shop_bot.db`; `billing_utils.has_module()` — feature gate; priority super_admin → trial → direct → bundle; super-admin UI `/admin/billing`
+- **Flexible org structure (`org_structure`, 349₽)**: кастомная роль раскладывается в существующие поля `user_org_mapping` → старый authz работает БЕЗ изменений; гейт смотрит биллинг ВЛАДЕЛЬЦА; `_nav_modules` override `deny`/`allow`(в пределах оплаты)/None
+- **Salary unified formula**: `Итого = Оклад + Мотивация + Корректировки` — одинаково в боте, веб-admin, Excel; super_admin исключён везде
+- **Timezone-aware**: `datetime.now()` on Amvera = UTC; all display via `timezone_utils`; stored scheduled times = UTC
+- **Security**: CSRF on all POST (`verify_csrf_token`), security headers middleware, session cookies `httponly+secure+samesite`, persistent rate limiting; Telegram + email/password auth
+- **PWA + Web Push**: SW v4, App Badge API, browser notifications polling, dark mode, keyboard shortcuts
+- **deploy.sh** pushes GitHub + Amvera with hash verification; `--no-amvera` to skip
+
+## Product (summary)
+
+Sales/inventory/daily reports · multi-org with invite codes & roles · sales plans + milestone alerts · dashboards · contests · work schedules + shift templates · salary transparency · subscriptions/payments (SBP + YooKassa) + modular billing · rankings · Excel import/export · Google Sheets integration · internal org chat (topics + DM) · push & browser notifications · email/password login · flexible org structure.
+
+Полный список фич с деталями — `PROJECT_MAP.md` §10.3.
 
 ## User Preferences
 
@@ -151,7 +85,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 5. `callback_data` limit 64 bytes — use `safe_cb()` / `resolve_cb_name()` for any user strings
 6. `get_users_for_notifications()` → `[0]` = internal users.id, `[1]` = telegram_id — don't mix up
 7. `Database.db_file` (not `.db_path`) — attribute name for DB file path
-8. New router → register in `main.py`; new module → add to `test_imports.py`
+8. New router → register in `main.py`; new module → add to `test_imports.py`; new web route → add `Disallow:` to `_ROBOTS_TXT`
 9. `get_sales_ranking()` returns 9 columns — 7th is `u.id` (user_db_id), 8th is `u.username`; use `row[:7]` for old 7-col unpacking
 10. `get_user_org_scope()` returns `(scope_type, list[str])` NOT `(str, str)`
 11. `datetime.now()` on Amvera = UTC — use `timezone_utils` for all display; `get_utc_time()` when storing user input
@@ -159,13 +93,14 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 13. `scheduled_notifications.scheduled_datetime` stored as UTC string
 14. `sales_handlers.py` **не имеет глобального `logger`** — использует `import logging` + `logging.error()`; любой `logger.xxx()` вызовет `NameError` → outer except → удаление продаж!
 15. В `complete_sale` outer `except Exception` удаляет все `processed_sales` через `delete_sale` — любой необработанный exception ПОСЛЕ `add_sale` → потеря продажи. Все вызовы внутри outer try должны быть в `try/except`.
-16. **Invite back-button** — в `admin_handlers.py` кнопка «Назад» из формы редактирования инвайта ведёт на `personnel_hub` (НЕ `admin_management`); при изменениях в этом блоке проверять `back_button("personnel_hub")`
-17. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID в Google Cloud Console выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow (`https://oauth2.googleapis.com/device/code`). Скачанный JSON содержит ключ `"installed"` — это нормально. `client_id` и `client_secret` → в Replit Secrets как `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
-18. **Email-only user identity**: `synthetic_tg_id = -(10_000_000 + cred_id)` хранится в `web_credentials.synthetic_tg_id`; используется как `tg_id` в JWT-сессии; `org_db` для email-only юзеров берётся из `web_credentials.org_db`, а не из `user_org_mapping` — не перепутывать. При привязке к Telegram (`/setweblogin`) `telegram_id` в `web_credentials` обновляется, synthetic_tg_id больше не используется для входа.
-19. **YANDEX_SMTP_PASSWORD** — это **пароль приложения** (16 символов без пробелов), а НЕ пароль от аккаунта Яндекс. Генерируется в → Яндекс ID → Безопасность → Пароли приложений. Обычный пароль Яндекс не работает через SMTP.
+16. **Invite back-button** — в `admin_handlers.py` кнопка «Назад» из формы редактирования инвайта ведёт на `personnel_hub` (НЕ `admin_management`)
+17. **Google Sheets OAuth тип клиента**: при создании OAuth Client ID выбирать **«TVs and Limited Input devices»** — только этот тип поддерживает Device Flow. Скачанный JSON содержит ключ `"installed"` — это нормально.
+18. **Email-only user identity**: `synthetic_tg_id = -(10_000_000 + cred_id)` в `web_credentials`; используется как `tg_id` в JWT; `org_db` берётся из `web_credentials.org_db`, не из `user_org_mapping`
+19. **YANDEX_SMTP_PASSWORD** — это **пароль приложения** (16 символов без пробелов), НЕ пароль от аккаунта Яндекс (Яндекс ID → Безопасность → Пароли приложений)
+20. **org_structure scope** — использовать `network`, НЕ `trade_network`; per-user `allow` гейтит на биллинг владельца, не безусловно
 
 ## Pointers
 
-- See `AGENT_HANDOFF.md` for full session history, critical rules, and DB schema
-- See `PROJECT_MAP.md` for handler callback schemes and module API reference
+- `PROJECT_MAP.md` — **главный справочник**: архитектура, схема БД, callback-схемы хендлеров, API модулей, §10 = полный веб-слой/решения/фичи
+- `AGENT_HANDOFF.md` — полная история сессий, критические правила, схема БД
 - Amvera config: `amvera.yml` — `persistenceMount: /app/data`, `command: python main.py`
