@@ -175,6 +175,7 @@ Disallow: /reports/heatmap
 Disallow: /reports/abc
 Disallow: /rankings
 Disallow: /staff
+Disallow: /org-structure
 Disallow: /plans
 Disallow: /salary
 Disallow: /schedule
@@ -433,15 +434,36 @@ def create_web_app() -> FastAPI:
                         'integrations', 'notifications', 'ai_assistant')
 
     def _nav_modules(request):
-        """Returns dict {module_key: bool} for nav visibility gating. Fails open."""
+        """Returns dict {module_key: bool} for nav visibility gating. Fails open.
+
+        Per-user override (user_module_access): 'deny' прячет модуль у сотрудника,
+        'allow' принудительно показывает; None — наследует биллинг (has_module).
+        """
         try:
             from web.auth import get_session_user
             from billing_utils import has_module
+            from db_utils import get_user_module_access
+            from tenant_manager import tenant_manager
             user = get_session_user(request)
             if not user:
                 return {k: False for k in _NAV_MODULE_KEYS}
             tg_id = int(user["sub"])
-            return {k: has_module(tg_id, k) for k in _NAV_MODULE_KEYS}
+            owner_tg = None
+            result = {}
+            for k in _NAV_MODULE_KEYS:
+                override = get_user_module_access(tg_id, k)
+                if override == 'deny':
+                    # Явный запрет — модуль скрыт даже если оплачен
+                    result[k] = False
+                elif override == 'allow':
+                    # Явная выдача сотруднику — но только в пределах оплаченного
+                    # организацией (биллинг привязан к владельцу). НЕ обход оплаты.
+                    if owner_tg is None:
+                        owner_tg = tenant_manager.get_org_owner_tg(tg_id) or tg_id
+                    result[k] = has_module(owner_tg, k)
+                else:
+                    result[k] = has_module(tg_id, k)
+            return result
         except Exception:
             return {k: True for k in _NAV_MODULE_KEYS}
 
@@ -497,6 +519,7 @@ def create_web_app() -> FastAPI:
     from web.routes.reports import router as reports_router
     from web.routes.rankings import router as rankings_router
     from web.routes.staff import router as staff_router
+    from web.routes.org_structure import router as org_structure_router
     from web.routes.plans import router as plans_router
     from web.routes.salary import router as salary_router
     from web.routes.contests import router as contests_router
@@ -529,6 +552,7 @@ def create_web_app() -> FastAPI:
     app.include_router(reports_router)
     app.include_router(rankings_router)
     app.include_router(staff_router)
+    app.include_router(org_structure_router)
     app.include_router(plans_router)
     app.include_router(salary_router)
     app.include_router(contests_router)

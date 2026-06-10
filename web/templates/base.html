@@ -343,6 +343,12 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/staff') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">👥</span>Сотрудники
         </a>
+        {% if user and user.role in ('owner', 'super_admin') %}
+        <a href="/org-structure"
+           class="nav-link {% if request.url.path.startswith('/org-structure') %}nav-active{% endif %}">
+            <span class="nav-icon mr-3 text-base">🏢</span>Оргструктура
+        </a>
+        {% endif %}
         <a href="/salary"
            class="nav-link {% if request.url.path.startswith('/salary') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💸</span>Зарплата
@@ -1833,6 +1839,13 @@ function mainApp() {
                     <span class="sht-icon">👥</span>
                     <span class="sht-label">Сотрудники</span>
                 </a>
+                {% if user and user.role in ('owner', 'super_admin') %}
+                <a href="/org-structure" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/org-structure') %}sht-active{% endif %}">
+                    <span class="sht-icon">🏢</span>
+                    <span class="sht-label">Оргструктура</span>
+                </a>
+                {% endif %}
                 <a href="/salary" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/salary') %}sht-active{% endif %}">
                     <span class="sht-icon">💸</span>

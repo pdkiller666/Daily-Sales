@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}Оргструктура{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/staff" class="text-slate-400 text-xs hover:text-slate-600">Команда</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm">Оргструктура</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="{ tab: '{{ tab }}' }">
+
+    <div class="flex items-start justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-800">🏢 Оргструктура</h1>
+            <p class="text-sm text-slate-500 mt-0.5">
+                {% if level == 'full' %}
+                    Полный доступ: подразделения, регионы, кастомные роли
+                {% else %}
+                    Базовый режим: до {{ minimal_limit }} подразделений
+                {% endif %}
+            </p>
+        </div>
+        {% if level != 'full' %}
+        <a href="/admin/billing" class="hidden sm:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-600 hover:to-orange-600 transition-colors shadow">
+            ⭐ Подключить полный доступ
+        </a>
+        {% endif %}
+    </div>
+
+    {% if msg %}
+    <div class="mb-4 flex items-start gap-2 p-4 rounded-xl text-sm border
+        {% if msg in ('dept_created','dept_deleted','role_created','role_deleted') %}bg-emerald-50 border-emerald-200 text-emerald-700
+        {% elif msg in ('limit','paid_only') %}bg-amber-50 border-amber-200 text-amber-700
+        {% else %}bg-red-50 border-red-200 text-red-700{% endif %}">
+        <span>
+        {% if msg == 'dept_created' %}✅ Подразделение создано.
+        {% elif msg == 'dept_deleted' %}✅ Подразделение удалено.
+        {% elif msg == 'role_created' %}✅ Роль создана.
+        {% elif msg == 'role_deleted' %}✅ Роль удалена.
+        {% elif msg == 'limit' %}⚠️ Достигнут лимит {{ minimal_limit }} подразделений. Подключите полный доступ для иерархии и регионов.
+        {% elif msg == 'paid_only' %}⚠️ Кастомные роли доступны в полном режиме (модуль «Оргструктура»).
+        {% elif msg == 'invalid_name' %}⚠️ Недопустимое название.
+        {% elif msg == 'csrf_error' %}⚠️ Ошибка безопасности. Повторите.
+        {% else %}⚠️ Произошла ошибка. Попробуйте позже.
+        {% endif %}
+        </span>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="mb-4 p-4 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700">{{ error }}</div>
+    {% endif %}
+
+    {# Tabs #}
+    <div class="flex gap-1 border-b border-slate-200 mb-6">
+        <button @click="tab='depts'"
+            :class="tab==='depts' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            class="px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px">
+            🏢 Подразделения
+        </button>
+        <button @click="tab='roles'"
+            :class="tab==='roles' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            class="px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px">
+            👔 Роли
+        </button>
+        <button @click="tab='info'"
+            :class="tab==='info' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'"
+            class="px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px">
+            ℹ️ О режиме
+        </button>
+    </div>
+
+    {# ── Tab: Departments ─────────────────────────────────────────────── #}
+    <div x-show="tab==='depts'" x-cloak>
+        <div x-data="{ open: false }" class="mb-5">
+            {% if can_add_dept %}
+            <button @click="open = !open"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                <span class="text-lg leading-none">＋</span> Добавить подразделение
+            </button>
+            {% else %}
+            <p class="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                Достигнут лимит {{ minimal_limit }} подразделений.
+                <a href="/admin/billing" class="underline font-semibold">Подключите полный доступ</a> для иерархии и регионов.
+            </p>
+            {% endif %}
+
+            <form method="post" action="/org-structure/dept/add" x-show="open" x-cloak
+                  class="mt-4 p-4 bg-white border border-slate-200 rounded-xl space-y-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Название</label>
+                    <input type="text" name="name" required maxlength="80"
+                        class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Напр. ТЦ «Мега» или Северный регион">
+                </div>
+                {% if level == 'full' %}
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Тип</label>
+                        <select name="type" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            {% for val, lbl in dept_types %}
+                            <option value="{{ val }}">{{ lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Входит в (необязательно)</label>
+                        <select name="parent_id" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="">— верхний уровень —</option>
+                            {% for d in departments %}
+                            <option value="{{ d.id }}">{{ dept_type_labels.get(d.type, '') }} {{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="flex gap-2">
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Создать</button>
+                    <button type="button" @click="open=false" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">Отмена</button>
+                </div>
+            </form>
+        </div>
+
+        {% if dept_tree %}
+        <div class="space-y-2">
+            {% for node in dept_tree %}
+            <div class="flex items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-xl"
+                 style="margin-left: {{ node.depth * 20 }}px">
+                <div class="flex items-center gap-2 min-w-0">
+                    {% if node.depth > 0 %}<span class="text-slate-300">↳</span>{% endif %}
+                    <span>{{ dept_type_labels.get(node.type, '🏢') }}</span>
+                    <span class="font-medium text-slate-800 truncate">{{ node.name }}</span>
+                </div>
+                <form method="post" action="/org-structure/dept/{{ node.id }}/delete"
+                      onsubmit="return confirm('Удалить «{{ node.name }}»?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="text-slate-400 hover:text-red-500 transition-colors" title="Удалить">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12 text-slate-400">
+            <div class="text-4xl mb-2">🏢</div>
+            <p class="text-sm">Подразделений пока нет.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ── Tab: Roles ───────────────────────────────────────────────────── #}
+    <div x-show="tab==='roles'" x-cloak>
+        {% if level != 'full' %}
+        <div class="text-center py-12 px-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl">
+            <div class="text-4xl mb-3">🔒</div>
+            <h3 class="text-lg font-bold text-slate-800 mb-1">Кастомные роли — в полном режиме</h3>
+            <p class="text-sm text-slate-600 max-w-md mx-auto mb-4">
+                Создавайте собственные роли (региональный директор, старший продавец и др.)
+                с гибкими правами и доступом к модулям.
+            </p>
+            <a href="/admin/billing" class="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl text-sm font-semibold hover:from-amber-600 hover:to-orange-600 shadow">
+                ⭐ Подключить модуль «Оргструктура»
+            </a>
+        </div>
+        {% else %}
+        <div x-data="{ open: false }" class="mb-5">
+            <button @click="open = !open"
+                class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                <span class="text-lg leading-none">＋</span> Создать роль
+            </button>
+
+            <form method="post" action="/org-structure/role/add" x-show="open" x-cloak
+                  class="mt-4 p-4 bg-white border border-slate-200 rounded-xl space-y-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Название роли</label>
+                        <input type="text" name="name" required maxlength="60"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Напр. Региональный директор">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Иконка</label>
+                        <select name="icon" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            {% for ic in role_icons %}
+                            <option value="{{ ic }}">{{ ic }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Базовый уровень</label>
+                        <select name="base_role" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            {% for val, lbl in base_role_options %}
+                            <option value="{{ val }}">{{ lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 mb-1">Зона ответственности</label>
+                        <select name="scope_type" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            <option value="">Вся организация</option>
+                            <option value="city">По городу</option>
+                            <option value="shop">По магазину</option>
+                            <option value="network">По торговой сети</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-2">Права</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="can_manage_users" class="rounded border-slate-300"> Управление сотрудниками</label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="can_view_reports" class="rounded border-slate-300"> Просмотр отчётов</label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="can_manage_products" class="rounded border-slate-300"> Управление товарами</label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="can_view_salary" class="rounded border-slate-300"> Просмотр зарплат</label>
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="can_manage_plans" class="rounded border-slate-300"> Управление планами</label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-2">Доступ к модулям</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {% for key, lbl in module_options %}
+                        <label class="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" name="modules" value="{{ key }}" class="rounded border-slate-300"> {{ lbl }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Создать роль</button>
+                    <button type="button" @click="open=false" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">Отмена</button>
+                </div>
+            </form>
+        </div>
+
+        {% if roles %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {% for r in roles %}
+            <div class="p-4 bg-white border border-slate-200 rounded-xl">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="font-semibold text-slate-800 truncate">{{ r.icon }} {{ r.name }}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">
+                            {% if r.base_role == 'admin' %}Администратор{% else %}Сотрудник{% endif %}
+                            {% if r.scope_type == 'city' %} · по городу{% elif r.scope_type == 'shop' %} · по магазину{% elif r.scope_type == 'trade_network' %} · по сети{% endif %}
+                        </div>
+                    </div>
+                    <form method="post" action="/org-structure/role/{{ r.id }}/delete"
+                          onsubmit="return confirm('Удалить роль «{{ r.name }}»?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="text-slate-400 hover:text-red-500 transition-colors" title="Удалить">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </form>
+                </div>
+                {% if r.modules %}
+                <div class="flex flex-wrap gap-1 mt-3">
+                    {% for m in r.modules %}
+                    <span class="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[11px] font-medium">{{ m }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12 text-slate-400">
+            <div class="text-4xl mb-2">👔</div>
+            <p class="text-sm">Кастомных ролей пока нет.</p>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    {# ── Tab: Info ────────────────────────────────────────────────────── #}
+    <div x-show="tab==='info'" x-cloak class="max-w-2xl space-y-4">
+        <div class="p-5 bg-white border border-slate-200 rounded-2xl">
+            <h3 class="font-bold text-slate-800 mb-3">Как работает оргструктура</h3>
+            <ul class="space-y-2 text-sm text-slate-600">
+                <li><b>Подразделения</b> — отделы, магазины и регионы. В полном режиме можно строить иерархию (регион → магазины).</li>
+                <li><b>Роли</b> — собственные должности с набором прав и доступом к модулям. Назначаются сотрудникам на странице «Команда».</li>
+                <li><b>Доступ к модулям</b> — индивидуально включайте/отключайте разделы для каждого сотрудника.</li>
+            </ul>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="p-4 rounded-xl border {{ 'border-emerald-200 bg-emerald-50' if level != 'full' else 'border-slate-200 bg-white' }}">
+                <div class="font-semibold text-slate-800 text-sm mb-1">Базовый режим</div>
+                <ul class="text-xs text-slate-600 space-y-1">
+                    <li>✓ До {{ minimal_limit }} подразделений (плоский список)</li>
+                    <li>✓ Стандартные роли (владелец / админ / сотрудник)</li>
+                    <li>— Без иерархии и регионов</li>
+                    <li>— Без кастомных ролей</li>
+                </ul>
+            </div>
+            <div class="p-4 rounded-xl border {{ 'border-amber-300 bg-amber-50' if level == 'full' else 'border-slate-200 bg-white' }}">
+                <div class="font-semibold text-slate-800 text-sm mb-1">⭐ Полный режим</div>
+                <ul class="text-xs text-slate-600 space-y-1">
+                    <li>✓ Неограниченные подразделения + иерархия</li>
+                    <li>✓ Регионы и вложенность</li>
+                    <li>✓ Кастомные роли с правами</li>
+                    <li>✓ Доступ к модулям по сотруднику</li>
+                </ul>
+                {% if level != 'full' %}
+                <a href="/admin/billing" class="inline-block mt-3 text-xs font-semibold text-amber-700 underline">Подключить →</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

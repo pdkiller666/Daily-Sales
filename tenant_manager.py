@@ -59,6 +59,17 @@ class TenantManager:
         if 'is_active' not in cols:
             cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN is_active INTEGER DEFAULT 1")
             cursor.execute("UPDATE user_org_mapping SET is_active = 1 WHERE is_active IS NULL")
+        # Гибкая оргструктура (Вариант A+B): ссылки на кастомную роль / подразделение
+        # + расширенный мульти-scope (магазины И города одновременно).
+        # NULL во всех новых колонках = прежнее поведение → обратная совместимость.
+        if 'org_role_id' not in cols:
+            cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN org_role_id INTEGER DEFAULT NULL")
+        if 'department_id' not in cols:
+            cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN department_id INTEGER DEFAULT NULL")
+        if 'scope_shops' not in cols:
+            cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN scope_shops TEXT DEFAULT NULL")
+        if 'scope_cities' not in cols:
+            cursor.execute("ALTER TABLE user_org_mapping ADD COLUMN scope_cities TEXT DEFAULT NULL")
 
         # Миграция: переименовываем роль super_admin → owner
         cursor.execute("UPDATE user_org_mapping SET role = 'owner' WHERE role = 'super_admin'")
@@ -431,6 +442,141 @@ class TenantManager:
             return True
         except Exception:
             return False
+        finally:
+            conn.close()
+
+    # ── Гибкая оргструктура ─────────────────────────────────────────────────
+    def _user_org_db_path(self, telegram_id: int) -> str | None:
+        """db_path организации пользователя или None."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT o.db_path FROM organizations o "
+                "JOIN user_org_mapping m ON o.id = m.org_id WHERE m.telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
+    def get_org_owner_tg(self, telegram_id: int) -> int | None:
+        """Telegram_id владельца организации, в которой состоит пользователь.
+
+        Нужен для проверки оплаченных модулей на уровне всей организации
+        (биллинг привязан к владельцу).
+        """
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT o.owner_id FROM organizations o "
+                "JOIN user_org_mapping m ON o.id = m.org_id WHERE m.telegram_id = ?",
+                (telegram_id,)
+            ).fetchone()
+            return row[0] if row else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def assign_org_role(self, telegram_id: int, org_role_id: int | None) -> tuple[bool, str]:
+        """Назначить сотруднику кастомную роль (или сбросить при org_role_id=None).
+
+        Кастомная роль раскладывается в существующие поля user_org_mapping
+        (role=base_role, scope_type/scope_value, custom_title="icon name"),
+        поэтому весь старый код (is_any_admin/get_user_org_scope/отображение)
+        продолжает работать без изменений. org_role_id хранится как back-reference.
+        """
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            if not conn.execute(
+                "SELECT 1 FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone():
+                return False, "Пользователь не состоит ни в одной организации"
+
+            if org_role_id is None:
+                # Снять кастомную роль → вернуть стандартного сотрудника.
+                # Только для тех, у кого реально была кастомная роль (org_role_id
+                # установлен) и кто не владелец — иначе не трогаем ручной scope/owner.
+                conn.execute(
+                    "UPDATE user_org_mapping SET role='user', scope_type=NULL, "
+                    "scope_value=NULL, custom_title=NULL, org_role_id=NULL "
+                    "WHERE telegram_id=? AND org_role_id IS NOT NULL AND role != 'owner'",
+                    (telegram_id,)
+                )
+                conn.commit()
+                self._invalidate_path_cache(telegram_id)
+                return True, "Кастомная роль снята"
+
+            db_path = self._user_org_db_path(telegram_id)
+            if not db_path or not os.path.exists(db_path):
+                return False, "БД организации не найдена"
+
+            rconn = sqlite3.connect(db_path)
+            try:
+                r = rconn.execute(
+                    "SELECT name, icon, base_role, scope_type, scope_values "
+                    "FROM org_roles WHERE id = ? AND is_active = 1", (org_role_id,)
+                ).fetchone()
+            finally:
+                rconn.close()
+            if not r:
+                return False, "Роль не найдена"
+
+            name, icon, base_role, scope_type, scope_values = r
+            base_role = base_role if base_role in ('owner', 'admin', 'user') else 'user'
+            # admin без scope → all; user/owner → scope сбрасывается
+            if base_role == 'admin':
+                st = scope_type if scope_type else None
+                sv = scope_values if (scope_type and scope_type != 'all') else None
+            else:
+                st, sv = None, None
+            custom_title = f"{icon} {name}".strip() if icon else name
+
+            conn.execute(
+                "UPDATE user_org_mapping SET role=?, scope_type=?, scope_value=?, "
+                "custom_title=?, org_role_id=? WHERE telegram_id=?",
+                (base_role, st, sv, custom_title, org_role_id, telegram_id)
+            )
+            conn.commit()
+            self._invalidate_path_cache(telegram_id)
+            return True, custom_title
+        except sqlite3.Error as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def set_user_department(self, telegram_id: int, department_id: int | None) -> bool:
+        """Привязать сотрудника к подразделению (None — открепить)."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            conn.execute(
+                "UPDATE user_org_mapping SET department_id=? WHERE telegram_id=?",
+                (department_id, telegram_id)
+            )
+            conn.commit()
+            self._invalidate_path_cache(telegram_id)
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def get_user_mapping_ext(self, telegram_id: int) -> dict:
+        """Расширенный маппинг: org_role_id, department_id + базовые поля."""
+        conn = sqlite3.connect(self.main_db_path)
+        try:
+            row = conn.execute(
+                "SELECT role, scope_type, scope_value, custom_title, org_role_id, department_id "
+                "FROM user_org_mapping WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            if not row:
+                return {}
+            return {
+                'role': row[0], 'scope_type': row[1], 'scope_value': row[2],
+                'custom_title': row[3], 'org_role_id': row[4], 'department_id': row[5],
+            }
+        except Exception:
+            return {}
         finally:
             conn.close()
 

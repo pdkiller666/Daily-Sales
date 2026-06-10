@@ -571,6 +571,33 @@ def staff_detail(request: Request, user_id: int):
         except Exception:
             ctx["user_plans"] = []
 
+        # Org-structure: departments, custom roles, per-user module access
+        try:
+            from db_utils import org_structure_level
+            from web.routes.org_structure import MODULE_OPTIONS
+            target_tg = u[1]
+            ctx["org_level"] = org_structure_level(telegram_id)
+            ctx["departments"] = db.get_departments() or []
+            ctx["module_options"] = MODULE_OPTIONS
+            ctx["module_access_map"] = db.get_user_module_access_map(target_tg) or {}
+            if ctx["org_level"] == "full":
+                ctx["org_roles_list"] = db.get_org_roles() or []
+            else:
+                ctx["org_roles_list"] = []
+            from tenant_manager import TenantManager
+            ext = TenantManager().get_user_mapping_ext(target_tg)
+            ctx["member_dept_id"] = ext.get("department_id")
+            ctx["member_org_role_id"] = ext.get("org_role_id")
+        except Exception as e:
+            logging.error(f"staff_detail org-structure error: {e}")
+            ctx["org_level"] = "minimal"
+            ctx["departments"] = []
+            ctx["org_roles_list"] = []
+            ctx["module_options"] = []
+            ctx["module_access_map"] = {}
+            ctx["member_dept_id"] = None
+            ctx["member_org_role_id"] = None
+
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
@@ -667,3 +694,124 @@ def staff_set_custom_title(
         logging.error(f"staff_set_custom_title error: {e}")
 
     return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+
+def _target_tg(db, user_id: int):
+    """telegram_id сотрудника по его users.id."""
+    conn = db.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+@router.post("/staff/{user_id}/set-department")
+def staff_set_department(
+    request: Request,
+    user_id: int,
+    department_id: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        target_tg = _target_tg(db, user_id)
+        if target_tg is not None:
+            dept_id = int(department_id) if department_id.strip().isdigit() else None
+            from tenant_manager import TenantManager
+            TenantManager().set_user_department(target_tg, dept_id)
+    except Exception as e:
+        logging.error(f"staff_set_department error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+
+@router.post("/staff/{user_id}/set-org-role")
+def staff_set_org_role(
+    request: Request,
+    user_id: int,
+    org_role_id: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from db_utils import org_structure_level
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        if org_structure_level(telegram_id) != "full":
+            return RedirectResponse(url=f"/staff/{user_id}?error=paid_only", status_code=302)
+        db = get_web_db(telegram_id, org_db)
+        target_tg = _target_tg(db, user_id)
+        if target_tg is not None:
+            role_id = int(org_role_id) if org_role_id.strip().isdigit() else None
+            from tenant_manager import TenantManager
+            TenantManager().assign_org_role(target_tg, role_id)
+    except Exception as e:
+        logging.error(f"staff_set_org_role error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+
+
+@router.post("/staff/{user_id}/set-module-access")
+def staff_set_module_access(
+    request: Request,
+    user_id: int,
+    module_key: Annotated[str, Form()],
+    access: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from db_utils import org_structure_level
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/staff/{user_id}?error=CSRF", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        if org_structure_level(telegram_id) != "full":
+            return RedirectResponse(url=f"/staff/{user_id}?error=paid_only", status_code=302)
+        from web.routes.org_structure import MODULE_LABELS
+        if module_key not in MODULE_LABELS:
+            return RedirectResponse(url=f"/staff/{user_id}", status_code=302)
+        if access not in ("allow", "deny", "inherit"):
+            access = "inherit"
+        db = get_web_db(telegram_id, org_db)
+        target_tg = _target_tg(db, user_id)
+        if target_tg is not None:
+            db.set_user_module_access(target_tg, module_key, access)
+    except Exception as e:
+        logging.error(f"staff_set_module_access error: {e}")
+
+    return RedirectResponse(url=f"/staff/{user_id}#modules", status_code=302)

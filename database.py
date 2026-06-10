@@ -1257,6 +1257,53 @@ class Database:
             )
         ''')
 
+        # ── Гибкая оргструктура (Вариант A+B) ───────────────────────────────
+        # Подразделения с иерархией (регион → город → магазин → отдел → команда)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS departments (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT NOT NULL,
+                type          TEXT DEFAULT 'department',
+                parent_id     INTEGER DEFAULT NULL,
+                manager_tg_id INTEGER DEFAULT NULL,
+                sort_order    INTEGER DEFAULT 0,
+                is_active     INTEGER DEFAULT 1,
+                created_at    TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        # Кастомные роли организации с набором прав (платный модуль org_structure)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS org_roles (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                TEXT NOT NULL,
+                icon                TEXT DEFAULT '🎖️',
+                color               TEXT DEFAULT 'slate',
+                base_role           TEXT DEFAULT 'user',
+                scope_type          TEXT DEFAULT NULL,
+                scope_values        TEXT DEFAULT NULL,
+                can_manage_users    INTEGER DEFAULT 0,
+                can_manage_products INTEGER DEFAULT 0,
+                can_view_salary     INTEGER DEFAULT 0,
+                can_manage_salary   INTEGER DEFAULT 0,
+                can_view_reports    INTEGER DEFAULT 0,
+                can_manage_plans    INTEGER DEFAULT 0,
+                modules             TEXT DEFAULT NULL,
+                is_active           INTEGER DEFAULT 1,
+                created_at          TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        # Гранулярный доступ к модулям на уровне сотрудника (allow/deny override)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_module_access (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                module_key  TEXT NOT NULL,
+                access      TEXT NOT NULL,
+                created_at  TEXT DEFAULT (datetime('now')),
+                UNIQUE(telegram_id, module_key)
+            )
+        ''')
+
         conn.commit()
 
         # Удаляем осиротевшие записи motivation_schedule (товар уже удалён)
@@ -1572,11 +1619,31 @@ class Database:
         if 'shop_bot' in self.db_file:
             self._init_billing_defaults(cursor)
 
+    def _ensure_billing_extra_modules(self, cursor):
+        """Идемпотентно добавляет модули, появившиеся ПОСЛЕ первичной инициализации.
+
+        _init_billing_defaults делает early-return если billing_modules не пуст,
+        поэтому новые модули (например org_structure) на уже работающем продакшене
+        не появятся. Этот метод вызывается всегда и докатывает их через INSERT OR IGNORE.
+        """
+        EXTRA_MODULES = [
+            ('org_structure', '🏢 Оргструктура', '🏢',
+             'Подразделения, регионы, кастомные роли, гранулярный доступ сотрудников', 349, 8),
+        ]
+        for key, name, icon, description, price, sort in EXTRA_MODULES:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_modules (key,name,icon,description,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,1)',
+                (key, name, icon, description, price, sort)
+            )
+
     def _init_billing_defaults(self, cursor):
         """Заполнить billing_modules, billing_extensions, billing_bundles дефолтными данными."""
+        # Сначала всегда докатываем «поздние» модули на существующих установках
+        self._ensure_billing_extra_modules(cursor)
+
         cursor.execute('SELECT COUNT(*) FROM billing_modules')
-        if cursor.fetchone()[0] > 0:
-            return  # Уже инициализировано
+        if cursor.fetchone()[0] > 1:
+            return  # Уже инициализировано (>1 т.к. org_structure мог быть только что добавлен)
 
         DEFAULT_MODULES = [
             ('analytics',        '📊 Аналитика',         '📊', 'Углублённая аналитика продаж, рейтинги, тренды', 299, 1),
@@ -1586,6 +1653,7 @@ class Database:
             ('ai_assistant',     '🤖 ИИ-ассистент',       '🤖', 'AI-анализ отчётов, прогноз, умные алерты',        299, 5),
             ('integrations',     '🔗 Интеграции',         '🔗', 'Google Таблицы, автоэкспорт, API',                399, 6),
             ('chat',             '💬 Чат команды',         '💬', 'Внутренний чат с темами и личными сообщениями',   149, 7),
+            ('org_structure',    '🏢 Оргструктура',       '🏢', 'Подразделения, регионы, кастомные роли, гранулярный доступ сотрудников', 349, 8),
         ]
         for key, name, icon, description, price, sort in DEFAULT_MODULES:
             cursor.execute(
@@ -1637,6 +1705,300 @@ class Database:
                 'INSERT OR IGNORE INTO billing_bundles (key,name,icon,description,includes_json,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,?,1)',
                 (key, name, icon, description, includes_json, price, sort)
             )
+
+    # ── Гибкая оргструктура: подразделения ──────────────────────────────────
+    def add_department(self, name, type='department', parent_id=None,
+                       manager_tg_id=None, sort_order=0):
+        """Создать подразделение. Возвращает id или None."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO departments (name, type, parent_id, manager_tg_id, sort_order) "
+                "VALUES (?,?,?,?,?)",
+                (name, type, parent_id, manager_tg_id, sort_order)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def get_departments(self, active_only=True):
+        """Список подразделений (dict). Отсортированы по sort_order, name."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            q = ("SELECT id, name, type, parent_id, manager_tg_id, sort_order, is_active, created_at "
+                 "FROM departments")
+            if active_only:
+                q += " WHERE is_active = 1"
+            q += " ORDER BY sort_order ASC, name ASC"
+            cur.execute(q)
+            cols = ['id', 'name', 'type', 'parent_id', 'manager_tg_id',
+                    'sort_order', 'is_active', 'created_at']
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_department(self, dept_id):
+        """Одно подразделение (dict) или None."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, name, type, parent_id, manager_tg_id, sort_order, is_active, created_at "
+                "FROM departments WHERE id = ?", (dept_id,)
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            cols = ['id', 'name', 'type', 'parent_id', 'manager_tg_id',
+                    'sort_order', 'is_active', 'created_at']
+            return dict(zip(cols, r))
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def update_department(self, dept_id, name=None, type=None, parent_id=-1,
+                          manager_tg_id=-1, sort_order=None):
+        """Обновить подразделение. parent_id/manager_tg_id=-1 → не менять (None разрешён)."""
+        conn = self.get_connection()
+        try:
+            sets, params = [], []
+            if name is not None:
+                sets.append("name = ?"); params.append(name)
+            if type is not None:
+                sets.append("type = ?"); params.append(type)
+            if parent_id != -1:
+                sets.append("parent_id = ?"); params.append(parent_id)
+            if manager_tg_id != -1:
+                sets.append("manager_tg_id = ?"); params.append(manager_tg_id)
+            if sort_order is not None:
+                sets.append("sort_order = ?"); params.append(sort_order)
+            if not sets:
+                return False
+            params.append(dept_id)
+            conn.execute(f"UPDATE departments SET {', '.join(sets)} WHERE id = ?", params)
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def delete_department(self, dept_id):
+        """Удалить подразделение и перевесить дочерние на его родителя."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT parent_id FROM departments WHERE id = ?", (dept_id,))
+            row = cur.fetchone()
+            parent = row[0] if row else None
+            cur.execute("UPDATE departments SET parent_id = ? WHERE parent_id = ?",
+                        (parent, dept_id))
+            cur.execute("DELETE FROM departments WHERE id = ?", (dept_id,))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def count_departments(self):
+        """Число активных подразделений (для лимита минимального тарифа)."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM departments WHERE is_active = 1")
+            return cur.fetchone()[0]
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
+    # ── Гибкая оргструктура: кастомные роли ─────────────────────────────────
+    _ORG_ROLE_COLS = ['id', 'name', 'icon', 'color', 'base_role', 'scope_type',
+                      'scope_values', 'can_manage_users', 'can_manage_products',
+                      'can_view_salary', 'can_manage_salary', 'can_view_reports',
+                      'can_manage_plans', 'modules', 'is_active', 'created_at']
+
+    def add_org_role(self, name, icon='🎖️', color='slate', base_role='user',
+                     scope_type=None, scope_values=None, perms=None, modules=None):
+        """Создать кастомную роль. perms — dict can_* флагов. Возвращает id или None."""
+        import json as _json
+        perms = perms or {}
+        sv = _json.dumps(scope_values, ensure_ascii=False) if scope_values else None
+        md = _json.dumps(modules, ensure_ascii=False) if modules else None
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO org_roles (name, icon, color, base_role, scope_type, scope_values, "
+                "can_manage_users, can_manage_products, can_view_salary, can_manage_salary, "
+                "can_view_reports, can_manage_plans, modules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, icon, color, base_role, scope_type, sv,
+                 int(perms.get('can_manage_users', 0)), int(perms.get('can_manage_products', 0)),
+                 int(perms.get('can_view_salary', 0)), int(perms.get('can_manage_salary', 0)),
+                 int(perms.get('can_view_reports', 0)), int(perms.get('can_manage_plans', 0)), md)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _row_to_org_role(self, r):
+        import json as _json
+        d = dict(zip(self._ORG_ROLE_COLS, r))
+        try:
+            d['scope_values'] = _json.loads(d['scope_values']) if d['scope_values'] else []
+        except Exception:
+            d['scope_values'] = []
+        try:
+            d['modules'] = _json.loads(d['modules']) if d['modules'] else []
+        except Exception:
+            d['modules'] = []
+        return d
+
+    def get_org_roles(self, active_only=True):
+        """Список кастомных ролей (dict; scope_values/modules — распарсенные list)."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            q = f"SELECT {', '.join(self._ORG_ROLE_COLS)} FROM org_roles"
+            if active_only:
+                q += " WHERE is_active = 1"
+            q += " ORDER BY id ASC"
+            cur.execute(q)
+            return [self._row_to_org_role(r) for r in cur.fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_org_role(self, role_id):
+        """Одна кастомная роль (dict) или None."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                f"SELECT {', '.join(self._ORG_ROLE_COLS)} FROM org_roles WHERE id = ?",
+                (role_id,)
+            )
+            r = cur.fetchone()
+            return self._row_to_org_role(r) if r else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def update_org_role(self, role_id, name=None, icon=None, color=None, base_role=None,
+                        scope_type='__keep__', scope_values='__keep__', perms=None,
+                        modules='__keep__'):
+        """Обновить кастомную роль. '__keep__' → не менять поле."""
+        import json as _json
+        conn = self.get_connection()
+        try:
+            sets, params = [], []
+            if name is not None:
+                sets.append("name = ?"); params.append(name)
+            if icon is not None:
+                sets.append("icon = ?"); params.append(icon)
+            if color is not None:
+                sets.append("color = ?"); params.append(color)
+            if base_role is not None:
+                sets.append("base_role = ?"); params.append(base_role)
+            if scope_type != '__keep__':
+                sets.append("scope_type = ?"); params.append(scope_type)
+            if scope_values != '__keep__':
+                sets.append("scope_values = ?")
+                params.append(_json.dumps(scope_values, ensure_ascii=False) if scope_values else None)
+            if modules != '__keep__':
+                sets.append("modules = ?")
+                params.append(_json.dumps(modules, ensure_ascii=False) if modules else None)
+            if perms:
+                for k in ('can_manage_users', 'can_manage_products', 'can_view_salary',
+                          'can_manage_salary', 'can_view_reports', 'can_manage_plans'):
+                    if k in perms:
+                        sets.append(f"{k} = ?"); params.append(int(perms[k]))
+            if not sets:
+                return False
+            params.append(role_id)
+            conn.execute(f"UPDATE org_roles SET {', '.join(sets)} WHERE id = ?", params)
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def delete_org_role(self, role_id):
+        """Деактивировать кастомную роль (soft-delete, is_active=0)."""
+        conn = self.get_connection()
+        try:
+            conn.execute("UPDATE org_roles SET is_active = 0 WHERE id = ?", (role_id,))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    # ── Гибкая оргструктура: гранулярный доступ к модулям ───────────────────
+    def set_user_module_access(self, telegram_id, module_key, access):
+        """access ∈ {'allow','deny'} — задать override; None/'' → удалить запись."""
+        conn = self.get_connection()
+        try:
+            if access in (None, '', 'inherit'):
+                conn.execute(
+                    "DELETE FROM user_module_access WHERE telegram_id = ? AND module_key = ?",
+                    (telegram_id, module_key)
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO user_module_access (telegram_id, module_key, access) VALUES (?,?,?) "
+                    "ON CONFLICT(telegram_id, module_key) DO UPDATE SET access = excluded.access",
+                    (telegram_id, module_key, access)
+                )
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def get_user_module_access_map(self, telegram_id):
+        """{module_key: 'allow'|'deny'} для пользователя."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT module_key, access FROM user_module_access WHERE telegram_id = ?",
+                (telegram_id,)
+            )
+            return {r[0]: r[1] for r in cur.fetchall()}
+        except Exception:
+            return {}
+        finally:
+            conn.close()
+
+    def clear_user_module_access(self, telegram_id):
+        """Удалить все override-записи доступа к модулям для пользователя."""
+        conn = self.get_connection()
+        try:
+            conn.execute("DELETE FROM user_module_access WHERE telegram_id = ?", (telegram_id,))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+        finally:
+            conn.close()
 
     def get_recent_sales(self, limit=10):
         """Получить список последних продаж"""

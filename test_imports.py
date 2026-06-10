@@ -63,6 +63,7 @@ MODULES = [
     'web.sale_events',
     'web.ai_utils',
     'web.routes.ai_routes',
+    'web.routes.org_structure',
     'web.login_notif',
 ]
 

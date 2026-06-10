@@ -392,6 +392,78 @@
     </div>
     {% endif %}
 
+    {% if is_owner %}
+    <!-- Org-structure: department, custom role, module access (owner only) -->
+    <div class="mt-4 pt-4 border-t border-slate-100" id="modules">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">🏢 Оргструктура</h3>
+            <a href="/org-structure" class="text-xs text-blue-500 hover:text-blue-700">Управление →</a>
+        </div>
+
+        <div class="flex flex-wrap gap-4 items-start">
+            <!-- Department -->
+            <form method="post" action="/staff/{{ member_id }}/set-department" class="flex items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="text-sm text-slate-600 font-medium">Подразделение:</label>
+                <select name="department_id"
+                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[140px]">
+                    <option value="">— не задано —</option>
+                    {% for d in departments %}
+                    <option value="{{ d.id }}" {% if d.id == member_dept_id %}selected{% endif %}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Сохранить</button>
+            </form>
+
+            <!-- Custom org role (full mode only) -->
+            {% if org_level == 'full' %}
+            <form method="post" action="/staff/{{ member_id }}/set-org-role" class="flex items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="text-sm text-slate-600 font-medium">Кастомная роль:</label>
+                <select name="org_role_id"
+                        class="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[160px]">
+                    <option value="">— стандартная —</option>
+                    {% for r in org_roles_list %}
+                    <option value="{{ r.id }}" {% if r.id == member_org_role_id %}selected{% endif %}>{{ r.icon }} {{ r.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">Назначить</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <!-- Per-user module access (full mode only) -->
+        {% if org_level == 'full' and module_options %}
+        <div class="mt-4">
+            <p class="text-xs font-medium text-slate-500 mb-2">Доступ к модулям (индивидуально)</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {% for key, lbl in module_options %}
+                {% set cur = module_access_map.get(key, '') %}
+                <form method="post" action="/staff/{{ member_id }}/set-module-access" class="flex items-center justify-between gap-2 p-2 bg-slate-50 rounded-lg">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="module_key" value="{{ key }}">
+                    <span class="text-sm text-slate-700 truncate">{{ lbl }}</span>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <select name="access" onchange="this.form.submit()"
+                                class="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            <option value="inherit" {% if not cur or cur == 'inherit' %}selected{% endif %}>По тарифу</option>
+                            <option value="allow" {% if cur == 'allow' %}selected{% endif %}>✓ Открыт</option>
+                            <option value="deny" {% if cur == 'deny' %}selected{% endif %}>✕ Закрыт</option>
+                        </select>
+                    </div>
+                </form>
+                {% endfor %}
+            </div>
+        </div>
+        {% elif org_level != 'full' %}
+        <p class="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Кастомные роли и доступ к модулям по сотруднику — в полном режиме.
+            <a href="/org-structure" class="underline font-semibold">Подробнее</a>
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="mt-4 pt-4 border-t border-slate-100">
         <button x-show="!confirmRemove" @click="confirmRemove = true"
                     class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors">

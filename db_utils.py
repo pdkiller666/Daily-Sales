@@ -374,6 +374,47 @@ def is_org_owner(telegram_id: int) -> bool:
     return row is not None and row[0] == 'owner'
 
 
+# ─── Гибкая оргструктура ──────────────────────────────────────────────────────
+# Минимальная структура, включённая в любой тариф (без платного модуля
+# org_structure): плоские подразделения до лимита, без кастомных ролей.
+MINIMAL_DEPT_LIMIT = 3
+
+
+def org_structure_level(telegram_id: int) -> str:
+    """'full' если у организации оплачен модуль org_structure, иначе 'minimal'.
+
+    Проверяется по владельцу организации (биллинг привязан к нему).
+    """
+    try:
+        from billing_utils import has_module
+        owner_tg = tenant_manager.get_org_owner_tg(telegram_id) or telegram_id
+        return 'full' if has_module(owner_tg, 'org_structure') else 'minimal'
+    except Exception:
+        return 'minimal'
+
+
+def get_user_module_access(telegram_id: int, module_key: str) -> str | None:
+    """Override доступа сотрудника к модулю: 'allow' / 'deny' / None (наследует).
+
+    Читает user_module_access из БД организации пользователя.
+    """
+    try:
+        path = tenant_manager.get_user_db_path(telegram_id)
+        if not path or not os.path.exists(path):
+            return None
+        conn = sqlite3.connect(path)
+        try:
+            row = conn.execute(
+                "SELECT access FROM user_module_access WHERE telegram_id = ? AND module_key = ?",
+                (telegram_id, module_key)
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 _NOTPASSED = object()
 
 
