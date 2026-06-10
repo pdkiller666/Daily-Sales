@@ -1186,7 +1186,8 @@ class Database:
             )
         ''')
         for _col, _def in [('assigned_shop', 'TEXT DEFAULT NULL'),
-                            ('assign_all',    'INTEGER DEFAULT 0')]:
+                            ('assign_all',    'INTEGER DEFAULT 0'),
+                            ('recurrence',    'TEXT DEFAULT NULL')]:
             try:
                 cursor.execute(f'ALTER TABLE tasks ADD COLUMN {_col} {_def}')
             except Exception:
@@ -1230,6 +1231,19 @@ class Database:
             )
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_attach_task ON task_attachments(task_id)')
+
+        # ── Task per-user completions (командные задачи assign_all / shop) ────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_user_completions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id      INTEGER NOT NULL,
+                user_id      INTEGER NOT NULL,
+                status       TEXT    DEFAULT 'done',
+                completed_at TEXT    DEFAULT (datetime('now')),
+                UNIQUE(task_id, user_id)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tuc_task ON task_user_completions(task_id)')
 
         # ── AI smart alert settings (per-org, singleton row id=1) ─────────────
         cursor.execute('''
@@ -10023,7 +10037,8 @@ class Database:
                     assigned_shop: str | None = None, assign_all: int = 0,
                     priority: str = 'normal', deadline: str | None = None,
                     linked_chat_topic_id: int | None = None,
-                    checklist: list | None = None) -> int:
+                    checklist: list | None = None,
+                    recurrence: str | None = None) -> int:
         """Создать задачу. Возвращает task_id."""
         try:
             conn = self.get_connection()
@@ -10032,12 +10047,12 @@ class Database:
                 INSERT INTO tasks
                     (title, description, topic_id, created_by, assigned_to,
                      shop_id, assigned_shop, assign_all,
-                     priority, deadline, linked_chat_topic_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     priority, deadline, linked_chat_topic_id, recurrence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (title, description, topic_id, created_by, assigned_to,
                  shop_id, assigned_shop, assign_all,
-                 priority, deadline, linked_chat_topic_id)
+                 priority, deadline, linked_chat_topic_id, recurrence)
             )
             task_id = cur.lastrowid
             if checklist:
@@ -10097,7 +10112,8 @@ class Database:
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
                        t.assigned_shop, t.assign_all,
                        (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total,
-                       (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done
+                       (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id AND cl.is_done = 1) AS cl_done,
+                       t.recurrence
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -10128,6 +10144,7 @@ class Database:
                     "assigned_name": a_name, "creator_name": c_name,
                     "assigned_shop": r[21], "assign_all": bool(r[22]),
                     "checklist_total": r[23], "checklist_done": r[24],
+                    "recurrence": r[25] or "none",
                 })
             return result
         except Exception as e:
@@ -10146,7 +10163,7 @@ class Database:
                        tt.name AS topic_name, tt.color AS topic_color,
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
-                       t.assigned_shop, t.assign_all
+                       t.assigned_shop, t.assign_all, t.recurrence
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -10181,6 +10198,7 @@ class Database:
                 "topic_name": row[13], "topic_color": row[14] or "blue",
                 "assigned_name": a_name, "creator_name": c_name,
                 "assigned_shop": row[21], "assign_all": bool(row[22]),
+                "recurrence": row[23] or "none",
                 "checklist": checklist,
             }
         except Exception as e:
@@ -10207,7 +10225,8 @@ class Database:
                     shop_id: int | None, priority: str,
                     deadline: str | None,
                     assigned_shop: str | None = None,
-                    assign_all: int = 0) -> bool:
+                    assign_all: int = 0,
+                    recurrence: str | None = None) -> bool:
         """Обновить поля задачи (редактирование admin)."""
         try:
             conn = self.get_connection()
@@ -10215,13 +10234,13 @@ class Database:
                 """
                 UPDATE tasks SET title=?, description=?, topic_id=?,
                     assigned_to=?, shop_id=?, assigned_shop=?, assign_all=?,
-                    priority=?, deadline=?,
+                    priority=?, deadline=?, recurrence=?,
                     updated_at=datetime('now')
                 WHERE id=?
                 """,
                 (title, description, topic_id, assigned_to,
                  shop_id, assigned_shop, assign_all,
-                 priority, deadline, task_id)
+                 priority, deadline, recurrence, task_id)
             )
             conn.commit()
             conn.close()
@@ -10399,6 +10418,63 @@ class Database:
             return row[0] if row else 0
         except Exception:
             return 0
+
+    def record_task_user_completion(self, task_id: int, user_id: int, status: str = 'done') -> bool:
+        """Записать/обновить персональное выполнение задачи (для командных задач assign_all/shop)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO task_user_completions (task_id, user_id, status, completed_at) "
+                "VALUES (?, ?, ?, datetime('now')) "
+                "ON CONFLICT(task_id, user_id) DO UPDATE SET status=excluded.status, completed_at=excluded.completed_at",
+                (task_id, user_id, status)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("record_task_user_completion: %s", e)
+            return False
+
+    def get_task_user_completions(self, task_id: int) -> list:
+        """Список персональных выполнений задачи (для командных задач)."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT tuc.user_id, tuc.status, tuc.completed_at, "
+                "u.first_name, u.last_name, u.username "
+                "FROM task_user_completions tuc "
+                "LEFT JOIN users u ON u.id = tuc.user_id "
+                "WHERE tuc.task_id = ? ORDER BY tuc.completed_at",
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            return [
+                {
+                    "user_id": r[0], "status": r[1], "completed_at": r[2],
+                    "name": f"{r[3] or ''} {r[4] or ''}".strip() or r[5] or f"id={r[0]}"
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_user_completions: %s", e)
+            return []
+
+    def get_task_user_completion(self, task_id: int, user_id: int) -> dict | None:
+        """Проверить, выполнил ли конкретный пользователь командную задачу."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT status, completed_at FROM task_user_completions WHERE task_id=? AND user_id=?",
+                (task_id, user_id)
+            ).fetchone()
+            conn.close()
+            if not row:
+                return None
+            return {"status": row[0], "completed_at": row[1]}
+        except Exception as e:
+            logger.error("get_task_user_completion: %s", e)
+            return None
 
     def toggle_task_checklist_item(self, item_id: int,
                                    done_by: int | None = None) -> bool:

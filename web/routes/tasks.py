@@ -352,6 +352,7 @@ async def tasks_new_post(
     assigned_shop: str = Form(""),
     priority: str = Form("normal"),
     deadline: str = Form(""),
+    recurrence: str = Form("none"),
     create_chat_topic: str = Form(""),
     checklist_items: str = Form(""),
     files: List[UploadFile] = File(default=[]),
@@ -421,6 +422,7 @@ async def tasks_new_post(
             deadline=_deadline,
             linked_chat_topic_id=_linked_chat_topic_id,
             checklist=items,
+            recurrence=recurrence if recurrence not in ('none', '') else None,
         )
 
         # Send notifications
@@ -714,6 +716,8 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
         "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
+        "team_completions": [], "team_members_for_task": [], "completed_user_ids": [],
+        "my_completion": None,
     }
 
     try:
@@ -749,6 +753,41 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
             ctx["attachments"] = db.get_task_attachments(task_id)
         except Exception:
             ctx["attachments"] = []
+
+        # Team completion tracking (admin + assign_all/shop tasks)
+        _assign_all = task.get('assign_all', False)
+        _assigned_shop = task.get('assigned_shop', '')
+        if is_admin and (_assign_all or _assigned_shop):
+            try:
+                completions = db.get_task_user_completions(task_id)
+                completed_ids = [c['user_id'] for c in completions]
+                all_staff = _get_staff_list(db)
+                if _assign_all:
+                    task_members = all_staff
+                else:
+                    task_members = [s for s in all_staff if s.get('shop') == _assigned_shop]
+                ctx["team_completions"] = completions
+                ctx["team_members_for_task"] = task_members
+                ctx["completed_user_ids"] = completed_ids
+            except Exception as _te:
+                logger.error("task_detail team_completions: %s", _te)
+                ctx["team_completions"] = []
+                ctx["team_members_for_task"] = []
+                ctx["completed_user_ids"] = []
+        else:
+            ctx["team_completions"] = []
+            ctx["team_members_for_task"] = []
+            ctx["completed_user_ids"] = []
+
+        # My personal completion for team tasks (for employees)
+        if not is_admin and (_assign_all or _assigned_shop):
+            try:
+                ctx["my_completion"] = db.get_task_user_completion(task_id, my_db_id)
+            except Exception:
+                ctx["my_completion"] = None
+        else:
+            ctx["my_completion"] = None
+
     except Exception as e:
         logger.error("task_detail: %s", e)
         ctx["error"] = "Ошибка загрузки задачи."
@@ -1002,6 +1041,36 @@ def task_change_status(
 
         db.update_task_status(task_id, status)
 
+        # Record per-user completion for team tasks
+        if status in ('done', 'review') and (task.get('assign_all') or task.get('assigned_shop')):
+            try:
+                db.record_task_user_completion(task_id, my_db_id, status)
+            except Exception:
+                pass
+
+        # Spawn next recurring task when done
+        if status == 'done':
+            try:
+                from datetime import date, timedelta
+                _recurrence = task.get('recurrence') or ''
+                if _recurrence and _recurrence not in ('none', ''):
+                    _intervals = {'daily': 1, 'weekly': 7, 'monthly': 30}
+                    _days = _intervals.get(_recurrence)
+                    if _days:
+                        _old_dl = task.get('deadline')
+                        _base = date.fromisoformat(_old_dl[:10]) if _old_dl else date.today()
+                        _new_dl = (_base + timedelta(days=_days)).isoformat()
+                        db.create_task(
+                            title=task['title'], description=task.get('description', ''),
+                            topic_id=task.get('topic_id'), created_by=task.get('created_by', 0),
+                            assigned_to=task.get('assigned_to'), assigned_shop=task.get('assigned_shop'),
+                            assign_all=1 if task.get('assign_all') else 0,
+                            priority=task.get('priority', 'normal'), deadline=_new_dl,
+                            recurrence=_recurrence,
+                        )
+            except Exception as _re:
+                logger.warning("task_change_status spawn recurring: %s", _re)
+
         creator_id = task.get("created_by")
         if creator_id and creator_id != my_db_id:
             tg_id = _get_user_tg_id(db, creator_id)
@@ -1228,6 +1297,7 @@ def task_edit_post(
     assigned_shop: str = Form(""),
     priority: str = Form("normal"),
     deadline: str = Form(""),
+    recurrence: str = Form("none"),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -1270,7 +1340,8 @@ def task_edit_post(
 
         db.update_task(task_id, title, description.strip(), _topic_id,
                        _assigned_to, None, priority, _deadline,
-                       assigned_shop=_assigned_shop_val, assign_all=_assign_all)
+                       assigned_shop=_assigned_shop_val, assign_all=_assign_all,
+                       recurrence=recurrence if recurrence not in ('none', '') else None)
 
         # Notify if new person assigned
         if assign_mode == "person" and _assigned_to and _assigned_to != old_task.get("assigned_to"):
@@ -1332,3 +1403,49 @@ def task_delete(
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
     return RedirectResponse(url="/tasks?msg=deleted", status_code=303)
+
+
+@router.post("/tasks/{task_id}/my_complete")
+def task_my_complete(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(""),
+):
+    """Сотрудник помечает командную задачу как выполненную со своей стороны."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        my_row = conn.execute(
+            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        if not my_db_id:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        # Only allowed on assign_all or shop tasks
+        if not (task.get('assign_all') or task.get('assigned_shop')):
+            return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
+
+        db.record_task_user_completion(task_id, my_db_id, 'done')
+    except Exception as e:
+        logger.error("task_my_complete: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=done", status_code=303)

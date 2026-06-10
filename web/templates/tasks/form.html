@@ -180,20 +180,35 @@
       </div>
     </div>
 
-    <!-- Deadline -->
-    <div class="max-w-xs">
-      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-        Срок выполнения
-      </label>
-      {% if edit_task and edit_task.deadline %}
-        {% set _dl_val = edit_task.deadline[:16].replace(' ', 'T') if edit_task.deadline|length >= 13 else edit_task.deadline[:10] + 'T00:00' %}
-      {% else %}
-        {% set _dl_val = '' %}
-      {% endif %}
-      <input type="datetime-local" name="deadline"
-             value="{{ _dl_val }}"
-             class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <p class="text-xs text-slate-400 mt-1">Дата и время — необязательно</p>
+    <!-- Deadline + Recurrence row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+          Срок выполнения
+        </label>
+        {% if edit_task and edit_task.deadline %}
+          {% set _dl_val = edit_task.deadline[:16].replace(' ', 'T') if edit_task.deadline|length >= 13 else edit_task.deadline[:10] + 'T00:00' %}
+        {% else %}
+          {% set _dl_val = '' %}
+        {% endif %}
+        <input type="datetime-local" name="deadline"
+               value="{{ _dl_val }}"
+               class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <p class="text-xs text-slate-400 mt-1">Дата и время — необязательно</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
+          🔁 Повторение
+        </label>
+        <select name="recurrence"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="none" {{ 'selected' if not edit_task or not edit_task.get('recurrence') or edit_task.get('recurrence') in ('none', '') else '' }}>Не повторять</option>
+          <option value="daily"   {{ 'selected' if edit_task and edit_task.get('recurrence') == 'daily'   else '' }}>📅 Каждый день</option>
+          <option value="weekly"  {{ 'selected' if edit_task and edit_task.get('recurrence') == 'weekly'  else '' }}>📅 Каждую неделю</option>
+          <option value="monthly" {{ 'selected' if edit_task and edit_task.get('recurrence') == 'monthly' else '' }}>📅 Каждый месяц</option>
+        </select>
+        <p class="text-xs text-slate-400 mt-1">При выполнении автоматически создаётся следующая</p>
+      </div>
     </div>
 
     {% if not edit_task %}

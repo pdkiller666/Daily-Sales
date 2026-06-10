@@ -86,6 +86,11 @@
           ⚠️ Просрочена
         </span>
         {% endif %}
+        {% if task.get('recurrence') and task.recurrence not in ('none', '') %}
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800">
+          🔁 {{ {'daily': 'Ежедневно', 'weekly': 'Еженедельно', 'monthly': 'Ежемесячно'}.get(task.recurrence, task.recurrence) }}
+        </span>
+        {% endif %}
         {% if task.get('topic_name') %}
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border
           {{ topic_colors.get(task.get('topic_color', 'blue'), 'bg-blue-50 text-blue-700 border-blue-200') }}">
@@ -261,6 +266,42 @@
     </div>
     {% endif %}
 
+    {% if is_admin and task.status in ('done', 'cancelled') %}
+    <div class="card p-4 dark:bg-slate-900">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Действия</p>
+      <form method="POST" action="/tasks/{{ task.id }}/status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="status" value="in_progress">
+        <button type="submit"
+                class="w-full px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors">
+          ↩️ Вернуть в работу
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if not is_admin and (task.get('assign_all') or task.get('assigned_shop')) and task.status not in ('done', 'cancelled') %}
+    {% if not my_completion %}
+    <div class="card p-4 dark:bg-slate-900">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Моё выполнение</p>
+      <form method="POST" action="/tasks/{{ task.id }}/my_complete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit"
+                class="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">
+          ✅ Я выполнил задачу
+        </button>
+      </form>
+    </div>
+    {% else %}
+    <div class="card p-4 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
+      <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">✅ Вы отметили задачу выполненной</p>
+      {% if my_completion and my_completion.completed_at %}
+      <p class="text-xs text-slate-400 mt-0.5">{{ my_completion.completed_at[:16] }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+
     <!-- Meta info -->
     <div class="card p-4 dark:bg-slate-900 space-y-3">
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Детали</p>
@@ -293,6 +334,15 @@
       </div>
       {% endif %}
 
+      {% if task.get('recurrence') and task.recurrence not in ('none', '') %}
+      <div>
+        <p class="text-[11px] text-slate-400 mb-0.5">Повторение</p>
+        <p class="text-sm text-slate-700 dark:text-slate-200">
+          🔁 {{ {'daily': 'Каждый день', 'weekly': 'Каждую неделю', 'monthly': 'Каждый месяц'}.get(task.recurrence, task.recurrence) }}
+        </p>
+      </div>
+      {% endif %}
+
       {% if task.get('created_at') %}
       <div>
         <p class="text-[11px] text-slate-400 mb-0.5">Создана</p>
@@ -309,6 +359,32 @@
       </div>
       {% endif %}
     </div>
+
+    {% if is_admin and (task.get('assign_all') or task.get('assigned_shop')) and team_members_for_task %}
+    <div class="card p-4 dark:bg-slate-900">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Прогресс команды</p>
+        <span class="text-xs text-slate-500">{{ completed_user_ids|length }}/{{ team_members_for_task|length }}</span>
+      </div>
+      {% if team_members_for_task|length > 0 %}
+      <div class="mb-3">
+        {% set _pct = ((completed_user_ids|length / team_members_for_task|length) * 100)|int %}
+        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
+          <div class="bg-emerald-500 h-1.5 rounded-full transition-all" style="width: {{ _pct }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+      <div class="space-y-1.5 max-h-52 overflow-y-auto">
+        {% for member in team_members_for_task %}
+        {% set _done = member.id in completed_user_ids %}
+        <div class="flex items-center gap-2 text-sm py-0.5">
+          <span class="shrink-0 text-base">{{ '✅' if _done else '⏳' }}</span>
+          <span class="{{ 'text-slate-700 dark:text-slate-200 font-medium' if _done else 'text-slate-400 dark:text-slate-500' }}">{{ member.name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
   </div>
 </div>

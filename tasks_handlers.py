@@ -2,12 +2,22 @@
 Модуль задач в Telegram-боте.
 Сотрудник видит назначенные ему задачи и может менять их статус.
 Admin видит все задачи организации.
+
+Фичи:
+  - Фото-отчёт при завершении задачи (FSM state waiting_photo)
+  - Кнопка «Я выполнил» для командных задач (assign_all / shop)
+  - Кнопка «↩️ Вернуть» для admin
+  - Повторяющиеся задачи: auto-spawn при завершении
 """
 import logging
+import os
+import uuid
+from datetime import datetime
 
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 from keyboards import InlineKeyboardBuilder, back_button, home_button
 from db_utils import get_db, clear_state_keep_org, is_any_admin
@@ -36,6 +46,16 @@ _STATUS_NEXT = {
     'in_progress': 'review',
     'review':      'done',
 }
+
+RECURRENCE_LABELS = {
+    'daily':   '📅 Ежедневно',
+    'weekly':  '📅 Еженедельно',
+    'monthly': '📅 Ежемесячно',
+}
+
+
+class TaskPhotoStates(StatesGroup):
+    waiting_photo = State()
 
 
 def _fmt_task_line(t: dict) -> str:
@@ -99,34 +119,39 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
         or (assigned_shop and my_shop and assigned_shop == my_shop)
     )
 
-    if status in _STATUS_NEXT and can_act:
-        next_status = _STATUS_NEXT[status]
-        next_label = STATUS_LABELS.get(next_status, next_status)
-        kb.row(InlineKeyboardButton(
-            text=f"➡️ {next_label}",
-            callback_data=f"tsk_setstatus_{task['id']}_{next_status}"
-        ))
+    if status not in ('done', 'cancelled'):
+        if (assign_all or assigned_shop) and not is_admin and can_act:
+            kb.row(InlineKeyboardButton(
+                text="✅ Я выполнил",
+                callback_data=f"tsk_mycomp_{task['id']}"
+            ))
+        elif status in _STATUS_NEXT and can_act:
+            next_status = _STATUS_NEXT[status]
+            next_label = STATUS_LABELS.get(next_status, next_status)
+            kb.row(InlineKeyboardButton(
+                text=f"➡️ {next_label}",
+                callback_data=f"tsk_setstatus_{task['id']}_{next_status}"
+            ))
+        if is_admin:
+            kb.row(InlineKeyboardButton(
+                text="🚫 Отменить задачу",
+                callback_data=f"tsk_setstatus_{task['id']}_cancelled"
+            ))
+    else:
+        if is_admin:
+            kb.row(InlineKeyboardButton(
+                text="↩️ Вернуть в работу",
+                callback_data=f"tsk_reopen_{task['id']}"
+            ))
 
-    if is_admin and status not in ('done', 'cancelled'):
-        kb.row(InlineKeyboardButton(
-            text="🚫 Отменить задачу",
-            callback_data=f"tsk_setstatus_{task['id']}_cancelled"
-        ))
-
-    kb.row(InlineKeyboardButton(
-        text="◀ К списку",
-        callback_data="tsk_list_0"
-    ))
+    kb.row(InlineKeyboardButton(text="◀ К списку", callback_data="tsk_list_0"))
     kb.row(home_button())
     return kb.as_markup()
 
 
-async def _show_tasks_list(
-    target, state: FSMContext, page: int = 0
-):
+async def _show_tasks_list(target, state: FSMContext, page: int = 0):
     """Показать список задач. target — Message или CallbackQuery."""
-    from aiogram.types import Message as Msg, CallbackQuery as CQ
-    data = await state.get_data()
+    from aiogram.types import Message as Msg
     db = await get_db(state)
     if db is None:
         text = "⚠️ Нет активной организации."
@@ -138,7 +163,7 @@ async def _show_tasks_list(
         return
 
     try:
-        tg_id = target.from_user.id if isinstance(target, Msg) else target.from_user.id
+        tg_id = target.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
             "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
@@ -174,7 +199,7 @@ async def _show_tasks_list(
             await target.message.edit_text(error_text)
 
 
-# ── Entrypoint: callback из главного меню ────────────────────────────────────
+# ── Entrypoint ────────────────────────────────────────────────────────────────
 
 @tasks_router.callback_query(F.data == "tasks_menu")
 async def tasks_menu_cb(callback: CallbackQuery, state: FSMContext):
@@ -237,6 +262,7 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         topic_name = task.get('topic_name', '')
         assigned_shop = task.get('assigned_shop', '')
         assign_all = task.get('assign_all', False)
+        recurrence = task.get('recurrence') or ''
 
         checklist = task.get('checklist', [])
         cl_str = ""
@@ -247,10 +273,7 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
                 lines.append(f"  {mark} {he(item.get('text', ''))}")
             cl_str = "\n\nЧеклист:\n" + "\n".join(lines)
 
-        text = (
-            f"📋 <b>{he(title)}</b>\n"
-            f"{status} · {priority}\n"
-        )
+        text = f"📋 <b>{he(title)}</b>\n{status} · {priority}\n"
         if topic_name:
             text += f"🏷 {he(topic_name)}\n"
         if assign_all:
@@ -261,10 +284,22 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
             text += f"👤 Исполнитель: {he(assigned_name)}\n"
         if creator_name:
             text += f"✍️ Автор: {he(creator_name)}\n"
+        if recurrence and recurrence not in ('none', ''):
+            text += f"🔁 {RECURRENCE_LABELS.get(recurrence, recurrence)}\n"
         text += dl_str
         if desc:
             text += f"\n\n{he(desc)}"
         text += cl_str
+
+        if admin and (assign_all or assigned_shop):
+            try:
+                completions = db.get_task_user_completions(task_id)
+                if completions:
+                    text += f"\n\n👥 Выполнили ({len(completions)}):\n"
+                    for c in completions[:8]:
+                        text += f"  ✅ {he(c['name'])}\n"
+            except Exception:
+                pass
 
         kb = _task_detail_keyboard(task, my_db_id, admin, my_shop=my_shop)
         await callback.answer()
@@ -278,10 +313,7 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
 
 @tasks_router.callback_query(F.data.startswith("tsk_setstatus_"))
 async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
-    # Format: tsk_setstatus_{task_id}_{status}
-    # Status may contain '_' (e.g. in_progress), so split with maxsplit=3
     parts = callback.data.split("_", 3)
-    # parts: ['tsk', 'setstatus', '{task_id}', '{status}']
     if len(parts) < 4:
         await callback.answer("Неверный формат команды")
         return
@@ -329,9 +361,20 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
             return
 
         db.update_task_status(task_id, new_status)
-        status_label = STATUS_LABELS.get(new_status, new_status)
-        await callback.answer(f"Статус: {status_label}")
 
+        if new_status in ('done', 'review') and (assign_all or assigned_shop):
+            try:
+                db.record_task_user_completion(task_id, my_db_id, new_status)
+            except Exception:
+                pass
+
+        if new_status == 'done':
+            try:
+                _spawn_recurring_task(db, task)
+            except Exception:
+                pass
+
+        status_label = STATUS_LABELS.get(new_status, new_status)
         creator_id = task.get('created_by')
         if creator_id and creator_id != my_db_id:
             try:
@@ -342,13 +385,225 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
-        await _show_tasks_list(callback, state, page=0)
+        if new_status in ('done', 'review'):
+            await state.update_data(tsk_photo_task_id=task_id)
+            kb = InlineKeyboardBuilder()
+            kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="tsk_photo_skip"))
+            await callback.answer()
+            await callback.message.edit_text(
+                f"✅ <b>Статус обновлён</b>: {status_label}\n\n"
+                f"📷 Хотите прикрепить фото-отчёт к задаче\n«{he(task['title'][:50])}»?\n\n"
+                "<i>Отправьте фото сообщением или нажмите «Пропустить»</i>",
+                reply_markup=kb.as_markup(),
+                parse_mode="HTML"
+            )
+            await state.set_state(TaskPhotoStates.waiting_photo)
+        else:
+            await callback.answer(f"Статус: {status_label}")
+            await _show_tasks_list(callback, state, page=0)
+
     except Exception as e:
         logger.error("task_setstatus_cb: %s", e)
         await callback.answer("Ошибка изменения статуса")
 
 
-# ── Список всех задач (tsk_list_N) ───────────────────────────────────────────
+def _spawn_recurring_task(db, task: dict):
+    """Создать следующую задачу для повторяющейся задачи."""
+    from datetime import date, timedelta
+    recurrence = task.get('recurrence') or ''
+    if not recurrence or recurrence in ('none', ''):
+        return
+    intervals = {'daily': 1, 'weekly': 7, 'monthly': 30}
+    days = intervals.get(recurrence)
+    if not days:
+        return
+    old_deadline = task.get('deadline')
+    if old_deadline:
+        try:
+            base = date.fromisoformat(old_deadline[:10])
+        except Exception:
+            base = date.today()
+    else:
+        base = date.today()
+    new_deadline = (base + timedelta(days=days)).isoformat()
+    db.create_task(
+        title=task['title'],
+        description=task.get('description', ''),
+        topic_id=task.get('topic_id'),
+        created_by=task.get('created_by', 0),
+        assigned_to=task.get('assigned_to'),
+        assigned_shop=task.get('assigned_shop'),
+        assign_all=1 if task.get('assign_all') else 0,
+        priority=task.get('priority', 'normal'),
+        deadline=new_deadline,
+        recurrence=recurrence,
+    )
+    logger.info("_spawn_recurring_task: created next task '%s' deadline=%s", task['title'], new_deadline)
+
+
+# ── Фото-отчёт: пропустить ────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data == "tsk_photo_skip")
+async def task_photo_skip_cb(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(None)
+    await state.update_data(tsk_photo_task_id=None)
+    await _show_tasks_list(callback, state, page=0)
+
+
+# ── Фото-отчёт: получить фото ────────────────────────────────────────────────
+
+@tasks_router.message(TaskPhotoStates.waiting_photo, F.photo)
+async def task_photo_handler(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    task_id = data.get('tsk_photo_task_id')
+    db = await get_db(state)
+
+    if not task_id or db is None:
+        await state.set_state(None)
+        await message.answer("⚠️ Не удалось сохранить фото.")
+        return
+
+    try:
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+
+        org_db_path = db.db_file
+        base = os.path.splitext(org_db_path)[0]
+        uploads_dir = base + "_uploads/tasks"
+        month_dir = datetime.now().strftime("%Y-%m")
+        dest_dir = os.path.join(uploads_dir, month_dir)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        uid = uuid.uuid4().hex[:12]
+        dest = os.path.join(dest_dir, f"{uid}_report.jpg")
+
+        photo_data = await bot.download_file(file_info.file_path)
+        with open(dest, 'wb') as f:
+            if hasattr(photo_data, 'read'):
+                f.write(photo_data.read())
+            else:
+                f.write(photo_data)
+
+        tg_id = message.from_user.id
+        conn = db.get_connection()
+        my_row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        db.add_task_attachments(task_id, my_db_id, [{
+            "file_path": dest,
+            "file_name": "фото_отчёт.jpg",
+            "file_type": "image/jpeg",
+            "file_size": os.path.getsize(dest),
+            "uploaded_by": my_db_id,
+        }])
+
+        await state.set_state(None)
+        await state.update_data(tsk_photo_task_id=None)
+        await message.answer("📷 Фото-отчёт прикреплён к задаче!")
+        await _show_tasks_list(message, state, page=0)
+
+    except Exception as e:
+        logger.error("task_photo_handler: %s", e)
+        await state.set_state(None)
+        await message.answer("⚠️ Ошибка сохранения фото. Попробуйте снова.")
+
+
+@tasks_router.message(TaskPhotoStates.waiting_photo)
+async def task_photo_wrong_input(message: Message, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="tsk_photo_skip"))
+    await message.answer(
+        "📷 Пожалуйста, отправьте <b>фото</b> или нажмите «Пропустить».",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+# ── Личное выполнение задачи (assign_all / shop) ──────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_mycomp_"))
+async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    db = await get_db(state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+
+    try:
+        tg_id = callback.from_user.id
+        conn = db.get_connection()
+        my_row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
+        conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        task = db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+
+        db.record_task_user_completion(task_id, my_db_id, 'done')
+
+        creator_id = task.get('created_by')
+        if creator_id and creator_id != my_db_id:
+            try:
+                user_name = callback.from_user.first_name or "Сотрудник"
+                db.add_notification_to_history(
+                    creator_id, "task_status",
+                    f"✅ «{task['title']}» — {user_name} отметил выполнено"
+                )
+            except Exception:
+                pass
+
+        await state.update_data(tsk_photo_task_id=task_id)
+        kb = InlineKeyboardBuilder()
+        kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="tsk_photo_skip"))
+        await callback.answer()
+        await callback.message.edit_text(
+            f"✅ <b>Отмечено как выполнено!</b>\n\n"
+            f"📷 Хотите прикрепить фото-отчёт?\n"
+            "<i>Отправьте фото или нажмите «Пропустить»</i>",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
+        await state.set_state(TaskPhotoStates.waiting_photo)
+
+    except Exception as e:
+        logger.error("task_mycomp_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+# ── Вернуть задачу в работу (admin) ──────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_reopen_"))
+async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
+    task_id = int(callback.data.split("_")[-1])
+    db = await get_db(state)
+    if db is None:
+        await callback.answer("Нет активной org")
+        return
+
+    try:
+        admin = await is_any_admin(state)
+        if not admin:
+            await callback.answer("Нет доступа")
+            return
+
+        task = db.get_task(task_id)
+        if not task:
+            await callback.answer("Задача не найдена")
+            return
+
+        db.update_task_status(task_id, 'in_progress')
+        await callback.answer("↩️ Задача возвращена в работу")
+        await _show_tasks_list(callback, state, page=0)
+
+    except Exception as e:
+        logger.error("task_reopen_cb: %s", e)
+        await callback.answer("Ошибка")
+
+
+# ── Список задач (tsk_list_N) ─────────────────────────────────────────────────
 
 @tasks_router.callback_query(F.data.startswith("tsk_list_"))
 async def tasks_list_cb(callback: CallbackQuery, state: FSMContext):
