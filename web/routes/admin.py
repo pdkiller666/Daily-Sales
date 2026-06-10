@@ -21,10 +21,18 @@ SHOP_BOT_DB = "data/shop_bot.db"
 
 
 def _raw_conn(path: str = SHOP_BOT_DB) -> sqlite3.Connection:
-    """Open a raw SQLite connection with WAL mode and busy timeout."""
+    """Open a raw SQLite connection with WAL mode and busy timeout.
+
+    Registers a Unicode-aware `lower_u()` SQL function because SQLite's built-in
+    LOWER()/LIKE only fold ASCII case — Cyrillic (e.g. «Тарасов») would never
+    match a lowercased query. Use lower_u() instead of LOWER() for text search.
+    """
     conn = sqlite3.connect(path, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=3000")
+    conn.create_function(
+        "lower_u", 1, lambda s: s.lower() if isinstance(s, str) else s
+    )
     return conn
 
 
@@ -517,7 +525,7 @@ def _search_global_users(q: str) -> list[dict]:
                    u.telegram_id, s.plan_type, s.end_date
             FROM users u
             LEFT JOIN subscriptions s ON s.user_id = u.id
-            WHERE LOWER(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')
+            WHERE lower_u(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')
                         || ' ' || COALESCE(u.username,'') || ' '
                         || COALESCE(u.shop_name,'')) LIKE ?
                OR CAST(u.telegram_id AS TEXT) LIKE ?
@@ -563,7 +571,7 @@ def _search_global_users(q: str) -> list[dict]:
                     rows = org_conn.execute("""
                         SELECT id, first_name, last_name, phone, shop_name, telegram_id
                         FROM users
-                        WHERE LOWER(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')
+                        WHERE lower_u(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')
                                     || ' ' || COALESCE(phone,'') || ' '
                                     || COALESCE(shop_name,'')) LIKE ?
                            OR CAST(telegram_id AS TEXT) LIKE ?

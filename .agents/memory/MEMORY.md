@@ -35,3 +35,4 @@
 - [Dynamic landing pricing](dynamic-landing-pricing.md) — `_landing_billing_modules()` in web/app.py reads billing_modules from shop_bot.db; passed to landing.html as `billing_modules`; theme map per key in template; fallback hardcoded features per key
 - [Flexible org structure](org-structure.md) — paid org_structure module; custom roles decompose into legacy user_org_mapping fields (no new authz path); per-user module `allow` must gate on OWNER billing (not unconditional True); scope vocab = 'network' not 'trade_network'
 - [Super-admin page header](admin-page-header.md) — все /admin/* подстраницы используют page_header macro (admin/_macros.html); импорт ВНУТРИ {% block content %}, не на верхнем уровне (extends-child)
+- [SQLite Cyrillic search](sqlite-cyrillic-search.md) — SQL LOWER()/LIKE fold ASCII only; Cyrillic search returns nothing → register Python lower_u() on the connection
