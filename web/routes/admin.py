@@ -129,7 +129,7 @@ async def admin_orgs(request: Request):
 
 
 @router.post("/orgs/{org_id}/delete")
-async def admin_delete_org(
+def admin_delete_org(
     request: Request,
     org_id: int,
     csrf_token: str = Form(""),
@@ -373,7 +373,7 @@ async def admin_backups(request: Request):
 
 
 @router.post("/backups/create")
-async def admin_create_backup(request: Request, csrf_token: str = Form("")):
+def admin_create_backup(request: Request, csrf_token: str = Form("")):
     user = get_session_user(request)
     if _guard(user):
         return RedirectResponse("/dashboard", 303)

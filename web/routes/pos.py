@@ -430,33 +430,38 @@ async def pos_checkout(
         if not _ok:
             return JSONResponse({"ok": False, "error": _msg or "Достигнут лимит продаж по тарифу"}, status_code=403)
 
-        sold = []
-        sold_items = []  # детализация для пост-обработки
-        errors = []
-        for item in items:
-            product_id = int(item.get("id", 0))
-            qty = int(item.get("qty", 1))
-            price = float(item.get("price", 0))
-            name = item.get("name", "")
+        # Запись продаж — синхронный БД-цикл; уносим в поток, чтобы не блокировать
+        # event loop на время N INSERT'ов (check_same_thread=False + thread-local пул).
+        def _write_sales():
+            _sold, _sold_items, _errors = [], [], []
+            for item in items:
+                product_id = int(item.get("id", 0))
+                qty = int(item.get("qty", 1))
+                price = float(item.get("price", 0))
+                name = item.get("name", "")
 
-            if qty < 1 or product_id < 1:
-                continue
+                if qty < 1 or product_id < 1:
+                    continue
 
-            try:
-                result = db.add_sale(
-                    product_id=product_id,
-                    shop_name=shop_name,
-                    quantity_sold=qty,
-                    user_id=internal_uid,
-                    sale_price=price,
-                )
-                if result is None:
-                    errors.append(f"«{name}»: недостаточно на складе")
-                else:
-                    sold.append(name)
-                    sold_items.append({"name": name, "qty": qty, "price": price, "total": qty * price})
-            except Exception as e:
-                errors.append(f"«{name}»: {e}")
+                try:
+                    result = db.add_sale(
+                        product_id=product_id,
+                        shop_name=shop_name,
+                        quantity_sold=qty,
+                        user_id=internal_uid,
+                        sale_price=price,
+                    )
+                    if result is None:
+                        _errors.append(f"«{name}»: недостаточно на складе")
+                    else:
+                        _sold.append(name)
+                        _sold_items.append({"name": name, "qty": qty, "price": price, "total": qty * price})
+                except Exception as e:
+                    _errors.append(f"«{name}»: {e}")
+            return _sold, _sold_items, _errors
+
+        from anyio import to_thread
+        sold, sold_items, errors = await to_thread.run_sync(_write_sales)
 
         if not sold:
             return JSONResponse({"ok": False, "error": "; ".join(errors) or "Ошибка записи"}, status_code=400)

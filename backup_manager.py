@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import glob
 import logging
+import time
 
 class BackupManager:
     def __init__(self, db_path='data/main.db', backup_dir='data/backup'):
@@ -176,7 +177,29 @@ class BackupManager:
             # Убеждаемся, что директория назначения существует (для тенантов)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
-            shutil.copy2(backup_path, target_path)
+            # Безопасное восстановление через SQLite Online Backup API: страницы пишутся в
+            # живой файл БД с корректными блокировками. shutil.copy2 поверх открытых
+            # соединений (бот + веб держат БД в режиме WAL) мог порвать рабочую БД —
+            # перезаписывал .db, игнорируя незакоммиченные страницы в -wal/-shm.
+            src_conn = sqlite3.connect(backup_path)
+            dest_conn = sqlite3.connect(target_path, timeout=30)
+            try:
+                # Ограниченный retry на случай блокировки живой БД (бот/веб пишут).
+                _last_err = None
+                for _attempt in range(5):
+                    try:
+                        with dest_conn:
+                            src_conn.backup(dest_conn)
+                        _last_err = None
+                        break
+                    except sqlite3.OperationalError as _be:
+                        _last_err = _be
+                        time.sleep(0.5 * (_attempt + 1))
+                if _last_err is not None:
+                    raise _last_err
+            finally:
+                src_conn.close()
+                dest_conn.close()
 
             logging.info(f"БД восстановлена из {backup_filename} → {target_path}")
             return True, f"БД восстановлена из {backup_filename} → {target_path}"
