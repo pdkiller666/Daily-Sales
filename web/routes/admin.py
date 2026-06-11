@@ -449,7 +449,7 @@ def admin_generate_vapid(request: Request, csrf_token: str = Form("")):
     if not verify_csrf_token(request, csrf_token):
         return JSONResponse({"error": "csrf"}, status_code=403)
     try:
-        from push_utils import generate_vapid_keypair
+        from web.push_utils import generate_vapid_keypair
         keys = generate_vapid_keypair()
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -738,7 +738,7 @@ def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
     """Collect Web Push subscription state for the super-admin diagnostics page."""
     from timezone_utils import format_user_datetime as _fmt
     try:
-        from push_utils import _is_configured
+        from web.push_utils import _is_configured
         vapid_ok = _is_configured()
     except Exception:
         vapid_ok = False

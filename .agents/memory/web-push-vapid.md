@@ -28,5 +28,10 @@ description: web/push_utils.py API (single/bulk/async), where pushes are wired, 
 - VAPID_MAILTO: falls back to mailto:admin@dailysales.app with a warning if unset; auto-prefixes `mailto:`.
 - robots.txt already disallows /api/.
 
+## Key generation from the super-admin UI
+- `/admin/push-diagnostics` имеет генератор: POST `/admin/push-diagnostics/generate-vapid` (super_admin guard + CSRF) → `generate_vapid_keypair()` в push_utils.py (cryptography EC P-256 → PKCS8 PEM private + raw url-safe base64 public). Ключи НЕ сохраняются и НЕ логируются, отдаются один раз в JSON, копируются на странице.
+- **Приложение НЕ может писать env-переменные Amvera изнутри контейнера** — модель только «сгенерировал → скопировал → вставил в Amvera вручную → перезапуск».
+- **Ротация VAPID обнуляет все `push_subscriptions`** (старый applicationServerKey больше не валиден) — юзеры переподписываются. Безопасно только при первичной настройке.
+
 ## Gotcha: VAPID_PRIVATE_KEY shows "Не настроен" despite being set
 **Symptom:** диагностика/`_is_configured()` = False хотя ключ задан в env. **Cause:** многострочный PEM, вставленный в env-UI хостинга (Amvera), приходит с ведущим `\n`/пробелом/кавычками → `startswith("-----BEGIN")` ломается → Web Push молча выключен (отправка тоже гейтится `_is_configured`). **Fix:** `_VAPID_PRIVATE` чистится `.strip().strip('"').strip("'").strip()`; `_is_configured()` лоялен — `"BEGIN" in ... and "KEY" in ...` (PEM) ИЛИ компактная base64 ≥20 без пробелов (raw url-safe ключ). Не возвращать к строгому `startswith`.
