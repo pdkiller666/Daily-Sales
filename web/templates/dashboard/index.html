@@ -294,20 +294,36 @@
                 </thead>
                 <tbody class="divide-y divide-slate-50">
                     {% for s in recent_sales %}
-                    {# s: id[0] name[1] shop[2] qty[3] price[4] first_name[5] sale_date[6] #}
+                    {# s: sale_id[0] name[1] shop[2] qty[3] price[4] first_name[5] sale_date[6] product_id[7] user_db_id[8] #}
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="px-5 py-3">
+                            {% if s[7] %}
+                            <a href="/products/{{ s[7] }}" class="group">
+                                <p class="font-medium text-slate-800 truncate max-w-[140px] sm:max-w-[200px] group-hover:text-blue-600 transition-colors" title="{{ s[1] }}">{{ s[1] }}</p>
+                            </a>
+                            {% else %}
                             <p class="font-medium text-slate-800 truncate max-w-[140px] sm:max-w-[200px]" title="{{ s[1] }}">{{ s[1] }}</p>
+                            {% endif %}
                             <p class="text-xs text-slate-400 mt-0.5">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y %H:%M') if s[6] else '' }}</p>
                         </td>
                         <td class="px-3 py-3 hidden sm:table-cell">
-                            <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full whitespace-nowrap">{{ s[2] or '—' }}</span>
+                            {% if s[2] %}
+                            <a href="/sales?shop={{ s[2]|urlencode }}" class="text-xs bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 px-2 py-0.5 rounded-full whitespace-nowrap transition-colors">{{ s[2] }}</a>
+                            {% else %}
+                            <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full whitespace-nowrap">—</span>
+                            {% endif %}
                         </td>
                         <td class="px-3 py-3 text-right font-medium text-slate-700">{{ s[3] }}&nbsp;шт.</td>
                         <td class="px-3 py-3 text-right font-semibold text-emerald-600 whitespace-nowrap">
                             {{ ((s[3] or 0) * (s[4] or 0))|int|fmt_currency }}
                         </td>
-                        <td class="px-5 py-3 text-right text-xs text-slate-400 hidden md:table-cell">{{ s[5] or '—' }}</td>
+                        <td class="px-5 py-3 text-right text-xs hidden md:table-cell">
+                            {% if s[8] and s[5] %}
+                            <a href="/staff/{{ s[8] }}" class="text-slate-400 hover:text-blue-600 transition-colors">{{ s[5] }}</a>
+                            {% else %}
+                            <span class="text-slate-400">{{ s[5] or '—' }}</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

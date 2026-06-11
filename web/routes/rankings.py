@@ -46,6 +46,7 @@ def rankings_page(
     period: str = "month",
     date_from: str = "",
     date_to: str = "",
+    city: str = "",
 ):
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -65,6 +66,7 @@ def rankings_page(
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "tab": tab, "period": period,
         "ranking": [], "medals": MEDALS, "error": None,
+        "selected_city": city,
         "date_from": date_from, "date_to": date_to,
         "own_rank": None,
         "prev_revenue": None, "growth_pct": None, "cur_revenue": None,
@@ -93,6 +95,9 @@ def rankings_page(
         if tab == "shops":
             raw = db.get_shop_ranking(**kwargs) or []
             # shop_name[0] total_sold[1] total_revenue[2] active_sellers[3] total_sales[4]
+            if city:
+                cmap = db.get_shop_city_map() or {}
+                raw = [r for r in raw if cmap.get(r[0]) == city]
             max_rev = float(raw[0][2]) if raw else 1.0
             ranking = []
             for i, r in enumerate(raw):

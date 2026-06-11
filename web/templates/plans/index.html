@@ -45,25 +45,37 @@
 </div>
 {% endif %}
 
-{% if grouped_plans %}
+{% if plans_data or selected_status %}
 <!-- Summary strip -->
 {% set done_count = plans_data | selectattr('pct_raw', 'ge', 100) | list | length %}
 {% set in_progress = plans_data | selectattr('pct_raw', 'lt', 100) | selectattr('pct_raw', 'gt', 0) | list | length %}
+{% set _pln_base = "/plans?active_only=" ~ active_only %}
 <div class="grid grid-cols-3 gap-4 mb-5">
-    <div class="card p-4 text-center">
+    <a href="{{ _pln_base }}"
+       class="card p-4 text-center transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-blue-300' if not selected_status else 'hover:ring-2 hover:ring-blue-200' }}">
         <p class="text-xl sm:text-2xl font-bold text-slate-800">{{ plans_data|length }}</p>
         <p class="text-xs text-slate-400 mt-1">Всего планов</p>
-    </div>
-    <div class="card p-4 text-center">
+    </a>
+    <a href="{{ _pln_base }}&status=done"
+       class="card p-4 text-center transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-emerald-300' if selected_status == 'done' else 'hover:ring-2 hover:ring-emerald-200' }}">
         <p class="text-xl sm:text-2xl font-bold text-emerald-600">{{ done_count }}</p>
         <p class="text-xs text-slate-400 mt-1">Выполнено</p>
-    </div>
-    <div class="card p-4 text-center">
+    </a>
+    <a href="{{ _pln_base }}&status=in_progress"
+       class="card p-4 text-center transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-blue-300' if selected_status == 'in_progress' else 'hover:ring-2 hover:ring-blue-200' }}">
         <p class="text-xl sm:text-2xl font-bold text-blue-500">{{ in_progress }}</p>
         <p class="text-xs text-slate-400 mt-1">В процессе</p>
-    </div>
+    </a>
 </div>
+{% if selected_status %}
+<div class="-mt-2 mb-4 flex items-center gap-2 text-sm text-slate-500">
+    <span>Фильтр: <span class="font-semibold">{{ 'выполненные' if selected_status == 'done' else 'в процессе' }}</span></span>
+    <a href="{{ _pln_base }}" class="text-blue-600 hover:underline">✕ Сбросить</a>
+</div>
+{% endif %}
+{% endif %}{# /summary strip #}
 
+{% if grouped_plans %}
 <!-- Grouped cards: one card per shop/seller -->
 <div class="space-y-4" id="pln-list">
 {% for group in grouped_plans %}
@@ -189,12 +201,19 @@
 {% else %}
 <div class="card py-20 text-center text-slate-400">
     <p class="text-6xl mb-4">🎯</p>
+    {% if selected_status %}
+    <p class="text-base font-medium text-slate-600">
+        Нет планов в фильтре «{{ 'выполненные' if selected_status == 'done' else 'в процессе' }}»
+    </p>
+    <a href="/plans?active_only={{ active_only }}" class="text-xs text-blue-500 hover:underline mt-2 inline-block">Сбросить фильтр</a>
+    {% else %}
     <p class="text-base font-medium text-slate-600">
         {% if active_only == '1' %}Нет активных планов{% else %}Планы не созданы{% endif %}
     </p>
     <p class="text-sm mt-1">Планы создаются в боте разделом «Планы продаж»</p>
     {% if active_only == '1' %}
     <a href="/plans?active_only=0" class="text-xs text-blue-500 hover:underline mt-2 inline-block">Показать все</a>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}

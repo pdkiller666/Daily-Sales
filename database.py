@@ -2038,7 +2038,7 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT s.id, p.name, s.shop_name, s.quantity_sold, s.sale_price, u.first_name, s.sale_date
+            SELECT s.id, p.name, s.shop_name, s.quantity_sold, s.sale_price, u.first_name, s.sale_date, p.id, u.id
             FROM sales s
             JOIN products p ON s.product_id = p.id
             JOIN users u ON s.user_id = u.id
@@ -2048,6 +2048,32 @@ class Database:
         sales = cursor.fetchall()
         conn.close()
         return sales
+
+    def get_shop_city_map(self) -> dict:
+        """{shop_name: city} — из таблицы shops, с дополнением из users."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        result: dict = {}
+        try:
+            cursor.execute(
+                "SELECT name, COALESCE(city, '') FROM shops "
+                "WHERE name IS NOT NULL AND name != ''"
+            )
+            for name, city in cursor.fetchall():
+                if city:
+                    result[name] = city
+            cursor.execute(
+                "SELECT DISTINCT shop_name, COALESCE(city, '') FROM users "
+                "WHERE shop_name IS NOT NULL AND shop_name != ''"
+            )
+            for name, city in cursor.fetchall():
+                if city and name not in result:
+                    result[name] = city
+        except Exception as exc:
+            logging.warning(f"get_shop_city_map failed: {exc}")
+        finally:
+            conn.close()
+        return result
 
     def get_user_recent_products(self, user_id: int, limit: int = 5) -> list:
         """Последние N уникальных товаров, проданных данным продавцом."""

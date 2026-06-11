@@ -8,6 +8,7 @@
 {% endblock %}
 
 {% block content %}
+{% set _city_q = ("&city=" ~ (selected_city|urlencode)) if selected_city else "" %}
 <div class="flex items-center justify-between mb-6">
     <div>
         <h1 class="text-2xl font-bold text-slate-800">Рейтинги</h1>
@@ -29,7 +30,7 @@
 <div x-data="{ customOpen: {{ 'true' if period == 'custom' else 'false' }}, df: '{{ date_from }}', dt: '{{ date_to }}' }" class="mb-4">
     <div class="flex flex-wrap gap-2">
         {% for p, lbl in [('week','7 дней'),('month','Месяц'),('prev_month','Прошлый месяц'),('all','Всё время')] %}
-        <a href="/rankings?tab={{ tab }}&period={{ p }}"
+        <a href="/rankings?tab={{ tab }}&period={{ p }}{{ _city_q }}"
            data-period-tab
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
                   {{ 'bg-blue-600 text-white border-blue-600' if period == p else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
@@ -54,13 +55,13 @@
                    class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
         <button type="button"
-                @click="if(df && dt) window.location='/rankings?tab={{ tab }}&date_from='+df+'&date_to='+dt"
+                @click="if(df && dt) window.location='/rankings?tab={{ tab }}&date_from='+df+'&date_to='+dt+'{{ _city_q }}'"
                 :disabled="!df || !dt"
                 class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
             Применить
         </button>
         {% if period == 'custom' %}
-        <a href="/rankings?tab={{ tab }}&period=month"
+        <a href="/rankings?tab={{ tab }}&period=month{{ _city_q }}"
            class="text-xs text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
         {% endif %}
     </div>
@@ -69,7 +70,7 @@
 <!-- Tab selector -->
 <div class="flex flex-wrap gap-2 mb-5">
     {% for t, lbl, icon in [('sellers','Продавцы','👤'),('shops','Магазины','🏪'),('cities','Города','🌆')] %}
-    <a href="/rankings?tab={{ t }}&period={{ period }}"
+    <a href="/rankings?tab={{ t }}&period={{ period }}{% if t == 'shops' %}{{ _city_q }}{% endif %}"
        data-tab-nav
        class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors border
               {{ 'bg-blue-600 text-white border-blue-600 shadow-sm' if tab == t else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600' }}">
@@ -141,6 +142,13 @@
                @keydown.escape="q=''">
     </div>
 
+    {% if tab == 'shops' and selected_city %}
+    <div class="px-5 py-2.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2 text-sm text-slate-600">
+        <span>Город: <span class="font-semibold text-slate-800">{{ selected_city }}</span></span>
+        <a href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}" class="text-blue-600 hover:underline">✕ Сбросить</a>
+    </div>
+    {% endif %}
+
     {% if ranking %}
     <div class="divide-y divide-slate-50">
         {% for r in ranking %}
@@ -149,9 +157,11 @@
                     {% if tab == 'sellers' and r.get('is_me') %}ring-inset ring-1 ring-blue-300 bg-blue-50/30{% endif %}
                     {% if tab == 'sellers' and r.user_db_id %}hover:bg-blue-50/40 cursor-pointer
                     {% elif tab == 'shops' and r.label %}hover:bg-blue-50/40 cursor-pointer
+                    {% elif tab == 'cities' and r.label %}hover:bg-blue-50/40 cursor-pointer
                     {% else %}hover:bg-slate-50/60{% endif %}"
              {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}'"
              {% elif tab == 'shops' and r.label %}onclick="window.location='/inventory?shop={{ r.label|urlencode }}'"
+             {% elif tab == 'cities' and r.label %}onclick="window.location='/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}&city={{ r.label|urlencode }}'"
              {% endif %}
              data-label="{{ r.label|lower }}"
              x-show="!q || $el.dataset.label.includes(q.toLowerCase())">

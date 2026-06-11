@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/inventory")
-def inventory_page(request: Request, shop: str = "", q: str = "", category: str = ""):
+def inventory_page(request: Request, shop: str = "", q: str = "", category: str = "", status: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -27,6 +27,7 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "shops": [], "selected_shop": shop, "q": q,
         "categories": [], "selected_category": category,
+        "selected_status": status,
         "inventory": [], "total_items": 0,
         "out_of_stock": 0, "low_stock": 0, "error": None,
         "csrf_token": get_csrf_token(request),
@@ -79,10 +80,18 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         if category:
             inventory = [r for r in inventory if (r[7] or "") == category]
 
-        ctx["inventory"] = inventory
+        # Counts computed BEFORE status filter so the stat cards keep showing totals
         ctx["total_items"] = len(inventory)
         ctx["out_of_stock"] = sum(1 for r in inventory if int(r[3] or 0) <= 0)
         ctx["low_stock"] = sum(1 for r in inventory if 0 < int(r[3] or 0) <= 5)
+
+        # Status filter (toggle from stat cards)
+        if status == "out":
+            inventory = [r for r in inventory if int(r[3] or 0) <= 0]
+        elif status == "low":
+            inventory = [r for r in inventory if 0 < int(r[3] or 0) <= 5]
+
+        ctx["inventory"] = inventory
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

@@ -252,7 +252,7 @@ def plans_create(
 
 
 @router.get("/plans")
-def plans_page(request: Request, active_only: str = "1"):
+def plans_page(request: Request, active_only: str = "1", status: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -270,6 +270,7 @@ def plans_page(request: Request, active_only: str = "1"):
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "plans_data": [], "grouped_plans": [], "active_only": active_only,
+        "selected_status": status,
         "plan_type_labels": PLAN_TYPE_LABELS,
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
@@ -341,9 +342,17 @@ def plans_page(request: Request, active_only: str = "1"):
         plans_data.sort(key=lambda p: (0 if p["is_active"] else 1, -p["pct_raw"]))
         ctx["plans_data"] = plans_data
 
+        # Status filter for the grouped list — summary cards keep full counts
+        if status == "done":
+            visible = [p for p in plans_data if p["pct_raw"] >= 100]
+        elif status == "in_progress":
+            visible = [p for p in plans_data if 0 < p["pct_raw"] < 100]
+        else:
+            visible = plans_data
+
         # Group by target (shop or seller) — one card per entity
         groups: dict = {}
-        for p in plans_data:
+        for p in visible:
             key = p["target_who"]
             if key not in groups:
                 groups[key] = {
