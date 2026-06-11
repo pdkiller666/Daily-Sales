@@ -208,6 +208,25 @@ try:
 except Exception as _e:
     _fn_fail("billing_utils", _e)
 
+# 6. subscription_addons: idempotency by payment_request_id + correct column
+try:
+    import tempfile, os as _os
+    _tmp6 = tempfile.mktemp(suffix='shop_bot.db')
+    _db6 = Database(_tmp6)
+    _db6.create_tables()
+    # первый вызов создаёт аддон
+    _a1 = _db6.create_subscription_addon(12345, 'extra_products', 1, 100.0, days=30, payment_request_id=777)
+    assert _a1, "create_subscription_addon: первый вызов не создал аддон"
+    # повтор с тем же payment_request_id НЕ создаёт дубликат
+    _a2 = _db6.create_subscription_addon(12345, 'extra_products', 1, 100.0, days=30, payment_request_id=777)
+    assert _a2 == _a1, f"идемпотентность нарушена: {_a1} != {_a2}"
+    _totals = _db6.get_addon_totals(12345)
+    assert _totals.get('extra_products') == 1, f"ожидалось 1 аддон, получено {_totals}"
+    _os.unlink(_tmp6)
+    _fn_ok("subscription_addons: идемпотентность по payment_request_id")
+except Exception as _e:
+    _fn_fail("subscription_addons idempotency", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

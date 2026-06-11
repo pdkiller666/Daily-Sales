@@ -72,8 +72,8 @@ class _PooledConn:
             c = object.__getattribute__(self, '_c')
             if c.in_transaction:
                 c.rollback()
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("close: подавлено исключение: %s", _exc)
 
     def __getattr__(self, name: str):
         return getattr(object.__getattribute__(self, '_c'), name)
@@ -544,24 +544,24 @@ class Database:
         # Миграция: добавить calc_mode если отсутствует
         try:
             cursor.execute("ALTER TABLE motivation_extra_conditions ADD COLUMN calc_mode TEXT DEFAULT 'individual'")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Миграция: добавить shift_sale_alerts в notification_settings если отсутствует
         try:
             cursor.execute("ALTER TABLE notification_settings ADD COLUMN shift_sale_alerts BOOLEAN DEFAULT TRUE")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Миграция: зависимость мотивации от выполнения недельных планов
         try:
             cursor.execute("ALTER TABLE notification_settings ADD COLUMN plan_coeff_enabled BOOLEAN DEFAULT FALSE")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
         try:
             cursor.execute("ALTER TABLE notification_settings ADD COLUMN plan_coeff_cap BOOLEAN DEFAULT TRUE")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Расписание мотивации по месяцам
         cursor.execute('''
@@ -840,8 +840,8 @@ class Database:
         for _col in ('start_time', 'end_time'):
             try:
                 cursor.execute(f'ALTER TABLE work_schedule ADD COLUMN {_col} TEXT')
-            except Exception:
-                pass  # колонка уже существует
+            except Exception as _exc:
+                logger.debug("create_tables: подавлено исключение: %s", _exc)  # колонка уже существует
 
         # Шаблоны смен по дням недели
         cursor.execute('''
@@ -1058,16 +1058,16 @@ class Database:
         ''')
         try:
             cursor.execute("ALTER TABLE shops ADD COLUMN city TEXT DEFAULT ''")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
         try:
             cursor.execute("ALTER TABLE shops ADD COLUMN trade_network TEXT DEFAULT ''")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
         try:
             cursor.execute("ALTER TABLE shops ADD COLUMN notes TEXT DEFAULT ''")
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # ── Chat topics ───────────────────────────────────────────────────────
         cursor.execute('''
@@ -1105,8 +1105,8 @@ class Database:
         try:
             cursor.execute('ALTER TABLE chat_messages ADD COLUMN topic_id INTEGER DEFAULT 1')
             conn.commit()
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # ── Direct messages (личные сообщения) ───────────────────────────────
         cursor.execute('''
@@ -1190,8 +1190,8 @@ class Database:
                             ('recurrence',    'TEXT DEFAULT NULL')]:
             try:
                 cursor.execute(f'ALTER TABLE tasks ADD COLUMN {_col} {_def}')
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # ── Task checklist items ───────────────────────────────────────────────
         cursor.execute('''
@@ -1444,6 +1444,11 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_plan_milestones     ON plan_milestone_alerts(user_id, plan_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_referrals_referrer  ON referrals(referrer_telegram_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_addons_user         ON subscription_addons(user_telegram_id, is_active, expires_at)')
+        try:
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_addons_payment ON subscription_addons(payment_request_id) WHERE payment_request_id IS NOT NULL')
+        except Exception as _e:
+            # legacy-данные с дублями payment_request_id — не валим миграции, лог + не-уникальный fallback
+            logger.warning("idx_addons_payment UNIQUE не создан (legacy дубли?): %s", _e)
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_user    ON chat_messages(user_id, created_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_id      ON chat_messages(id, is_deleted)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_topic   ON chat_messages(topic_id, id, is_deleted)')
@@ -2130,8 +2135,8 @@ class Database:
                 cfg = json.loads(row[0])
                 if isinstance(cfg, list) and 1 <= len(cfg) <= 4:
                     return cfg
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("get_user_nav_config: подавлено исключение: %s", _exc)
         return None
 
     def set_user_nav_config(self, telegram_id: int, config: list) -> bool:
@@ -2195,8 +2200,8 @@ class Database:
                             conn2.close()
                             if inserted:
                                 newly_hit.append((plan, actual, pct, milestone))
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("check_and_mark_plan_milestones: подавлено исключение: %s", _exc)
             return newly_hit
         except Exception as e:
             logger.error(f"Ошибка check_and_mark_plan_milestones: {e}")
@@ -2334,8 +2339,8 @@ class Database:
             if conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("create_yookassa_payment_record: подавлено исключение: %s", _exc)
                 conn.close()
             return False
         except Exception as e:
@@ -2343,8 +2348,8 @@ class Database:
             if conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("create_yookassa_payment_record: подавлено исключение: %s", _exc)
                 conn.close()
             return False
 
@@ -3410,6 +3415,7 @@ class Database:
             # Обработка надстроек (add-ons): addon_shops_1 или addon_products_1
             if plan_type and plan_type.startswith('addon_'):
                 _parts = plan_type.split('_')
+                _addon_ok = True
                 if len(_parts) >= 3:
                     _addon_key = _parts[1]   # 'shops' или 'products'
                     try:
@@ -3419,10 +3425,32 @@ class Database:
                     _user_info = self.get_user_by_id(user_id)
                     if _user_info:
                         _tg_id = _user_info[1]
+                        _addon_res = -1  # неизвестный addon_key не считаем ошибкой выдачи
                         if _addon_key == 'shops':
-                            self.create_subscription_addon(_tg_id, 'extra_shops', _qty, 150.0 * _qty, days=30)
+                            _addon_res = self.create_subscription_addon(_tg_id, 'extra_shops', _qty, 150.0 * _qty, days=30, payment_request_id=request_id)
                         elif _addon_key == 'products':
-                            self.create_subscription_addon(_tg_id, 'extra_products', _qty, 100.0 * _qty, days=30)
+                            _addon_res = self.create_subscription_addon(_tg_id, 'extra_products', _qty, 100.0 * _qty, days=30, payment_request_id=request_id)
+                        if _addon_res == 0:
+                            _addon_ok = False
+                if not _addon_ok:
+                    # Компенсация: надстройка не выдана → откат approved → pending,
+                    # чтобы админ мог повторить (иначе оплата без гранта).
+                    try:
+                        _cc = self.get_connection()
+                        _cc.execute(
+                            "UPDATE payment_requests SET status='pending', processed_at=NULL, processed_by=NULL WHERE id=?",
+                            (request_id,)
+                        )
+                        _cc.commit()
+                        _cc.close()
+                        logger.error(
+                            "confirm_payment_request: выдача надстройки не удалась для request_id=%s, "
+                            "user_id=%s, plan=%s. Статус заявки сброшен в pending.",
+                            request_id, user_id, plan_type
+                        )
+                    except Exception as _ce:
+                        logger.error("confirm_payment_request addon compensation: %s", _ce)
+                    return False
                 return True
 
             # Обработка модульных подписок: module_analytics, bundle_starter, etc.
@@ -3659,8 +3687,8 @@ class Database:
             )
             conn.commit()
             conn.close()
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("add_product_history: подавлено исключение: %s", _exc)
 
     def get_product_history(self, product_id: int, limit: int = 30):
         """Return last N changes for product. Rows: id,product_id,field,old_value,new_value,changed_by,changed_by_name,changed_at."""
@@ -3971,8 +3999,8 @@ class Database:
             if conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("add_inventory: подавлено исключение: %s", _exc)
                 conn.close()
             logger.error(f"Error in add_inventory: {e}")
             raise
@@ -4053,8 +4081,8 @@ class Database:
                 if conn:
                     try:
                         conn.rollback()
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("update_inventory: подавлено исключение: %s", _exc)
                     conn.close()
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     time.sleep(retry_delay)
@@ -4066,8 +4094,8 @@ class Database:
                 if conn:
                     try:
                         conn.rollback()
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("update_inventory: подавлено исключение: %s", _exc)
                     conn.close()
                 logger.error(f"Unexpected error in update_inventory: {e}")
                 raise
@@ -4344,8 +4372,8 @@ class Database:
                     # Добавляем хотя бы нулевую запись в случае ошибки
                     try:
                         self.add_seller_earning(sale_id, user_id, product_id, 0.0, 'percentage', 0.0)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("add_sale: подавлено исключение: %s", _exc)
 
                 return sale_id
 
@@ -4463,8 +4491,8 @@ class Database:
         finally:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("get_sales_heatmap: подавлено исключение: %s", _exc)
 
     def get_sales_summary(self, start_date=None, end_date=None,
                           shop_name=None, city=None, trade_network=None,
@@ -4578,14 +4606,14 @@ class Database:
             for tbl in ('seller_earnings', 'work_schedule'):
                 try:
                     cursor.execute(f'DELETE FROM {tbl} WHERE user_id IN ({uid_sub})', (telegram_id,))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("delete_user: подавлено исключение: %s", _exc)
 
             # salary_settings
             try:
                 cursor.execute(f'DELETE FROM salary_settings WHERE user_id IN ({uid_sub})', (telegram_id,))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("delete_user: подавлено исключение: %s", _exc)
 
             # sales_plans — только индивидуальные планы продавца, общие (shop/org) оставляем
             try:
@@ -4593,8 +4621,8 @@ class Database:
                     f'DELETE FROM sales_plans WHERE user_id IN ({uid_sub}) AND target_type = ?',
                     (telegram_id, 'seller')
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("delete_user: подавлено исключение: %s", _exc)
 
             # motivation_extra_conditions по user_id
             try:
@@ -4602,8 +4630,8 @@ class Database:
                     f'DELETE FROM motivation_extra_conditions WHERE user_id IN ({uid_sub})',
                     (telegram_id,)
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("delete_user: подавлено исключение: %s", _exc)
 
             # Прочие личные данные
             cursor.execute(f'DELETE FROM subscriptions WHERE user_id IN ({uid_sub})', (telegram_id,))
@@ -4838,8 +4866,8 @@ class Database:
                     ''', (sale_id, changed_by, old_quantity, quantity_sold,
                           old_price,
                           sale_price if sale_price is not None else old_price))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("update_sale: подавлено исключение: %s", _exc)
 
                 # ВАЖНО: коммит основной транзакции ДО вызова любых других методов DB.
                 # Внутренние вызовы (get_motivation_for_month, calculate_seller_commission)
@@ -4877,8 +4905,8 @@ class Database:
                               commission_info['motivation_type'], commission_info['motivation_value']))
                         conn2.commit()
                         conn2.close()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("update_sale: подавлено исключение: %s", _exc)
 
                 return True
 
@@ -4955,8 +4983,8 @@ class Database:
                         (sale_id, changed_by_user_id, old_quantity, new_quantity, old_price, new_price)
                         VALUES (?, ?, ?, ?, ?, ?)
                     ''', (sale_id, changed_by, old_quantity, quantity_sold, old_price, sale_price))
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("update_sale_full: подавлено исключение: %s", _exc)
 
                 conn.commit()
 
@@ -4988,8 +5016,8 @@ class Database:
                               commission_info['motivation_type'], commission_info['motivation_value']))
                         conn2.commit()
                         conn2.close()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("update_sale_full: подавлено исключение: %s", _exc)
 
                 return True
 
@@ -5068,8 +5096,8 @@ class Database:
                     SELECT ?, ?, quantity_sold, quantity_sold, sale_price, sale_price
                     FROM sales WHERE id = ?
                 ''', (sale_id, changed_by, sale_id))
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("update_sale_date: подавлено исключение: %s", _exc)
             conn.commit()
             conn.close()
             return True
@@ -5483,8 +5511,8 @@ class Database:
                 if datetime.utcnow().date() > exp_dt.date():
                     conn.close()
                     return {'valid': False, 'error': f'Срок действия промокода истёк ({expires_at})'}
-            except ValueError:
-                pass
+            except ValueError as _exc:
+                logger.debug("validate_promocode: подавлено исключение: %s", _exc)
 
         # Проверка лимита использований
         if usage_count >= max_usage:
@@ -5508,8 +5536,8 @@ class Database:
                 if plans_list and plan_key not in plans_list:
                     conn.close()
                     return {'valid': False, 'error': 'Этот промокод не действует для выбранного тарифа'}
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as _exc:
+                logger.debug("validate_promocode: подавлено исключение: %s", _exc)
 
         conn.close()
         remaining = max_usage - usage_count
@@ -5541,8 +5569,8 @@ class Database:
                     'INSERT OR IGNORE INTO promocode_usage_log (user_id, promocode_id) VALUES (?, ?)',
                     (user_id, promocode_id)
                 )
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("apply_promocode: подавлено исключение: %s", _exc)
         conn.commit()
         conn.close()
         return success
@@ -6605,8 +6633,8 @@ class Database:
         ]:
             try:
                 cursor.execute(f'ALTER TABLE contests ADD COLUMN {col} {defn}')
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("_ensure_contests_table: подавлено исключение: %s", _exc)
 
     def _ensure_contest_bonuses_table(self, cursor):
         """Тиры бонусов для per_sale конкурсов (бонус за каждую продажу)."""
@@ -6658,8 +6686,8 @@ class Database:
             if conn is not None:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("create_contest: подавлено исключение: %s", _exc)
                 conn.close()
             return None
 
@@ -6692,8 +6720,8 @@ class Database:
             if conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("save_contest_product_bonuses: подавлено исключение: %s", _exc)
                 conn.close()
             return False
 
@@ -6817,8 +6845,8 @@ class Database:
             if conn is not None:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("update_contest: подавлено исключение: %s", _exc)
                 conn.close()
             return False
 
@@ -7252,8 +7280,8 @@ class Database:
                             placeholders = ','.join('?' * len(ids))
                             conditions.append(f"s.product_id IN ({placeholders})")
                             params.extend(ids)
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        logger.debug("_calc_actual_for_plan: подавлено исключение: %s", _exc)
                 where = ' AND '.join(conditions)
                 q = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
                 try:
@@ -7660,8 +7688,8 @@ class Database:
                         placeholders = ','.join('?' * len(ids))
                         conditions.append(f"s.product_id IN ({placeholders})")
                         params.extend(ids)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("calculate_plan_actual: подавлено исключение: %s", _exc)
 
             where = ' AND '.join(conditions)
             query = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
@@ -8051,8 +8079,8 @@ class Database:
                                 raw_coeff = min(raw_coeff, 1.0)
                             plan_coeff = raw_coeff
                             plan_coeff_applied = True
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("get_seller_total_earnings: подавлено исключение: %s", _exc)
 
             if plan_coeff_applied:
                 total = round(total * plan_coeff, 2)
@@ -9391,22 +9419,59 @@ class Database:
 
     # ─── Subscription Add-ons ─────────────────────────────────────────────
     def create_subscription_addon(self, telegram_id: int, addon_type: str, quantity: int,
-                                  amount_paid: float, days: int = 30) -> int:
-        """Создать надстройку подписки. Возвращает id новой записи."""
+                                  amount_paid: float, days: int = 30,
+                                  payment_request_id: int = None) -> int:
+        """Создать надстройку подписки. Возвращает id новой записи.
+
+        Идемпотентно по payment_request_id: повторный вызов с тем же payment_request_id
+        не создаёт дубликат, а возвращает id уже существующей надстройки. Защита от
+        двойного клика/ретрая при подтверждении оплаты (money-риск: иначе одна оплата
+        наращивала бы лимиты несколько раз).
+        """
         from datetime import datetime as _dt, timedelta as _td
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
+            if payment_request_id is not None:
+                cursor.execute(
+                    'SELECT id FROM subscription_addons WHERE payment_request_id = ?',
+                    (payment_request_id,)
+                )
+                _existing = cursor.fetchone()
+                if _existing:
+                    logger.warning(
+                        "create_subscription_addon: дубль по payment_request_id=%s — пропуск, возврат id=%s",
+                        payment_request_id, _existing[0]
+                    )
+                    return _existing[0]
             expires_at = (_dt.now() + _td(days=days)).isoformat()
             cursor.execute('''
                 INSERT INTO subscription_addons
-                    (user_telegram_id, addon_type, quantity, amount_paid, expires_at, is_active)
-                VALUES (?, ?, ?, ?, ?, 1)
-            ''', (telegram_id, addon_type, quantity, amount_paid, expires_at))
+                    (user_telegram_id, addon_type, quantity, price, expires_at, payment_request_id, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+            ''', (telegram_id, addon_type, quantity, amount_paid, expires_at, payment_request_id))
             addon_id = cursor.lastrowid
             conn.commit()
             return addon_id
         except Exception as e:
+            # Гонка: параллельная вставка с тем же payment_request_id словила UNIQUE-индекс.
+            # Это не ошибка — возвращаем id уже существующей надстройки (идемпотентность).
+            if payment_request_id is not None:
+                try:
+                    conn.rollback()
+                    cursor.execute(
+                        'SELECT id FROM subscription_addons WHERE payment_request_id = ?',
+                        (payment_request_id,)
+                    )
+                    _row = cursor.fetchone()
+                    if _row:
+                        logger.warning(
+                            "create_subscription_addon: гонка по payment_request_id=%s, возврат id=%s",
+                            payment_request_id, _row[0]
+                        )
+                        return _row[0]
+                except Exception as _e2:
+                    logger.debug("create_subscription_addon recovery: %s", _e2)
             logger.error(f"create_subscription_addon: {e}")
             return 0
         finally:
@@ -9418,7 +9483,7 @@ class Database:
         cursor = conn.cursor()
         try:
             cursor.execute('''
-                SELECT id, addon_type, quantity, amount_paid, expires_at
+                SELECT id, addon_type, quantity, price, expires_at
                 FROM subscription_addons
                 WHERE user_telegram_id = ? AND is_active = 1
                   AND (expires_at IS NULL OR expires_at > datetime('now'))
@@ -9747,8 +9812,8 @@ class Database:
                 while cur <= d_end:
                     paid_days.add(cur)
                     cur += timedelta(days=1)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("get_paid_absence_days_count: подавлено исключение: %s", _exc)
         return len(paid_days)
 
     def get_absence_used_days(self, user_id: int, atype: str, year: int) -> int:
@@ -9777,8 +9842,8 @@ class Database:
                 d_end = min(date.fromisoformat(ed[:10]), year_end)
                 if d_end >= d_start:
                     total += (d_end - d_start).days + 1
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("get_absence_used_days: подавлено исключение: %s", _exc)
         return total
 
     def apply_absence_penalty(self, user_id: int, absence_id: int,
