@@ -50,6 +50,35 @@ def _is_configured() -> bool:
     return len(compact) >= 20 and " " not in compact
 
 
+def generate_vapid_keypair() -> dict:
+    """Generate a fresh VAPID (EC P-256) keypair for Web Push.
+
+    Returns:
+      - private_pem: PKCS8 PEM string → paste into env var VAPID_PRIVATE_KEY.
+      - public_b64:  raw uncompressed point, url-safe base64 без padding →
+                     env var VAPID_PUBLIC_KEY (он же applicationServerKey в браузере).
+
+    Nothing is persisted — the private key is returned once for the admin to copy.
+    """
+    import base64 as _b64
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    priv = ec.generate_private_key(ec.SECP256R1())
+    private_pem = priv.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8").strip()
+    raw_pub = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.X962,
+        format=serialization.PublicFormat.UncompressedPoint,
+    )
+    public_b64 = _b64.urlsafe_b64encode(raw_pub).rstrip(b"=").decode("utf-8")
+    return {"private_pem": private_pem, "public_b64": public_b64}
+
+
 def _get_subscriptions(tg_id: int) -> list[dict]:
     """Return all push_subscriptions for a telegram_id from shop_bot.db."""
     try:

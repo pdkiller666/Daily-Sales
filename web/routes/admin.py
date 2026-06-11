@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from backup_manager import BackupManager
 from database import Database
@@ -428,11 +428,39 @@ async def admin_push_diagnostics(request: Request):
     except Exception:
         viewer_tz = "Europe/Moscow"
     diag = _gather_push_diagnostics(viewer_tz)
+    diag["csrf_token"] = get_csrf_token(request)
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/push_diagnostics.html",
         _ctx(request, user, diag),
     )
+
+
+@router.post("/push-diagnostics/generate-vapid")
+def admin_generate_vapid(request: Request, csrf_token: str = Form("")):
+    """Generate a fresh VAPID keypair for the super-admin to paste into Amvera env.
+
+    Keys are returned once and never persisted/logged. Rotating them invalidates
+    all existing push_subscriptions (clients must re-subscribe).
+    """
+    user = get_session_user(request)
+    if _guard(user):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"error": "csrf"}, status_code=403)
+    try:
+        from push_utils import generate_vapid_keypair
+        keys = generate_vapid_keypair()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    mailto = (os.environ.get("VAPID_MAILTO") or "").strip()
+    if mailto and not mailto.startswith("mailto:"):
+        mailto = "mailto:" + mailto
+    return JSONResponse({
+        "private_pem": keys["private_pem"],
+        "public_b64": keys["public_b64"],
+        "mailto": mailto or "mailto:admin@dailysales.app",
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────

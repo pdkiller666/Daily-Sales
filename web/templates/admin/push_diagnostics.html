@@ -44,6 +44,68 @@
     {% endif %}
 </div>
 
+<!-- ── Генерация VAPID-ключей ─────────────────────────────────────────── -->
+<div class="card p-5 mb-4" x-data="vapidGen()">
+    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Генерация VAPID-ключей</p>
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3 leading-relaxed">
+        Создаёт новую пару ключей для Web Push. Скопируйте их в переменные окружения на Amvera
+        (<code>VAPID_PRIVATE_KEY</code>, <code>VAPID_PUBLIC_KEY</code>, при необходимости <code>VAPID_MAILTO</code>)
+        и перезапустите приложение. Ключи нигде не сохраняются — показываются один раз.
+    </p>
+    <div class="rounded-xl border-l-4 border-red-400 bg-red-50 dark:bg-red-900/20 px-4 py-3 mb-4">
+        <p class="text-sm text-red-700 dark:text-red-300">
+            ⚠️ Смена ключей обнулит все текущие подписки ({{ total_subs }} устр.) — пользователям придётся
+            заново разрешить уведомления в браузере. При первичной настройке (когда пушей ещё нет) это безопасно.
+        </p>
+    </div>
+
+    <button type="button" @click="generate()" :disabled="loading"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm disabled:opacity-60 transition">
+        <span x-show="!loading">🔑 Сгенерировать ключи</span>
+        <span x-show="loading" x-cloak>Генерация…</span>
+    </button>
+    <p x-show="error" x-cloak x-text="error" class="text-sm text-red-600 dark:text-red-400 mt-2"></p>
+
+    <template x-if="keys">
+        <div class="mt-4 space-y-3" x-cloak>
+            <!-- VAPID_PRIVATE_KEY -->
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400">VAPID_PRIVATE_KEY</label>
+                    <button type="button" @click="copy(keys.private, $event)"
+                            class="text-xs px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium">Копировать</button>
+                </div>
+                <textarea readonly rows="5" x-text="keys.private" @click="$event.target.select()"
+                          class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 resize-y"></textarea>
+            </div>
+            <!-- VAPID_PUBLIC_KEY -->
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400">VAPID_PUBLIC_KEY</label>
+                    <button type="button" @click="copy(keys.public, $event)"
+                            class="text-xs px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium">Копировать</button>
+                </div>
+                <input readonly :value="keys.public" @click="$event.target.select()"
+                       class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5">
+            </div>
+            <!-- VAPID_MAILTO -->
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400">VAPID_MAILTO</label>
+                    <button type="button" @click="copy(keys.mailto, $event)"
+                            class="text-xs px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium">Копировать</button>
+                </div>
+                <input readonly :value="keys.mailto" @click="$event.target.select()"
+                       class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5">
+            </div>
+            <p class="text-xs text-slate-400 mt-1">
+                После вставки в Amvera → раздел «Переменные» → сохранить → перезапустить приложение.
+                Затем обновите эту страницу: «Приватный ключ» должен стать ✓ Настроен.
+            </p>
+        </div>
+    </template>
+</div>
+
 <!-- ── Сводка по провайдерам ─────────────────────────────────────────── -->
 <div class="card p-5 mb-4">
     <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Подписки по провайдерам</p>
@@ -118,5 +180,47 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+function vapidGen() {
+    return {
+        loading: false,
+        error: '',
+        keys: null,
+        async generate() {
+            this.loading = true;
+            this.error = '';
+            this.keys = null;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', '{{ csrf_token }}');
+                const r = await fetch('/admin/push-diagnostics/generate-vapid', { method: 'POST', body: fd });
+                if (!r.ok) {
+                    this.error = 'Ошибка генерации (код ' + r.status + ')';
+                    this.loading = false;
+                    return;
+                }
+                const d = await r.json();
+                this.keys = {
+                    private: d.private_pem,
+                    public: d.public_b64,
+                    mailto: d.mailto || 'mailto:admin@dailysales.app'
+                };
+            } catch (e) {
+                this.error = 'Сеть недоступна, попробуйте ещё раз';
+            }
+            this.loading = false;
+        },
+        copy(text, ev) {
+            navigator.clipboard.writeText(text).then(() => {
+                const el = ev.target;
+                const orig = el.textContent;
+                el.textContent = '✓ Скопировано';
+                setTimeout(() => { el.textContent = orig; }, 1400);
+            }).catch(() => {});
+        }
+    };
+}
+</script>
 
 {% endblock %}
