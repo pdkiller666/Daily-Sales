@@ -511,6 +511,13 @@ async def settings_change_password(
         return RedirectResponse(url="/settings?email_error=passwords_mismatch#security", status_code=302)
 
     tg_id = int(user["sub"])
+    # Rate-limit: эндпоинт проверяет старый пароль → защищаем от перебора (5 / 10 мин).
+    try:
+        from web.rate_store import check_rate_limit
+        if not check_rate_limit(f"pwchange:{tg_id}", max_requests=5, window_seconds=600):
+            return RedirectResponse(url="/settings?email_error=rate_limited#security", status_code=302)
+    except Exception:
+        pass
     try:
         db = _shop_db()
         cred = db.get_web_credential_by_telegram_id(tg_id)

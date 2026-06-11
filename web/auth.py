@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 
-from jose import jwt, JWTError
+import jwt
 
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 if not BOT_TOKEN:
@@ -85,7 +85,7 @@ def create_session_token(telegram_id: int, first_name: str, org_db: str, role: s
 def decode_session_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(token, _SECRET, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 

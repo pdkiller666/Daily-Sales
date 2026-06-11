@@ -227,6 +227,41 @@ try:
 except Exception as _e:
     _fn_fail("subscription_addons idempotency", _e)
 
+# 7. web.auth: JWT round-trip (PyJWT) + отклонение мусора + CSRF derive
+try:
+    import os as _os7
+    _os7.environ.setdefault('BOT_TOKEN', 'test-token-123')
+    from web.auth import create_session_token, decode_session_token, get_csrf_token, verify_csrf_token
+    _tok = create_session_token(424242, 'Тест', 'data/main.db', 'owner')
+    assert isinstance(_tok, str), "токен должен быть str (PyJWT)"
+    _dec = decode_session_token(_tok)
+    assert _dec and _dec['sub'] == '424242' and _dec['role'] == 'owner', _dec
+    assert decode_session_token('garbage.token.value') is None, "мусорный токен должен дать None"
+    _fn_ok("web.auth: PyJWT round-trip + reject invalid")
+except Exception as _e:
+    _fn_fail("web.auth PyJWT", _e)
+
+# 8. web.app: create_web_app() собирается без ошибок (проверка роутов/шаблонов)
+try:
+    from web.app import create_web_app
+    _app = create_web_app()
+    assert len(_app.routes) > 50, f"подозрительно мало роутов: {len(_app.routes)}"
+    _fn_ok(f"web.app: create_web_app построен ({len(_app.routes)} роутов)")
+except Exception as _e:
+    _fn_fail("web.app create_web_app", _e)
+
+# 9. rate_store: лимит срабатывает после max_requests
+try:
+    import time as _t9
+    from web.rate_store import check_rate_limit
+    _key = f"selftest:{_t9.time()}"
+    _allowed = sum(1 for _ in range(3) if check_rate_limit(_key, max_requests=3, window_seconds=60))
+    assert _allowed == 3, f"первые 3 должны пройти, прошло {_allowed}"
+    assert check_rate_limit(_key, max_requests=3, window_seconds=60) is False, "4-й запрос должен быть заблокирован"
+    _fn_ok("rate_store: блокировка после лимита")
+except Exception as _e:
+    _fn_fail("rate_store limit", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)
