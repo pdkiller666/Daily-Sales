@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 _SHOP_BOT_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "shop_bot.db")
 
 _raw_vapid_key = os.environ.get("VAPID_PRIVATE_KEY", "")
-_VAPID_PRIVATE = _raw_vapid_key.replace("\\n", "\n")
+# Strip surrounding whitespace/quotes that often sneak in when pasting a
+# multi-line PEM into a hosting env-var UI (e.g. Amvera) — a leading newline
+# would otherwise break the "-----BEGIN" check and silently disable Web Push.
+_VAPID_PRIVATE = _raw_vapid_key.replace("\\n", "\n").strip().strip('"').strip("'").strip()
 
 _VAPID_MAILTO = (os.environ.get("VAPID_MAILTO", "") or "").strip()
 if not _VAPID_MAILTO:
@@ -36,7 +39,15 @@ def _vapid_claims() -> dict:
 
 
 def _is_configured() -> bool:
-    return bool(_VAPID_PRIVATE and _VAPID_PRIVATE.startswith("-----BEGIN"))
+    # Accept both PEM (PKCS8/SEC1 "-----BEGIN ... KEY-----") and raw url-safe
+    # base64 application-server keys. Be lenient about exact prefix/whitespace.
+    if not _VAPID_PRIVATE:
+        return False
+    if "BEGIN" in _VAPID_PRIVATE and "KEY" in _VAPID_PRIVATE:
+        return True
+    # raw base64 VAPID private key (no PEM wrapper) — typically ~43 chars
+    compact = _VAPID_PRIVATE.replace("\n", "").replace("=", "")
+    return len(compact) >= 20 and " " not in compact
 
 
 def _get_subscriptions(tg_id: int) -> list[dict]:
