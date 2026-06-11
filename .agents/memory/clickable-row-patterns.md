@@ -21,13 +21,24 @@ unlinked when they already navigate via onclick or href).
 AND `href=`. Read the actual row loop markup — do not trust an href-only search or a
 subagent that only looked for anchors.
 
-## Verified current state (as of 2026-06-11)
-- Already clickable: inventory rows (onclick→/products/{id}), staff rows (onclick→/staff/{id}),
-  shops (href→/inventory?shop= and /shops/{name}/stock), plans rows (href→/plans/{id}),
-  rankings sellers→/staff/{id} & shops→/inventory?shop=, reports product tops→/products/{id},
-  sales journal product name→/products/{id} (since 2026-06-09).
-- Genuinely NOT clickable: dashboard "Последние продажи" rows (plain <p>; recent_sales tuple
-  has NO product_id — s[0]=sale_id, s[1]=name, s[5]=first_name only, no seller id → enabling
-  links needs a query change to add ids), and rankings "Cities" tab rows (no onclick branch).
-- Weak affordance (works but no visual cue beyond hover color, invisible on touch): sales
-  journal product link; journal shop (s[2]) and seller (s[9]) columns are not linked at all.
+## Stat-card filter-toggle pattern (Остатки/Планы)
+Stat cards ("Нет в наличии"/"Мало", "Выполнено"/"В процессе") double as filter toggles
+via `?status=` query params, NOT just decoration.
+
+**Why:** users expect to click a count and see that subset.
+
+**How to apply (two non-obvious invariants):**
+1. **Counts BEFORE filter** — compute the card numbers on the full (shop/q/category) set,
+   THEN apply the status filter to the displayed list only. Otherwise a toggled card shows
+   its own filtered count instead of the total, and the other cards read 0.
+2. **Summary + reset OUTSIDE the empty-list gate** — gate the strip on
+   `{% if data or selected_status %}` (a separate block from `{% if grouped/list %}`), and
+   make the empty-state filter-aware with its own reset link. Otherwise selecting a filter
+   that yields zero rows hides the cards/reset and strands the user (must hand-edit the URL).
+
+## Filter state must survive cross-navigation
+When a list view carries a filter (e.g. rankings `city` on the shops tab), every other
+nav control on the page (period chips, tab pills, custom-range apply/reset) must re-append
+that param or it silently drops on the next click. Pattern: set one Jinja var
+(`{% set _city_q = "&city="~(selected_city|urlencode) if selected_city else "" %}`) and
+append it to each link. Always `|urlencode` user labels (Cyrillic shop/city names → 400 raw).
