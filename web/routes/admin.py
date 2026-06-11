@@ -415,6 +415,27 @@ async def admin_delete_backup(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Push diagnostics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/push-diagnostics")
+async def admin_push_diagnostics(request: Request):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    try:
+        viewer_tz = _db().get_user_timezone(int(user["sub"])) or "Europe/Moscow"
+    except Exception:
+        viewer_tz = "Europe/Moscow"
+    diag = _gather_push_diagnostics(viewer_tz)
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "admin/push_diagnostics.html",
+        _ctx(request, user, diag),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -597,3 +618,153 @@ def _search_global_users(q: str) -> list[dict]:
         pass
 
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Push diagnostics helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _push_provider(endpoint: str) -> dict:
+    """Classify a Web Push endpoint by provider to flag delivery-reliability risks."""
+    e = (endpoint or "").lower()
+    if "fcm.googleapis.com" in e or "android.googleapis.com" in e:
+        return {
+            "label": "Google FCM",
+            "icon": "🤖",
+            "note": "Требует Google Play Services. На Huawei без GMS фоновая доставка не работает — "
+                    "пуши приходят пачкой при открытии PWA.",
+            "risk": True,
+        }
+    if "mozilla.com" in e:
+        return {"label": "Mozilla (Firefox)", "icon": "🦊", "note": "", "risk": False}
+    if "notify.windows.com" in e or "wns2-" in e or "wns.windows.com" in e:
+        return {"label": "Windows (Edge)", "icon": "🪟", "note": "", "risk": False}
+    if "push.apple.com" in e:
+        return {"label": "Apple (Safari)", "icon": "🍎", "note": "", "risk": False}
+    return {"label": "Другой", "icon": "🌐", "note": "", "risk": False}
+
+
+def _resolve_push_user_names(tg_ids: list) -> dict:
+    """Map telegram_id → {name, source, shop} across central + per-org DBs."""
+    names: dict = {}
+    if not tg_ids:
+        return names
+    ids = list({int(t) for t in tg_ids})
+    placeholders = ",".join("?" * len(ids))
+
+    conn = None
+    try:
+        conn = _raw_conn()
+        for r in conn.execute(
+            f"SELECT telegram_id, first_name, last_name, username, shop_name "
+            f"FROM users WHERE telegram_id IN ({placeholders})", ids
+        ).fetchall():
+            nm = f"{r[1] or ''} {r[2] or ''}".strip() or (f"@{r[3]}" if r[3] else "")
+            names[int(r[0])] = {
+                "name": nm or f"ID {r[0]}",
+                "source": "Центральная БД",
+                "shop": r[4] or "",
+            }
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+    missing = [i for i in ids if i not in names]
+    if missing:
+        try:
+            for org_row in tenant_manager.get_all_organizations():
+                if not missing:
+                    break
+                org_name, db_path = org_row[1], org_row[2]
+                if not db_path or not os.path.exists(db_path):
+                    continue
+                ph = ",".join("?" * len(missing))
+                oc = None
+                try:
+                    oc = _raw_conn(db_path)
+                    for r in oc.execute(
+                        f"SELECT telegram_id, first_name, last_name, shop_name "
+                        f"FROM users WHERE telegram_id IN ({ph})", missing
+                    ).fetchall():
+                        nm = f"{r[1] or ''} {r[2] or ''}".strip()
+                        names[int(r[0])] = {
+                            "name": nm or f"ID {r[0]}",
+                            "source": org_name,
+                            "shop": r[3] or "",
+                        }
+                except Exception:
+                    continue
+                finally:
+                    if oc:
+                        oc.close()
+                missing = [i for i in ids if i not in names]
+        except Exception:
+            pass
+
+    return names
+
+
+def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
+    """Collect Web Push subscription state for the super-admin diagnostics page."""
+    from timezone_utils import format_user_datetime as _fmt
+    try:
+        from push_utils import _is_configured
+        vapid_ok = _is_configured()
+    except Exception:
+        vapid_ok = False
+    vapid_public_set = bool(os.environ.get("VAPID_PUBLIC_KEY"))
+    vapid_mailto_set = bool((os.environ.get("VAPID_MAILTO") or "").strip())
+
+    rows = []
+    conn = None
+    try:
+        conn = _raw_conn()
+        rows = conn.execute(
+            "SELECT user_id, endpoint, created_at FROM push_subscriptions "
+            "ORDER BY user_id, created_at DESC"
+        ).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        if conn:
+            conn.close()
+
+    names = _resolve_push_user_names([r[0] for r in rows])
+
+    by_user: dict = {}
+    provider_counts: dict = {}
+    for uid, endpoint, created in rows:
+        prov = _push_provider(endpoint)
+        provider_counts[prov["label"]] = provider_counts.get(prov["label"], 0) + 1
+        info = names.get(int(uid), {"name": f"ID {uid}", "source": "—", "shop": ""})
+        g = by_user.setdefault(int(uid), {
+            "telegram_id": uid,
+            "name": info["name"],
+            "source": info["source"],
+            "shop": info["shop"],
+            "devices": [],
+            "has_risk": False,
+        })
+        if prov["risk"]:
+            g["has_risk"] = True
+        g["devices"].append({
+            "provider": prov["label"],
+            "icon": prov["icon"],
+            "note": prov["note"],
+            "risk": prov["risk"],
+            "created": _fmt(str(created).replace("T", " "), viewer_tz, "%d.%m.%Y %H:%M") if created else "—",
+        })
+
+    users = sorted(by_user.values(), key=lambda x: (not x["has_risk"], x["name"].lower()))
+
+    return {
+        "vapid_ok": vapid_ok,
+        "vapid_public_set": vapid_public_set,
+        "vapid_mailto_set": vapid_mailto_set,
+        "total_subs": len(rows),
+        "total_users": len(by_user),
+        "provider_counts": provider_counts,
+        "push_users": users,
+    }

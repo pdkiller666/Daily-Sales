@@ -24,6 +24,8 @@
 - [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
 - [Chat plan check bug](chat-plan-bug.md) — _get_org_active_plan() в chat.py: org plan из main.db должен быть ПЕРЕД shop_bot.db; иначе вечный 'Бесплатный' ряд блокирует Премиум у приглашённых членов
 - [Web Push VAPID](web-push-vapid.md) — push_utils API (send_web_push/bulk/apush); правило: в async никогда sync send_web_push (только apush/to_thread); покрытие зеркалит Telegram (DM/чат/задачи/рассылка/отсутствия)
+- [Notification timestamps TZ](notification-timestamps-tz.md) — времена уведомлений хранятся в UTC; колокольчик/история обязаны конвертить через timezone_utils, не сырой срез строки (был баг UTC+7)
+- [Huawei Web Push background](huawei-webpush-background.md) — фон Web Push на Chromium требует FCM/GMS; Huawei без GMS не будит браузер → пачка при открытии; ограничение устройства, не сервера
 - [Product photo gallery](product-photo-gallery.md) — product_photos в org_*.db; org-hash subdir /static/product_photos/{hash}/; бот скачивает через Bot API; веб multi-upload; свайп+лайтбокс Alpine; collapsible description
 - [AI LLM integration](ai-llm-integration.md) — web/ai_utils.py: fallback DeepSeek→Gemini→OpenRouter via aiohttp; 3 API routes /api/ai/*; APScheduler job ai_smart_alerts (07:05); NO httpx (use aiohttp); CSP не менять (server-side calls)
 - [Modular billing system](billing-system.md) — billing_utils.py + 4 DB tables in shop_bot.db; 18 DB methods; /admin/billing/* routes; get_all_billing_bundles() pre-parses includes_json → b.includes (avoid fromjson filter)

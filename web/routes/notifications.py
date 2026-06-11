@@ -166,7 +166,7 @@ def notifications_page(
                     "type": h[2] or "admin",
                     "message": h[3] or "",
                     "is_read": bool(h[4]),
-                    "created_at": str(h[5] or "")[:16],
+                    "created_at": _fmt_scheduled_dt(h[5], tz_name) if h[5] else "",
                     "url": _notif_url(h[2] or "admin"),
                 }
                 for h in hist_raw

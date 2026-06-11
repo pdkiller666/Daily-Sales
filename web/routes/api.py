@@ -137,13 +137,16 @@ def my_notifications(request: Request, limit: int = 20):
 
         dms = db.get_dm_unread_count(user_db_id)
 
+        from timezone_utils import format_user_datetime as _fmt_dt
+        _tz = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+
         items = [
             {
                 "id": r[0],
                 "type": r[1] or "admin",
                 "message": r[2] or "",
                 "is_read": bool(r[3]),
-                "created_at": (lambda s: f"{s[8:10]}.{s[5:7]}.{s[:4]} {s[11:16]}" if s and len(s) >= 16 else s)(str(r[4] or "").replace("T"," ")),
+                "created_at": _fmt_dt(str(r[4]).replace("T", " "), _tz, "%d.%m.%Y %H:%M") if r[4] else "",
                 "url": _notif_url(r[1] or "admin"),
             }
             for r in rows

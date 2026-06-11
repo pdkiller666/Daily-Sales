@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Диагностика Push{% endblock %}
+{% block breadcrumb %}
+<span class="text-slate-400">Система</span>
+<span class="mx-1 text-slate-300">/</span>
+<a href="/admin" class="hover:text-slate-700 dark:hover:text-slate-200">Супер-Кабинет</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Диагностика Push</span>
+{% endblock %}
+
+{% block content %}
+{% from "admin/_macros.html" import page_header %}
+
+{{ page_header('📲', 'Диагностика Web Push', total_users ~ ' польз. · ' ~ total_subs ~ ' устройств') }}
+
+<!-- ── VAPID статус ──────────────────────────────────────────────────── -->
+<div class="card p-5 mb-4">
+    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Конфигурация сервера (VAPID)</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="rounded-xl border px-4 py-3 {% if vapid_ok %}border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20{% else %}border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20{% endif %}">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Приватный ключ</p>
+            <p class="font-bold {% if vapid_ok %}text-emerald-600 dark:text-emerald-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                {% if vapid_ok %}✓ Настроен{% else %}✗ Не настроен{% endif %}
+            </p>
+        </div>
+        <div class="rounded-xl border px-4 py-3 {% if vapid_public_set %}border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20{% else %}border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20{% endif %}">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Публичный ключ</p>
+            <p class="font-bold {% if vapid_public_set %}text-emerald-600 dark:text-emerald-400{% else %}text-amber-600 dark:text-amber-400{% endif %}">
+                {% if vapid_public_set %}✓ Задан{% else %}⚠ Не задан{% endif %}
+            </p>
+        </div>
+        <div class="rounded-xl border px-4 py-3 {% if vapid_mailto_set %}border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20{% else %}border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20{% endif %}">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Контакт (mailto)</p>
+            <p class="font-bold {% if vapid_mailto_set %}text-emerald-600 dark:text-emerald-400{% else %}text-amber-600 dark:text-amber-400{% endif %}">
+                {% if vapid_mailto_set %}✓ Задан{% else %}⚠ Дефолтный{% endif %}
+            </p>
+        </div>
+    </div>
+    {% if not vapid_ok %}
+    <p class="text-xs text-red-600 dark:text-red-400 mt-3">
+        Web Push отключён: переменная окружения <code>VAPID_PRIVATE_KEY</code> не задана или некорректна.
+        Уведомления дублируются в Telegram и колокольчик, но браузерные пуши отправляться не будут.
+    </p>
+    {% endif %}
+</div>
+
+<!-- ── Сводка по провайдерам ─────────────────────────────────────────── -->
+<div class="card p-5 mb-4">
+    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Подписки по провайдерам</p>
+    {% if provider_counts %}
+    <div class="flex flex-wrap gap-2">
+        {% for label, cnt in provider_counts.items() %}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium
+                     bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+            {{ label }} <span class="text-slate-400">·</span> <b>{{ cnt }}</b>
+        </span>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-400">Подписок нет.</p>
+    {% endif %}
+</div>
+
+<!-- ── Памятка о Huawei / FCM ─────────────────────────────────────────── -->
+<div class="card p-5 mb-4 border-l-4 border-amber-400">
+    <p class="font-bold text-slate-800 dark:text-slate-100 mb-1">⚠️ Про устройства без Google Play Services (Huawei)</p>
+    <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+        Фоновая доставка Web Push в Chromium-браузерах опирается на Google FCM. На устройствах Huawei без
+        сервисов Google (GMS) браузер не будит фоновый процесс — пуши копятся и приходят пачкой при открытии
+        PWA. Это ограничение устройства, а не сервера. Для таких клиентов уведомления всё равно дублируются
+        в Telegram и в колокольчик внутри кабинета.
+    </p>
+</div>
+
+<!-- ── Таблица подписчиков ───────────────────────────────────────────── -->
+<div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Подписчики ({{ total_users }})</p>
+    </div>
+    {% if push_users %}
+    <div class="divide-y divide-slate-100 dark:divide-slate-700">
+        {% for u in push_users %}
+        <div class="px-5 py-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="min-w-0">
+                    <p class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        {{ u.name }}
+                        {% if u.has_risk %}
+                        <span class="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold">риск фона</span>
+                        {% endif %}
+                    </p>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        {{ u.source }}{% if u.shop %} · {{ u.shop }}{% endif %} · TG ID {{ u.telegram_id }}
+                    </p>
+                </div>
+                <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{ u.devices|length }} устр.</span>
+            </div>
+            <div class="mt-2 space-y-1">
+                {% for d in u.devices %}
+                <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <span>{{ d.icon }}</span>
+                    <span class="font-medium">{{ d.provider }}</span>
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span class="text-slate-400">{{ d.created }}</span>
+                    {% if d.note %}
+                    <span class="text-amber-600 dark:text-amber-400 ml-1">{{ d.note }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-5 py-10 text-center text-slate-400">
+        <p class="text-3xl mb-2">🔕</p>
+        <p>Никто ещё не подписался на Web Push.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}
