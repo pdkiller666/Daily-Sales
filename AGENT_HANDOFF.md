@@ -35,6 +35,20 @@ Workflow: "Start application" → python main.py
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
+**Сессия 640 (2026-06-11) — Улучшения из глубокого код-ревью (волны A/B/C, тест+деплой):**
+- **Волна A (деплой GitHub `2e3e3a4` / Amvera `f66337d`):**
+  - **A1 money-баг + идемпотентность аддонов**: `create_subscription_addon` писал в несуществующую колонку (`amount_paid`) → теперь `price`. Привязка к `payment_request_id`: partial UNIQUE index (try/except-guarded) + перехват IntegrityError (гонка) → re-SELECT. Ветка `addon_*` в `confirm_payment_request` проверяет `result==0` и компенсирует заявку (approved→pending), не оставляя оплату без выдачи.
+  - **A2 логирование**: 42 немых `except: pass` в `database.py` → `logger.debug` (без смены control flow).
+- **Волна B (деплой GitHub `2409f49` / Amvera `3ef5bb7`):**
+  - **B3 безопасный restore**: `backup_manager.restore_backup` через SQLite Online Backup API (`src.backup(dest)`) + ограниченный retry (5×, добавлен `import time`) вместо `shutil.copy2` поверх открытых соединений.
+  - **B4 event-loop offload**: admin `/orgs/{id}/delete` и `/backups/create` `async`→`def` (threadpool); цикл записи продаж в `pos_checkout` вынесен в `_write_sales()` через `await anyio.to_thread.run_sync`. Соединения thread-safe (`check_same_thread=False` + threading.local pool).
+- **Волна C — безопасное подмножество (деплой GitHub `53a6008` / Amvera `f840e53`):**
+  - **#9 jose→PyJWT**: установлен `PyJWT==2.13.0`; `web/auth.py` `import jwt`, `except jwt.PyJWTError`; проверена обратная совместимость токенов (живые сессии не инвалидируются). Дедуп `requirements.txt` (был полностью дублирован), удалён `python-jose`.
+  - **#6 rate-limit**: `check_rate_limit` (5/600s по tg_id) на `POST /settings/email-change-password` (verify старого пароля → защита от брутфорса).
+  - **#10 тесты**: +3 функциональных теста в `test_imports.py` (PyJWT round-trip + reject-invalid, `create_web_app()` build = 254 роута, rate_store limit) — всего 9, все зелёные.
+- **Пропущено по решению пользователя**: #5 (лимиты/пагинация экспортов — менял поведение выгрузок), #7 (Depends-авторизация, ~91 роут), #8 (Pydantic-валидация) — широкий рискованный рефактор живого биллинга с косметической пользой.
+- **Проверки**: `test_imports.py` 9 OK; рестарт воркфлоу чистый; smoke `login`=200, `/dashboard` (no-auth)=302. Architect review: PASS по всем трём волнам.
+
 **Сессия 629 (2026-06-10) — G1–G5: консистентность модульного биллинга в боте:**
 - **G2**: `subscription_menu` — список модулей теперь динамический (`get_all_billing_modules()`); статус каждого через `has_module()`; fallback на legacy-флаги при ошибке
 - **G1**: Самостоятельная покупка модулей/пакетов в боте — кнопка «🧩 Подключить модули» в меню подписки; `buy_modules` — список с ценами и статусами; `start_module_purchase` — СБП (скриншот) или ЮKassa. `plan_type = module_<key> / bundle_<key>`; выдача через уже существующую `confirm_payment_request → grant_billing_item(30d)`. Зарегистрировано в `subscription_router.py`

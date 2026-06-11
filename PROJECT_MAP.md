@@ -757,7 +757,7 @@ run:
 ### Стек
 FastAPI + Uvicorn (порт 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js
 
-Запускается в `main.py` через `threading.Thread`; аутентификация — Telegram Login Widget → JWT cookie `web_session` (24ч).
+Запускается в `main.py` через `threading.Thread`; аутентификация — Telegram Login Widget → JWT cookie `web_session` (PyJWT/HS256, 7д).
 
 ### Файловая структура
 ```
@@ -944,6 +944,9 @@ web/
 - **Web Push VAPID**: `web/push_utils.py` — `send_web_push(subscription, payload)` via pywebpush 2.3.0; `push_subscriptions` table in `shop_bot.db` UNIQUE(telegram_id, endpoint); env vars `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_MAILTO`; triggered from pos.py/tasks.py/chat.py; subscribe validation: endpoint must start `https://`, ≤2048; p256dh ≤256; auth ≤128
 - **App Badge API**: `/api/unread-count` → `{ok, notifications, dms, total}`; `_setAppBadge(n)` + `window.dsRefreshBadge()` in base.html; SW sets badge on push; `visibilitychange` clears badge on tab focus
 - **SQLite WAL (web layer)**: `_enable_wal()` in `web/deps.py` sets `PRAGMA journal_mode=WAL` + `PRAGMA synchronous=NORMAL` on every `get_web_db()` call — reduces bot/web lock contention
+- **Идемпотентные доплаты-аддоны (money-safety)**: `create_subscription_addon` пишет в колонку `price` (НЕ `amount_paid`) и привязан к `payment_request_id` — partial UNIQUE index + перехват IntegrityError (гонка) → re-SELECT; ветка `addon_*` в `confirm_payment_request` проверяет результат и при сбое компенсирует заявку (approved→pending), не оставляя оплату без выдачи. См. правило money-grant: любой путь «оплата→выдача» обязан быть идемпотентным + покрыт тестом
+- **Безопасное восстановление из бэкапа**: `backup_manager.restore_backup` использует SQLite Online Backup API (`src.backup(dest)`) с ограниченным retry (5×) вместо `shutil.copy2` поверх открытых соединений — исключает порчу работающей БД
+- **Event-loop offload (web)**: тяжёлые/блокирующие пути не держат event loop: admin delete-org / create-backup объявлены `def` (FastAPI исполняет в threadpool); цикл записи продаж в `pos_checkout` вынесен в `anyio.to_thread.run_sync`. Соединения `check_same_thread=False` + threading.local pool — thread-safe
 - **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
 - **Internal org chat (DM)**: `direct_messages` table in org_*.db; 9 DB-methods (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 file methods; WS /ws/chat/dm for real-time delivery; `chat_search?topic_id=0` merges topic+DM results; FAB badge = topicNew + dmUnread (`/api/unread-count .dms`)
 - **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
@@ -952,7 +955,7 @@ web/
 - **Session cookie security**: `httponly=True`, `secure=True`, `samesite='lax'`, `max_age=7d`; secret derived from `SHA256(BOT_TOKEN)` — rotates automatically if BOT_TOKEN changes
 - **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`; GET `/auth/code` serves `login_nonce`; POST verifies via `verify_login_nonce()`
 - **Telegram auth**: `verify_telegram_auth()` checks HMAC against BOT_TOKEN + rejects `auth_date` older than 24h
-- **Rate limiting**: auth routes — 5 req/60s/IP (`check_rate_limit` из `web/rate_store.py`, **persistent** SQLite); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`, in-memory); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`, in-memory)
+- **Rate limiting**: auth routes — 5 req/60s/IP (`check_rate_limit` из `web/rate_store.py`, **persistent** SQLite); смена пароля `/settings/email-change-password` — 5 req/600s/tg_id (verify старого пароля → защита от брутфорса); `/api/*` endpoints — 60 req/60s/IP (`_api_rate_ok`, in-memory); `/support/send` — 3 req/60min/telegram_id (`_rate_store` in `support.py`, in-memory)
 - **Clickable notifications**: `_notif_url(notification_type)` в `api.py` и `notifications.py` роутит тип → URL (`/sales`, `/products`, `/dashboard` и др.); `base.html` mobile sheet и desktop dropdown рендерят `<div @click>` с навигацией; `notifications/index.html` history items с url — `<a>` теги
 - **robots.txt**: `/robots.txt` route in `web/app.py` — allows only `/$` and `/static/`; disallows all app routes (`/dashboard`, `/sales`, `/api/`, `/support`, `/absences`, `/org-structure`, etc.) to prevent crawl budget waste and structure leakage; `Sitemap:` pointer included; **when adding a new route — always add `Disallow:` to `_ROBOTS_TXT` in `web/app.py`**
 - **sitemap.xml**: `/sitemap.xml` route — single entry `https://dailysales.app/` with `priority=1.0`, `changefreq=weekly`; submit to Google Search Console + Яндекс.Вебмастер for fast indexing

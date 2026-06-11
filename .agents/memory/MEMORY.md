@@ -2,6 +2,7 @@
 - [Dashboard в главном меню](menu-dashboard.md) — `_quick_menu_summary()` в handlers.py: sync DB-методы в async OK (SQLite fast), всё в try/except, пустая строка при любой ошибке
 - [Product photo/description columns](product-photo-desc.md) — products table: id(0) name(1) category(2) price(3) created_at(4) photo_file_id(5) description(6); added via ALTER TABLE migration guard
 - [Addon limits use shop_bot.db](addon-limits.md) — subscription_addons always stored in shop_bot.db; _get_addon_totals_for_user() reads SHOP_BOT_DB directly regardless of org context
+- [Money-grant paths idempotent+tested](money-grant-paths.md) — оплата→выдача: идемпотентность по payment_request_id + регресс-тест; внешний except глотает ошибки выдачи (был инцидент: addon в несуществующую колонку)
 - [Addon plan_type routing](confirm-payment-addon.md) — confirm_payment_request: plan_type starting 'addon_' calls create_subscription_addon instead of create_subscription; format: addon_shops_1, addon_products_1
 - [Referral deep link format](referral-deeplink.md) — /start ref_TELEGRAMID stored as REF_ after .upper(); bonus applied in select_city (callback) AND process_city (message) after their try/except blocks
 - [FastAPI web layer setup](web-layer-setup.md) — Starlette 1.x TemplateResponse API changed + jinja2 not bundled + port 5000

@@ -3,7 +3,7 @@ name: Bot module/bundle self-purchase
 description: How the Telegram bot lets users buy billing modules/bundles, reusing existing grant infra
 ---
 
-Бот-самообслуживание покупки модулей/пакетов (G1) НЕ требует своей grant-логики.
+Бот-самообслуживание покупки модулей/пакетов НЕ требует своей grant-логики.
 
 **Ключевое:** `database.confirm_payment_request` уже маршрутизирует `plan_type` вида
 `module_<key>` / `bundle_<key>` в `grant_billing_item(..., duration_days=30)`.

@@ -17,7 +17,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 ## Stack
 
 **Telegram Bot:** Python 3.11 · aiogram 3 · SQLite · APScheduler · openpyxl · PickleStorage (FSM)
-**Web Interface:** FastAPI + Uvicorn (port 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js
+**Web Interface:** FastAPI + Uvicorn (port 5000) · Jinja2 · Tailwind CSS CDN · HTMX · Alpine.js · Chart.js · PyJWT (HS256 session cookie)
 **Landing Page:** standalone `/` route — public promo page for unauthenticated visitors; redirects to `/dashboard` when logged in
 **Infra:** Amvera (production hosting) · GitHub (version control)
 
@@ -99,6 +99,10 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 18. **Email-only user identity**: `synthetic_tg_id = -(10_000_000 + cred_id)` в `web_credentials`; используется как `tg_id` в JWT; `org_db` берётся из `web_credentials.org_db`, не из `user_org_mapping`
 19. **YANDEX_SMTP_PASSWORD** — это **пароль приложения** (16 символов без пробелов), НЕ пароль от аккаунта Яндекс (Яндекс ID → Безопасность → Пароли приложений)
 20. **org_structure scope** — использовать `network`, НЕ `trade_network`; per-user `allow` гейтит на биллинг владельца, не безусловно
+21. **JWT-библиотека — PyJWT** (`import jwt`), НЕ python-jose (убрана как уязвимая зависимость); ловить `jwt.PyJWTError`; токены jose↔PyJWT совместимы при том же HS256-секрете (живые сессии не инвалидируются)
+22. **Money-grant идемпотентность** — любой путь «оплата подтверждена → выдача» (подписка/модуль/аддон) обязан быть идемпотентным по `payment_request_id` и покрыт тестом; внешний `except` в `confirm_payment_request` глотает ошибки выдачи → сверять имена колонок с живой схемой (`create_subscription_addon` пишет в `price`, не `amount_paid`)
+23. **Restore бэкапа — только SQLite Backup API** (`src.backup(dest)` + retry), НЕ `shutil.copy2` поверх открытых соединений (иначе порча работающей БД)
+24. **Веб event loop** — тяжёлые/блокирующие пути не держат loop: либо роут `def` (FastAPI → threadpool), либо `anyio.to_thread.run_sync`; соединения thread-safe (`check_same_thread=False` + threading.local pool)
 
 ## Pointers
 
