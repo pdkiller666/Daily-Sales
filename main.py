@@ -1103,9 +1103,19 @@ async def main():
                             _push(t['assigned_tg'],
                                   f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
                                   f"🌐 Откройте веб-кабинет для деталей.")
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']), "📋 Срок задачи сегодня", title, "/tasks")
+                            except Exception:
+                                pass
                         if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg'):
                             _push(t['creator_tg'],
                                   f"📋 <b>Срок задачи сегодня</b>\n<b>{title}</b>")
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(send_web_push, int(t['creator_tg']), "📋 Срок задачи сегодня", title, "/tasks")
+                            except Exception:
+                                pass
                 except Exception as _de:
                     logging.error(f"check_task_deadlines db={db_path}: {_de}")
         except Exception as _e:

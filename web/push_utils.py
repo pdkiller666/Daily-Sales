@@ -1,8 +1,13 @@
 """Web Push (VAPID) utility for DailySales.
 
-send_web_push(tg_id, title, body, url) — sends to all subscriptions of the user.
-Silently ignores missing VAPID config or send failures (log only).
+send_web_push(tg_id, ...)          — sends to all devices of one user (sync).
+send_web_push_bulk(tg_ids, ...)    — sends the same notification to many users (sync).
+apush / apush_bulk                 — async wrappers (run sync send off the event loop).
+
+All functions are non-blocking in effect: failures are caught and logged, stale
+(404/410 Gone) subscriptions are auto-removed.
 """
+import asyncio
 import json
 import logging
 import os
@@ -13,7 +18,21 @@ _SHOP_BOT_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", 
 
 _raw_vapid_key = os.environ.get("VAPID_PRIVATE_KEY", "")
 _VAPID_PRIVATE = _raw_vapid_key.replace("\\n", "\n")
-_VAPID_CLAIMS  = {"sub": os.environ.get("VAPID_MAILTO", "mailto:admin@dailysales.app")}
+
+_VAPID_MAILTO = (os.environ.get("VAPID_MAILTO", "") or "").strip()
+if not _VAPID_MAILTO:
+    logger.warning(
+        "push_utils: VAPID_MAILTO not set — using fallback mailto:admin@dailysales.app; "
+        "set VAPID_MAILTO env to a real contact for reliable delivery (Apple/Mozilla may throttle)."
+    )
+    _VAPID_MAILTO = "mailto:admin@dailysales.app"
+elif not _VAPID_MAILTO.startswith("mailto:"):
+    _VAPID_MAILTO = "mailto:" + _VAPID_MAILTO
+
+
+def _vapid_claims() -> dict:
+    """Fresh claims dict per send — pywebpush mutates it (adds aud/exp)."""
+    return {"sub": _VAPID_MAILTO}
 
 
 def _is_configured() -> bool:
@@ -51,20 +70,8 @@ def _delete_subscription(tg_id: int, endpoint: str):
         logger.warning("push_utils._delete_subscription: %s", e)
 
 
-def send_web_push(tg_id: int, title: str, body: str, url: str = "/dashboard", badge: int = 1):
-    """Send a Web Push notification to all browser subscriptions of tg_id.
-
-    Non-blocking: catches all exceptions internally.
-    badge — numeric hint for App Badge in SW (optional).
-    """
-    if not _is_configured():
-        return
-
-    subs = _get_subscriptions(tg_id)
-    if not subs:
-        return
-
-    payload = json.dumps({
+def _build_payload(title: str, body: str, url: str, badge: int) -> bytes:
+    return json.dumps({
         "title": title,
         "body": body,
         "url": url,
@@ -72,25 +79,23 @@ def send_web_push(tg_id: int, title: str, body: str, url: str = "/dashboard", ba
         "tag": "dailysales-push",
     }).encode()
 
-    try:
-        from pywebpush import webpush, WebPushException
-    except ImportError:
-        logger.warning("push_utils: pywebpush not installed")
-        return
 
-    for sub in subs:
+def _push_to_user(tg_id: int, payload: bytes, webpush, WebPushException) -> int:
+    """Send a prepared payload to all devices of one user. Returns devices reached."""
+    sent = 0
+    for sub in _get_subscriptions(tg_id):
         try:
             webpush(
                 subscription_info=sub,
                 data=payload,
                 vapid_private_key=_VAPID_PRIVATE,
-                vapid_claims=_VAPID_CLAIMS,
+                vapid_claims=_vapid_claims(),
             )
+            sent += 1
         except Exception as exc:
-            # 410 Gone → subscription expired, remove it
+            # 404/410 Gone → subscription expired, remove it
             gone = False
             try:
-                from pywebpush import WebPushException
                 if isinstance(exc, WebPushException) and exc.response is not None:
                     gone = exc.response.status_code in (404, 410)
             except Exception:
@@ -98,4 +103,66 @@ def send_web_push(tg_id: int, title: str, body: str, url: str = "/dashboard", ba
             if gone:
                 _delete_subscription(tg_id, sub["endpoint"])
             else:
-                logger.warning("push_utils.send_web_push tg_id=%s: %s", tg_id, exc)
+                logger.warning("push_utils push tg_id=%s: %s", tg_id, exc)
+    return sent
+
+
+def send_web_push(tg_id: int, title: str, body: str, url: str = "/dashboard", badge: int = 1):
+    """Send a Web Push notification to all browser subscriptions of tg_id."""
+    if not _is_configured():
+        return
+    try:
+        tg_id = int(tg_id)
+    except (ValueError, TypeError):
+        return
+    if not _get_subscriptions(tg_id):
+        return
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        logger.warning("push_utils: pywebpush not installed")
+        return
+    _push_to_user(tg_id, _build_payload(title, body, url, badge), webpush, WebPushException)
+
+
+def send_web_push_bulk(tg_ids, title: str, body: str, url: str = "/dashboard", badge: int = 1) -> int:
+    """Send the same Web Push to many users efficiently. Returns devices reached.
+
+    Dedups telegram_ids, loads VAPID config + pywebpush once, and isolates every
+    per-user/per-device failure so one bad subscription can't abort the batch.
+    """
+    if not _is_configured():
+        return 0
+    seen: set = set()
+    ids: list = []
+    for t in tg_ids:
+        try:
+            ti = int(t)
+        except (ValueError, TypeError):
+            continue
+        if ti in seen:
+            continue
+        seen.add(ti)
+        ids.append(ti)
+    if not ids:
+        return 0
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        logger.warning("push_utils: pywebpush not installed")
+        return 0
+    payload = _build_payload(title, body, url, badge)
+    sent = 0
+    for ti in ids:
+        sent += _push_to_user(ti, payload, webpush, WebPushException)
+    return sent
+
+
+async def apush(tg_id: int, title: str, body: str, url: str = "/dashboard", badge: int = 1):
+    """Async wrapper: send a single push off the event loop."""
+    await asyncio.to_thread(send_web_push, tg_id, title, body, url, badge)
+
+
+async def apush_bulk(tg_ids, title: str, body: str, url: str = "/dashboard", badge: int = 1) -> int:
+    """Async wrapper: send a bulk push off the event loop."""
+    return await asyncio.to_thread(send_web_push_bulk, list(tg_ids), title, body, url, badge)

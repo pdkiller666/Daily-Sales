@@ -347,8 +347,8 @@ async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: s
                         except Exception:
                             pass
                         try:
-                            from web.push_utils import send_web_push
-                            send_web_push(int(cw_tgid), "💰 Продажа в смене", f"{shop_name} · новая продажа", "/sales")
+                            from web.push_utils import apush
+                            await apush(int(cw_tgid), "💰 Продажа в смене", f"{shop_name} · новая продажа", "/sales")
                         except Exception:
                             pass
                     except Exception as _send_err:

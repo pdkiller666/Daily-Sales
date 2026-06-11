@@ -1,0 +1,29 @@
+---
+name: Web Push VAPID
+description: web/push_utils.py API (single/bulk/async), where pushes are wired, and the sync-def vs async-route blocking rule
+---
+
+# Web Push (VAPID)
+
+- pywebpush==2.3.0; env: `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_MAILTO`.
+- subscriptions live in `push_subscriptions` (shop_bot.db): `user_id` = telegram_id, endpoint, p256dh, auth.
+- `web/push_utils.py` API:
+  - `send_web_push(tg_id, title, body, url, badge)` — one user (all their devices), sync.
+  - `send_web_push_bulk(tg_ids, ...)` — many users, dedups ids, loads config+pywebpush once, isolates per-user failures; returns devices reached.
+  - `apush(...)` / `apush_bulk(...)` — async wrappers (run the sync send via `asyncio.to_thread`).
+  - `_push_to_user()` shared by single+bulk; fresh `_vapid_claims()` per send; auto-deletes 404/410 (Gone) subscriptions.
+
+## Blocking rule (event loop)
+**Inside an `async def` route/handler, NEVER call `send_web_push(...)` directly** — it does blocking sqlite + network and stalls the loop. Use `await apush(...)` / `await apush_bulk(...)`, or `await asyncio.to_thread(send_web_push, ...)`.
+**Why:** sync send on the loop blocks all concurrent requests for the duration of the push HTTP calls.
+**How to apply:** sync `def` FastAPI routes run in the threadpool, so a plain `send_web_push(...)` there is fine (e.g. tasks.py task_change_status/add_comment/edit_post). Only `async def` paths must use the async wrappers.
+
+## Coverage (push mirrors Telegram for team/comms)
+- DM: web/routes/chat.py (dm_send + ws_dm) → apush.
+- Общий чат (topics): chat_send pushes all org members except sender (`db.get_all_users()`, url `/chat`). Note: org topic chat had NO bot-side notification at all — push is the only notifier there.
+- Tasks: create (tasks_new_post, async → apush), status/comment/edit (sync defs → send_web_push), deadlines (main.py check_task_deadlines → to_thread).
+- Broadcast/рассылка: bot immediate (notifications_handlers.py → bulk via to_thread); web broadcast goes through scheduler → main.py check_scheduled_notifications already pushes.
+- Absences: absence_handlers.py _notify_user (user) + admin-notify loop (bulk).
+- Contests/sales/daily-report/low-stock/subscription/POS sale: already wired in main.py + pos.py.
+- VAPID_MAILTO: falls back to mailto:admin@dailysales.app with a warning if unset; auto-prefixes `mailto:`.
+- robots.txt already disallows /api/.

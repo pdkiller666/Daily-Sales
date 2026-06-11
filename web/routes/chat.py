@@ -378,6 +378,20 @@ async def chat_send(
         if saved_files:
             db.add_chat_message_files(new_id, saved_files)
 
+        # Web Push участникам организации (кроме отправителя) — общий чат
+        try:
+            sender_name = user.get("name") or "Сотрудник"
+            preview = (text or ("📎 Вложение" if saved_files else "")).strip()[:120]
+            member_tids = [
+                int(u[1]) for u in (db.get_all_users() or [])
+                if u[1] and int(u[1]) != telegram_id
+            ]
+            if member_tids and preview:
+                from web.push_utils import apush_bulk
+                await apush_bulk(member_tids, "💬 Новое сообщение в чате", f"{sender_name}: {preview}", "/chat")
+        except Exception:
+            pass
+
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
         new_msgs = db.get_chat_messages_since(new_id - 1, topic_id=topic_id)
         msg_ids = [r[0] for r in new_msgs]
@@ -1293,8 +1307,8 @@ async def dm_send(
                 _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_user_id,)).fetchone()
                 conn.close()
                 if _row and _row[0]:
-                    from web.push_utils import send_web_push
-                    send_web_push(int(_row[0]), "💬 Новое сообщение", dm_msg, "/chat/dm")
+                    from web.push_utils import apush
+                    await apush(int(_row[0]), "💬 Новое сообщение", dm_msg, "/chat/dm")
             except Exception:
                 pass
         except Exception:
@@ -1479,8 +1493,8 @@ async def ws_dm(websocket: WebSocket):
                         _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_id,)).fetchone()
                         conn.close()
                         if _row and _row[0]:
-                            from web.push_utils import send_web_push
-                            send_web_push(int(_row[0]), "💬 Новое сообщение", _dm_msg, "/chat/dm")
+                            from web.push_utils import apush
+                            await apush(int(_row[0]), "💬 Новое сообщение", _dm_msg, "/chat/dm")
                     except Exception:
                         pass
                 except Exception:

@@ -671,6 +671,14 @@ async def admin_confirm_send_now(callback: CallbackQuery, state: FSMContext):
                 except Exception as e:
                     logging.error(f"BROADCAST ERROR: Failed to send to {tid_int}: {e}")
                 
+        try:
+            if seen_tids:
+                from web.push_utils import send_web_push_bulk
+                import re as _re
+                _pb = _re.sub(r'<[^>]+>', '', text)[:120].strip()
+                await asyncio.to_thread(send_web_push_bulk, list(seen_tids), "🔔 Уведомление", _pb, "/dashboard")
+        except Exception as _pe:
+            logging.error(f"BROADCAST push error: {_pe}")
     except Exception as e:
         logging.error(f"BROADCAST CRITICAL ERROR: {e}")
     

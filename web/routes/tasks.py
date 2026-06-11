@@ -524,8 +524,8 @@ async def tasks_new_post(
             if tg_id:
                 _send_tg_task_notify(tg_id, notify_text)
                 try:
-                    from web.push_utils import send_web_push
-                    send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
+                    from web.push_utils import apush
+                    await apush(tg_id, "📋 Новая задача", notif_msg, "/tasks")
                 except Exception:
                     pass
             else:
@@ -554,8 +554,8 @@ async def tasks_new_post(
                 if tg_id:
                     _send_tg_task_notify(tg_id, notify_text)
                     try:
-                        from web.push_utils import send_web_push
-                        send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
+                        from web.push_utils import apush
+                        await apush(tg_id, "📋 Новая задача", notif_msg, "/tasks")
                     except Exception:
                         pass
             # Notify creator even if they're not in that shop
@@ -570,8 +570,8 @@ async def tasks_new_post(
                 if tg_id:
                     _send_tg_task_notify(tg_id, notify_text)
                     try:
-                        from web.push_utils import send_web_push
-                        send_web_push(tg_id, "📋 Новая задача", notif_msg, "/tasks")
+                        from web.push_utils import apush
+                        await apush(tg_id, "📋 Новая задача", notif_msg, "/tasks")
                     except Exception:
                         pass
             # Notify creator if somehow not in members list

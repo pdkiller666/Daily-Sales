@@ -121,6 +121,13 @@ async def _notify_user(state, telegram_id: int, text: str):
         if bot:
             await bot.send_message(telegram_id, text, parse_mode='HTML',
                                    reply_markup=add_read_btn())
+        try:
+            from web.push_utils import send_web_push
+            import re as _re, asyncio as _aio
+            _pb = _re.sub(r'<[^>]+>', '', text)[:120].strip()
+            await _aio.to_thread(send_web_push, int(telegram_id), "📋 Отсутствия", _pb, "/absences")
+        except Exception:
+            pass
     except Exception as e:
         logger.warning(f"_notify_user: {e}")
 
@@ -376,6 +383,13 @@ async def _abs_submit(message: Message, state: FSMContext, comment):
                                            reply_markup=add_read_btn())
                 except Exception:
                     pass
+            try:
+                from web.push_utils import send_web_push_bulk
+                import re as _re, asyncio as _aio
+                _pb = _re.sub(r'<[^>]+>', '', notif)[:120].strip()
+                await _aio.to_thread(send_web_push_bulk, [a[0] for a in admins], "📋 Новая заявка на отсутствие", _pb, "/absences")
+            except Exception:
+                pass
     except Exception as e:
         logger.warning(f"absence notify admins: {e}")
     await clear_state_keep_org(state)
