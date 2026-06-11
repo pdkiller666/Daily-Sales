@@ -46,6 +46,18 @@
     </div>
 </div>
 
+{% if selected_product_id %}
+<div class="mb-4 flex items-center justify-between gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm">
+    <span class="text-blue-700 dark:text-blue-300 truncate">
+        📦 Продажи товара: <span class="font-semibold">{{ product_name or ('#' ~ selected_product_id) }}</span>
+    </span>
+    <div class="flex items-center gap-3 shrink-0">
+        <a href="/products/{{ selected_product_id }}" class="text-blue-600 dark:text-blue-300 hover:underline whitespace-nowrap">К товару</a>
+        <a href="/sales" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 whitespace-nowrap">✕ Сбросить</a>
+    </div>
+</div>
+{% endif %}
+
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-700 dark:text-amber-300">
     <span>⚠️</span><span>{{ error }}</span>

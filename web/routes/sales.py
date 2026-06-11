@@ -149,6 +149,7 @@ def sales_page(
     shop: str = "",
     seller_id: int = 0,
     category: str = "",
+    product_id: int = 0,
     page: int = 1,
 ):
     from web.auth import get_session_user, get_csrf_token
@@ -166,6 +167,7 @@ def sales_page(
         "sales": [], "shops": [], "sellers": [], "categories": [],
         "date_from": date_from, "date_to": date_to, "selected_shop": shop,
         "selected_seller_id": seller_id, "selected_category": category,
+        "selected_product_id": product_id, "product_name": "",
         "page": 1, "total_pages": 1, "total_count": 0,
         "summary": _summary_empty(), "error": None,
         "csrf_token": get_csrf_token(request),
@@ -249,6 +251,17 @@ def sales_page(
         if seller_id:
             all_sales = [s for s in all_sales if s[5] == seller_id]
 
+        # Filter by product if requested (sales report for a single product)
+        # sales row: id[0] product_id[1] shop[2] qty[3] price[4] user_id[5] date[6] product_name[7]
+        if product_id:
+            all_sales = [s for s in all_sales if s[1] == product_id]
+            try:
+                _p = db.get_product(product_id)
+                if _p:
+                    ctx["product_name"] = _p[1]
+            except Exception:
+                pass
+
         total = len(all_sales)
         total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
         page = max(1, min(page, total_pages))
@@ -258,7 +271,14 @@ def sales_page(
         ctx["total_count"] = total
         ctx["total_pages"] = total_pages
         ctx["page"] = page
-        ctx["summary"] = db.get_sales_summary(**sum_kwargs) or _summary_empty()
+        if product_id:
+            # get_sales_summary has no product filter — recompute from filtered rows
+            _cnt = len(all_sales)
+            _qty = sum(int(s[3] or 0) for s in all_sales)
+            _rev = sum(float(s[3] or 0) * float(s[4] or 0) for s in all_sales)
+            ctx["summary"] = (_cnt, _qty, _rev, (_rev / _cnt if _cnt else 0))
+        else:
+            ctx["summary"] = db.get_sales_summary(**sum_kwargs) or _summary_empty()
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

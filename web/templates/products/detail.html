@@ -178,25 +178,38 @@
 {% endif %}
 
 <!-- Summary cards -->
+{% set _pname = product[1]|urlencode %}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Остаток</p>
+    <a href="/inventory?q={{ _pname }}"
+       class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
+            Остаток <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+        </p>
         <p class="text-2xl font-bold {{ 'text-emerald-600' if total_stock > 0 else 'text-red-400' }}">
             {{ total_stock }}<span class="text-sm font-normal text-slate-400 ml-1">шт.</span>
         </p>
-    </div>
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Магазинов</p>
+    </a>
+    <a href="/inventory?q={{ _pname }}"
+       class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
+            Магазинов <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+        </p>
         <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ inventory_by_shop|length }}</p>
-    </div>
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Продано (месяц)</p>
+    </a>
+    <a href="/sales?product_id={{ product[0] }}"
+       class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
+            Продано (месяц) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+        </p>
         <p class="text-2xl font-bold text-blue-600">{{ month_qty }}<span class="text-sm font-normal text-slate-400 ml-1">шт.</span></p>
-    </div>
-    <div class="card p-4">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Выручка (месяц)</p>
+    </a>
+    <a href="/sales?product_id={{ product[0] }}"
+       class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
+            Выручка (месяц) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+        </p>
         <p class="text-2xl font-bold text-emerald-600">{{ month_revenue|int|fmt_currency }}</p>
-    </div>
+    </a>
 </div>
 
 <!-- 7-day revenue chart -->
@@ -269,9 +282,10 @@
     </div>
     <div class="divide-y divide-slate-50 dark:divide-slate-800">
         {% for inv in inventory_by_shop %}
-        <div class="px-5 py-3 flex items-center justify-between gap-4">
+        <a href="/inventory?shop={{ inv[2]|urlencode }}&q={{ _pname }}"
+           class="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
             <div class="flex-1 min-w-0">
-                <p class="font-medium text-slate-800 dark:text-slate-200 truncate">{{ inv[2] }}</p>
+                <p class="font-medium text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition-colors">{{ inv[2] }}</p>
                 <p class="text-xs text-slate-400">обновлено {{ (inv[4] or '')[:10]|fmt_date }}
                     {% if inv[9] %} · {{ inv[9] }}{% endif %}</p>
             </div>
@@ -283,8 +297,9 @@
                 <span class="font-bold text-sm {{ 'text-emerald-600' if (inv[3] or 0) > 5 else 'text-amber-500' if (inv[3] or 0) > 0 else 'text-red-400' }} w-16 text-right">
                     {{ inv[3] or 0 }} шт.
                 </span>
+                <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
             </div>
-        </div>
+        </a>
         {% endfor %}
     </div>
 </div>
