@@ -993,8 +993,13 @@ window.dsRefreshBadge = function() {
     /* Auto-start if already granted */
     if (Notification.permission === 'granted') {
         window.dsStartNotifPolling();
-        /* Re-sync Web Push subscription on every page load (handles SW updates) */
-        window.dsSubscribeWebPush().catch(() => {});
+        /* Re-sync Web Push subscription once per session (not on every page load).
+           sessionStorage clears when the tab/PWA is fully closed, so the subscription
+           is refreshed on the next cold start — which is sufficient. */
+        if (!sessionStorage.getItem('ds_push_synced')) {
+            sessionStorage.setItem('ds_push_synced', '1');
+            window.dsSubscribeWebPush().catch(() => {});
+        }
     }
 })();
 

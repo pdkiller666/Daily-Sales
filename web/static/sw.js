@@ -1,5 +1,5 @@
-/* DailySales Service Worker v5 */
-const CACHE_NAME = 'dailysales-v5';
+/* DailySales Service Worker v6 */
+const CACHE_NAME = 'dailysales-v6';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
@@ -57,13 +57,16 @@ self.addEventListener('push', e => {
     let data;
     try { data = e.data.json(); } catch { data = { title: 'DailySales', body: e.data.text() }; }
 
+    const tag = data.tag || 'ds-default';
     const showNotif = self.registration.showNotification(data.title || 'DailySales', {
-        body: data.body || '',
+        body: data.body || data.title || 'DailySales',
         icon: '/static/icon-192.png',
         badge: '/static/icon-192.png',
-        tag: data.tag || 'dailysales',
-        renotify: true,
+        tag: tag,
+        /* renotify only for real-time events (sales, chat), not for reports/alerts */
+        renotify: tag === 'ds-sale' || tag === 'ds-chat',
         data: { url: data.url || '/dashboard' },
+        silent: false,
     });
 
     /* Fetch real unread count for accurate App Badge */

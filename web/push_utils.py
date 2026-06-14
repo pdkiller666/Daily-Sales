@@ -111,12 +111,24 @@ def _delete_subscription(tg_id: int, endpoint: str):
 
 
 def _build_payload(title: str, body: str, url: str, badge: int) -> bytes:
+    # Map URL prefix → notification tag so different types don't overwrite each other
+    _TAG_MAP = {
+        '/sales':     'ds-sale',
+        '/reports':   'ds-report',
+        '/inventory': 'ds-stock',
+        '/tasks':     'ds-task',
+        '/chat':      'ds-chat',
+        '/absences':  'ds-absence',
+        '/settings':  'ds-sub',
+        '/pos':       'ds-sale',
+    }
+    tag = next((v for k, v in _TAG_MAP.items() if url.startswith(k)), 'ds-default')
     return json.dumps({
         "title": title,
-        "body": body,
+        "body": body if body and body.strip() else title,  # fallback: never empty body
         "url": url,
         "badge": badge,
-        "tag": "dailysales-push",
+        "tag": tag,
     }).encode()
 
 
