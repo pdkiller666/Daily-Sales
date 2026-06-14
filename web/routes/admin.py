@@ -253,6 +253,32 @@ def admin_apk(request: Request):
         except Exception:
             apk_by_day = []
 
+        apk_by_owner = []
+        try:
+            owner_rows = conn.execute("""
+                SELECT owner_id, telegram_id, COUNT(*) AS cnt,
+                       MAX(timestamp) AS last_ts
+                FROM download_events
+                WHERE owner_id != '' AND owner_id IS NOT NULL
+                GROUP BY owner_id
+                ORDER BY cnt DESC LIMIT 50
+            """).fetchall()
+            for r in owner_rows:
+                org_label = str(r[0])
+                try:
+                    import os as _os
+                    org_label = _os.path.splitext(_os.path.basename(r[0]))[0]
+                except Exception:
+                    pass
+                apk_by_owner.append({
+                    "org": org_label,
+                    "telegram_id": r[1] or "—",
+                    "count": r[2],
+                    "last": (r[3] or "")[:16].replace("T", " "),
+                })
+        except Exception:
+            apk_by_owner = []
+
         try:
             hist_rows = conn.execute("""
                 SELECT version, release_url, release_date, recorded_at
@@ -286,6 +312,7 @@ def admin_apk(request: Request):
             "apk_url": apk_url,
             "apk_total": apk_total,
             "apk_by_day": apk_by_day,
+            "apk_by_owner": apk_by_owner,
             "release_history": release_history,
         }),
     )

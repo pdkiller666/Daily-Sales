@@ -1536,6 +1536,11 @@ class Database:
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_download_events_ts ON download_events(timestamp)'
             )
+            for _col, _def in [('telegram_id', "TEXT DEFAULT ''"), ('owner_id', "TEXT DEFAULT ''")]:
+                try:
+                    cursor.execute(f'ALTER TABLE download_events ADD COLUMN {_col} {_def}')
+                except Exception:
+                    pass
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS apk_release_history (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,

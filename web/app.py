@@ -728,13 +728,24 @@ def create_web_app() -> FastAPI:
             import anyio
             referrer = request.headers.get("referer", "") or ""
             user_agent = request.headers.get("user-agent", "") or ""
+            _tg_id = ""
+            _org_db = ""
+            try:
+                from web.auth import get_session_user as _gsu
+                _u = _gsu(request)
+                if _u:
+                    _tg_id = str(_u.get("sub", ""))
+                    _org_db = str(_u.get("org_db", "") or "")
+            except Exception:
+                pass
+            tg_id_val, org_db_val = _tg_id, _org_db
             def _log():
                 import sqlite3 as _sq
                 c = _sq.connect(_SHOP_BOT_DB, timeout=5)
                 try:
                     c.execute(
-                        "INSERT INTO download_events (referrer, user_agent) VALUES (?, ?)",
-                        (referrer[:512], user_agent[:512]),
+                        "INSERT INTO download_events (referrer, user_agent, telegram_id, owner_id) VALUES (?, ?, ?, ?)",
+                        (referrer[:512], user_agent[:512], tg_id_val, org_db_val),
                     )
                     c.commit()
                 finally:

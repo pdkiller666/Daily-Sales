@@ -1335,6 +1335,67 @@ def products_label_design(request: Request):
     return RedirectResponse(url="/products", status_code=302)
 
 
+def _get_user_label_size(telegram_id: int) -> str:
+    """Read per-user label size preference from main.db."""
+    try:
+        import sqlite3
+        c = sqlite3.connect("data/main.db", timeout=5)
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS user_label_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
+        )
+        row = c.execute(
+            "SELECT label_size FROM user_label_prefs WHERE telegram_id=?", (telegram_id,)
+        ).fetchone()
+        c.commit()
+        c.close()
+        size = row[0] if row else "58x40"
+        return size if size in _VALID_LABEL_SIZES else "58x40"
+    except Exception:
+        return "58x40"
+
+
+def _save_user_label_size(telegram_id: int, size: str) -> None:
+    """Persist per-user label size preference to main.db."""
+    try:
+        import sqlite3
+        if size not in _VALID_LABEL_SIZES:
+            return
+        c = sqlite3.connect("data/main.db", timeout=5)
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS user_label_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
+        )
+        c.execute(
+            "INSERT INTO user_label_prefs (telegram_id, label_size, updated_at) VALUES (?,?,datetime('now')) "
+            "ON CONFLICT(telegram_id) DO UPDATE SET label_size=excluded.label_size, updated_at=excluded.updated_at",
+            (telegram_id, size),
+        )
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
+@router.post("/api/label-size")
+async def api_save_label_size(request: Request):
+    """Save user's preferred label size to server. Fire-and-forget from JS."""
+    from web.auth import get_session_user
+    user = get_session_user(request)
+    if not user:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False}, status_code=401)
+    try:
+        form = await request.form()
+        size = str(form.get("size", "58x40")).strip()
+    except Exception:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False}, status_code=400)
+    _save_user_label_size(int(user["sub"]), size)
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"ok": True, "size": size})
+
+
 @router.get("/products/{product_id}/label")
 def product_label(request: Request, product_id: int, print: str = "",
                   size: str = "58x40", format: str = ""):
@@ -1361,8 +1422,12 @@ def product_label(request: Request, product_id: int, print: str = "",
         return RedirectResponse(url="/products", status_code=302)
 
     from web.auth import get_csrf_token
-    if size not in _VALID_LABEL_SIZES:
-        size = "58x40"
+    url_size = request.query_params.get("size")
+    if url_size and url_size in _VALID_LABEL_SIZES:
+        size = url_size
+        _save_user_label_size(telegram_id, size)
+    else:
+        size = _get_user_label_size(telegram_id)
     label_settings = _get_label_settings_safe(db)
     label = _build_label_ctx(product)
 
@@ -1427,8 +1492,11 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="Bad request", status_code=400)
 
-    if size not in _VALID_LABEL_SIZES:
-        size = "58x40"
+    _uid = int(user["sub"])
+    if size and size in _VALID_LABEL_SIZES:
+        _save_user_label_size(_uid, size)
+    else:
+        size = _get_user_label_size(_uid)
 
     if not verify_csrf_token(request, csrf):
         from fastapi.responses import Response

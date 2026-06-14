@@ -511,6 +511,12 @@ function labelSizer() {
             const url = new URL(location.href);
             url.searchParams.set('size', key);
             history.replaceState(null, '', url.toString());
+            fetch('/api/label-size', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'size=' + encodeURIComponent(key),
+                credentials: 'same-origin',
+            }).catch(() => {});
         },
 
         applyVars() {
