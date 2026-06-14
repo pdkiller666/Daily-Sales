@@ -1558,6 +1558,10 @@ class Database:
                 updated_at  TEXT    DEFAULT (datetime('now'))
             )
         ''')
+        try:
+            cursor.execute("ALTER TABLE org_label_settings ADD COLUMN org_logo_path TEXT DEFAULT ''")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -2832,23 +2836,40 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT bg_color, text_color, price_color, logo_path, font_size '
+            'SELECT bg_color, text_color, price_color, logo_path, font_size, org_logo_path '
             'FROM org_label_settings WHERE id=1'
         )
         row = cursor.fetchone()
         conn.close()
         if row:
             return {
-                'bg_color':    row[0] or '#ffffff',
-                'text_color':  row[1] or '#000000',
-                'price_color': row[2] or '#000000',
-                'logo_path':   row[3] or '',
-                'font_size':   row[4] or 'medium',
+                'bg_color':      row[0] or '#ffffff',
+                'text_color':    row[1] or '#000000',
+                'price_color':   row[2] or '#000000',
+                'logo_path':     row[3] or '',
+                'font_size':     row[4] or 'medium',
+                'org_logo_path': row[5] or '',
             }
         return {
             'bg_color': '#ffffff', 'text_color': '#000000',
             'price_color': '#000000', 'logo_path': '', 'font_size': 'medium',
+            'org_logo_path': '',
         }
+
+    def save_org_logo(self, org_logo_path: str) -> None:
+        """Upsert only the org logo path in org_label_settings (singleton row id=1)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO org_label_settings (id, org_logo_path)
+               VALUES (1, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                   org_logo_path=excluded.org_logo_path,
+                   updated_at=datetime('now')''',
+            (org_logo_path,),
+        )
+        conn.commit()
+        conn.close()
 
     def save_label_settings(self, bg_color: str, text_color: str,
                             price_color: str, logo_path: str, font_size: str) -> None:
@@ -3070,6 +3091,52 @@ class Database:
                 updated += 1
             conn.commit()
             return updated
+        finally:
+            conn.close()
+
+    def import_articles_bulk(self, items: list) -> dict:
+        """
+        Bulk-assign articles to existing products by name match.
+        items: list of {"name": str, "article": str}
+        Returns {"updated": int, "not_found": list[str], "conflicts": list[dict]}
+          conflicts: [{"name": str, "article": str, "owner": str}]  — article already used by another product
+        """
+        conn = self.get_connection()
+        try:
+            updated = 0
+            not_found: list = []
+            conflicts: list = []
+            for item in items:
+                raw_name = (item.get("name") or "").strip()
+                raw_art = (item.get("article") or "").strip().upper()
+                if not raw_name or not raw_art:
+                    continue
+                row = conn.execute(
+                    "SELECT id, name, article FROM products WHERE UPPER(name)=?",
+                    (raw_name.upper(),),
+                ).fetchone()
+                if row is None:
+                    not_found.append(raw_name)
+                    continue
+                pid, prod_name, current_art = row[0], row[1], row[2]
+                existing = conn.execute(
+                    "SELECT name FROM products WHERE UPPER(article)=? AND id!=?",
+                    (raw_art, pid),
+                ).fetchone()
+                if existing:
+                    conflicts.append({
+                        "name": raw_name,
+                        "article": raw_art,
+                        "owner": existing[0],
+                    })
+                    continue
+                conn.execute(
+                    "UPDATE products SET article=? WHERE id=?",
+                    (raw_art, pid),
+                )
+                updated += 1
+            conn.commit()
+            return {"updated": updated, "not_found": not_found, "conflicts": conflicts}
         finally:
             conn.close()
 

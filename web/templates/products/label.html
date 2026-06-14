@@ -49,6 +49,15 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
     white-space: nowrap;
 }
 .btn-print:hover { background: #1d4ed8; }
+.btn-pdf {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #16a34a; color: #fff; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; padding: 7px 16px;
+    border-radius: 8px; text-decoration: none; transition: background .15s;
+    white-space: nowrap;
+}
+.btn-pdf:hover { background: #15803d; }
+.btn-pdf:disabled { background: #6b7280; cursor: not-allowed; }
 .btn-back {
     display: inline-flex; align-items: center; gap: 6px;
     color: #94a3b8; border: 1px solid #334155; background: transparent;
@@ -123,6 +132,28 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 }
 .btn-reset-design:hover { color: #e2e8f0; border-color: #94a3b8; }
 .save-status { font-size: 11px; color: #4ade80; display: none; }
+
+/* ── Org logo section ── */
+.org-logo-section {
+    border-top: 1px solid #1e293b;
+    padding-top: 14px;
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 24px;
+    align-items: flex-end;
+}
+.org-logo-section h3 { width: 100%; font-size: 11px; font-weight: 600; color: #64748b; margin: 0; text-transform: uppercase; letter-spacing: .5px; }
+.btn-use-org-logo {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb;
+    cursor: pointer; font-size: 11px; font-weight: 600; padding: 5px 11px;
+    border-radius: 7px; transition: background .15s; white-space: nowrap;
+}
+.btn-use-org-logo:hover { background: #1e40af; color: #bfdbfe; }
+.btn-use-org-logo:disabled { opacity: .45; cursor: not-allowed; }
+.org-logo-preview { max-height: 36px; max-width: 80px; object-fit: contain; border-radius: 4px; }
+.org-logo-note { font-size: 10px; color: #64748b; }
 
 /* ── A4 sheet ── */
 .sheet {
@@ -278,6 +309,12 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
         {% if is_owner %}
         <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
         {% endif %}
+        <!-- PDF download -->
+        {% if pdf_url %}
+        <a :href="'{{ pdf_url }}&size=' + size" class="btn-pdf" download>⬇ Скачать PDF</a>
+        {% elif bulk_product_ids %}
+        <button class="btn-pdf" @click="downloadBulkPdf($el)">⬇ Скачать PDF</button>
+        {% endif %}
         <button class="btn-print" onclick="window.print()">🖨 Печать</button>
     </div>
 </div>
@@ -313,8 +350,8 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
                 </select>
             </div>
             <div class="design-field">
-                <label>Логотип</label>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <label>Логотип ценника</label>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                     {% if label_settings.logo_path %}
                     <img src="{{ label_settings.logo_path }}" class="logo-preview" id="logoPreviewImg" alt="Лого">
                     <button type="button" class="logo-clear" onclick="clearLogo()">✕ Убрать</button>
@@ -325,6 +362,15 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
                            style="font-size:11px;color:#94a3b8;max-width:160px"
                            onchange="previewLogo(this)">
                     <input type="hidden" name="clear_logo" id="clearLogoFlag" value="">
+                    {% if label_settings.org_logo_path and not label_settings.logo_path %}
+                    <span class="org-logo-note">↳ используется лого организации</span>
+                    {% endif %}
+                    {% if label_settings.org_logo_path %}
+                    <button type="button" class="btn-use-org-logo" onclick="useOrgLogo()"
+                            title="Установить лого организации как логотип ценника">
+                        🏢 Использовать лого организации
+                    </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -338,6 +384,30 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
             <span class="save-status" id="saveStatus">✓ Сохранено</span>
         </div>
     </form>
+
+    <!-- Org logo management (separate form) -->
+    <div class="org-logo-section">
+        <h3>🏢 Лого организации</h3>
+        <div class="design-field">
+            <label>Текущее лого</label>
+            <div style="display:flex;align-items:center;gap:8px;">
+                {% if label_settings.org_logo_path %}
+                <img src="{{ label_settings.org_logo_path }}" class="org-logo-preview" id="orgLogoPreviewImg" alt="Лого орг.">
+                <button type="button" class="logo-clear" onclick="clearOrgLogo()">✕ Удалить</button>
+                {% else %}
+                <img src="" class="org-logo-preview" id="orgLogoPreviewImg" alt="" style="display:none">
+                <span class="org-logo-note">Не задано</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="design-field">
+            <label>Загрузить новое</label>
+            <input type="file" id="orgLogoInput" accept="image/*"
+                   style="font-size:11px;color:#94a3b8;max-width:160px"
+                   onchange="uploadOrgLogo(this)">
+        </div>
+        <span class="org-logo-note" style="width:100%">Автоматически появляется на ценниках, если логотип ценника не задан.</span>
+    </div>
 </div>
 {% endif %}
 
@@ -345,8 +415,8 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 <div class="sheet" id="labelSheet">
 {% for lb in labels %}
 <div class="label">
-    {% if label_settings.logo_path %}
-    <img class="label-logo" src="{{ label_settings.logo_path }}" alt="Лого">
+    {% if effective_logo %}
+    <img class="label-logo" src="{{ effective_logo }}" alt="Лого">
     {% else %}
     <img class="label-logo" src="" alt="" style="display:none">
     {% endif %}
@@ -370,6 +440,9 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 
 <!-- Alpine: label size switcher -->
 <script>
+var _BULK_IDS = {{ (bulk_product_ids or []) | tojson }};
+var _CSRF = "{{ csrf_token_for(request) }}";
+
 function labelSizer() {
     const SIZES = [
         {
@@ -409,7 +482,7 @@ function labelSizer() {
 
     return {
         sizes: SIZES,
-        size: new URLSearchParams(location.search).get('size') || '{{ initial_size }}',
+        size: new URLSearchParams(location.search).get('size') || '{{ initial_size | default("58x40") }}',
 
         init() {
             const saved = localStorage.getItem('ds_label_size');
@@ -447,6 +520,37 @@ function labelSizer() {
                 root.style.setProperty(k, v);
             }
         },
+
+        async downloadBulkPdf(btn) {
+            if (!_BULK_IDS.length) return;
+            btn.disabled = true;
+            const orig = btn.textContent;
+            btn.textContent = '⏳ Генерация…';
+            try {
+                const resp = await fetch('/products/labels', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        product_ids: _BULK_IDS,
+                        csrf_token: _CSRF,
+                        format: 'pdf',
+                        size: this.size,
+                    })
+                });
+                if (!resp.ok) { alert('Ошибка генерации PDF'); return; }
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'labels.pdf';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+            } catch(e) {
+                alert('Ошибка: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = orig;
+            }
+        },
     };
 }
 </script>
@@ -464,6 +568,12 @@ window.addEventListener('load', function() {
 <script>
 function toggleDesignPanel() {
     document.getElementById('designPanel').classList.toggle('open');
+}
+
+if (new URLSearchParams(location.search).get('design') === '1') {
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('designPanel').classList.add('open');
+    });
 }
 
 function applyDesignPreview() {
@@ -495,8 +605,16 @@ function clearLogo() {
     document.getElementById('clearLogoFlag').value = '1';
     document.getElementById('logoInput').value = '';
     document.querySelectorAll('.label-logo').forEach(function(img) {
-        img.src = '';
-        img.style.display = 'none';
+        /* Fall back to org logo if available */
+        var orgLogo = document.getElementById('orgLogoPreviewImg');
+        var orgSrc = orgLogo && orgLogo.style.display !== 'none' ? orgLogo.src : '';
+        if (orgSrc) {
+            img.src = orgSrc;
+            img.style.display = '';
+        } else {
+            img.src = '';
+            img.style.display = 'none';
+        }
     });
 }
 
@@ -513,6 +631,66 @@ function resetDesign() {
     });
     applyDesignPreview();
     saveDesign();
+}
+
+function useOrgLogo() {
+    var orgImg = document.getElementById('orgLogoPreviewImg');
+    if (!orgImg || orgImg.style.display === 'none' || !orgImg.src) {
+        alert('Лого организации не задано.');
+        return;
+    }
+    /* Clear the label-specific logo override so the fallback takes effect on save */
+    document.getElementById('clearLogoFlag').value = '1';
+    document.getElementById('logoInput').value = '';
+    /* Preview org logo on labels immediately */
+    document.querySelectorAll('.label-logo').forEach(function(img) {
+        img.src = orgImg.src;
+        img.style.display = '';
+    });
+    /* Show in label logo preview */
+    var prev = document.getElementById('logoPreviewImg');
+    if (prev) { prev.src = orgImg.src; prev.style.display = ''; }
+    /* Auto-save so the change persists */
+    saveDesign();
+}
+
+function uploadOrgLogo(input) {
+    if (!input.files || !input.files[0]) return;
+    var form = new FormData();
+    form.append('csrf_token', document.querySelector('#designForm [name=csrf_token]').value);
+    form.append('org_logo', input.files[0]);
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var orgImg = document.getElementById('orgLogoPreviewImg');
+        if (orgImg) { orgImg.src = e.target.result; orgImg.style.display = ''; }
+    };
+    reader.readAsDataURL(input.files[0]);
+
+    fetch('/products/org-logo', {
+        method: 'POST', body: form, credentials: 'same-origin'
+    })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(json) {
+        if (!json.ok) throw new Error(json.error || 'Ошибка');
+        /* Reload page so UI reflects new org logo state */
+        location.reload();
+    })
+    .catch(function(err) { alert('Ошибка загрузки: ' + err.message); });
+}
+
+function clearOrgLogo() {
+    if (!confirm('Удалить лого организации?')) return;
+    var form = new FormData();
+    form.append('csrf_token', document.querySelector('#designForm [name=csrf_token]').value);
+    form.append('clear_org_logo', '1');
+
+    fetch('/products/org-logo', {
+        method: 'POST', body: form, credentials: 'same-origin'
+    })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function() { location.reload(); })
+    .catch(function(err) { alert('Ошибка: ' + err.message); });
 }
 
 function saveDesign() {

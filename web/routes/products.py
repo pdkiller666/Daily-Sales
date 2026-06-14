@@ -91,6 +91,11 @@ PRODUCTS_PAGE_SIZE = 50  # rows per products list page
 _import_sessions: dict[str, dict] = {}
 _IMPORT_SESSION_TTL = 3600  # 1 hour
 
+# Article import session store — bound to user:
+# {session_id: {"telegram_id": int, "items": [...], "skipped": int, "_ts": float}}
+_article_sessions: dict[str, dict] = {}
+ARTICLE_IMPORT_MAX = 500  # max rows per article import upload
+
 
 def _cleanup_import_sessions() -> None:
     """Evict import sessions older than TTL to prevent unbounded memory growth."""
@@ -100,6 +105,16 @@ def _cleanup_import_sessions() -> None:
              if now - v.get("_ts", 0) > _IMPORT_SESSION_TTL]
     for k in stale:
         _import_sessions.pop(k, None)
+
+
+def _cleanup_article_sessions() -> None:
+    """Evict article import sessions older than TTL."""
+    import time as _time
+    now = _time.time()
+    stale = [k for k, v in _article_sessions.items()
+             if now - v.get("_ts", 0) > _IMPORT_SESSION_TTL]
+    for k in stale:
+        _article_sessions.pop(k, None)
 
 
 @router.get("/products")
@@ -174,6 +189,9 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         ctx["page"] = page
         ctx["total_pages"] = total_pages
         ctx["base_url"] = base_url
+        ctx["is_owner"] = user.get("role") in ("owner", "super_admin")
+        ctx["label_settings"] = _get_label_settings_safe(db)
+        ctx["first_product_id"] = all_products[0][0] if all_products else None
 
         # ── ABC-анализ: выручка по товарам за 90 дней ────────────────────────
         try:
@@ -788,6 +806,202 @@ async def bulk_assign_articles(request: Request):
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
+@router.get("/products/import-articles")
+def products_import_articles_page(
+    request: Request,
+    session_id: str = "",
+    page: int = 1,
+    error: str = "",
+):
+    """Show article import upload form or preview."""
+    from web.auth import get_session_user, get_csrf_token
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+
+    ctx: dict = {
+        "request": request, "user": user, "is_admin": True,
+        "max_items": ARTICLE_IMPORT_MAX,
+        "csrf_token": get_csrf_token(request),
+        "preview": None, "error": error or None,
+        "session_id": "", "total": 0, "skipped": 0,
+        "page": 1, "page_count": 1, "has_prev": False, "has_next": False,
+    }
+
+    if session_id:
+        sess = _article_sessions.get(session_id)
+        if not sess or sess.get("telegram_id") != telegram_id:
+            ctx["error"] = "Сессия не найдена или устарела. Загрузите файл снова."
+        else:
+            items = sess["items"]
+            total = len(items)
+            page_count = max(1, (total + PREVIEW_PAGE_SIZE - 1) // PREVIEW_PAGE_SIZE)
+            page = max(1, min(page, page_count))
+            offset = (page - 1) * PREVIEW_PAGE_SIZE
+            ctx.update({
+                "preview": items[offset: offset + PREVIEW_PAGE_SIZE],
+                "total": total,
+                "skipped": sess.get("skipped", 0),
+                "session_id": session_id,
+                "page": page,
+                "page_count": page_count,
+                "has_prev": page > 1,
+                "has_next": page < page_count,
+            })
+
+    return request.app.state.templates.TemplateResponse(
+        request, "products/import_articles.html", ctx,
+    )
+
+
+@router.post("/products/import-articles")
+async def products_import_articles_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    csrf_token: str = Form(default=""),
+):
+    """Parse xlsx with (Article, Product Name) columns, store session, redirect to preview."""
+    from web.auth import get_session_user, verify_csrf_token
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/products/import-articles", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+
+    def _err(msg: str):
+        return RedirectResponse(
+            url=f"/products/import-articles?error={quote(msg)}",
+            status_code=302,
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        return _err("Принимаются только файлы .xlsx (Excel 2007+).")
+
+    try:
+        raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    except Exception as e:
+        logging.error(f"products_import_articles_upload read error: {e}")
+        return _err("Не удалось прочитать файл. Убедитесь, что файл не повреждён.")
+
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return _err("Файл слишком большой (максимум 5 МБ).")
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+        valid: list[dict] = []
+        skipped = 0
+        for row in ws.iter_rows(values_only=True):
+            if not row or len(row) < 2:
+                skipped += 1
+                continue
+            article_raw = str(row[0]).strip() if row[0] is not None else ""
+            name_raw = str(row[1]).strip() if row[1] is not None else ""
+            if not article_raw or not name_raw or len(name_raw) < 2:
+                skipped += 1
+                continue
+            article_up = article_raw.upper()
+            if article_up in ("АРТИКУЛ", "ARTICLE", "BARCODE", "ШТРИХКОД", "КОД"):
+                skipped += 1
+                continue
+            if name_raw.lower() in ("название", "наименование", "product name", "name", "товар"):
+                skipped += 1
+                continue
+            valid.append({"article": article_up, "name": name_raw[:80]})
+            if len(valid) >= ARTICLE_IMPORT_MAX:
+                break
+        wb.close()
+    except Exception as e:
+        logging.error(f"products_import_articles_upload parse error: {e}")
+        return _err("Не удалось разобрать файл. Убедитесь, что это корректный .xlsx файл Excel 2007+.")
+
+    if not valid:
+        return _err(
+            "Файл не содержит подходящих строк. "
+            "Убедитесь, что столбцы: A=Артикул, B=Название товара."
+        )
+
+    _cleanup_article_sessions()
+    import time as _time
+    session_id = str(_uuid.uuid4())
+    _article_sessions[session_id] = {
+        "telegram_id": telegram_id,
+        "items": valid,
+        "skipped": skipped,
+        "_ts": _time.time(),
+    }
+
+    return RedirectResponse(
+        url=f"/products/import-articles?session_id={session_id}&page=1",
+        status_code=302,
+    )
+
+
+@router.post("/products/import-articles/confirm")
+def products_import_articles_confirm(
+    request: Request,
+    session_id: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Apply article assignments from session."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/products/import-articles", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    sess = _article_sessions.pop(session_id, None)
+    if not sess or sess.get("telegram_id") != telegram_id:
+        return RedirectResponse(
+            url="/products/import-articles?error=Сессия+не+найдена+или+устарела.+Загрузите+файл+снова.",
+            status_code=302,
+        )
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        result = db.import_articles_bulk(sess["items"])
+    except Exception as e:
+        logging.error(f"products_import_articles_confirm: {e}")
+        return RedirectResponse(
+            url="/products/import-articles?error=Ошибка+сохранения.+Попробуйте+ещё+раз.",
+            status_code=302,
+        )
+
+    updated = result.get("updated", 0)
+    not_found = result.get("not_found", [])
+    conflicts = result.get("conflicts", [])
+    nf = len(not_found)
+    cf = len(conflicts)
+
+    params = f"articles_imported={updated}"
+    if nf:
+        params += f"&nf={nf}"
+    if cf:
+        params += f"&cf={cf}"
+    return RedirectResponse(url=f"/products?{params}", status_code=302)
+
+
 @router.get("/api/products/by-article")
 def api_product_by_article(request: Request, q: str = ""):
     """JSON: найти товар по артикулу (точное совпадение, без учёта регистра).
@@ -939,6 +1153,135 @@ def _build_label_ctx(product) -> dict:
 
 _VALID_LABEL_SIZES = {"58x40", "40x30", "a6"}
 
+# Per-size PDF layout params: (label_w_mm, label_h_mm, h_gap_mm, v_gap_mm, margin_mm)
+_LABEL_PDF_PARAMS: dict[str, tuple] = {
+    "58x40": (58, 40, 4, 4, 10),
+    "40x30": (40, 30, 3, 3, 10),
+    "a6":    (105, 74, 0, 5, 0),  # zero h_gap/margin → exactly 2 cols on A4
+}
+
+
+def _generate_labels_pdf(labels: list, size: str = "58x40") -> bytes:
+    """Generate a PDF with price labels on A4 using reportlab.
+    Label dimensions and grid are determined by `size` (58x40 | 40x30 | a6).
+    Column count is auto-derived so physical dimensions are exact.
+    """
+    import base64 as _b64
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
+
+    lw_mm, lh_mm, hg_mm, vg_mm, mg_mm = _LABEL_PDF_PARAMS.get(
+        size, _LABEL_PDF_PARAMS["58x40"]
+    )
+
+    buf = io.BytesIO()
+    page_w, page_h = A4
+
+    label_w = lw_mm * mm
+    label_h = lh_mm * mm
+    h_gap   = hg_mm * mm
+    v_gap   = vg_mm * mm
+    margin  = mg_mm * mm
+
+    # Auto-derive column count from exact label size; centre grid on page.
+    denominator = label_w + h_gap if (label_w + h_gap) > 0 else label_w
+    cols = max(1, int((page_w - 2 * margin + h_gap) / denominator))
+    grid_w = cols * label_w + (cols - 1) * h_gap
+    left_margin = (page_w - grid_w) / 2
+
+    rows_per_page = max(1, int((page_h - 2 * margin + v_gap) / (label_h + v_gap)))
+    labels_per_page = cols * rows_per_page
+
+    # Scale font/QR to label size.
+    name_pt   = max(5, min(11, lw_mm * 0.12))
+    price_pt  = max(8, min(22, lw_mm * 0.22))
+    art_pt    = max(4, min(8, lw_mm * 0.09))
+    qr_mm     = max(8, min(34, lw_mm * 0.38))
+
+    c = _canvas.Canvas(buf, pagesize=A4)
+    c.setTitle("Ценники — DailySales")
+
+    for idx, lb in enumerate(labels):
+        if idx > 0 and idx % labels_per_page == 0:
+            c.showPage()
+
+        col = idx % cols
+        row_on_page = (idx // cols) % rows_per_page
+
+        x = left_margin + col * (label_w + h_gap)
+        y = page_h - margin - (row_on_page + 1) * label_h - row_on_page * v_gap
+
+        c.setStrokeColor(colors.Color(0.8, 0.8, 0.8))
+        c.setLineWidth(0.5)
+        c.roundRect(x, y, label_w, label_h, min(2 * mm, label_w * 0.04))
+
+        inner_x = x + 2 * mm
+        inner_w = label_w - 4 * mm
+
+        name = (lb.get("name") or "")[:60]
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica-Bold", name_pt)
+        name_y = y + label_h - 3.5 * mm
+        words = name.split()
+        line1, line2 = "", ""
+        for w in words:
+            test = (line1 + " " + w).strip()
+            if c.stringWidth(test, "Helvetica-Bold", name_pt) <= inner_w:
+                line1 = test
+            elif not line2:
+                line2 = w
+            else:
+                test2 = (line2 + " " + w).strip()
+                if c.stringWidth(test2, "Helvetica-Bold", name_pt) <= inner_w:
+                    line2 = test2
+        lh_pt = name_pt * 1.3
+        if line1:
+            c.drawCentredString(x + label_w / 2, name_y - lh_pt, line1)
+        if line2:
+            c.drawCentredString(x + label_w / 2, name_y - lh_pt - lh_pt, line2)
+
+        price = lb.get("price", 0)
+        price_str = f"{int(price):,}".replace(",", "\u202f") + " \u20bd"
+        c.setFont("Helvetica-Bold", price_pt)
+        price_y = y + label_h / 2 + 3 * mm
+        c.drawCentredString(x + label_w / 2, price_y, price_str)
+
+        sep_y = y + label_h / 2 - 0.5 * mm
+        c.setStrokeColor(colors.Color(0.85, 0.85, 0.85))
+        c.setLineWidth(0.4)
+        c.line(inner_x, sep_y, inner_x + inner_w, sep_y)
+
+        qr_b64 = lb.get("qr_b64") or ""
+        qr_size = qr_mm * mm
+        qr_area_h = label_h / 2 - 3 * mm
+        qr_y = y + (qr_area_h - qr_size) / 2
+
+        if qr_b64:
+            try:
+                qr_bytes = _b64.b64decode(qr_b64)
+                qr_buf = io.BytesIO(qr_bytes)
+                img = ImageReader(qr_buf)
+                c.drawImage(img, x + (label_w - qr_size) / 2, qr_y, qr_size, qr_size,
+                            preserveAspectRatio=True)
+            except Exception:
+                pass
+
+        article = lb.get("article") or ""
+        c.setFont("Courier", art_pt)
+        if article:
+            c.setFillColor(colors.Color(0.33, 0.33, 0.33))
+            c.drawCentredString(x + label_w / 2, y + 2, article)
+        else:
+            c.setFillColor(colors.Color(0.7, 0.7, 0.7))
+            c.drawCentredString(x + label_w / 2, y + 2,
+                                "\u2014 \u0430\u0440\u0442\u0438\u043a\u0443\u043b \u043d\u0435 \u0437\u0430\u0434\u0430\u043d \u2014")
+
+    c.save()
+    return buf.getvalue()
+
 
 def _get_label_settings_safe(db) -> dict:
     """Fetch label settings, returning defaults on any error."""
@@ -948,9 +1291,17 @@ def _get_label_settings_safe(db) -> dict:
         return dict(_DEFAULT_LABEL_SETTINGS)
 
 
+def _effective_logo(label_settings: dict) -> str:
+    """Return the logo to actually show on labels: label-specific logo, then org logo fallback."""
+    return label_settings.get("logo_path") or label_settings.get("org_logo_path") or ""
+
+
 @router.get("/products/{product_id}/label")
-def product_label(request: Request, product_id: int, print: str = "", size: str = "58x40"):
-    """Render a print-friendly price label for a single product."""
+def product_label(request: Request, product_id: int, print: str = "",
+                  size: str = "58x40", format: str = ""):
+    """Render a print-friendly price label for a single product.
+    ?format=pdf returns a downloadable PDF; ?size=58x40|40x30|a6 sets label size.
+    """
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -972,6 +1323,21 @@ def product_label(request: Request, product_id: int, print: str = "", size: str 
         size = "58x40"
     label_settings = _get_label_settings_safe(db)
     label = _build_label_ctx(product)
+
+    if format == "pdf":
+        from fastapi.responses import Response
+        try:
+            pdf_bytes = _generate_labels_pdf([label], size=size)
+        except Exception as exc:
+            logging.error(f"PDF generation failed: {exc}")
+            return Response(content="PDF generation error", status_code=500)
+        safe_name = (label["name"] or "label")[:40].replace(" ", "_")
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'},
+        )
+
     return request.app.state.templates.TemplateResponse(
         request, "products/label.html", {
             "request": request,
@@ -979,15 +1345,19 @@ def product_label(request: Request, product_id: int, print: str = "", size: str 
             "auto_print": bool(print),
             "initial_size": size,
             "label_settings": label_settings,
+            "effective_logo": _effective_logo(label_settings),
             "is_owner": user.get("role") in ("owner", "super_admin"),
             "csrf_token": get_csrf_token(request),
+            "pdf_url": f"/products/{product_id}/label?format=pdf",
         }
     )
 
 
 @router.post("/products/labels")
 async def products_labels_bulk(request: Request):
-    """Return a print page with labels for multiple products (JSON body: {product_ids: [...]})."""
+    """Return a print page (or PDF) with labels for multiple products.
+    JSON body: {product_ids: [...], csrf_token: "...", format: "pdf"|""}
+    """
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
 
@@ -999,11 +1369,14 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="Forbidden", status_code=403)
 
+    # Accept format from query param (?format=pdf) OR JSON body field.
+    fmt_qp = request.query_params.get("format", "")
     try:
         body = await request.json()
         csrf = body.get("csrf_token", "")
         product_ids = [int(x) for x in body.get("product_ids", [])]
         size = body.get("size", "58x40")
+        fmt = fmt_qp or body.get("format", "")
     except Exception:
         from fastapi.responses import Response
         return Response(content="Bad request", status_code=400)
@@ -1038,6 +1411,19 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="No valid products", status_code=400)
 
+    if fmt == "pdf":
+        from fastapi.responses import Response
+        try:
+            pdf_bytes = _generate_labels_pdf(labels, size=size)
+        except Exception as exc:
+            logging.error(f"Bulk PDF generation failed: {exc}")
+            return Response(content="PDF generation error", status_code=500)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="labels.pdf"'},
+        )
+
     return request.app.state.templates.TemplateResponse(
         request, "products/label.html", {
             "request": request,
@@ -1045,8 +1431,10 @@ async def products_labels_bulk(request: Request):
             "auto_print": True,
             "initial_size": size,
             "label_settings": label_settings,
+            "effective_logo": _effective_logo(label_settings),
             "is_owner": user.get("role") in ("owner", "super_admin"),
             "csrf_token": get_csrf_token(request),
+            "bulk_product_ids": product_ids,
         }
     )
 
@@ -1111,6 +1499,68 @@ async def save_label_settings(
             logging.warning(f"label logo upload failed: {exc}")
 
     db.save_label_settings(bg_color, text_color, price_color, logo_path, font_size)
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/products/org-logo")
+async def save_org_logo(
+    request: Request,
+    clear_org_logo: str = Form(""),
+    org_logo: UploadFile = File(None),
+):
+    """Save or clear the organisation logo used as fallback on price labels (owner only)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import Response
+
+    user = get_session_user(request)
+    if not user:
+        return Response(content="Unauthorized", status_code=401)
+    if user.get("role") not in ("owner", "super_admin"):
+        return Response(content="Forbidden", status_code=403)
+
+    form = await request.form()
+    csrf = form.get("csrf_token", "")
+    if not verify_csrf_token(request, csrf):
+        return Response(content="CSRF error", status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    if clear_org_logo == "1":
+        existing = _get_label_settings_safe(db).get("org_logo_path", "")
+        if existing and existing.startswith("/static/product_photos/"):
+            try:
+                fpath = Path("web") / existing.lstrip("/")
+                if fpath.exists():
+                    fpath.unlink()
+            except Exception:
+                pass
+        db.save_org_logo("")
+    elif org_logo and org_logo.filename:
+        try:
+            raw = await org_logo.read()
+            if raw and len(raw) <= _LOGO_MAX_BYTES and _is_valid_image(raw):
+                org_hash = _get_org_hash(org_db or "")
+                save_dir = _LOGO_DIR / org_hash
+                save_dir.mkdir(parents=True, exist_ok=True)
+                for old in save_dir.glob("org_logo.*"):
+                    try:
+                        old.unlink()
+                    except Exception:
+                        pass
+                ext = Path(org_logo.filename or "logo.png").suffix.lower()
+                if ext not in _PHOTO_EXTS:
+                    ext = ".png"
+                fname = f"org_logo{ext}"
+                (save_dir / fname).write_bytes(raw)
+                path = f"/static/product_photos/{org_hash}/{fname}"
+                db.save_org_logo(path)
+        except Exception as exc:
+            logging.warning(f"org logo upload failed: {exc}")
+            return JSONResponse({"ok": False, "error": "Upload failed"}, status_code=400)
 
     return JSONResponse({"ok": True})
 

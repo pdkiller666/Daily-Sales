@@ -1,30 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Импорт товаров{% endblock %}
+{% block title %}Импорт артикулов{% endblock %}
 
 {% block breadcrumb %}
 <span class="text-slate-400 text-xs">🏠</span>
 <span class="text-slate-300 text-xs">/</span>
 <a href="/products" class="text-slate-500 text-sm hover:text-slate-700">Товары</a>
 <span class="text-slate-300 text-xs">/</span>
-<span class="font-medium text-slate-700 text-sm">Импорт Excel</span>
+<span class="font-medium text-slate-700 text-sm">Импорт артикулов</span>
 {% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <div>
-        <h1 class="text-2xl font-bold text-slate-800">Импорт товаров из Excel</h1>
-        <p class="text-sm text-slate-500 mt-0.5">Массовая загрузка до {{ max_items }} товаров из .xlsx файла</p>
+        <h1 class="text-2xl font-bold text-slate-800">Импорт артикулов (штрихкодов)</h1>
+        <p class="text-sm text-slate-500 mt-0.5">Массовое назначение артикулов для существующих товаров из .xlsx файла</p>
     </div>
-    <div class="flex items-center gap-2">
-        <a href="/products/import-articles"
-           class="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 border border-indigo-200 bg-white px-3 py-1.5 rounded-lg transition-colors">
-            🏷 Импорт артикулов
-        </a>
-        <a href="/products"
-           class="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 border border-slate-200 bg-white px-3 py-1.5 rounded-lg transition-colors">
-            ← Назад
-        </a>
-    </div>
+    <a href="/products"
+       class="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 border border-slate-200 bg-white px-3 py-1.5 rounded-lg transition-colors">
+        ← Назад
+    </a>
 </div>
 
 {% if error %}
@@ -36,12 +30,13 @@
 {% if preview %}
 <!-- ─── Preview step ────────────────────────────────────────── -->
 <div class="mb-4 flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
-    <span class="text-2xl">📊</span>
+    <span class="text-2xl">🏷</span>
     <div>
-        <p class="font-semibold">Найдено {{ total }} товаров
+        <p class="font-semibold">Найдено {{ total }} строк
             {% if skipped %} · <span class="text-amber-700">пропущено {{ skipped }} строк</span>{% endif %}
         </p>
-        {% if skipped %}<p class="text-xs mt-0.5 text-emerald-700">Строки пропускаются если: имя &lt; 2 символа, цена не число или ≤ 0</p>{% endif %}
+        {% if skipped %}<p class="text-xs mt-0.5 text-emerald-700">Строки пропускаются если: артикул или название пусто, похоже на заголовок таблицы</p>{% endif %}
+        <p class="text-xs mt-1 text-emerald-700">Совпадение по названию товара — без учёта регистра. Дубликаты артикулов будут пропущены с предупреждением.</p>
     </div>
 </div>
 
@@ -59,24 +54,18 @@
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
                     <th class="text-left px-5 py-3 text-xs font-semibold text-slate-400 uppercase">#</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-400 uppercase">Название</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-400 uppercase">Категория</th>
-                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-400 uppercase">Цена</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-400 uppercase">Артикул / штрихкод</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-400 uppercase">Название товара</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50">
                 {% set offset = (page - 1) * 20 %}
-                {% for p in preview %}
+                {% for item in preview %}
                 <tr class="hover:bg-slate-50/50">
                     <td class="px-5 py-2.5 text-xs text-slate-400">{{ offset + loop.index }}</td>
-                    <td class="px-3 py-2.5 font-medium text-slate-800 max-w-[260px]">
-                        <span class="truncate block" title="{{ p.name }}">{{ p.name }}</span>
-                    </td>
-                    <td class="px-3 py-2.5">
-                        <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">{{ p.category }}</span>
-                    </td>
-                    <td class="px-5 py-2.5 text-right font-semibold text-slate-700">
-                        {{ "%.2f"|format(p.price) }} ₽
+                    <td class="px-3 py-2.5 font-mono text-sm font-semibold text-indigo-700">{{ item.article }}</td>
+                    <td class="px-3 py-2.5 text-slate-700 max-w-[300px]">
+                        <span class="truncate block" title="{{ item.name }}">{{ item.name }}</span>
                     </td>
                 </tr>
                 {% endfor %}
@@ -85,11 +74,10 @@
     </div>
 
     {% if page_count > 1 %}
-    <!-- Pagination controls -->
     <div class="flex items-center justify-between px-5 py-3 border-t border-slate-100">
         <div class="flex items-center gap-2">
             {% if has_prev %}
-            <a href="/products/import?session_id={{ session_id }}&page={{ page - 1 }}"
+            <a href="/products/import-articles?session_id={{ session_id }}&page={{ page - 1 }}"
                class="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
                 ← Предыдущая
             </a>
@@ -101,7 +89,7 @@
             {% if p_num == page %}
             <span class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg font-semibold">{{ p_num }}</span>
             {% elif p_num <= 3 or p_num > page_count - 2 or (p_num >= page - 1 and p_num <= page + 1) %}
-            <a href="/products/import?session_id={{ session_id }}&page={{ p_num }}"
+            <a href="/products/import-articles?session_id={{ session_id }}&page={{ p_num }}"
                class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">{{ p_num }}</a>
             {% elif p_num == 4 or p_num == page_count - 2 %}
             <span class="text-xs text-slate-300">…</span>
@@ -109,7 +97,7 @@
             {% endfor %}
 
             {% if has_next %}
-            <a href="/products/import?session_id={{ session_id }}&page={{ page + 1 }}"
+            <a href="/products/import-articles?session_id={{ session_id }}&page={{ page + 1 }}"
                class="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
                 Следующая →
             </a>
@@ -117,22 +105,22 @@
             <span class="text-xs px-3 py-1.5 border border-slate-100 rounded-lg text-slate-300 cursor-not-allowed">Следующая →</span>
             {% endif %}
         </div>
-        <span class="text-xs text-slate-400">Всего {{ total }} товаров · {{ page_count }} стр.</span>
+        <span class="text-xs text-slate-400">Всего {{ total }} строк · {{ page_count }} стр.</span>
     </div>
     {% endif %}
 </div>
 
 <div class="flex items-center gap-3">
-    <form method="post" action="/products/import/confirm">
+    <form method="post" action="/products/import-articles/confirm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="session_id" value="{{ session_id }}">
         <button type="submit"
-                onclick="dsOnce(this,'⏳ Импорт…')"
+                onclick="dsOnce(this,'⏳ Сохранение…')"
                 class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors">
-            ✅ Импортировать {{ total }} товаров
+            ✅ Назначить артикулы ({{ total }} строк)
         </button>
     </form>
-    <a href="/products/import"
+    <a href="/products/import-articles"
        class="text-sm text-slate-400 hover:text-slate-600 hover:underline">
         Загрузить другой файл
     </a>
@@ -144,25 +132,24 @@
     <!-- Upload form -->
     <div class="lg:col-span-2">
         <div class="card p-6">
-            <form method="post" action="/products/import" enctype="multipart/form-data"
-                  id="importForm" x-data="{ fileName: '', dragging: false }">
+            <form method="post" action="/products/import-articles" enctype="multipart/form-data"
+                  id="artImportForm" x-data="{ fileName: '', dragging: false }">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-                <!-- Drag & drop zone -->
                 <div class="border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer mb-5"
-                     :class="dragging ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50/50'"
+                     :class="dragging ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'"
                      @dragover.prevent="dragging = true"
                      @dragleave.prevent="dragging = false"
-                     @drop.prevent="dragging = false; onDrop($event, $refs.fileInput)"
-                     @click="$refs.fileInput.click()">
+                     @drop.prevent="dragging = false; onDropArt($event, $refs.artFile)"
+                     @click="$refs.artFile.click()">
 
                     <input type="file" name="file" accept=".xlsx" required
-                           x-ref="fileInput"
+                           x-ref="artFile"
                            class="hidden"
                            @change="fileName = $event.target.files[0]?.name || ''">
 
                     <div x-show="!fileName">
-                        <p class="text-4xl mb-3">📊</p>
+                        <p class="text-4xl mb-3">🏷</p>
                         <p class="text-sm font-semibold text-slate-700 mb-1">Нажмите или перетащите .xlsx файл</p>
                         <p class="text-xs text-slate-400">Только формат .xlsx · Максимум 5 МБ</p>
                     </div>
@@ -174,13 +161,13 @@
                 </div>
 
                 <button type="submit"
-                        class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors">
+                        class="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors">
                     👁 Предпросмотр и проверка
                 </button>
             </form>
 
             <script>
-            function onDrop(e, input) {
+            function onDropArt(e, input) {
                 const files = e.dataTransfer.files;
                 if (!files.length) return;
                 try {
@@ -194,37 +181,33 @@
         </div>
     </div>
 
-    <!-- Format guide -->
+    <!-- Guide -->
     <div class="space-y-4">
         <div class="card p-5">
             <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
                 <span>📋</span> Формат файла
             </h3>
-            <p class="text-xs text-slate-500 mb-3">Таблица без лишних столбцов. Шапку можно включить — строки с нечисловой ценой пропускаются.</p>
+            <p class="text-xs text-slate-500 mb-3">Два столбца. Шапку можно включить — строки-заголовки пропускаются автоматически.</p>
             <div class="bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
                 <table class="w-full text-xs">
                     <thead>
                         <tr class="bg-slate-100">
                             <th class="text-center px-3 py-2 font-semibold text-slate-500">A</th>
                             <th class="text-center px-3 py-2 font-semibold text-slate-500">B</th>
-                            <th class="text-center px-3 py-2 font-semibold text-slate-500">C</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         <tr class="text-slate-400 italic">
-                            <td class="px-3 py-1.5 text-center">Название</td>
-                            <td class="px-3 py-1.5 text-center">Категория</td>
-                            <td class="px-3 py-1.5 text-center">Цена</td>
+                            <td class="px-3 py-1.5 text-center">Артикул</td>
+                            <td class="px-3 py-1.5 text-center">Название товара</td>
                         </tr>
                         <tr>
+                            <td class="px-3 py-1.5 font-mono text-slate-700">4607001234568</td>
                             <td class="px-3 py-1.5 text-slate-700">Ноутбук Acer</td>
-                            <td class="px-3 py-1.5 text-slate-700">Электроника</td>
-                            <td class="px-3 py-1.5 text-right text-slate-700">45990</td>
                         </tr>
                         <tr>
+                            <td class="px-3 py-1.5 font-mono text-slate-700">ELK-00042</td>
                             <td class="px-3 py-1.5 text-slate-700">Мышь Logitech</td>
-                            <td class="px-3 py-1.5 text-slate-700">Аксессуары</td>
-                            <td class="px-3 py-1.5 text-right text-slate-700">1290</td>
                         </tr>
                     </tbody>
                 </table>
@@ -233,45 +216,29 @@
 
         <div class="card p-5">
             <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                <span>⚠️</span> Ограничения
+                <span>⚠️</span> Как работает
             </h3>
             <ul class="text-xs text-slate-500 space-y-1.5">
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Максимум <strong>{{ max_items }} товаров</strong> за загрузку</li>
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Только формат <strong>.xlsx</strong> (не .xls)</li>
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Строки пропускаются если имя &lt; 2 символа</li>
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Строки пропускаются если цена не число или ≤ 0</li>
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Товары с совпадающим именем пропускаются</li>
-                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Фото и описание добавляются вручную после импорта</li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Совпадение по <strong>названию товара</strong> (без учёта регистра)</li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Артикул <strong>перезаписывается</strong> у существующих товаров</li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Если артикул уже занят другим товаром — строка <strong>пропускается с предупреждением</strong></li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Если товар не найден — строка пропускается с предупреждением</li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Максимум <strong>{{ max_items }} строк</strong> за загрузку</li>
+                <li class="flex gap-2"><span class="text-slate-400 shrink-0">•</span> Только формат <strong>.xlsx</strong> (не .xls, не .csv)</li>
             </ul>
         </div>
 
-        <!-- Text paste import -->
-        <div class="card p-5" x-data="{ open: false }">
-            <div class="flex items-center justify-between cursor-pointer" @click="open = !open">
-                <h3 class="font-semibold text-slate-800 flex items-center gap-2">
-                    <span>📝</span> Импорт текстом
-                </h3>
-                <svg class="w-4 h-4 text-slate-400 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-            </div>
-            <div x-show="open" x-cloak x-transition class="mt-4">
-                <p class="text-xs text-slate-500 mb-3">Вставьте список товаров — по одному на строку. Формат: <code class="bg-slate-100 px-1 rounded">Название, Категория, Цена</code></p>
-                <form method="post" action="/products/import/text">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <textarea name="text_lines" rows="8" required
-                              placeholder="iPhone 15, Смартфоны, 89990&#10;Samsung Galaxy, Смартфоны, 79990&#10;Ноутбук Lenovo, Ноутбуки, 65000"
-                              class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"></textarea>
-                    <button type="submit"
-                            class="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
-                        ✅ Создать товары из списка
-                    </button>
-                </form>
-            </div>
+        <div class="card p-5 bg-amber-50 border border-amber-100">
+            <h3 class="font-semibold text-amber-800 mb-2 flex items-center gap-2">
+                <span>💡</span> Подсказка
+            </h3>
+            <p class="text-xs text-amber-700">
+                Товары без артикулов можно сначала экспортировать из Excel-выгрузки — там есть столбец «Артикул». Заполните его и загрузите обратно.
+            </p>
         </div>
     </div>
 </div>
 {% endif %}
 
 {% endblock %}
-{% block footer_info %}Импорт Excel{% endblock %}
+{% block footer_info %}Импорт артикулов{% endblock %}

@@ -119,6 +119,14 @@
                 <button x-show="search" @click="search=''"
                         class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
             </div>
+            <button type="button" @click="openBarcodeScanner()"
+                    title="Сканировать штрих-код"
+                    class="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 9V6a1 1 0 011-1h3M3 15v3a1 1 0 001 1h3m12-10V6a1 1 0 00-1-1h-3m4 10v3a1 1 0 01-1 1h-3M8 12h.01M12 12h.01M16 12h.01"/>
+                </svg>
+            </button>
             <!-- Мобильный dropdown категорий -->
             <div class="lg:hidden" x-data="{catOpen: false}">
                 <button @click="catOpen = !catOpen" @click.outside="catOpen = false"
@@ -475,6 +483,15 @@
             <button x-show="search" @click="search=''; $nextTick(() => $el.previousElementSibling.focus())"
                     class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
         </div>
+        <!-- Кнопка сканирования штрих-кода (мобайл) -->
+        <button type="button" @click="openBarcodeScanner()"
+                title="Сканировать штрих-код"
+                class="shrink-0 flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 9V6a1 1 0 011-1h3M3 15v3a1 1 0 001 1h3m12-10V6a1 1 0 00-1-1h-3m4 10v3a1 1 0 01-1 1h-3M8 12h.01M12 12h.01M16 12h.01"/>
+            </svg>
+        </button>
         <!-- Dropdown категорий (открывается ВВЕРХ) -->
         <div x-data="{catOpen: false}" class="relative shrink-0">
             <button @click="catOpen = !catOpen" @click.outside="catOpen = false"
@@ -572,6 +589,62 @@
     </div>
 </div>
 
+<!-- ── Модал сканера штрих-кода ── -->
+<div x-show="scanOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closeBarcodeScanner()"></div>
+    <div class="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm z-10 overflow-hidden" @click.stop>
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">📷 Сканировать штрих-код</h3>
+            <button @click="closeBarcodeScanner()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Camera view -->
+        <div class="relative bg-black" style="height:240px" x-show="!scanError">
+            <video id="pos-barcode-video" autoplay playsinline muted
+                   class="w-full h-full object-cover"></video>
+            <!-- Scan frame overlay -->
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div class="w-48 h-32 border-2 border-emerald-400 rounded-lg opacity-80">
+                    <div class="absolute -top-px -left-px w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
+                    <div class="absolute -top-px -right-px w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
+                    <div class="absolute -bottom-px -left-px w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg"></div>
+                    <div class="absolute -bottom-px -right-px w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-lg"></div>
+                </div>
+            </div>
+            <p class="absolute bottom-2 left-0 right-0 text-center text-xs text-white/70">Наведите на штрих-код или QR-код</p>
+        </div>
+
+        <div class="p-4 space-y-3">
+            <!-- Scanning status -->
+            <div x-show="scanStatus && !scanError"
+                 class="text-center text-sm text-slate-500 dark:text-slate-400" x-text="scanStatus"></div>
+
+            <!-- Error message -->
+            <div x-show="scanError"
+                 class="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-sm text-amber-800 dark:text-amber-200"
+                 x-text="scanError"></div>
+
+            <!-- Action buttons -->
+            <div class="flex gap-2">
+                <template x-if="scanError">
+                    <button type="button" @click="restartScan()"
+                            class="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                        🔄 Попробовать снова
+                    </button>
+                </template>
+                <button type="button" @click="closeBarcodeScanner()"
+                        class="flex-1 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endif %}
 </div><!-- /x-data -->
 {% endblock %}
@@ -592,6 +665,15 @@ function posApp() {
         checkoutError: '',
         successData: null,
         csrfToken: '{{ csrf_token }}',
+
+        // Barcode scanner state
+        scanOpen: false,
+        scanStatus: '',
+        scanError: '',
+        _scanStream: null,
+        _scanRaf: null,
+        _zxing: null,
+        _zxingReader: null,
 
         /* Избранное / Недавние / Мотивация */
         favorites: [],      /* Set of product IDs (stored as Set after init) */
@@ -855,6 +937,139 @@ function posApp() {
                 this.checkoutLoading = false;
                 this.checkoutError = 'Ошибка соединения';
             }
+        },
+
+        // ── Barcode scanner ────────────────────────────────────────────────
+        async openBarcodeScanner() {
+            this.scanOpen = true;
+            this.scanStatus = 'Запуск камеры…';
+            this.scanError = '';
+            this._scanStream = null;
+
+            if (!location.protocol.startsWith('https') && location.hostname !== 'localhost') {
+                this.scanError = '⚠️ Для доступа к камере требуется HTTPS-соединение.';
+                return;
+            }
+
+            try {
+                this._scanStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch (e) {
+                this.scanError = '📵 Камера недоступна или доступ запрещён. Разрешите доступ к камере в настройках браузера.';
+                return;
+            }
+
+            const video = document.getElementById('pos-barcode-video');
+            if (!video) { this.closeBarcodeScanner(); return; }
+            video.srcObject = this._scanStream;
+            await video.play().catch(() => {});
+
+            this.scanStatus = 'Сканирование…';
+
+            if (typeof BarcodeDetector !== 'undefined') {
+                this._startNativeDetector(video);
+            } else {
+                await this._startZxingDetector(video);
+            }
+        },
+
+        _startNativeDetector(video) {
+            const detector = new BarcodeDetector({ formats: [
+                'qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'data_matrix'
+            ]});
+            const self = this;
+            async function tick() {
+                if (!self.scanOpen || self.scanError) return;
+                try {
+                    const codes = await detector.detect(video);
+                    if (codes && codes.length > 0) {
+                        await self._lookupArticle(codes[0].rawValue);
+                        return;
+                    }
+                } catch (_) {}
+                self._scanRaf = requestAnimationFrame(tick);
+            }
+            this._scanRaf = requestAnimationFrame(tick);
+        },
+
+        async _startZxingDetector(video) {
+            if (!this._zxing) {
+                try {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://unpkg.com/@zxing/browser@0.1.4/umd/index.min.js';
+                        s.onload = resolve; s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                    this._zxing = true;
+                } catch (_) {
+                    this.scanError = '❌ Не удалось загрузить библиотеку сканирования. Проверьте интернет-соединение.';
+                    return;
+                }
+            }
+            try {
+                const hints = new Map();
+                const codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
+                const self = this;
+                codeReader.decodeFromVideoElement(video, async (result, err) => {
+                    if (!self.scanOpen || self.scanError) return;
+                    if (result) {
+                        codeReader.reset();
+                        await self._lookupArticle(result.getText());
+                    }
+                });
+                this._zxingReader = codeReader;
+            } catch (e) {
+                this.scanError = '❌ Ошибка при инициализации сканера.';
+            }
+        },
+
+        async _lookupArticle(code) {
+            this.scanStatus = 'Ищу товар…';
+            if (this._scanRaf) { cancelAnimationFrame(this._scanRaf); this._scanRaf = null; }
+            try {
+                const r = await fetch('/api/products/by-article?q=' + encodeURIComponent(code));
+                if (r.ok) {
+                    const data = await r.json();
+                    if (data.ok && data.product) {
+                        const p = this.allProducts.find(pr => String(pr.id) === String(data.product.id)) || data.product;
+                        this.addToCart(p);
+                        this.closeBarcodeScanner();
+                        return;
+                    }
+                }
+                this.scanError = '🔍 Товар с артикулом «' + code + '» не найден в базе.';
+            } catch (_) {
+                this.scanError = '❌ Ошибка соединения при поиске товара.';
+            }
+        },
+
+        restartScan() {
+            this.scanError = '';
+            this.scanStatus = 'Сканирование…';
+            const video = document.getElementById('pos-barcode-video');
+            if (video && this._scanStream) {
+                if (typeof BarcodeDetector !== 'undefined') {
+                    this._startNativeDetector(video);
+                } else {
+                    this._startZxingDetector(video);
+                }
+            }
+        },
+
+        closeBarcodeScanner() {
+            this.scanOpen = false;
+            this.scanStatus = '';
+            this.scanError = '';
+            if (this._scanRaf) { cancelAnimationFrame(this._scanRaf); this._scanRaf = null; }
+            if (this._zxingReader) { try { this._zxingReader.reset(); } catch(_) {} this._zxingReader = null; }
+            if (this._scanStream) {
+                this._scanStream.getTracks().forEach(t => t.stop());
+                this._scanStream = null;
+            }
+            const video = document.getElementById('pos-barcode-video');
+            if (video) { video.srcObject = null; }
         },
     };
 }

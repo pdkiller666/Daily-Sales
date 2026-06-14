@@ -23,10 +23,14 @@
            class="flex items-center gap-1.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors">
             📊 Импорт Excel
         </a>
+        <a href="/products/import-articles"
+           class="flex items-center gap-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors">
+            🏷 Импорт артикулов
+        </a>
         <button id="btn-bulk-articles"
                 onclick="dsBulkAssignArticles()"
                 class="flex items-center gap-1.5 text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors">
-            🏷 Артикулы
+            🏷 Авто-артикулы
         </button>
         {% endif %}
         <span class="text-sm text-slate-400 bg-white border border-slate-200 px-3 py-1.5 rounded-lg whitespace-nowrap">
@@ -38,6 +42,17 @@
 {% if request.query_params.get('bulk_articles') %}
 <div id="art-banner" class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
     <span>🏷</span><span>Артикулы присвоены: <strong>{{ request.query_params.get('bulk_articles') }} товаров</strong></span>
+</div>
+{% endif %}
+
+{% if request.query_params.get('articles_imported') %}
+<div class="mb-4 flex items-start gap-2 p-4 bg-indigo-50 border border-indigo-200 rounded-xl text-sm text-indigo-800">
+    <span>🏷</span>
+    <span>
+        Артикулы обновлены: <strong>{{ request.query_params.get('articles_imported') }} товаров</strong>
+        {% if request.query_params.get('nf') %} · <span class="text-amber-700">не найдено {{ request.query_params.get('nf') }}</span>{% endif %}
+        {% if request.query_params.get('cf') %} · <span class="text-red-600">конфликт артикулов {{ request.query_params.get('cf') }}</span>{% endif %}
+    </span>
 </div>
 {% endif %}
 
@@ -62,6 +77,59 @@
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
     <span>⚠️</span><span>{{ error }}</span>
+</div>
+{% endif %}
+
+{% if is_owner and label_settings %}
+{% set _ls = label_settings %}
+{% set _fs_map = {'small': '10px', 'medium': '12px', 'large': '14px'} %}
+{% set _fs = _fs_map.get(_ls.font_size, '12px') %}
+<div class="mb-5 flex items-center gap-4 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+    <div class="shrink-0">
+        <p class="text-xs font-semibold text-slate-500 mb-2">🏷 Дизайн этикетки</p>
+        <div class="relative rounded-lg overflow-hidden border border-slate-200 shadow-sm"
+             style="width:110px;height:70px;background:{{ _ls.bg_color }};font-size:{{ _fs }};">
+            {% if _ls.logo_path %}
+            <img src="{{ _ls.logo_path }}" alt="logo"
+                 style="position:absolute;top:5px;right:5px;max-height:18px;max-width:30px;object-fit:contain;">
+            {% endif %}
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:8px 10px;gap:3px;">
+                <div style="color:{{ _ls.text_color }};font-weight:600;font-size:{{ _fs }};line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">
+                    Название товара
+                </div>
+                <div style="color:{{ _ls.price_color }};font-weight:700;font-size:calc({{ _fs }} + 2px);line-height:1.2;">
+                    1 234 ₽
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="flex flex-col gap-2 min-w-0">
+        <div class="flex flex-wrap gap-2 text-xs text-slate-500">
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3.5 h-3.5 rounded border border-slate-200 shrink-0"
+                      style="background:{{ _ls.bg_color }}"></span>
+                Фон
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3.5 h-3.5 rounded border border-slate-200 shrink-0"
+                      style="background:{{ _ls.text_color }}"></span>
+                Текст
+            </span>
+            <span class="flex items-center gap-1">
+                <span class="inline-block w-3.5 h-3.5 rounded border border-slate-200 shrink-0"
+                      style="background:{{ _ls.price_color }}"></span>
+                Цена
+            </span>
+            <span class="text-slate-400">·</span>
+            <span>Шрифт: <strong class="text-slate-600">{{ _ls.font_size }}</strong></span>
+        </div>
+        {% if first_product_id %}
+        <a href="/products/{{ first_product_id }}/label?design=1"
+           class="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors">
+            🎨 Редактировать дизайн →
+        </a>
+        {% endif %}
+    </div>
 </div>
 {% endif %}
 
