@@ -735,9 +735,8 @@ async def process_barcode_photo(message: Message, state: FSMContext):
 
     try:
         import asyncio
-        import io
-        from pyzbar.pyzbar import decode as pyzbar_decode
-        from PIL import Image as PILImage
+        import cv2
+        import numpy as np
 
         photo = message.photo[-1]
         file = await message.bot.get_file(photo.file_id)
@@ -745,8 +744,25 @@ async def process_barcode_photo(message: Message, state: FSMContext):
         raw = file_bytes.read() if hasattr(file_bytes, 'read') else bytes(file_bytes)
 
         def _decode(data: bytes):
-            img = PILImage.open(io.BytesIO(data))
-            return pyzbar_decode(img)
+            arr = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                return []
+            found = []
+            try:
+                qr_data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+                if qr_data:
+                    found.append(qr_data)
+            except Exception:
+                pass
+            if not found:
+                try:
+                    ok, bar_info, _, _ = cv2.barcode.BarcodeDetector().detectAndDecodeMulti(img)
+                    if ok and bar_info:
+                        found.extend(s for s in bar_info if s)
+                except Exception:
+                    pass
+            return found
 
         decoded = await asyncio.to_thread(_decode, raw)
 
@@ -754,7 +770,8 @@ async def process_barcode_photo(message: Message, state: FSMContext):
             await fsm_edit(
                 state, message,
                 "❌ <b>Штрих-код не распознан</b>\n\n"
-                "Убедитесь, что код виден чётко и занимает большую часть фото.",
+                "Убедитесь, что код виден чётко и занимает большую часть фото.\n\n"
+                "<i>Совет: снимайте при хорошем освещении, штрих-код должен занимать большую часть кадра.</i>",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📸 Попробовать снова", callback_data="sale_scan_barcode")],
                     [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
@@ -763,7 +780,7 @@ async def process_barcode_photo(message: Message, state: FSMContext):
             )
             return
 
-        article = decoded[0].data.decode("utf-8", errors="replace").strip()
+        article = decoded[0].strip()
 
         current_db = await get_db(message.from_user.id, state)
         product = await current_db.get_product_by_article(article)
