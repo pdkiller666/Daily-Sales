@@ -100,8 +100,10 @@ jobs:
           prerelease: false
 
       - name: Notify server about new APK release
-        if: ${{ secrets.APK_WEBHOOK_SECRET != '' }}
+        env:
+          APK_WEBHOOK_SECRET: ${{ secrets.APK_WEBHOOK_SECRET }}
         run: |
+          [ -n "$APK_WEBHOOK_SECRET" ] || { echo "APK_WEBHOOK_SECRET not set, skipping"; exit 0; }
           VERSION="v1.0.${{ github.run_number }}"
           RELEASE_URL="${{ steps.create_release.outputs.url }}"
           RELEASE_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
