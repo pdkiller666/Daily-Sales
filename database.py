@@ -408,13 +408,15 @@ class Database:
                 "UPDATE subscription_plans SET can_use_integrations=1 WHERE name != 'Бесплатный'"
             )
 
-        # Миграция таблицы products: фото и описание товара
+        # Миграция таблицы products: фото, описание, артикул
         cursor.execute("PRAGMA table_info(products)")
         _prod_cols = [c[1] for c in cursor.fetchall()]
         if 'photo_file_id' not in _prod_cols:
             cursor.execute("ALTER TABLE products ADD COLUMN photo_file_id TEXT")
         if 'description' not in _prod_cols:
             cursor.execute("ALTER TABLE products ADD COLUMN description TEXT")
+        if 'article' not in _prod_cols:
+            cursor.execute("ALTER TABLE products ADD COLUMN article TEXT")
 
         # Галерея фото товаров (единое хранилище бот+веб)
         cursor.execute('''
@@ -1437,6 +1439,7 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_city          ON users(city)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_trade_network ON users(trade_network)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_category   ON products(category)')
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_article ON products(article) WHERE article IS NOT NULL')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_subscriptions_user  ON subscriptions(user_id, end_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_plans_user    ON sales_plans(user_id, target_type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_history_user  ON notification_history(user_id, is_read)')
@@ -2837,18 +2840,62 @@ class Database:
         conn.close()
         return product
 
-    def add_product(self, name, category, price, photo_file_id=None, description=None):
-        """Добавление нового товара"""
+    @staticmethod
+    def _make_article_prefix(category: str) -> str:
+        """3-символьный ASCII-префикс из названия категории для артикула."""
+        _TR = {
+            'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'E','Ж':'J',
+            'З':'Z','И':'I','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O',
+            'П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'X','Ц':'C',
+            'Ч':'H','Ш':'W','Щ':'Q','Ъ':'','Ы':'Y','Ь':'','Э':'E','Ю':'U','Я':'Q',
+        }
+        s = (category or '').upper().strip()
+        out = []
+        for ch in s:
+            if ch.isascii() and ch.isalpha():
+                out.append(ch)
+            elif ch in _TR and _TR[ch]:
+                out.append(_TR[ch])
+            if len(out) >= 3:
+                break
+        prefix = ''.join(out)[:3]
+        if len(prefix) < 2:
+            return 'PRD'
+        return prefix.ljust(3, 'X')
+
+    def add_product(self, name, category, price, photo_file_id=None, description=None, article=None):
+        """Добавление нового товара. Если article=None — генерируется автоматически."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO products (name, category, price, photo_file_id, description)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, category, price, photo_file_id, description))
-        product_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return product_id
+        try:
+            if article:
+                cursor.execute(
+                    'INSERT INTO products (name, category, price, photo_file_id, description, article) VALUES (?, ?, ?, ?, ?, ?)',
+                    (name, category, price, photo_file_id, description, article.strip().upper()),
+                )
+            else:
+                cursor.execute(
+                    'INSERT INTO products (name, category, price, photo_file_id, description) VALUES (?, ?, ?, ?, ?)',
+                    (name, category, price, photo_file_id, description),
+                )
+            product_id = cursor.lastrowid
+            if not article:
+                prefix = self._make_article_prefix(category)
+                base = f"{prefix}-{product_id:05d}"
+                auto_art = base
+                for sfx in [''] + list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+                    cand = base + sfx
+                    if not cursor.execute("SELECT 1 FROM products WHERE article=?", (cand,)).fetchone():
+                        auto_art = cand
+                        break
+                cursor.execute("UPDATE products SET article=? WHERE id=?", (auto_art, product_id))
+            conn.commit()
+            return product_id
+        except Exception:
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
 
     def add_products_bulk(self, items):
         """
@@ -2867,6 +2914,16 @@ class Database:
                         'INSERT INTO products (name, category, price) VALUES (?, ?, ?)',
                         (item['name'], item['category'], item['price'])
                     )
+                    pid = cursor.lastrowid
+                    prefix = self._make_article_prefix(item.get('category', ''))
+                    base = f"{prefix}-{pid:05d}"
+                    auto_art = base
+                    for sfx in [''] + list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+                        cand = base + sfx
+                        if not cursor.execute("SELECT 1 FROM products WHERE article=?", (cand,)).fetchone():
+                            auto_art = cand
+                            break
+                    cursor.execute("UPDATE products SET article=? WHERE id=?", (auto_art, pid))
                     added += 1
                 except sqlite3.IntegrityError:
                     skipped.append(item['name'])
@@ -2876,8 +2933,8 @@ class Database:
         return added, skipped
 
     def update_product(self, product_id, name=None, category=None, price=None,
-                       photo_file_id=None, description=None):
-        """Обновление товара"""
+                       photo_file_id=None, description=None, article=None):
+        """Обновление товара. article='' → оставить без изменений; article='XXX' → установить."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -2899,6 +2956,9 @@ class Database:
         if description is not None:
             updates.append('description = ?')
             params.append(description)
+        if article is not None and article != '':
+            updates.append('article = ?')
+            params.append(article.strip().upper())
 
         if updates:
             params.append(product_id)
@@ -2912,6 +2972,42 @@ class Database:
 
         conn.close()
         return False
+
+    def bulk_assign_articles(self) -> int:
+        """Присвоить авто-артикулы всем товарам у которых нет артикула. Возвращает кол-во обновлённых."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT id, category FROM products WHERE article IS NULL OR TRIM(article)=''"
+            ).fetchall()
+            updated = 0
+            for pid, cat in rows:
+                prefix = self._make_article_prefix(cat)
+                base = f"{prefix}-{pid:05d}"
+                final = base
+                for sfx in [''] + list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'):
+                    cand = base + sfx
+                    if not conn.execute("SELECT 1 FROM products WHERE article=?", (cand,)).fetchone():
+                        final = cand
+                        break
+                conn.execute(
+                    "UPDATE products SET article=? WHERE id=? AND (article IS NULL OR TRIM(article)='')",
+                    (final, pid),
+                )
+                updated += 1
+            conn.commit()
+            return updated
+        finally:
+            conn.close()
+
+    def get_product_by_article(self, article: str):
+        """Поиск товара по артикулу (без учёта регистра)."""
+        conn = self.get_connection()
+        row = conn.execute(
+            "SELECT * FROM products WHERE UPPER(article)=?", (article.strip().upper(),)
+        ).fetchone()
+        conn.close()
+        return row
 
     def delete_product(self, product_id):
         """Удаление товара и связанных записей motivation_schedule"""

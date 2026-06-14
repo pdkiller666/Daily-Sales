@@ -376,18 +376,29 @@ async def process_product_price(message: Message, state: FSMContext):
         # Сохраняем ID нового товара для следующих шагов
         await state.update_data(new_product_id=product_id, new_product_name=data['name'])
 
-        # Предлагаем добавить описание
-        await state.set_state(ProductStates.waiting_for_description)
+        # Получаем авто-артикул нового товара и показываем шаг артикула
+        try:
+            _new_prod = await current_db.get_product(product_id)
+            auto_article = _new_prod[7] if _new_prod and len(_new_prod) > 7 and _new_prod[7] else f"PRD-{product_id:05d}"
+        except Exception:
+            auto_article = f"PRD-{product_id:05d}"
+        await state.update_data(product_article=auto_article)
+
+        await state.set_state(ProductStates.waiting_for_article)
         await fsm_edit(
             state, message,
             f"✅ Товар создан!\n\n"
             f"🏷 <b>{he(data['name'])}</b>\n"
             f"📂 Категория: {he(data['category'])}\n"
             f"💰 Цена: {format_currency(price)}\n\n"
-            f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
-            f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+            f"4️⃣ <b>Артикул товара</b>\n"
+            f"Авто: <code>{he(auto_article)}</code>\n\n"
+            f"<i>Подтвердите авто-артикул или введите свой (буквы, цифры, дефис).</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+                [InlineKeyboardButton(
+                    text=f"✅ Подтвердить {auto_article}",
+                    callback_data=f"confirm_article_{product_id}"
+                )],
                 [back_button("products")]
             ]),
         )
@@ -398,6 +409,87 @@ async def process_product_price(message: Message, state: FSMContext):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]),
         )
         await clear_state_keep_org(state)
+
+@products_router.callback_query(
+    ProductStates.waiting_for_article,
+    F.data.startswith("confirm_article_")
+)
+async def confirm_article(callback: CallbackQuery, state: FSMContext):
+    """Подтвердить авто-артикул → перейти к описанию"""
+    await callback.answer()
+    data = await state.get_data()
+    product_id = data.get('new_product_id')
+    auto_article = data.get('product_article', '')
+
+    await state.set_state(ProductStates.waiting_for_description)
+    await callback.message.edit_text(
+        f"✅ Артикул: <code>{he(auto_article)}</code>\n\n"
+        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
+        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [back_button("products")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@products_router.message(ProductStates.waiting_for_article)
+async def process_product_article(message: Message, state: FSMContext):
+    """Ввод пользовательского артикула"""
+    import re as _re
+    data = await state.get_data()
+    auto_article = data.get('product_article', '')
+    product_id = data.get('new_product_id')
+
+    if not message.text:
+        await fsm_edit(state, message,
+                       f"4️⃣ Введите артикул или подтвердите авто:",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text=f"✅ Подтвердить {auto_article}",
+                                                 callback_data=f"confirm_article_{product_id}")],
+                           [back_button("products")]
+                       ]))
+        return
+
+    raw = message.text.strip().upper()
+    if not _re.match(r'^[A-ZА-ЯЁ0-9][A-ZА-ЯЁ0-9\-_]{1,24}$', raw):
+        await fsm_edit(state, message,
+                       f"❌ Некорректный артикул. Допустимы: буквы, цифры, дефис (2–25 символов).\n\nВведите снова:",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text=f"✅ Подтвердить {auto_article}",
+                                                 callback_data=f"confirm_article_{product_id}")],
+                           [back_button("products")]
+                       ]))
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    existing = await asyncio.to_thread(current_db.get_product_by_article, raw)
+    if existing and existing[0] != product_id:
+        await fsm_edit(state, message,
+                       f"❌ Артикул <code>{he(raw)}</code> уже занят другим товаром. Введите другой:",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text=f"✅ Подтвердить {auto_article}",
+                                                 callback_data=f"confirm_article_{product_id}")],
+                           [back_button("products")]
+                       ]))
+        return
+
+    await asyncio.to_thread(current_db.update_product, product_id, article=raw)
+    await state.update_data(product_article=raw)
+
+    await state.set_state(ProductStates.waiting_for_description)
+    await fsm_edit(
+        state, message,
+        f"✅ Артикул: <code>{he(raw)}</code>\n\n"
+        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
+        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [back_button("products")]
+        ]),
+    )
+
 
 async def _show_product_added_final(
     state: FSMContext,
@@ -1074,16 +1166,19 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     _photo_hint = "\n📷 Фото: ✅" if len(product) > 5 and product[5] else ""
     _raw_desc = product[6] if len(product) > 6 and product[6] else ""
     _desc_hint = f"\n📝 {_raw_desc[:40]}{'…' if len(_raw_desc) > 40 else ''}" if _raw_desc else ""
+    _art = product[7] if len(product) > 7 and product[7] else "—"
     await callback.message.edit_text(
         f"✏️ Редактирование товара:\n\n"
         f"🏷 Название: {he(product[1])}\n"
         f"📂 Категория: {he(product[2])}\n"
-        f"💰 Цена: {format_currency(product[3])}{_photo_hint}{_desc_hint}\n\n"
+        f"💰 Цена: {format_currency(product[3])}\n"
+        f"🔖 Артикул: <code>{he(_art)}</code>{_photo_hint}{_desc_hint}\n\n"
         f"Что хотите изменить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏷 Название", callback_data="edit_param_name"),
              InlineKeyboardButton(text="📂 Категория", callback_data="edit_param_category")],
-            [InlineKeyboardButton(text="💰 Цена", callback_data="edit_param_price")],
+            [InlineKeyboardButton(text="💰 Цена", callback_data="edit_param_price"),
+             InlineKeyboardButton(text="🔖 Артикул", callback_data="edit_param_article")],
             [InlineKeyboardButton(text="📝 Описание", callback_data="edit_param_description"),
              InlineKeyboardButton(text="📷 Фото", callback_data="edit_param_photo")],
             [back_button("edit_product")]
@@ -1113,6 +1208,14 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
         )
         await state.set_state(ProductStates.waiting_for_edit_photo)
+        return
+    elif param == 'article':
+        await callback.answer()
+        await callback.message.edit_text(
+            "🔖 Введите новый артикул товара\n(буквы, цифры, дефис — до 25 символов):",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
+        )
+        await state.set_state(ProductStates.waiting_for_edit_value)
         return
 
     param_names = {
@@ -1154,6 +1257,7 @@ async def process_edit_value_product(message: Message, state: FSMContext):
     param = data['edit_param']
     new_value = message.text.strip()
     
+    import re as _re2
     if param == "price":
         try:
             new_value = float(new_value.replace(',', '.'))
@@ -1162,6 +1266,11 @@ async def process_edit_value_product(message: Message, state: FSMContext):
                 return
         except ValueError:
             await fsm_edit(state, message, "✏️ ❌ Введите корректную цену (число):", reply_markup=_edit_kb)
+            return
+    elif param == "article":
+        new_value = new_value.upper()
+        if not _re2.match(r'^[A-ZА-ЯЁ0-9][A-ZА-ЯЁ0-9\-_]{1,24}$', new_value):
+            await fsm_edit(state, message, "✏️ ❌ Некорректный артикул. Допустимы: буквы, цифры, дефис (2–25 символов):", reply_markup=_edit_kb)
             return
     elif len(new_value) < 2:
         await fsm_edit(state, message, "✏️ ❌ Значение должно содержать минимум 2 символа:", reply_markup=_edit_kb)
@@ -1175,6 +1284,12 @@ async def process_edit_value_product(message: Message, state: FSMContext):
             await current_db.update_product(product_id, category=new_value)
         elif param == "price":
             await current_db.update_product(product_id, price=new_value)
+        elif param == "article":
+            existing = await asyncio.to_thread(current_db.get_product_by_article, new_value)
+            if existing and existing[0] != product_id:
+                await fsm_edit(state, message, f"✏️ ❌ Артикул <code>{he(new_value)}</code> занят другим товаром. Введите другой:", reply_markup=_edit_kb)
+                return
+            await current_db.update_product(product_id, article=new_value)
 
         product = await current_db.get_product(product_id)
         if not product:
@@ -1200,11 +1315,13 @@ async def process_edit_value_product(message: Message, state: FSMContext):
     except Exception:
         pass
 
+    _art_upd = product[7] if len(product) > 7 and product[7] else "—"
     await fsm_edit(state, message,
                    f"✅ Товар обновлен!\n\n"
                    f"🏷 Название: {product[1]}\n"
                    f"📂 Категория: {product[2]}\n"
-                   f"💰 Цена: {format_currency(product[3])}{_gs_sfx}",
+                   f"💰 Цена: {format_currency(product[3])}\n"
+                   f"🔖 Артикул: <code>{he(_art_upd)}</code>{_gs_sfx}",
                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
 
     await clear_state_keep_org(state)

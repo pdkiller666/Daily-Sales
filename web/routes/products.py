@@ -465,6 +465,7 @@ async def products_create(
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
+    article: str = Form(default=""),
     photos: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
@@ -489,7 +490,8 @@ async def products_create(
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
-            "form_data": fd or {"name": name, "category": category, "price": price, "description": description, "existing_photos": []},
+            "form_data": fd or {"name": name, "category": category, "price": price,
+                                "description": description, "article": article, "existing_photos": []},
             "error": err, "is_edit": False,
         })
 
@@ -543,12 +545,14 @@ async def products_create(
 
     first_photo = saved_urls[0] if saved_urls else None
     try:
+        article_clean = article.strip().upper() if article and article.strip() else None
         new_id = db.add_product(
             name=name_clean,
             category=category.strip() or None,
             price=price_val,
             description=description.strip() or None,
             photo_file_id=first_photo,
+            article=article_clean,
         )
         if not new_id:
             for u in saved_urls:
@@ -601,6 +605,7 @@ def products_edit_form(request: Request, product_id: int):
             "category": product[2] or "",
             "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
             "description": product[6] if len(product) > 6 else "",
+            "article": product[7] if len(product) > 7 else "",
             "existing_photos": existing_photos,
         },
         "error": None, "is_edit": True,
@@ -618,6 +623,7 @@ async def products_update(
     category: str = Form(default=""),
     price: str = Form(default="0"),
     description: str = Form(default=""),
+    article: str = Form(default=""),
     photos: List[UploadFile] = File(default=[]),
     delete_photo_ids: str = Form(default=""),
 ):
@@ -645,7 +651,7 @@ async def products_update(
             "csrf_token": get_csrf_token(request),
             "categories": categories,
             "form_data": {"name": name, "category": category, "price": price, "description": description,
-                          "existing_photos": existing_photos},
+                          "article": article, "existing_photos": existing_photos},
             "error": err, "is_edit": True,
             "edit_id": product_id, "product_name": name,
         })
@@ -708,11 +714,13 @@ async def products_update(
         # Update product fields
         all_photos = db.get_product_photos(product_id) or []
         first_photo_url = all_photos[0][2] if all_photos else (saved_urls[0] if saved_urls else None)
+        article_clean = article.strip().upper() if article and article.strip() else ""
         kwargs: dict = dict(
             name=name_clean,
             category=category.strip() or "",
             price=price_val,
             description=description.strip() or "",
+            article=article_clean or None,
         )
         if first_photo_url is not None:
             kwargs["photo_file_id"] = first_photo_url
@@ -730,6 +738,30 @@ async def products_update(
             _delete_product_photo(u)
         logging.error(f"products_update db error: {exc}")
         return _re_render("Не удалось сохранить товар. Попробуйте ещё раз.")
+
+
+@router.post("/products/bulk-assign-articles")
+async def bulk_assign_articles(request: Request):
+    """Присвоить авто-артикулы всем товарам без артикула (только admin/owner)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user or user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+        csrf = body.get("csrf_token", "")
+    except Exception:
+        csrf = ""
+    if not verify_csrf_token(request, csrf):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    try:
+        count = db.bulk_assign_articles()
+        return JSONResponse({"ok": True, "count": count})
+    except Exception as exc:
+        logging.error(f"bulk_assign_articles: {exc}")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @router.post("/products/{product_id}/photos/{photo_id}/delete")

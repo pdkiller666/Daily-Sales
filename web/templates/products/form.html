@@ -76,6 +76,21 @@
             <p class="mt-1 text-xs text-slate-400">Начните вводить — подскажем существующие категории</p>
         </div>
 
+        <!-- Article / SKU -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-article">
+                Артикул (SKU)
+            </label>
+            <input id="f-article" type="text" name="article"
+                   value="{{ form_data.article if form_data and form_data.article else '' }}"
+                   placeholder="Оставьте пустым — сгенерируется автоматически"
+                   maxlength="25"
+                   oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\-_]/g,'')"
+                   class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800
+                          focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent tracking-wide">
+            <p class="mt-1 text-xs text-slate-400">Буквы, цифры, дефис. Оставьте пустым — артикул создастся по категории автоматически.</p>
+        </div>
+
         <!-- Price -->
         <div class="mb-5">
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-price">
