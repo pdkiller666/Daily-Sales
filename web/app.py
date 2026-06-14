@@ -3,7 +3,7 @@ import os
 import sqlite3
 import time as _time
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, PlainTextResponse
@@ -210,6 +210,7 @@ Disallow: /switch_org
 Disallow: /unread-count
 Disallow: /users
 Disallow: /download/
+Disallow: /webhook/
 
 Sitemap: https://dailysales.app/sitemap.xml
 """
@@ -684,6 +685,39 @@ def create_web_app() -> FastAPI:
     app.include_router(email_auth_router)
     app.include_router(ai_router)
 
+    _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
+    _APK_MIN_SIZE = 1_000_000  # 1 MB — минимальный размер валидного APK
+
+    async def _download_apk_to_local(apk_url: str) -> None:
+        """Скачивает APK из GitHub Releases на persistent volume Amvera."""
+        import logging as _log
+        import aiohttp
+        dest = _APK_LOCAL
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    apk_url,
+                    timeout=aiohttp.ClientTimeout(total=180),
+                    allow_redirects=True,
+                ) as resp:
+                    if resp.status != 200:
+                        _log.error(f"APK download HTTP {resp.status}: {apk_url}")
+                        return
+                    with open(tmp, "wb") as f:
+                        async for chunk in resp.content.iter_chunked(65536):
+                            f.write(chunk)
+            if tmp.exists() and tmp.stat().st_size >= _APK_MIN_SIZE:
+                tmp.replace(dest)
+                _log.info(f"APK saved to {dest} ({dest.stat().st_size:,} bytes)")
+            else:
+                tmp.unlink(missing_ok=True)
+                _log.error(f"APK download too small or missing: {apk_url}")
+        except Exception as e:
+            tmp.unlink(missing_ok=True)
+            _log.error(f"APK download failed: {e}")
+
     @app.get("/download/android", include_in_schema=False)
     async def download_android(request: Request):
         try:
@@ -704,11 +738,100 @@ def create_web_app() -> FastAPI:
             await anyio.to_thread.run_sync(_log)
         except Exception:
             pass
+        # Сначала отдаём локальный APK с Amvera persistent volume
+        if _APK_LOCAL.exists() and _APK_LOCAL.stat().st_size >= _APK_MIN_SIZE:
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                str(_APK_LOCAL),
+                media_type="application/vnd.android.package-archive",
+                filename="DailySales.apk",
+            )
+        # Fallback: редирект на GitHub Releases
         from fastapi.responses import RedirectResponse
+        try:
+            conn = sqlite3.connect(_SHOP_BOT_DB)
+            row = conn.execute(
+                "SELECT value FROM payment_settings WHERE key='apk_release_url'"
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                return RedirectResponse(row[0], status_code=302)
+        except Exception:
+            pass
         return RedirectResponse(
             "https://github.com/pdkiller666/Daily-Sales/releases/latest",
             status_code=302,
         )
+
+    @app.post("/webhook/apk-release", include_in_schema=False)
+    async def webhook_apk_release(request: Request, background_tasks: BackgroundTasks):
+        import hmac
+        from fastapi.responses import JSONResponse
+        secret = os.environ.get("APK_WEBHOOK_SECRET", "")
+        auth = request.headers.get("Authorization", "")
+        token = auth.removeprefix("Bearer ").strip()
+        if not secret or not hmac.compare_digest(token.encode(), secret.encode()):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        version = str(body.get("version", "")).strip()
+        release_url = str(body.get("release_url", "")).strip()
+        release_date = str(body.get("release_date", "")).strip()
+        apk_url = str(body.get("apk_url", "")).strip()
+        if not version:
+            return JSONResponse({"error": "version required"}, status_code=400)
+        try:
+            conn = sqlite3.connect(_SHOP_BOT_DB)
+            conn.execute(
+                "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                ("apk_latest_version", version),
+            )
+            if release_url:
+                conn.execute(
+                    "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    ("apk_release_url", release_url),
+                )
+            if release_date:
+                conn.execute(
+                    "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    ("apk_release_date", release_date),
+                )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            import logging as _logging
+            _logging.error(f"webhook_apk_release DB error: {e}")
+            return JSONResponse({"error": "DB error"}, status_code=500)
+        try:
+            import bot_holder as _bh
+            bot = _bh.get_bot()
+            admin_id = os.environ.get("ADMIN_CHAT_ID", "").strip()
+            if bot and admin_id:
+                msg_text = (
+                    f"📱 <b>Новая версия APK опубликована!</b>\n\n"
+                    f"Версия: <code>{version}</code>\n"
+                    f"Дата: {release_date or '—'}\n"
+                )
+                if release_url:
+                    msg_text += f'<a href="{release_url}">Скачать APK</a>'
+                if _main_loop and not _main_loop.is_closed():
+                    import asyncio as _asyncio
+                    _asyncio.run_coroutine_threadsafe(
+                        bot.send_message(
+                            int(admin_id), msg_text,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True,
+                        ),
+                        _main_loop,
+                    )
+        except Exception:
+            pass
+        # Фоновое скачивание APK на persistent volume Amvera
+        if apk_url:
+            background_tasks.add_task(_download_apk_to_local, apk_url)
+        return JSONResponse({"ok": True, "version": version})
 
     @app.get("/.well-known/assetlinks.json", include_in_schema=False)
     async def assetlinks():

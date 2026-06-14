@@ -13,6 +13,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Google Sheets OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (in Replit Secrets)
 - **Web Push VAPID**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_MAILTO` (in Replit Secrets)
 - **Email/SMTP (optional)**: `YANDEX_EMAIL`, `YANDEX_SMTP_PASSWORD` (пароль приложения, не аккаунта)
+- **APK webhook (optional)**: `APK_WEBHOOK_SECRET` — токен для POST `/webhook/apk-release`; то же значение добавить в GitHub Secrets репозитория как `APK_WEBHOOK_SECRET`
 
 ## Stack
 

@@ -105,6 +105,24 @@ def dashboard(request: Request, msg: str = ""):
 
     gate_title, gate_text = _GATE_MSGS.get(msg, (None, None))
 
+    apk_new_version = ""
+    apk_release_url = ""
+    try:
+        import sqlite3 as _sqlite3
+        _shop_db = "data/shop_bot.db"
+        _aconn = _sqlite3.connect(_shop_db)
+        _row_ver = _aconn.execute(
+            "SELECT value FROM payment_settings WHERE key='apk_latest_version'"
+        ).fetchone()
+        _row_url = _aconn.execute(
+            "SELECT value FROM payment_settings WHERE key='apk_release_url'"
+        ).fetchone()
+        _aconn.close()
+        apk_new_version = _row_ver[0].strip() if _row_ver and _row_ver[0] else ""
+        apk_release_url = _row_url[0].strip() if _row_url and _row_url[0] else "/download/android"
+    except Exception:
+        pass
+
     ctx: dict = {
         "request": request,
         "user": user,
@@ -124,6 +142,8 @@ def dashboard(request: Request, msg: str = ""):
         "user_tz": "Europe/Moscow",
         "today_vs_yesterday": None,
         "month_vs_prev": None,
+        "apk_new_version": apk_new_version,
+        "apk_release_url": apk_release_url,
     }
 
     try:
