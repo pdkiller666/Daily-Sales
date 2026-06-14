@@ -63,7 +63,7 @@
                 <label class="text-xs font-medium text-slate-500">Период</label>
                 <div class="flex flex-wrap gap-1">
                     {% for p, lbl in [('today','Сегодня'),('week','7 дней'),('month','Месяц'),('prev_month','Пред. месяц')] %}
-                    <a href="/reports?period={{ p }}&shop={{ shop|urlencode }}&group_by={{ group_by }}"
+                    <a href="/reports?period={{ p }}&shop={{ shop|urlencode }}&group_by={{ group_by }}{% if category %}&category={{ category|urlencode }}{% endif %}{% if seller_id %}&seller_id={{ seller_id }}{% endif %}"
                        data-period-tab
                        class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors
                               {{ 'bg-blue-600 text-white' if period == p and period != 'custom' else 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
@@ -93,6 +93,12 @@
 
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="group_by" value="{{ group_by }}">
+            {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+            {% if seller_id %}<input type="hidden" name="seller_id" value="{{ seller_id }}">{% endif %}
+            {% if period == 'custom' %}
+            <input type="hidden" name="date_from" value="{{ date_from }}">
+            <input type="hidden" name="date_to" value="{{ date_to }}">
+            {% endif %}
         </div>
 
         <!-- Custom date range picker -->
@@ -108,13 +114,13 @@
                        class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200">
             </div>
             <button type="button"
-                    @click="if(df && dt) window.location='/reports?period=custom&date_from='+df+'&date_to='+dt+'&shop={{ shop|urlencode }}&group_by={{ group_by }}'"
+                    @click="if(df && dt) window.location='/reports?period=custom&date_from='+df+'&date_to='+dt+'&shop={{ shop|urlencode }}&group_by={{ group_by }}{% if category %}&category={{ category|urlencode }}{% endif %}{% if seller_id %}&seller_id={{ seller_id }}{% endif %}'"
                     :disabled="!df || !dt"
                     class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
                 Применить
             </button>
             {% if period == 'custom' %}
-            <a href="/reports?period=month&shop={{ shop|urlencode }}&group_by={{ group_by }}"
+            <a href="/reports?period=month&shop={{ shop|urlencode }}&group_by={{ group_by }}{% if category %}&category={{ category|urlencode }}{% endif %}{% if seller_id %}&seller_id={{ seller_id }}{% endif %}"
                class="text-xs text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
             {% endif %}
         </div>
@@ -422,7 +428,7 @@ window._aiReportData = {
 <!-- Group by tabs -->
 <div class="flex flex-wrap gap-2 mb-4">
     {% for gb, lbl in [('product','По товарам'),('category','По категориям'),('seller','По продавцам'),('shop','По магазинам')] %}
-    <a href="/reports?period={{ period }}&shop={{ shop }}&group_by={{ gb }}"
+    <a href="/reports?period={{ period }}&shop={{ shop|urlencode }}&group_by={{ gb }}{% if period == 'custom' %}&date_from={{ date_from }}&date_to={{ date_to }}{% endif %}"
        class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border
               {{ 'bg-blue-600 text-white border-blue-600' if (group_by == gb and not category) or (gb == 'category' and category) else 'bg-white border-slate-200 text-slate-600 hover:border-blue-300' }}">
         {{ lbl }}
