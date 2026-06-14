@@ -42,4 +42,4 @@
 - [Bot module self-purchase](bot-module-purchase.md) — бот покупка модулей/пакетов опирается на confirm_payment_request: plan_type module_<key>/bundle_<key> уже грантит через grant_billing_item(30d); UI только создаёт payment_request
 - [tojson in HTML attributes](tojson-attr-escape.md) — `tojson | e` is a no-op (Markup); double-quoted Alpine attrs need `| forceescape` or quotes break the handler
 - [Clickable row patterns](clickable-row-patterns.md) — web rows navigate via BOTH `<a href>` AND `onclick="window.location"`; href-only greps undercount; dashboard recent-sales & rankings cities are the real unlinked gaps
-- [TWA APK build gotcha](twa-apk-build.md) — bubblewrap требует cmdline-tools/latest/; GitHub Actions хранит как cmdline-tools/13.0/; workflow создаёт symlink; /download/android = 302 → GitHub Releases latest
+- [TWA APK build gotcha](twa-apk-build.md) — bubblewrap в GitHub Actions НЕ работает (25+ попыток, "androidSdk isn't correct"); прямой Gradle build в android/ + gradle.properties(useAndroidX=true) + gradle/actions/setup-gradle@v3

@@ -47,7 +47,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `twa-manifest.json` — Bubblewrap конфиг: `packageId=com.dailysales.app`, host, fingerprint SHA-256, shortcuts
 - `.github/workflows/build-twa.yml` — GitHub Actions: сборка APK при каждом push → GitHub Releases (автоматически)
 - `GET /download/android` (`web/app.py`) — 302 redirect на `github.com/.../releases/latest`; точки входа: лендинг (3-я CTA), дашборд (закрываемый баннер, localStorage), настройки (карточка), бот (callback `apk_info` в профиле)
-- **⚠️ Gotcha (build-twa.yml)**: bubblewrap требует `cmdline-tools/latest/` — GitHub Actions runner хранит как `cmdline-tools/13.0/`; workflow создаёт symlink автоматически в шаге «Fix Android SDK cmdline-tools layout»; если сборка падает с «androidSdk isn't correct» — это симлинк, fix уже в workflow
+- **⚠️ Gotcha (build-twa.yml)**: bubblewrap CLI **не работает** в GitHub Actions (константная ошибка «androidSdk isn't correct», 25+ попыток); вместо него — прямой Gradle build (`android/` проект, `gradle/actions/setup-gradle@v3`); `android/gradle.properties` обязателен (`android.useAndroidX=true`); `secrets` нельзя в `if:` условии шага — проверять через env var в shell
 - `.github/` исключена из деплоя на Amvera (`AMVERA_ONLY_EXCLUDE_DIRS` в `deploy.sh`)
 
 ### Data (SQLite, isolated per org)
