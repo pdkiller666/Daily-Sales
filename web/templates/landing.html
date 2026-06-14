@@ -520,8 +520,8 @@
             {% endif %}
             <a href="/download/android"
                class="btn-ghost text-slate-300 hover:text-white font-medium px-9 py-4 rounded-xl text-base inline-flex items-center gap-2">
-                <svg class="w-4 h-4 opacity-70" fill="currentColor" viewBox="0 0 24 24"><path d="M17.523 15.341 14.89 12.71l2.633-2.633a.5.5 0 0 0-.707-.707L14.183 12l-2.634-2.633a.5.5 0 0 0-.707.707L13.476 12.71l-2.634 2.631a.5.5 0 0 0 .707.707l2.634-2.633 2.633 2.633a.5.5 0 0 0 .707-.707zM1 12C1 5.925 5.925 1 12 1s11 4.925 11 11-4.925 11-11 11S1 18.075 1 12zm11 9a9 9 0 1 0 0-18A9 9 0 0 0 3 12a9 9 0 0 0 9 9z"/><path d="M7.5 16.5h9v1.5h-9z"/><path d="M12 4.5v9M9 11l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                📱 Android APK
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5S11 23.33 11 22.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84 1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.95 1.23 12.98 1 12 1c-.96 0-1.86.23-2.66.63L7.88.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C7.08 3.07 6 4.92 6 7h12c0-2.08-1.08-3.93-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+                Скачать для Android
             </a>
         </div>
     </div>
@@ -1439,6 +1439,32 @@
 
 
 <!-- ══════════════════════════════════════════════════════
+     ANDROID BANNER
+══════════════════════════════════════════════════════ -->
+<section id="android" class="bg-slate-900 border-y border-white/[0.06] py-10 px-4">
+    <div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-center gap-6 sm:gap-10">
+        <!-- Icon -->
+        <div class="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-xl shadow-blue-500/30">
+            <span class="text-white font-extrabold text-xl tracking-tight">DS</span>
+        </div>
+        <!-- Text -->
+        <div class="flex-1 text-center sm:text-left">
+            <div class="text-white font-bold text-lg mb-1">Нативное Android-приложение</div>
+            <p class="text-slate-400 text-sm leading-relaxed">
+                Полноценный веб-кабинет в виде Android-приложения — без браузера, с иконкой на рабочем столе и поддержкой push-уведомлений.
+            </p>
+        </div>
+        <!-- CTA -->
+        <a href="/download/android"
+           class="flex-shrink-0 inline-flex items-center gap-2.5 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white font-semibold px-6 py-3 rounded-xl text-sm transition-all duration-200 whitespace-nowrap">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5S11 23.33 11 22.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84 1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.95 1.23 12.98 1 12 1c-.96 0-1.86.23-2.66.63L7.88.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C7.08 3.07 6 4.92 6 7h12c0-2.08-1.08-3.93-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+            Скачать APK
+        </a>
+    </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════════════
      PRICING
 ══════════════════════════════════════════════════════ -->
 <section id="pricing" class="bg-white py-28 px-4">
@@ -1697,6 +1723,11 @@
             {% else %}
             <a href="/dashboard" class="btn-ghost text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base">Войти в кабинет</a>
             {% endif %}
+            <a href="/download/android"
+               class="btn-ghost text-slate-300 hover:text-white font-semibold px-8 py-4 rounded-xl text-base inline-flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 opacity-70" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5S11 23.33 11 22.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84 1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.95 1.23 12.98 1 12 1c-.96 0-1.86.23-2.66.63L7.88.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C7.08 3.07 6 4.92 6 7h12c0-2.08-1.08-3.93-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+                Android APK
+            </a>
         </div>
     </div>
 </section>
@@ -1733,6 +1764,7 @@
                     {% if bot_username %}
                     <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="hover:text-slate-200 transition-colors">Telegram-бот</a></li>
                     {% endif %}
+                    <li><a href="/download/android" class="hover:text-slate-200 transition-colors">Android APK</a></li>
                 </ul>
             </div>
         </div>
