@@ -268,6 +268,18 @@ window._aiReportData = {
          aiFocus: 'summary',
          aiHorizon: 7,
          aiScenario: 'realistic',
+         aiUsed: 0,
+         aiLimit: 0,
+         aiHighLimit: false,
+         aiQuotaLoaded: false,
+         async loadQuota() {
+             try {
+                 const r = await fetch('/api/ai/quota');
+                 const d = await r.json();
+                 if (d.ok) { this.aiUsed = d.used; this.aiLimit = d.limit; this.aiHighLimit = d.high_limit; }
+             } catch(e) {}
+             this.aiQuotaLoaded = true;
+         },
          async runAI(mode) {
              this.aiLoading = true; this.aiOpen = true; this.aiMode = mode;
              this.aiText = ''; this.aiError = '';
@@ -310,16 +322,27 @@ window._aiReportData = {
                  }
                  const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
                  const resp = await r.json();
-                 if (resp.ok) this.aiText = resp.text;
-                 else this.aiError = resp.error || 'Ошибка AI';
+                 if (resp.ok) {
+                     this.aiText = resp.text;
+                     if (this.aiUsed < this.aiLimit) this.aiUsed++;
+                 } else {
+                     this.aiError = resp.error || 'Ошибка AI';
+                     if (r.status === 429) this.loadQuota();
+                 }
              } catch(e) { this.aiError = 'Ошибка соединения'; }
              finally { this.aiLoading = false; }
          }
-     }">
+     }"
+     x-init="loadQuota()">
     <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
             <span class="text-base">🤖</span>
             <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">AI-анализ</span>
+            <span x-show="aiQuotaLoaded && aiLimit > 0"
+                  :class="(aiLimit - aiUsed) <= 3 ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-700' :
+                                                      'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-700 dark:text-slate-400 dark:border-slate-600'"
+                  class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-medium border transition-colors"
+                  x-text="aiUsed + '/' + aiLimit + ' сегодня'"></span>
         </div>
         <div class="flex gap-2">
             <button type="button" @click="runAI('explain')"

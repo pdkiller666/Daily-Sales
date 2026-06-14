@@ -1551,6 +1551,24 @@ class Database:
                 )
             ''')
 
+        # ── AI rate-limit config (только shop_bot.db) ────────────────────────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS ai_rate_config (
+                    key        TEXT PRIMARY KEY,
+                    value      TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            ''')
+            for _k, _v in [
+                ('base_daily_limit', '20'),
+                ('high_daily_limit', '200'),
+            ]:
+                cursor.execute(
+                    'INSERT OR IGNORE INTO ai_rate_config (key, value) VALUES (?, ?)',
+                    (_k, _v)
+                )
+
         # ── Настройки дизайна ценника (per-org, singleton row id=1) ───────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS org_label_settings (
@@ -1783,7 +1801,7 @@ class Database:
             # ai_assistant
             ('ai_assistant',     'ai_forecast',        '🔮', 'Прогноз продаж (AI)',      'ML-прогноз продаж на 7–30 дней',                   149, 1),
             ('ai_assistant',     'ai_smart_alerts',    '🚨', 'Умные алерты AI',          'AI-детектирование аномалий в продажах',             199, 2),
-            ('ai_assistant',     'ai_high_limit',      '⚡', 'До 200 AI-запросов в день','Увеличенный дневной лимит запросов к AI',            99, 3),
+            ('ai_assistant',     'ai_high_limit',      '⚡', 'Высокий лимит AI в день', 'Увеличенный дневной лимит запросов к AI (настраивается супер-админом)',  99, 3),
             # integrations
             ('integrations',     'gs_realtime',        '🔄', 'Реалтайм в Google Таблицы','Авто-синхронизация в Google Таблицы по событию',    99, 1),
         ]

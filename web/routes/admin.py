@@ -990,3 +990,74 @@ def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
         "provider_counts": provider_counts,
         "push_users": users,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  AI Rate-limit Config
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/ai-limits")
+async def admin_ai_limits(request: Request):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+
+    from web.rate_store import get_ai_rate_limits, get_ai_usage_stats_today
+    base, high = get_ai_rate_limits()
+    top_users = get_ai_usage_stats_today(top_n=30)
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "admin/ai_limits.html",
+        _ctx(request, user, {
+            "base_daily_limit": base,
+            "high_daily_limit": high,
+            "top_users": top_users,
+            "csrf_token": get_csrf_token(request),
+            "msg": request.query_params.get("msg", ""),
+        }),
+    )
+
+
+@router.post("/ai-limits/save")
+async def admin_ai_limits_save(
+    request: Request,
+    csrf_token: str = Form(""),
+    base_daily_limit: str = Form("20"),
+    high_daily_limit: str = Form("200"),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/ai-limits?msg=csrf_error", 303)
+
+    try:
+        base_val = max(1, min(10000, int(base_daily_limit.strip())))
+        high_val = max(1, min(10000, int(high_daily_limit.strip())))
+    except (ValueError, AttributeError):
+        return RedirectResponse("/admin/ai-limits?msg=invalid", 303)
+
+    conn = None
+    try:
+        conn = _raw_conn(SHOP_BOT_DB)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ai_rate_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+        )
+        for k, v in [("base_daily_limit", str(base_val)), ("high_daily_limit", str(high_val))]:
+            conn.execute(
+                "INSERT OR REPLACE INTO ai_rate_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                (k, v),
+            )
+        conn.commit()
+    except Exception as e:
+        import logging as _lg
+        _lg.error("admin_ai_limits_save: %s", e)
+        return RedirectResponse("/admin/ai-limits?msg=error", 303)
+    finally:
+        if conn:
+            conn.close()
+
+    return RedirectResponse("/admin/ai-limits?msg=saved", 303)
