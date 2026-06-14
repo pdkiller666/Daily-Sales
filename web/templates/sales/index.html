@@ -809,6 +809,23 @@ function saleModal() {
                 return;
             }
 
+            const _standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+            const _host = window.location.hostname;
+
+            // Pre-flight: check if Chrome has already blocked camera permission for this site.
+            if (navigator.permissions) {
+                try {
+                    const _ps = await navigator.permissions.query({ name: 'camera' });
+                    if (_ps.state === 'denied') {
+                        this.scanError = _standalone
+                            ? '🔒 Chrome заблокировал камеру для этого сайта. Откройте приложение Chrome → ⋮ Меню → Настройки → Конфиденциальность и безопасность → Настройки сайтов → Камера → найдите ' + _host + ' и установите «Разрешить». Затем вернитесь и нажмите «Попробовать снова».'
+                            : '🔒 Доступ к камере заблокирован. Нажмите 🔒 в адресной строке → Разрешения → Камера → Разрешить.';
+                        return;
+                    }
+                } catch (_) {}
+            }
+            if (runId !== this._scanRunId) return;
+
             const _constraints = [
                 { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
                 { video: { facingMode: { ideal: 'environment' } } },
@@ -823,11 +840,10 @@ function saleModal() {
             if (runId !== this._scanRunId) { if (_stream) { try { _stream.getTracks().forEach(t => t.stop()); } catch(_) {} } return; }
             if (_lastErr) {
                 const n = (_lastErr.name || '');
-                const _standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
                 if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
                     this.scanError = _standalone
-                        ? '🔒 Доступ к камере запрещён. Откройте настройки телефона → Приложения → DailySales → Разрешения → Камера и включите доступ, затем вернитесь и нажмите «Попробовать снова».'
-                        : '🔒 Доступ к камере запрещён. Нажмите на 🔒 рядом с адресом сайта и разрешите камеру.';
+                        ? '🔒 Chrome заблокировал камеру для этого сайта. Откройте приложение Chrome → ⋮ Меню → Настройки → Конфиденциальность и безопасность → Настройки сайтов → Камера → найдите ' + _host + ' и установите «Разрешить». Затем вернитесь и нажмите «Попробовать снова».'
+                        : '🔒 Доступ к камере заблокирован. Нажмите 🔒 в адресной строке → Разрешения → Камера → Разрешить.';
                 } else if (n === 'NotReadableError' || n === 'TrackStartError') {
                     this.scanError = '📵 Камера занята другим приложением. Закройте другие приложения с камерой и попробуйте снова.';
                 } else if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {

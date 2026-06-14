@@ -27,3 +27,15 @@ there is no address bar, so the "tap 🔒 near the address bar" hint is replaced
 
 **How to apply:** lives in `web/templates/pos/index.html` and `web/templates/sales/index.html`
 (duplicated scanner logic — fix both). Manifest in `android/app/src/main/AndroidManifest.xml`.
+
+## Re-entry guard (run token)
+
+`openBarcodeScanner()` is async and can be invoked concurrently (rapid retry/open taps,
+or open while a previous open is still awaiting getUserMedia). Without a guard this
+double-starts detectors and leaks the previous camera stream.
+
+**Rule:** bump a monotonic `this._scanRunId` at the top of open; capture it locally; after
+every `await` (getUserMedia, video.play) bail if `runId !== this._scanRunId` (and stop the
+stream you just got). `closeBarcodeScanner()` also bumps the token to cancel any in-flight
+open. With this, `restartScan()` is just `openBarcodeScanner()` — it self-cleans on entry
+(bumps token, cancels RAF, resets zxing reader, stops old stream).
