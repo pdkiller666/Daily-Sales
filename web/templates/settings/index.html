@@ -320,14 +320,14 @@
 
         <!-- APK notification toggle — separate form -->
         <div class="card p-5">
-            <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления о новых версиях APK</h2>
-            <p class="text-xs text-slate-500 mb-4">Получать сообщение в Telegram при выходе новой версии Android-приложения</p>
+            <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления об обновлении APK</h2>
+            <p class="text-xs text-slate-500 mb-4">Веб-кабинет обновляется автоматически. APK-уведомления приходят только при изменении нативной оболочки приложения — такое бывает редко.</p>
             <form method="post" action="/settings/apk-notif" class="flex items-center justify-between gap-4">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div>
-                    <p class="text-sm font-medium text-slate-700">Уведомить о новой версии APK</p>
+                    <p class="text-sm font-medium text-slate-700">Уведомлять об обновлении APK</p>
                     <p class="text-xs text-slate-400 mt-0.5">
-                        {% if apk_notif_enabled %}✅ Включено — вы получите сообщение в боте при новом релизе{% else %}❌ Отключено — уведомления не отправляются{% endif %}
+                        {% if apk_notif_enabled %}✅ Включено — уведомление в боте при редком обновлении оболочки{% else %}❌ Отключено — уведомления не отправляются{% endif %}
                     </p>
                 </div>
                 <label class="relative shrink-0 cursor-pointer">
@@ -376,17 +376,17 @@
         <!-- Mobile app card -->
         <div class="card p-5">
             <h2 class="font-semibold text-slate-800 mb-1">📱 Мобильное приложение</h2>
-            <p class="text-xs text-slate-500 mb-4">Android-приложение (TWA) для быстрого доступа к веб-кабинету</p>
+            <p class="text-xs text-slate-500 mb-3">TWA-оболочка вокруг веб-кабинета — скачать один раз, обновлений не требует</p>
             <a href="/download/android"
                class="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors mb-4">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                Скачать APK
+                Скачать APK (первичная установка)
             </a>
-            <ol class="space-y-2 text-xs text-slate-600">
-                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">1.</span>Скачайте APK и откройте файл на Android-устройстве</li>
-                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">2.</span>Разрешите установку из неизвестных источников (Настройки → Безопасность)</li>
-                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">3.</span>Нажмите «Установить» и откройте приложение</li>
-            </ol>
+            <ul class="space-y-1.5 text-xs text-slate-600">
+                <li class="flex gap-2">✅ <span>Все обновления веб-интерфейса приходят <b>автоматически</b> — переустанавливать не нужно</span></li>
+                <li class="flex gap-2">📲 <span>APK устанавливается как обычное приложение, разрешив установку из неизвестных источников</span></li>
+                <li class="flex gap-2">🚫 <span>Google Play не нужен — приложение работает напрямую</span></li>
+            </ul>
         </div>
 
         <!-- Invite section (admins only) -->

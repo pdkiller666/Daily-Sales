@@ -431,7 +431,7 @@ def create_web_app() -> FastAPI:
     templates.env.globals['dm_unread_count'] = _dm_unread_count
 
     _NAV_MODULE_KEYS = ('analytics', 'team', 'plans_motivation', 'chat',
-                        'integrations', 'notifications', 'ai_assistant')
+                        'integrations', 'notifications', 'ai_assistant', 'pos_retail')
 
     def _nav_modules(request):
         """Returns dict {module_key: bool} for nav visibility gating. Fails open.
@@ -787,6 +787,18 @@ def create_web_app() -> FastAPI:
         release_url = str(body.get("release_url", "")).strip()
         release_date = str(body.get("release_date", "")).strip()
         apk_url = str(body.get("apk_url", "")).strip()
+        release_notes = str(body.get("release_notes", "")).strip()
+        _native_raw = body.get("native", False)
+        if isinstance(_native_raw, bool):
+            native = _native_raw
+        elif isinstance(_native_raw, str):
+            native = _native_raw.strip().lower() in ("true", "1", "yes")
+        elif isinstance(_native_raw, int):
+            native = bool(_native_raw)
+        else:
+            native = False
+        if not native and "[native]" in release_notes.lower():
+            native = True
         if not version:
             return JSONResponse({"error": "version required"}, status_code=400)
         try:
@@ -821,89 +833,95 @@ def create_web_app() -> FastAPI:
             import logging as _logging
             _logging.error(f"webhook_apk_release DB error: {e}")
             return JSONResponse({"error": "DB error"}, status_code=500)
-        try:
-            import bot_holder as _bh
-            import asyncio as _asyncio
-            bot = _bh.get_bot()
-            admin_id = os.environ.get("ADMIN_CHAT_ID", "").strip()
-            _dl_link = apk_url or release_url
-            if bot and admin_id:
-                from notif_utils import add_read_btn as _add_read_btn
-                msg_text = (
-                    f"📱 <b>Новая версия APK опубликована!</b>\n\n"
-                    f"Версия: <code>{version}</code>\n"
-                    f"Дата: {release_date or '—'}\n"
-                )
-                if _dl_link:
-                    msg_text += f'<a href="{_dl_link}">⬇️ Скачать APK</a>'
-                if _main_loop and not _main_loop.is_closed():
-                    _asyncio.run_coroutine_threadsafe(
-                        bot.send_message(
-                            int(admin_id), msg_text,
-                            parse_mode="HTML",
-                            disable_web_page_preview=True,
-                            reply_markup=_add_read_btn(),
-                        ),
-                        _main_loop,
+        if native:
+            try:
+                import bot_holder as _bh
+                import asyncio as _asyncio
+                bot = _bh.get_bot()
+                admin_id = os.environ.get("ADMIN_CHAT_ID", "").strip()
+                _dl_link = apk_url or release_url
+                if bot and admin_id:
+                    from notif_utils import add_read_btn as _add_read_btn
+                    msg_text = (
+                        f"🔧 <b>Обновление оболочки APK опубликовано!</b>\n\n"
+                        f"Версия: <code>{version}</code>\n"
+                        f"Дата: {release_date or '—'}\n"
+                        f"Веб-интерфейс уже обновлён автоматически.\n"
                     )
-            # Notify all active org owners (skip super-admin already notified above)
-            if bot and _main_loop and not _main_loop.is_closed():
-                owner_msg = f"📱 <b>Доступна новая версия приложения</b> <code>v{version}</code>"
-                if _dl_link:
-                    owner_msg += f'\n<a href="{_dl_link}">⬇️ Скачать APK</a>'
-                try:
-                    _conn = sqlite3.connect("data/main.db")
-                    _rows = _conn.execute(
-                        "SELECT DISTINCT owner_id FROM organizations "
-                        "WHERE is_active = 1 AND owner_id IS NOT NULL"
-                    ).fetchall()
-                    _conn.close()
-                    def _apk_pref_ok(tid):
-                        try:
-                            c = sqlite3.connect("data/main.db")
-                            c.execute(
-                                "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
-                                "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
-                            )
-                            row = c.execute(
-                                "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?",
-                                (tid,),
-                            ).fetchone()
-                            c.close()
-                            return bool(row[0]) if row else False
-                        except Exception:
-                            return False
-
-                    owner_ids = [
-                        r[0] for r in _rows
-                        if r[0] and str(r[0]) != admin_id
-                        and _apk_pref_ok(r[0])
-                    ]
-                except Exception:
-                    owner_ids = []
-
-                from notif_utils import add_read_btn as _add_read_btn_o
-
-                async def _notify_owners(_bot, _ids, _text):
-                    for _tg_id in _ids:
-                        try:
-                            await _bot.send_message(
-                                _tg_id, _text,
+                    if _dl_link:
+                        msg_text += f'<a href="{_dl_link}">⬇️ Скачать APK</a>'
+                    if _main_loop and not _main_loop.is_closed():
+                        _asyncio.run_coroutine_threadsafe(
+                            bot.send_message(
+                                int(admin_id), msg_text,
                                 parse_mode="HTML",
                                 disable_web_page_preview=True,
-                                reply_markup=_add_read_btn_o(),
-                            )
-                        except Exception:
-                            pass
-                        await _asyncio.sleep(0.05)
-
-                if owner_ids:
-                    _asyncio.run_coroutine_threadsafe(
-                        _notify_owners(bot, owner_ids, owner_msg),
-                        _main_loop,
+                                reply_markup=_add_read_btn(),
+                            ),
+                            _main_loop,
+                        )
+                # Notify all active org owners (skip super-admin already notified above)
+                if bot and _main_loop and not _main_loop.is_closed():
+                    owner_msg = (
+                        f"🔧 <b>Обновление оболочки приложения</b> <code>v{version}</code>\n"
+                        f"Веб-интерфейс уже обновлён автоматически — функции доступны без переустановки.\n"
+                        f"Рекомендуем обновить APK для получения системных улучшений оболочки."
                     )
-        except Exception:
-            pass
+                    if _dl_link:
+                        owner_msg += f'\n<a href="{_dl_link}">⬇️ Скачать APK</a>'
+                    try:
+                        _conn = sqlite3.connect("data/main.db")
+                        _rows = _conn.execute(
+                            "SELECT DISTINCT owner_id FROM organizations "
+                            "WHERE is_active = 1 AND owner_id IS NOT NULL"
+                        ).fetchall()
+                        _conn.close()
+                        def _apk_pref_ok(tid):
+                            try:
+                                c = sqlite3.connect("data/main.db")
+                                c.execute(
+                                    "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+                                    "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+                                )
+                                row = c.execute(
+                                    "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?",
+                                    (tid,),
+                                ).fetchone()
+                                c.close()
+                                return bool(row[0]) if row else False
+                            except Exception:
+                                return False
+
+                        owner_ids = [
+                            r[0] for r in _rows
+                            if r[0] and str(r[0]) != admin_id
+                            and _apk_pref_ok(r[0])
+                        ]
+                    except Exception:
+                        owner_ids = []
+
+                    from notif_utils import add_read_btn as _add_read_btn_o
+
+                    async def _notify_owners(_bot, _ids, _text):
+                        for _tg_id in _ids:
+                            try:
+                                await _bot.send_message(
+                                    _tg_id, _text,
+                                    parse_mode="HTML",
+                                    disable_web_page_preview=True,
+                                    reply_markup=_add_read_btn_o(),
+                                )
+                            except Exception:
+                                pass
+                            await _asyncio.sleep(0.05)
+
+                    if owner_ids:
+                        _asyncio.run_coroutine_threadsafe(
+                            _notify_owners(bot, owner_ids, owner_msg),
+                            _main_loop,
+                        )
+            except Exception:
+                pass
         # Фоновое скачивание APK на persistent volume Amvera
         if apk_url:
             background_tasks.add_task(_download_apk_to_local, apk_url)

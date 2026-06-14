@@ -350,10 +350,12 @@ function toastMgr() {
            class="nav-link {% if request.url.path=='/dashboard' %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">📊</span>Дашборд
         </a>
+        {% if _nm.pos_retail %}
         <a href="/pos"
            class="nav-link {% if request.url.path.startswith('/pos') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🖥️</span>Касса POS
         </a>
+        {% endif %}
 
         <p class="px-3 pt-4 pb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">Операции</p>
 
@@ -1836,6 +1838,13 @@ function mainApp() {
         <div>
             <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Операции</p>
             <div class="grid grid-cols-4 gap-2">
+                {% if _nm.pos_retail %}
+                <a href="/pos" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/pos') %}sht-active{% endif %}">
+                    <span class="sht-icon">🖥️</span>
+                    <span class="sht-label">Касса</span>
+                </a>
+                {% endif %}
                 <a href="/sales" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/sales') and _p.split('/')|length <= 2 %}sht-active{% endif %}">
                     <span class="sht-icon">💰</span>

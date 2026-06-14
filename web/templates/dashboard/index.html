@@ -41,12 +41,12 @@
 </div>
 
 {% if apk_new_version %}
-<!-- APK update banner — dismissible per-version via localStorage -->
+<!-- APK native update banner — dismissible per-version via localStorage -->
 <div id="apk-update-banner" class="mb-5 flex items-center gap-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
-    <span class="text-base shrink-0">🆕</span>
+    <span class="text-base shrink-0">🔧</span>
     <div class="flex-1 min-w-0">
-        <span class="font-medium">Доступна новая версия APK <code class="text-xs bg-blue-100 dark:bg-blue-800/50 px-1.5 py-0.5 rounded font-mono">{{ apk_new_version }}</code></span>
-        <span class="text-blue-700 dark:text-blue-300 hidden sm:inline"> — установите поверх старого, данные сохранятся</span>
+        <span class="font-medium">Обновление оболочки приложения <code class="text-xs bg-blue-100 dark:bg-blue-800/50 px-1.5 py-0.5 rounded font-mono">{{ apk_new_version }}</code></span>
+        <span class="text-blue-700 dark:text-blue-300 hidden sm:inline"> — веб-интерфейс уже обновлён автоматически, но оболочку рекомендуем переустановить</span>
     </div>
     <a href="/download/android"
        class="shrink-0 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">Скачать</a>

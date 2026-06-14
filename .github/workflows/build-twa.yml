@@ -3,6 +3,10 @@ name: Build TWA APK
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'android/**'
+      - 'twa-manifest.json'
+      - '.github/workflows/build-twa.yml'
   workflow_dispatch:
 
 jobs:
@@ -114,7 +118,7 @@ jobs:
           RELEASE_URL="${{ steps.create_release.outputs.url }}"
           RELEASE_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           APK_URL="https://github.com/pdkiller666/Daily-Sales/releases/download/apk-${{ github.run_number }}/DailySales-v1.0.${{ github.run_number }}.apk"
-          PAYLOAD="{\"version\":\"${VERSION}\",\"release_url\":\"${RELEASE_URL}\",\"apk_url\":\"${APK_URL}\",\"release_date\":\"${RELEASE_DATE}\"}"
+          PAYLOAD="{\"version\":\"${VERSION}\",\"release_url\":\"${RELEASE_URL}\",\"apk_url\":\"${APK_URL}\",\"release_date\":\"${RELEASE_DATE}\",\"native\":true}"
           STATUS=$(curl -s -o /tmp/webhook_resp.txt -w "%{http_code}" \
             -X POST "https://dailysalesdeploy-pdkiller666.amvera.io/webhook/apk-release" \
             -H "Authorization: Bearer ${{ secrets.APK_WEBHOOK_SECRET }}" \

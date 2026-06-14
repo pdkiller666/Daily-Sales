@@ -787,9 +787,12 @@ async def bulk_assign_articles(request: Request):
     """Присвоить авто-артикулы всем товарам без артикула (только admin/owner)."""
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
+    from billing_utils import is_extension_denied
     user = get_session_user(request)
     if not user or user.get("role") not in ("owner", "admin", "super_admin"):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    if is_extension_denied(int(user["sub"]), "barcodes"):
+        return JSONResponse({"ok": False, "error": "subscription_required"}, status_code=403)
     try:
         body = await request.json()
         csrf = body.get("csrf_token", "")
@@ -815,12 +818,15 @@ def products_import_articles_page(
 ):
     """Show article import upload form or preview."""
     from web.auth import get_session_user, get_csrf_token
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
+    if is_extension_denied(int(user["sub"]), "barcodes"):
+        return RedirectResponse(url="/subscription?need=barcodes", status_code=302)
 
     telegram_id = int(user["sub"])
 
@@ -868,6 +874,7 @@ async def products_import_articles_upload(
     """Parse xlsx with (Article, Product Name) columns, store session, redirect to preview."""
     from web.auth import get_session_user, verify_csrf_token
     from urllib.parse import quote
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
@@ -876,6 +883,8 @@ async def products_import_articles_upload(
         return RedirectResponse(url="/products/import-articles", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
+    if is_extension_denied(int(user["sub"]), "barcodes"):
+        return RedirectResponse(url="/subscription?need=barcodes", status_code=302)
 
     telegram_id = int(user["sub"])
 
@@ -959,6 +968,7 @@ def products_import_articles_confirm(
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from urllib.parse import quote
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
@@ -967,6 +977,8 @@ def products_import_articles_confirm(
         return RedirectResponse(url="/products/import-articles", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url="/products", status_code=302)
+    if is_extension_denied(int(user["sub"]), "barcodes"):
+        return RedirectResponse(url="/subscription?need=barcodes", status_code=302)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -1009,9 +1021,12 @@ def api_product_by_article(request: Request, q: str = ""):
     """
     from web.auth import get_session_user
     from web.deps import get_web_db
+    from billing_utils import is_extension_denied
     user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if is_extension_denied(int(user["sub"]), "barcodes"):
+        return JSONResponse({"ok": False, "error": "subscription_required"}, status_code=403)
     if not q or not q.strip():
         return JSONResponse({"ok": False, "error": "q required"}, status_code=400)
     db = get_web_db(int(user["sub"]), user.get("org_db") or "")
@@ -1304,12 +1319,15 @@ def product_label(request: Request, product_id: int, print: str = "",
     """
     from web.auth import get_session_user
     from web.deps import get_web_db
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
     if user.get("role") not in ("owner", "admin", "super_admin"):
         return RedirectResponse(url=f"/products/{product_id}", status_code=302)
+    if is_extension_denied(int(user["sub"]), "labels"):
+        return RedirectResponse(url="/subscription?need=labels", status_code=302)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -1360,6 +1378,7 @@ async def products_labels_bulk(request: Request):
     """
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
@@ -1368,6 +1387,9 @@ async def products_labels_bulk(request: Request):
     if user.get("role") not in ("owner", "admin", "super_admin"):
         from fastapi.responses import Response
         return Response(content="Forbidden", status_code=403)
+    if is_extension_denied(int(user["sub"]), "labels"):
+        from fastapi.responses import Response
+        return Response(content="Subscription required", status_code=403)
 
     # Accept format from query param (?format=pdf) OR JSON body field.
     fmt_qp = request.query_params.get("format", "")
@@ -1453,12 +1475,15 @@ async def save_label_settings(
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
     from fastapi.responses import Response
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
         return Response(content="Unauthorized", status_code=401)
     if user.get("role") not in ("owner", "super_admin"):
         return Response(content="Forbidden", status_code=403)
+    if is_extension_denied(int(user["sub"]), "labels"):
+        return Response(content="Subscription required", status_code=403)
 
     form = await request.form()
     csrf = form.get("csrf_token", "")
@@ -1513,12 +1538,15 @@ async def save_org_logo(
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from fastapi.responses import Response
+    from billing_utils import is_extension_denied
 
     user = get_session_user(request)
     if not user:
         return Response(content="Unauthorized", status_code=401)
     if user.get("role") not in ("owner", "super_admin"):
         return Response(content="Forbidden", status_code=403)
+    if is_extension_denied(int(user["sub"]), "labels"):
+        return Response(content="Subscription required", status_code=403)
 
     form = await request.form()
     csrf = form.get("csrf_token", "")

@@ -1705,6 +1705,8 @@ class Database:
         EXTRA_MODULES = [
             ('org_structure', '🏢 Оргструктура', '🏢',
              'Подразделения, регионы, кастомные роли, гранулярный доступ сотрудников', 349, 8),
+            ('pos_retail', '🖥️ Касса и ценники', '🖥️',
+             'POS-касса, штрихкоды, дизайн и печать ценников', 0, 9),
         ]
         for key, name, icon, description, price, sort in EXTRA_MODULES:
             cursor.execute(
@@ -1712,14 +1714,32 @@ class Database:
                 (key, name, icon, description, price, sort)
             )
 
+    def _ensure_billing_extra_extensions(self, cursor):
+        """Идемпотентно добавляет расширения, появившиеся ПОСЛЕ первичной инициализации.
+
+        Вызывается всегда из _init_billing_defaults до early-return.
+        """
+        EXTRA_EXTENSIONS = [
+            ('pos_retail', 'barcodes', '📦', 'Штрихкоды',
+             'Генерация, сканирование и импорт артикулов/штрихкодов', 149, 1),
+            ('pos_retail', 'labels', '🏷️', 'Ценники и печать',
+             'Дизайн ценников, PDF-печать, логотип организации', 99, 2),
+        ]
+        for module_key, key, icon, name, description, price, sort in EXTRA_EXTENSIONS:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_extensions (module_key,key,name,icon,description,price_monthly,sort_order,is_active) VALUES (?,?,?,?,?,?,?,1)',
+                (module_key, key, name, icon, description, price, sort)
+            )
+
     def _init_billing_defaults(self, cursor):
         """Заполнить billing_modules, billing_extensions, billing_bundles дефолтными данными."""
-        # Сначала всегда докатываем «поздние» модули на существующих установках
+        # Сначала всегда докатываем «поздние» модули/расширения на существующих установках
         self._ensure_billing_extra_modules(cursor)
+        self._ensure_billing_extra_extensions(cursor)
 
         cursor.execute('SELECT COUNT(*) FROM billing_modules')
-        if cursor.fetchone()[0] > 1:
-            return  # Уже инициализировано (>1 т.к. org_structure мог быть только что добавлен)
+        if cursor.fetchone()[0] > 2:
+            return  # Уже инициализировано (>2 т.к. org_structure + pos_retail могли быть только что добавлены)
 
         DEFAULT_MODULES = [
             ('analytics',        '📊 Аналитика',         '📊', 'Углублённая аналитика продаж, рейтинги, тренды', 299, 1),

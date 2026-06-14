@@ -143,9 +143,12 @@ def _ext_module_key(ext_key: str) -> str | None:
 def has_module(tg_id: int, module_key: str) -> bool:
     """True if user has access to the module.
 
-    Priority: super_admin → trial → direct grant → bundle
+    Priority: super_admin → free modules → trial → direct grant → bundle
     """
     try:
+        # pos_retail (basic POS) is permanently free for everyone
+        if module_key == 'pos_retail':
+            return True
         if _env_mgr.is_super_admin(tg_id):
             return True
         if _is_trial(tg_id):
@@ -158,6 +161,33 @@ def has_module(tg_id: int, module_key: str) -> bool:
     except Exception as e:
         logging.error(f"has_module({tg_id},{module_key}): {e}")
         return False
+
+
+def is_extension_denied(tg_id: int, ext_key: str) -> bool:
+    """Fail-open gate: returns True ONLY when there is an explicit is_active=0 record.
+
+    Absence of a subscription record = not denied (allow).
+    Use this for extensions that should work for existing users until explicitly revoked.
+    """
+    try:
+        if _env_mgr.is_super_admin(tg_id):
+            return False
+        if _is_trial(tg_id):
+            return False
+        db = _conn()
+        row = db.execute(
+            """SELECT is_active FROM billing_module_subs
+               WHERE user_telegram_id=? AND item_key=?
+               ORDER BY id DESC LIMIT 1""",
+            (tg_id, ext_key)
+        ).fetchone()
+        db.close()
+        if row is None:
+            return False  # no record at all → fail-open, allow
+        return row[0] == 0  # explicitly revoked
+    except Exception as e:
+        logging.error(f"is_extension_denied({tg_id},{ext_key}): {e}")
+        return False  # fail-open on exception
 
 
 def has_extension(tg_id: int, ext_key: str) -> bool:
