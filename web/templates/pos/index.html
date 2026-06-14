@@ -1035,6 +1035,7 @@ function posApp() {
                     if (data.ok && data.product) {
                         const p = this.allProducts.find(pr => String(pr.id) === String(data.product.id)) || data.product;
                         this.addToCart(p);
+                        this._playSuccessSound();
                         this.closeBarcodeScanner();
                         return;
                     }
@@ -1056,6 +1057,23 @@ function posApp() {
                     this._startZxingDetector(video);
                 }
             }
+        },
+
+        _playSuccessSound() {
+            try {
+                const ac = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ac.createOscillator();
+                const gain = ac.createGain();
+                osc.connect(gain);
+                gain.connect(ac.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ac.currentTime);
+                gain.gain.setValueAtTime(0.3, ac.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
+                osc.start(ac.currentTime);
+                osc.stop(ac.currentTime + 0.15);
+            } catch(_) {}
+            try { if (navigator.vibrate) navigator.vibrate(80); } catch(_) {}
         },
 
         closeBarcodeScanner() {

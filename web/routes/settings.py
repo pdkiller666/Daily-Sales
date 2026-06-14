@@ -65,12 +65,16 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
     is_super = user.get("role") == "super_admin"
+    is_owner = user.get("role") in ("owner", "super_admin")
 
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": is_admin,
         "is_super": is_super,
+        "is_owner": is_owner,
         "csrf_token": get_csrf_token(request),
+        "org_logo_path": "",
+        "first_product_id": None,
         "notif_settings": None,
         "user_db_id": None,
         "saved": saved == "1",
@@ -261,6 +265,22 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
             ctx["org_name"] = "—"
             ctx["org_plan"] = "—"
             ctx["org_plan_end"] = ""
+
+        # Org logo + first product for label design cards (owners only)
+        if is_owner:
+            try:
+                ls = db.get_label_settings()
+                ctx["org_logo_path"] = (ls or {}).get("org_logo_path", "")
+            except Exception:
+                ctx["org_logo_path"] = ""
+            try:
+                prods = db.get_all_products() or []
+                ctx["first_product_id"] = prods[0][0] if prods else None
+            except Exception:
+                ctx["first_product_id"] = None
+        else:
+            ctx["org_logo_path"] = ""
+            ctx["first_product_id"] = None
 
         ctx["chat_min_plan"] = None
 

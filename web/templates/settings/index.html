@@ -373,6 +373,76 @@
             </div>
         </div>
 
+        {% if is_owner %}
+        <!-- Org logo card (#42) -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-3">🖼 Логотип организации</h2>
+            <p class="text-xs text-slate-500 mb-3">Используется на ценниках. Загрузите PNG/JPG до 2 МБ.</p>
+            <div id="orgLogoPreview" class="{% if not org_logo_path %}hidden{% endif %} mb-3 flex items-center gap-3">
+                <img id="orgLogoImg" src="{{ org_logo_path }}" alt="Лого" class="h-12 max-w-[120px] object-contain rounded border border-slate-200">
+                <button type="button" onclick="clearOrgLogoSettings()"
+                        class="text-xs text-red-500 hover:text-red-700 underline transition-colors">
+                    ✕ Удалить
+                </button>
+            </div>
+            <div class="flex items-center gap-3 flex-wrap">
+                <input type="file" id="orgLogoFile" accept="image/*"
+                       onchange="uploadOrgLogo(this)"
+                       class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 transition-all">
+                <span id="orgLogoStatus" class="text-xs text-green-600 hidden">✓ Сохранено</span>
+            </div>
+            <script>
+            async function uploadOrgLogo(inp) {
+                if (!inp.files[0]) return;
+                const fd = new FormData();
+                fd.append('csrf_token', '{{ csrf_token }}');
+                fd.append('org_logo', inp.files[0]);
+                try {
+                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
+                    const j = await r.json();
+                    if (j.ok) {
+                        const url = URL.createObjectURL(inp.files[0]);
+                        document.getElementById('orgLogoImg').src = url;
+                        document.getElementById('orgLogoPreview').classList.remove('hidden');
+                        const st = document.getElementById('orgLogoStatus');
+                        st.classList.remove('hidden');
+                        setTimeout(() => st.classList.add('hidden'), 3000);
+                    } else { alert(j.error || 'Ошибка загрузки'); }
+                } catch(e) { alert('Ошибка соединения'); }
+                inp.value = '';
+            }
+            async function clearOrgLogoSettings() {
+                if (!confirm('Удалить логотип организации?')) return;
+                const fd = new FormData();
+                fd.append('csrf_token', '{{ csrf_token }}');
+                fd.append('clear_org_logo', '1');
+                try {
+                    const r = await fetch('/products/org-logo', {method:'POST', body:fd});
+                    const j = await r.json();
+                    if (j.ok) {
+                        document.getElementById('orgLogoPreview').classList.add('hidden');
+                        document.getElementById('orgLogoImg').src = '';
+                    } else { alert(j.error || 'Ошибка'); }
+                } catch(e) { alert('Ошибка соединения'); }
+            }
+            </script>
+        </div>
+
+        <!-- Label design shortcut (#38) -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">🎨 Дизайн ценников</h2>
+            <p class="text-xs text-slate-500 mb-3">Настройте цвета фона, текста и шрифт для печатных ценников.</p>
+            {% if first_product_id %}
+            <a href="/products/{{ first_product_id }}/label?design=1"
+               class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                🎨 Открыть редактор дизайна
+            </a>
+            {% else %}
+            <p class="text-xs text-slate-400 italic">Добавьте хотя бы один товар, чтобы настроить ценники.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <!-- Mobile app card -->
         <div class="card p-5">
             <h2 class="font-semibold text-slate-800 mb-1">📱 Мобильное приложение</h2>

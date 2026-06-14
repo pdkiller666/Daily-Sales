@@ -1311,6 +1311,30 @@ def _effective_logo(label_settings: dict) -> str:
     return label_settings.get("logo_path") or label_settings.get("org_logo_path") or ""
 
 
+@router.get("/products/label-design")
+def products_label_design(request: Request):
+    """Shortcut: redirect owner to label design page using their first product."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/products", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        prods = db.get_all_products() or []
+        if prods:
+            return RedirectResponse(url=f"/products/{prods[0][0]}/label?design=1", status_code=302)
+    except Exception:
+        pass
+    return RedirectResponse(url="/products", status_code=302)
+
+
 @router.get("/products/{product_id}/label")
 def product_label(request: Request, product_id: int, print: str = "",
                   size: str = "58x40", format: str = ""):

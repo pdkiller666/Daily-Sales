@@ -161,6 +161,19 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
         for mod_name, mod_active in modules_status:
             text += f"• {he(mod_name)}: {'✅' if mod_active else '❌'}\n"
 
+        # Статус расширений (штрихкоды, ценники)
+        try:
+            from billing_utils import is_extension_denied as _ied
+            _sb_ex = Database('data/shop_bot.db')
+            _exts = [e for e in _sb_ex.get_all_billing_extensions() if e.get('is_active')]
+            if _exts:
+                text += "\n<b>Расширения:</b>\n"
+                for _ext in _exts:
+                    _denied = _ied(telegram_id, _ext['key'])
+                    text += f"• {he(_ext['name'])}: {'✅' if not _denied else '❌ Не подключено'}\n"
+        except Exception:
+            pass
+
         if not is_org_user and plan_type not in ('Бесплатный', 'free') and end_date and end_date != '9999-12-31 23:59:59':
             try:
                 end_dt = datetime.fromisoformat(end_date)

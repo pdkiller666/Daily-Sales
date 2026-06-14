@@ -80,7 +80,7 @@
 </div>
 {% endif %}
 
-{% if is_owner and label_settings %}
+{% if label_settings and (is_owner or is_admin) %}
 {% set _ls = label_settings %}
 {% set _fs_map = {'small': '10px', 'medium': '12px', 'large': '14px'} %}
 {% set _fs = _fs_map.get(_ls.font_size, '12px') %}
@@ -123,11 +123,13 @@
             <span class="text-slate-400">·</span>
             <span>Шрифт: <strong class="text-slate-600">{{ _ls.font_size }}</strong></span>
         </div>
-        {% if first_product_id %}
+        {% if first_product_id and is_owner %}
         <a href="/products/{{ first_product_id }}/label?design=1"
            class="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors">
             🎨 Редактировать дизайн →
         </a>
+        {% elif is_admin and not is_owner %}
+        <span class="text-xs text-slate-400 italic">Дизайн настраивается владельцем организации</span>
         {% endif %}
     </div>
 </div>
@@ -190,12 +192,13 @@
     showDel: false,
     showCat: false,
     showPct: false,
+    showLabelSz: false,
     newCat: '',
     pct: '',
     get selArr() { return Array.from(this.sel); },
     toggle(id) { if(this.sel.has(id)) this.sel.delete(id); else this.sel.add(id); this.sel = new Set(this.sel); },
-    clear() { this.sel = new Set(); this.showDel=false; this.showCat=false; this.showPct=false; },
-    closePopups() { this.showDel=false; this.showCat=false; this.showPct=false; }
+    clear() { this.sel = new Set(); this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; },
+    closePopups() { this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; }
 }">
 {% endif %}
 <div class="card overflow-hidden">
@@ -323,12 +326,25 @@
      style="min-width:320px">
     <span class="text-sm font-semibold text-slate-700 mr-1" x-text="`${sel.size} выбрано`"></span>
 
-    <!-- Print labels -->
-    <button type="button"
-            @click="dsPrintLabels(selArr, '{{ csrf_token_for(request) }}')"
-            class="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors bg-violet-50 text-violet-700 hover:bg-violet-100">
-        🖨 Ценники
-    </button>
+    <!-- Print labels with size picker -->
+    <div class="relative">
+        <button type="button"
+                @click="showLabelSz=!showLabelSz; showDel=false; showCat=false; showPct=false"
+                :class="showLabelSz ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'"
+                class="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+            🖨 Ценники
+        </button>
+        <div x-show="showLabelSz" x-cloak @click.outside="showLabelSz=false"
+             class="absolute bottom-full mb-2 left-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-10 min-w-[140px]">
+            <p class="text-[10px] font-semibold text-slate-400 uppercase px-1 mb-1.5">Размер ценника</p>
+            <template x-for="sz in ['58x40','40x30','a6']">
+                <button type="button"
+                        @click="dsPrintLabels(selArr, '{{ csrf_token_for(request) }}', sz); showLabelSz=false"
+                        class="w-full text-left px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded-lg transition-colors"
+                        x-text="sz === 'a6' ? 'A6 (105×148 мм)' : sz + ' мм'"></button>
+            </template>
+        </div>
+    </div>
 
     <!-- Delete -->
     <button type="button"
@@ -458,10 +474,12 @@ window.dsEditPrice = function(pid, curPrice, cell) {
         if (e.key === 'Escape') window.dsCancelPrice(pid, orig);
     });
 };
-window.dsPrintLabels = async function(ids, csrf) {
+window.dsPrintLabels = async function(ids, csrf, sizeOverride) {
     if (!ids || ids.length === 0) return;
     try {
-        const size = localStorage.getItem('ds_label_size') || '58x40';
+        const size = sizeOverride || localStorage.getItem('ds_label_size') || '58x40';
+        if (sizeOverride) localStorage.setItem('ds_label_size', sizeOverride);
+        try { localStorage.setItem('ds_label_last_ids', JSON.stringify(ids)); } catch(_) {}
         const resp = await fetch('/products/labels', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
