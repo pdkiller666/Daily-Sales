@@ -804,12 +804,29 @@ function saleModal() {
                 return;
             }
 
-            try {
-                this._scanStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-            } catch (e) {
-                this.scanError = '📵 Камера недоступна или доступ запрещён. Разрешите доступ к камере в настройках браузера.';
+            const _constraints = [
+                { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+                { video: { facingMode: { ideal: 'environment' } } },
+                { video: true }
+            ];
+            let _lastErr = null;
+            for (const c of _constraints) {
+                try { this._scanStream = await navigator.mediaDevices.getUserMedia(c); _lastErr = null; break; }
+                catch (e) { _lastErr = e; }
+            }
+            if (_lastErr) {
+                const n = (_lastErr.name || '');
+                if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
+                    this.scanError = '🔒 Доступ к камере запрещён. Нажмите на 🔒 рядом с адресом сайта и разрешите камеру.';
+                } else if (n === 'NotReadableError' || n === 'TrackStartError') {
+                    this.scanError = '📵 Камера занята другим приложением. Закройте другие приложения с камерой и попробуйте снова.';
+                } else if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
+                    this.scanError = '📷 Камера не найдена на этом устройстве.';
+                } else if (n === 'OverconstrainedError') {
+                    this.scanError = '📵 Камера не поддерживает нужный режим. Попробуйте обновить страницу.';
+                } else {
+                    this.scanError = '📵 Не удалось открыть камеру: ' + (_lastErr.message || n || 'неизвестная ошибка') + '. Попробуйте обновить страницу.';
+                }
                 return;
             }
 
