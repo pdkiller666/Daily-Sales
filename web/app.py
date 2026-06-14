@@ -683,6 +683,21 @@ def create_web_app() -> FastAPI:
     app.include_router(email_auth_router)
     app.include_router(ai_router)
 
+    @app.get("/.well-known/assetlinks.json", include_in_schema=False)
+    async def assetlinks():
+        from fastapi.responses import JSONResponse
+        data = [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.dailysales.app",
+                "sha256_cert_fingerprints": [
+                    "25:E3:EB:BB:2B:72:C7:12:CB:15:59:AD:1C:E9:6B:20:8A:4E:EB:19:97:B9:93:8F:37:47:31:96:82:BB:A1:1D"
+                ]
+            }
+        }]
+        return JSONResponse(data, headers={"Cache-Control": "no-cache"})
+
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt():
         return PlainTextResponse(_ROBOTS_TXT, media_type="text/plain")

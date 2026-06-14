@@ -82,6 +82,10 @@ AMVERA_ONLY_EXCLUDE_FILES = {
     'deploy.sh',
 }
 
+AMVERA_ONLY_EXCLUDE_DIRS = {
+    '.github',
+}
+
 EXCLUDE_SUBPATHS = {'data/.env'}
 EXCLUDE_EXT = {'.log', '.pyc', '.pyo', '.db', '.db-shm', '.db-wal', '.pkl'}
 
@@ -93,6 +97,8 @@ def should_exclude(rel_path, amvera=False):
     for i in range(len(parts)):
         segment = '/'.join(parts[:i+1])
         if parts[i] in EXCLUDE_DIRS or segment in EXCLUDE_DIRS:
+            return True
+        if amvera and (parts[i] in AMVERA_ONLY_EXCLUDE_DIRS or segment in AMVERA_ONLY_EXCLUDE_DIRS):
             return True
     name = parts[-1]
     if name in EXCLUDE_FILES:

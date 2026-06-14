@@ -1,0 +1,62 @@
+{
+  "packageId": "com.dailysales.app",
+  "host": "dailysalesdeploy-pdkiller666.amvera.io",
+  "name": "DailySales CRM",
+  "launcherName": "DailySales",
+  "display": "standalone",
+  "themeColor": "#2563eb",
+  "themeColorDark": "#1e40af",
+  "navigationColor": "#2563eb",
+  "navigationColorDark": "#1e40af",
+  "navigationDividerColor": "#2563eb",
+  "navigationDividerColorDark": "#1e40af",
+  "backgroundColor": "#f8fafc",
+  "enableNotifications": true,
+  "startUrl": "/dashboard",
+  "iconUrl": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-512.png",
+  "maskableIconUrl": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-512.png",
+  "monochromeIconUrl": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-512.png",
+  "shortcuts": [
+    {
+      "name": "Касса POS",
+      "short_name": "POS",
+      "url": "/pos",
+      "icons": [{ "src": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Дашборд",
+      "short_name": "Главная",
+      "url": "/dashboard",
+      "icons": [{ "src": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Продажи",
+      "short_name": "Продажи",
+      "url": "/sales",
+      "icons": [{ "src": "https://dailysalesdeploy-pdkiller666.amvera.io/static/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://dailysalesdeploy-pdkiller666.amvera.io/static/manifest.json",
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://dailysalesdeploy-pdkiller666.amvera.io/",
+  "minSdkVersion": 19,
+  "sdkVersion": 33,
+  "targetSdkVersion": 34,
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./dailysales-release.p12",
+    "alias": "dailysales"
+  },
+  "splashScreenFadeOutDuration": 300,
+  "enableSiteSettingsShortcut": true,
+  "orientation": "default",
+  "fingerprints": [
+    {
+      "name": "release",
+      "value": "25:E3:EB:BB:2B:72:C7:12:CB:15:59:AD:1C:E9:6B:20:8A:4E:EB:19:97:B9:93:8F:37:47:31:96:82:BB:A1:1D"
+    }
+  ]
+}
