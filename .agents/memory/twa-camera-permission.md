@@ -22,11 +22,28 @@ The old version only restarted the detector and guarded on `this._scanStream` �
 first attempt the stream was null, so retry showed a **black screen** and did nothing.
 
 **Error copy is context-aware:** in standalone mode (`matchMedia('(display-mode: standalone)')`)
-there is no address bar, so the "tap 🔒 near the address bar" hint is replaced with
-"Settings → Apps → DailySales → Permissions → Camera".
+there is no address bar, so the "tap 🔒 near the address bar" hint is replaced with TWA guidance.
 
-**How to apply:** lives in `web/templates/pos/index.html` and `web/templates/sales/index.html`
-(duplicated scanner logic — fix both). Manifest in `android/app/src/main/AndroidManifest.xml`.
+## Chrome stores the camera denial per-origin, NOT in the Android app
+
+**Rule:** Once the user taps "Block" in Chrome's camera prompt, Chrome remembers the denial for
+that *origin* — independently of the Android app's CAMERA permission. Granting the Android app
+permission AND reinstalling the TWA APK does **not** clear it, because Chrome is a separate app
+with its own per-site data. `navigator.permissions.query({name:'camera'})` then returns `denied`
+and `getUserMedia` rejects instantly.
+
+**Why:** TWA web content runs in Chrome; Chrome owns the web-origin permission, the Android OS owns
+the app permission. Both must allow camera. The Android grant is necessary but not sufficient.
+
+**The only reliable user fix** (the per-site "Camera" list often doesn't show the origin):
+Chrome app → ⋮ → Settings → Site settings → **All sites** → find the origin → **"Clear & reset"**.
+This wipes the remembered denial AND the service-worker cache, so the next getUserMedia prompts fresh
+and the new template loads. We do a pre-flight `navigator.permissions.query({name:'camera'})` and, if
+`denied`, show this Clear&Reset instruction instead of attempting getUserMedia.
+
+**How to apply:** pre-flight check + denied-state copy live in both scanner templates
+(`web/templates/pos/index.html`, `web/templates/sales/index.html` — duplicated scanner logic, fix
+both). Manifest CAMERA permission in `android/app/src/main/AndroidManifest.xml`.
 
 ## Re-entry guard (run token)
 

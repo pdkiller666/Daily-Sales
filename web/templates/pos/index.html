@@ -959,20 +959,6 @@ function posApp() {
             const _standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
             const _host = window.location.hostname;
 
-            // Pre-flight: check if Chrome has already blocked camera permission for this site.
-            if (navigator.permissions) {
-                try {
-                    const _ps = await navigator.permissions.query({ name: 'camera' });
-                    if (_ps.state === 'denied') {
-                        this.scanError = _standalone
-                            ? '🔒 Chrome запомнил отказ камеры для этого сайта. Сбросьте его: откройте приложение Chrome → ⋮ Меню → Настройки → Настройки сайтов → Все сайты → найдите «' + _host + '» → «Очистить и сбросить» → подтвердите. Вернитесь, нажмите «Попробовать снова» и в запросе Chrome выберите «Разрешить».'
-                            : '🔒 Доступ к камере заблокирован. Нажмите 🔒 в адресной строке → Разрешения → Камера → Разрешить.';
-                        return;
-                    }
-                } catch (_) {}
-            }
-            if (runId !== this._scanRunId) return;
-
             const _constraints = [
                 { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
                 { video: { facingMode: { ideal: 'environment' } } },
