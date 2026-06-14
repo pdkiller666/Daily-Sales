@@ -142,6 +142,17 @@
 - **Имя из Telegram при регистрации по инвайту**: предлагается использовать имя из профиля одной кнопкой
 - Кнопка «✅ Понятно!» закрывает подсказку
 
+### 📱 Android APK (TWA)
+
+- **Нативное Android-приложение** через Trusted Web Activity (TWA) — оболочка вокруг PWA без лишних прав
+- **Автосборка APK** через GitHub Actions при каждом деплое (Java 17 + Android SDK + Bubblewrap CLI)
+- APK публикуется в **GitHub Releases** автоматически — `DailySales-v1.0.N.apk`
+- Установка одним файлом: скачать APK → «Установить из неизвестных источников» → иконка на рабочем столе
+- **Digital Asset Links** (`/.well-known/assetlinks.json`) на сервере — Android доверяет APK домену
+- Push-уведомления работают через Chrome (GMS); на Huawei с GBox — через Chrome, установленный в GBox
+- `twa-manifest.json` в корне репозитория — вся конфигурация TWA
+- Shortcuts в APK: Касса POS / Дашборд / Продажи
+
 ### 🌐 Веб-кабинет (FastAPI)
 
 - **URL:** порт 5000, работает параллельно с ботом

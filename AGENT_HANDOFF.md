@@ -1,5 +1,5 @@
 # AGENT HANDOFF — Daily Sales Telegram Bot
-> Последнее обновление: 2026-06-14 (сессия 656)
+> Последнее обновление: 2026-06-14 (сессия 657)
 > Файл находится в корне проекта: `AGENT_HANDOFF.md` — пушится на GitHub, не деплоится на Amvera, не попадает в .local.
 > Документ для агента, принимающего разработку. Содержит всё необходимое для немедленного продолжения работы.
 
@@ -9,10 +9,11 @@
 
 ```
 Бот: @BotCraftAi_Test_3_bot  (тестовый, Replit)
-Продакшн (Amvera): https://git.msk0.amvera.ru/pdkiller666/dailysalesdeploy
+Продакшн (Amvera): https://dailysalesdeploy-pdkiller666.amvera.io/
 GitHub: https://github.com/pdkiller666/Daily-Sales.git
+Amvera git: https://git.msk0.amvera.ru/pdkiller666/dailysalesdeploy
 Super-admin Telegram ID: 921098636
-Workflow: "Start application" → python main.py
+Workflow: "Start application" → python start.py (→ убивает порт 5000, запускает main.py)
 
 Деплой (по умолчанию — GitHub + Amvera напрямую):
   bash deploy.sh "Сообщение коммита"
@@ -28,12 +29,27 @@ Workflow: "Start application" → python main.py
 - `YANDEX_EMAIL` — адрес Яндекс Почты для SMTP (email-auth)
 - `YANDEX_SMTP_PASSWORD` — **пароль приложения** Яндекс (16 симв.), НЕ пароль аккаунта
 
-**Последний деплой:** GitHub `11310e4` · Amvera `87eb902` (2026-06-14, сессия 656). Оба хэша верифицированы через `git ls-remote`.
+**Последний деплой:** GitHub `fc11f3f` · Amvera `87eb902` (2026-06-14, сессия 657). Оба хэша верифицированы через `git ls-remote`.
 
 **Новые секреты (Web Push VAPID):**
 - `VAPID_PUBLIC_KEY` — публичный VAPID-ключ (base64url, генерируется один раз)
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
+
+**Сессия 657 (2026-06-14) — TWA Android APK + фиксы:**
+
+**Android TWA (Trusted Web Activity) pipeline:**
+- `twa-manifest.json` — конфиг Bubblewrap TWA: `packageId=com.dailysales.app`, host `dailysalesdeploy-pdkiller666.amvera.io`, shortcuts (POS / Дашборд / Продажи), fingerprint SHA-256 `25:E3:EB:BB:2B:72:C7:12:CB:15:59:AD:1C:E9:6B:20:8A:4E:EB:19:97:B9:93:8F:37:47:31:96:82:BB:A1:1D`
+- `.github/workflows/build-twa.yml` — GitHub Actions: Java 17 + Android SDK + Bubblewrap CLI → `bubblewrap build --skipPwaValidation` → APK → GitHub Releases. Триггер: push в `main`/`master` + `workflow_dispatch`. Автоматически создаёт релиз `DailySales-v1.0.N.apk`
+- `web/app.py` — новый route `GET /.well-known/assetlinks.json`: отдаёт Digital Asset Links JSON (`delegate_permission/common.handle_all_urls`) с SHA-256 fingerprint — Android проверяет его при установке TWA APK
+- `deploy.sh` — добавлена `AMVERA_ONLY_EXCLUDE_DIRS = {'.github'}`: папка `.github` идёт только на GitHub, не деплоится на Amvera
+- **GitHub Secrets** (добавляются один раз в репозитории): `KEYSTORE_PASSWORD = DailySales2024!`, `KEYSTORE_BASE64` = base64-encoded PKCS12 keystore (alias `dailysales`)
+- Keystore хранится только в GitHub Secret — НЕ в коде, НЕ в Replit Secrets
+
+**Фиксы:**
+- `start.py` — `_free_port(5000)`: автоматически убивает процесс на порту 5000 через `fuser -k` перед стартом (устраняет `[Errno 98] address already in use`)
+- `main.py` — `check_scheduled_notifications()`: 1) naive datetime → UTC-aware (`.replace(tzinfo=pytz.UTC)`); 2) `json.loads` при двойном-encode возвращал строку вместо dict → добавлен `isinstance(_parsed, dict)`
+- `web/templates/reports/index.html` — фильтры периода/категории/продавца сохраняются при любом изменении: смена периода, магазина, группировки, кастомных дат (5 мест исправлено, ранее фильтры сбрасывались)
 
 **Сессия 640 (2026-06-11) — Улучшения из глубокого код-ревью (волны A/B/C, тест+деплой):**
 - **Волна A (деплой GitHub `2e3e3a4` / Amvera `f66337d`):**

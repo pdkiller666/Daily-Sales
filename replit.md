@@ -6,7 +6,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ## Run & Operate
 
-- **Run**: `python main.py` (via workflow "Start application")
+- **Run**: `python start.py` (via workflow "Start application") — `start.py` убивает порт 5000, затем запускает `main.py`
 - **Deploy (GitHub + Amvera по умолчанию)**: `bash deploy.sh "commit message"`
 - **Deploy только GitHub**: `bash deploy.sh "message" --no-amvera`
 - **Env vars required**: `BOT_TOKEN`, `ADMIN_CHAT_ID`, `GITHUB_TOKEN` (all in Replit Secrets)
@@ -35,12 +35,17 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - `billing_utils.py` — `has_module()`, `has_extension()` feature-gate API
 
 ### Web cabinet (`web/`)
-- `web/app.py` — `create_web_app()`: FastAPI, Jinja2 globals, security headers, robots/sitemap, nav/module gating
+- `web/app.py` — `create_web_app()`: FastAPI, Jinja2 globals, security headers, robots/sitemap, nav/module gating, `/.well-known/assetlinks.json`
 - `web/auth.py` — sessions, CSRF, login nonce, password hashing
 - `web/deps.py` — `get_web_db()` (sync `Database` + WAL); `web/rate_store.py` — persistent rate limiter
 - `web/email_utils.py`, `web/push_utils.py` — email (SMTP) + Web Push VAPID
 - `web/routes/` — one file per feature module (sales, products, staff, salary, admin, admin_billing, org_structure, email_auth, support…)
 - `web/templates/` — per-module Jinja2; `base.html` (nav/PWA/dark-mode), `landing.html` (SEO)
+
+### Android TWA
+- `twa-manifest.json` — Bubblewrap конфиг: `packageId=com.dailysales.app`, host, fingerprint SHA-256, shortcuts
+- `.github/workflows/build-twa.yml` — GitHub Actions: сборка APK при каждом push → GitHub Releases (автоматически)
+- `.github/` исключена из деплоя на Amvera (`AMVERA_ONLY_EXCLUDE_DIRS` в `deploy.sh`)
 
 ### Data (SQLite, isolated per org)
 - `data/main.db` — organizations, `user_org_mapping`
@@ -61,7 +66,8 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 - **Timezone-aware**: `datetime.now()` on Amvera = UTC; all display via `timezone_utils`; stored scheduled times = UTC
 - **Security**: CSRF on all POST (`verify_csrf_token`), security headers middleware, session cookies `httponly+secure+samesite`, persistent rate limiting; Telegram + email/password auth
 - **PWA + Web Push**: SW v4, App Badge API, browser notifications polling, dark mode, keyboard shortcuts
-- **deploy.sh** pushes GitHub + Amvera with hash verification; `--no-amvera` to skip
+- **Android TWA**: `twa-manifest.json` + `.github/workflows/build-twa.yml` → APK в GitHub Releases; `assetlinks.json` на сервере доверяет APK домену; `.github/` → только GitHub, не Amvera
+- **deploy.sh** pushes GitHub + Amvera with hash verification; `--no-amvera` to skip; `AMVERA_ONLY_EXCLUDE_DIRS = {'.github'}` — папки только для GitHub
 
 ## Product (summary)
 
