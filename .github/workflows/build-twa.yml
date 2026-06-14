@@ -33,16 +33,32 @@ jobs:
           sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>/dev/null || true
           yes | sdkmanager --licenses 2>/dev/null || true
 
+      - name: Debug environment
+        run: |
+          echo "=== Java ==="
+          echo "JAVA_HOME: $JAVA_HOME"
+          java -version 2>&1
+          echo "=== Android SDK ==="
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          ls "$ANDROID_HOME/" 2>/dev/null || echo "ANDROID_HOME missing"
+          echo "--- cmdline-tools ---"
+          ls "$ANDROID_HOME/cmdline-tools/" 2>/dev/null || echo "no cmdline-tools"
+          echo "--- build-tools ---"
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null | head -5 || echo "no build-tools"
+          echo "--- platforms ---"
+          ls "$ANDROID_HOME/platforms/" 2>/dev/null | head -5 || echo "no platforms"
+
       - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli
+        run: npm install -g @bubblewrap/cli@1.13.6
 
       - name: Configure Bubblewrap
         run: |
-          JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
           mkdir -p ~/.bubblewrap
-          printf '{"jdkPath": "%s", "androidSdkPath": "%s"}\n' \
-            "$JAVA_DIR" "$ANDROID_HOME" > ~/.bubblewrap/config.json
+          cat > ~/.bubblewrap/config.json <<EOF
+          {"jdkPath": "$JAVA_HOME", "androidSdkPath": "$ANDROID_HOME"}
+          EOF
           echo "=== Bubblewrap config ===" && cat ~/.bubblewrap/config.json
+          echo "=== Bubblewrap version ===" && bubblewrap --version 2>/dev/null || true
 
       - name: Decode keystore
         run: |
@@ -50,22 +66,21 @@ jobs:
           SIZE=$(wc -c < dailysales-release.p12)
           echo "Keystore size: ${SIZE} bytes"
           if [ "$SIZE" -lt 100 ]; then
-            echo "ERROR: KEYSTORE_BASE64 secret is missing or invalid (got ${SIZE} bytes)"
+            echo "ERROR: KEYSTORE_BASE64 secret is missing or invalid"
             exit 1
           fi
 
       - name: Inject signing password into manifest
         run: |
-          PASSWORD="${{ secrets.KEYSTORE_PASSWORD }}"
-          if [ -z "$PASSWORD" ]; then
-            echo "ERROR: KEYSTORE_PASSWORD secret is not set in GitHub Secrets"
-            exit 1
-          fi
           python3 - <<'PYEOF'
-import json, os
+import json, os, sys
+password = os.environ.get("KEYSTORE_PASSWORD", "")
+if not password:
+    print("ERROR: KEYSTORE_PASSWORD is empty", file=sys.stderr)
+    sys.exit(1)
 with open("twa-manifest.json") as f:
     m = json.load(f)
-m["signingKey"]["password"] = os.environ["KEYSTORE_PASSWORD"]
+m["signingKey"]["password"] = password
 with open("twa-manifest.json", "w") as f:
     json.dump(m, f, indent=2, ensure_ascii=False)
 print("signingKey.password injected OK")
@@ -92,7 +107,6 @@ PYEOF
           echo "Found: $APK"
           if [ -z "$APK" ]; then
             echo "ERROR: no APK produced"
-            echo "=== Directory listing ==="
             find . -maxdepth 5 -type f -name "*.apk" 2>/dev/null || true
             exit 1
           fi
