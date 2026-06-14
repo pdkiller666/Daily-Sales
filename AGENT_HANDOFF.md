@@ -36,14 +36,31 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
-**Сессия 657 (2026-06-14) — TWA Android APK + фиксы:**
+**Сессия 661 (2026-06-14) — Фикс build-twa.yml + APK download UI:**
+
+**Фикс GitHub Actions сборки APK:**
+- Проблема: `cli ERROR The provided androidSdk isn't correct` — bubblewrap ищет `cmdline-tools/latest/bin/sdkmanager`, а GitHub Actions раннер хранит его в `cmdline-tools/13.0/` (без симлинка `latest`)
+- Решение: шаг «Fix Android SDK cmdline-tools layout» в `build-twa.yml` автоматически создаёт симлинк `cmdline-tools/latest → cmdline-tools/{версия}` перед запуском bubblewrap
+- ⚠️ **КРИТИЧНО для будущих агентов**: если bubblewrap падает с «androidSdk isn't correct» — это симлинк, НЕ сам SDK; fix уже встроен в workflow
+
+**APK download — точки входа для пользователей:**
+- `GET /download/android` (`web/app.py`) — 302 redirect на `https://github.com/pdkiller666/Daily-Sales/releases/latest`; `Disallow: /download/` добавлен в `_ROBOTS_TXT`
+- `web/templates/landing.html` — 3-я CTA-кнопка «📱 Android APK» в hero-блоке рядом с «Открыть веб-кабинет» и «Или в Telegram»
+- `web/templates/dashboard/index.html` — закрываемый баннер «Попробуйте Android-приложение» после заголовка; скрывается через `localStorage('ds_apk_banner')`, не появляется повторно
+- `web/templates/settings/index.html` — карточка «📱 Мобильное приложение» в правой колонке с кнопкой «Скачать APK» и 3-шаговой инструкцией
+- `handlers.py` — кнопка «📱 Приложение» в `user_profile_menu`; callback `apk_info` отправляет инструкцию + кнопку-ссылку на `/download/android`
+
+**Сессия 660 (2026-06-14) — Скачивание APK в боте и веб-кабинете:**
+(вошло в сессию 661 выше — реализованы одновременно)
+
+**Сессия 657 (2026-06-14) — TWA Android APK pipeline (создание):**
 
 **Android TWA (Trusted Web Activity) pipeline:**
 - `twa-manifest.json` — конфиг Bubblewrap TWA: `packageId=com.dailysales.app`, host `dailysalesdeploy-pdkiller666.amvera.io`, shortcuts (POS / Дашборд / Продажи), fingerprint SHA-256 `25:E3:EB:BB:2B:72:C7:12:CB:15:59:AD:1C:E9:6B:20:8A:4E:EB:19:97:B9:93:8F:37:47:31:96:82:BB:A1:1D`
 - `.github/workflows/build-twa.yml` — GitHub Actions: Java 17 + Android SDK + Bubblewrap CLI → `bubblewrap build --skipPwaValidation` → APK → GitHub Releases. Триггер: push в `main`/`master` + `workflow_dispatch`. Автоматически создаёт релиз `DailySales-v1.0.N.apk`
-- `web/app.py` — новый route `GET /.well-known/assetlinks.json`: отдаёт Digital Asset Links JSON (`delegate_permission/common.handle_all_urls`) с SHA-256 fingerprint — Android проверяет его при установке TWA APK
-- `deploy.sh` — добавлена `AMVERA_ONLY_EXCLUDE_DIRS = {'.github'}`: папка `.github` идёт только на GitHub, не деплоится на Amvera
-- **GitHub Secrets** (добавляются один раз в репозитории): `KEYSTORE_PASSWORD = DailySales2024!`, `KEYSTORE_BASE64` = base64-encoded PKCS12 keystore (alias `dailysales`)
+- `web/app.py` — route `GET /.well-known/assetlinks.json`: отдаёт Digital Asset Links JSON (`delegate_permission/common.handle_all_urls`) с SHA-256 fingerprint
+- `deploy.sh` — `AMVERA_ONLY_EXCLUDE_DIRS = {'.github'}`: папка `.github` идёт только на GitHub, не деплоится на Amvera
+- **GitHub Secrets** (добавляются один раз): `KEYSTORE_PASSWORD`, `KEYSTORE_BASE64` = base64-encoded PKCS12 keystore (alias `dailysales`)
 - Keystore хранится только в GitHub Secret — НЕ в коде, НЕ в Replit Secrets
 
 **Фиксы:**
