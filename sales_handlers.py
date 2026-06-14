@@ -706,7 +706,7 @@ async def quick_search_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(anchor_msg_id=callback.message.message_id)
     await callback.message.edit_text(
         "🔍 <b>Быстрый поиск товара</b>\n\n"
-        "Введите название или часть названия товара:",
+        "Введите название, категорию или артикул (SKU) товара:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ К категориям", callback_data="new_sale")]
         ]),
@@ -739,8 +739,9 @@ async def process_quick_search(message: Message, state: FSMContext):
     matching = []
     for p in all_products:
         pid, name, category, price = p[0], p[1], p[2], p[3]
+        article = p[7] if len(p) > 7 and p[7] else ""
         qty = await current_db.get_inventory(shop_name, pid)
-        if qty > 0 and query_lower in name.lower():
+        if qty > 0 and (query_lower in name.lower() or query_lower in article.lower()):
             matching.append((pid, name, category or "Без категории", price, qty))
 
     if not matching:

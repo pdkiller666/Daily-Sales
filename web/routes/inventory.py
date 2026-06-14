@@ -71,10 +71,10 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
 
         inventory = sorted(raw, key=_sort_key)
 
-        # Filter by search query (name or category)
+        # Filter by search query (name, category or article[10])
         if q:
             ql = q.lower()
-            inventory = [r for r in inventory if ql in (r[6] or "").lower() or ql in (r[7] or "").lower()]
+            inventory = [r for r in inventory if ql in (r[6] or "").lower() or ql in (r[7] or "").lower() or ql in (r[10] if len(r) > 10 and r[10] else "").lower()]
 
         # Filter by selected category
         if category:

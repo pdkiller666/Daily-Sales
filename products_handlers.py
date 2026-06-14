@@ -870,7 +870,7 @@ async def product_search_cancel(callback: CallbackQuery, state: FSMContext):
 
 @products_router.message(ProductStates.searching_product)
 async def product_search_input(message: Message, state: FSMContext):
-    """Обработка текста поиска — ищет по всем товарам."""
+    """Обработка текста поиска — ищет по названию, категории и артикулу."""
     from db_utils import get_db as _get_db
     query = (message.text or "").strip().lower()
     if not query:
@@ -883,7 +883,8 @@ async def product_search_input(message: Message, state: FSMContext):
     current_db = await _get_db(message.from_user.id, state)
     products = await current_db.get_all_products()
 
-    matches = [p for p in products if query in (p[1] or '').lower()]
+    matches = [p for p in products if query in (p[1] or '').lower()
+               or query in (p[7] if len(p) > 7 and p[7] else '').lower()]
 
     await state.set_state(None)
 

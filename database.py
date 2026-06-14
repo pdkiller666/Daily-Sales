@@ -4256,7 +4256,8 @@ class Database:
             cursor.execute('''
                 SELECT i.id, i.product_id, i.shop_name, i.quantity, i.last_updated, i.updated_by,
                        p.name, p.category, p.price,
-                       u.first_name || ' ' || u.last_name as updated_by_name
+                       u.first_name || ' ' || u.last_name as updated_by_name,
+                       p.article
                 FROM inventory i
                 JOIN products p ON i.product_id = p.id
                 LEFT JOIN users u ON i.updated_by = u.id
@@ -4267,7 +4268,8 @@ class Database:
             cursor.execute('''
                 SELECT i.id, i.product_id, i.shop_name, i.quantity, i.last_updated, i.updated_by,
                        p.name, p.category, p.price,
-                       u.first_name || ' ' || u.last_name as updated_by_name
+                       u.first_name || ' ' || u.last_name as updated_by_name,
+                       p.article
                 FROM inventory i
                 JOIN products p ON i.product_id = p.id
                 LEFT JOIN users u ON i.updated_by = u.id

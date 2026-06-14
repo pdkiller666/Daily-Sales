@@ -123,7 +123,9 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
             ql = q.lower()
             products = [
                 p for p in products
-                if ql in (p[1] or "").lower() or ql in (p[2] or "").lower()
+                if ql in (p[1] or "").lower()
+                or ql in (p[2] or "").lower()
+                or ql in (p[7] if len(p) > 7 and p[7] else "").lower()
             ]
 
         products.sort(key=lambda p: ((p[2] or ""), (p[1] or "").lower()))
@@ -762,6 +764,34 @@ async def bulk_assign_articles(request: Request):
     except Exception as exc:
         logging.error(f"bulk_assign_articles: {exc}")
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@router.get("/api/products/by-article")
+def api_product_by_article(request: Request, q: str = ""):
+    """JSON: найти товар по артикулу (точное совпадение, без учёта регистра).
+    Требует активной сессии. Используется сканером штрих-кодов.
+    """
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not q or not q.strip():
+        return JSONResponse({"ok": False, "error": "q required"}, status_code=400)
+    db = get_web_db(int(user["sub"]), user.get("org_db") or "")
+    row = db.get_product_by_article(q.strip())
+    if not row:
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    return JSONResponse({
+        "ok": True,
+        "product": {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "price": row[3],
+            "article": row[7] if len(row) > 7 else None,
+        }
+    })
 
 
 @router.post("/products/{product_id}/photos/{photo_id}/delete")
