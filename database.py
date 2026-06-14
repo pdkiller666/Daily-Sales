@@ -1520,6 +1520,20 @@ class Database:
                 "UPDATE billing_extensions SET is_active=0 WHERE key='gs_realtime'"
             )
 
+        # ── download_events (только shop_bot.db) ─────────────────────────────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS download_events (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp  TEXT    NOT NULL DEFAULT (datetime('now')),
+                    referrer   TEXT    DEFAULT '',
+                    user_agent TEXT    DEFAULT ''
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_download_events_ts ON download_events(timestamp)'
+            )
+
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
 

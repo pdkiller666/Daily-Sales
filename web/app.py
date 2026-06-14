@@ -685,7 +685,25 @@ def create_web_app() -> FastAPI:
     app.include_router(ai_router)
 
     @app.get("/download/android", include_in_schema=False)
-    async def download_android():
+    async def download_android(request: Request):
+        try:
+            import anyio
+            referrer = request.headers.get("referer", "") or ""
+            user_agent = request.headers.get("user-agent", "") or ""
+            def _log():
+                import sqlite3 as _sq
+                c = _sq.connect(_SHOP_BOT_DB, timeout=5)
+                try:
+                    c.execute(
+                        "INSERT INTO download_events (referrer, user_agent) VALUES (?, ?)",
+                        (referrer[:512], user_agent[:512]),
+                    )
+                    c.commit()
+                finally:
+                    c.close()
+            await anyio.to_thread.run_sync(_log)
+        except Exception:
+            pass
         from fastapi.responses import RedirectResponse
         return RedirectResponse(
             "https://github.com/pdkiller666/Daily-Sales/releases/latest",

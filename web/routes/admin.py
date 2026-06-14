@@ -241,14 +241,31 @@ async def admin_stats(request: Request):
             FROM payment_requests WHERE status = 'approved'
             GROUP BY mo ORDER BY mo ASC
         """).fetchall()
+
+        # ── APK download stats ────────────────────────────────────────────────
+        try:
+            apk_total = conn.execute(
+                "SELECT COUNT(*) FROM download_events"
+            ).fetchone()[0]
+            apk_by_day_raw = conn.execute("""
+                SELECT strftime('%Y-%m-%d', timestamp) AS day, COUNT(*)
+                FROM download_events
+                GROUP BY day ORDER BY day DESC LIMIT 30
+            """).fetchall()
+        except Exception:
+            apk_total = 0
+            apk_by_day_raw = []
     except Exception:
         recent = []
         chart_raw = []
+        apk_total = 0
+        apk_by_day_raw = []
     finally:
         if conn:
             conn.close()
 
     chart = [{"month": r[0], "revenue": float(r[1] or 0)} for r in chart_raw]
+    apk_by_day = [{"day": r[0], "count": r[1]} for r in apk_by_day_raw]
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -257,6 +274,8 @@ async def admin_stats(request: Request):
             "stats": detailed,
             "recent_payments": recent,
             "chart": chart,
+            "apk_total": apk_total,
+            "apk_by_day": apk_by_day,
         }),
     )
 
