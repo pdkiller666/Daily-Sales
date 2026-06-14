@@ -317,6 +317,29 @@
             <p>Настройки недоступны — пользователь не найден в базе данных организации</p>
         </div>
         {% endif %}
+
+        <!-- APK notification toggle — separate form -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления о новых версиях APK</h2>
+            <p class="text-xs text-slate-500 mb-4">Получать сообщение в Telegram при выходе новой версии Android-приложения</p>
+            <form method="post" action="/settings/apk-notif" class="flex items-center justify-between gap-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div>
+                    <p class="text-sm font-medium text-slate-700">Уведомить о новой версии APK</p>
+                    <p class="text-xs text-slate-400 mt-0.5">
+                        {% if apk_notif_enabled %}✅ Включено — вы получите сообщение в боте при новом релизе{% else %}❌ Отключено — уведомления не отправляются{% endif %}
+                    </p>
+                </div>
+                <label class="relative shrink-0 cursor-pointer">
+                    <input type="checkbox" name="apk_notif" value="on"
+                           {% if apk_notif_enabled %}checked{% endif %}
+                           onchange="this.form.submit()"
+                           class="peer sr-only">
+                    <div class="w-11 h-6 bg-slate-200 peer-checked:bg-blue-600 rounded-full transition-colors duration-200"></div>
+                    <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                </label>
+            </form>
+        </div>
     </div>
 
     <!-- Right: Org info + account -->

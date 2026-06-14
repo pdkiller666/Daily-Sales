@@ -858,9 +858,26 @@ def create_web_app() -> FastAPI:
                         "WHERE is_active = 1 AND owner_id IS NOT NULL"
                     ).fetchall()
                     _conn.close()
+                    def _apk_pref_ok(tid):
+                        try:
+                            c = sqlite3.connect("data/main.db")
+                            c.execute(
+                                "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+                                "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+                            )
+                            row = c.execute(
+                                "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?",
+                                (tid,),
+                            ).fetchone()
+                            c.close()
+                            return bool(row[0]) if row else False
+                        except Exception:
+                            return False
+
                     owner_ids = [
                         r[0] for r in _rows
                         if r[0] and str(r[0]) != admin_id
+                        and _apk_pref_ok(r[0])
                     ]
                 except Exception:
                     owner_ids = []

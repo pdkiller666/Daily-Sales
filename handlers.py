@@ -1184,10 +1184,49 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML"
     )
 
+def _apk_notif_get(telegram_id: int) -> bool:
+    """Вернуть True если пользователь включил уведомления об APK (default=False)."""
+    import sqlite3 as _s3
+    try:
+        c = _s3.connect("data/main.db")
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+        )
+        row = c.execute(
+            "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?", (telegram_id,)
+        ).fetchone()
+        c.close()
+        return bool(row[0]) if row else False
+    except Exception:
+        return False
+
+
+def _apk_notif_set(telegram_id: int, enabled: bool) -> None:
+    """Сохранить предпочтение APK-уведомлений в main.db."""
+    import sqlite3 as _s3
+    try:
+        c = _s3.connect("data/main.db")
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+        )
+        c.execute(
+            "INSERT OR REPLACE INTO apk_notif_prefs (telegram_id, enabled) VALUES (?, ?)",
+            (telegram_id, 1 if enabled else 0),
+        )
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+
+
 @router.callback_query(F.data == "apk_info")
 async def apk_info_handler(callback: CallbackQuery, state: FSMContext):
     """Информация о Android-приложении DailySales"""
     await callback.answer()
+    notif_on = _apk_notif_get(callback.from_user.id)
+    notif_label = "🔔 Уведомления о новой версии: ✅" if notif_on else "🔕 Уведомления о новой версии: ❌"
     text = (
         "📱 <b>Android-приложение DailySales</b>\n\n"
         "Установите приложение на Android-устройство для быстрого доступа к веб-кабинету.\n\n"
@@ -1204,9 +1243,21 @@ async def apk_info_handler(callback: CallbackQuery, state: FSMContext):
         text="⬇️ Скачать APK",
         url="https://dailysalesdeploy-pdkiller666.amvera.io/download/android"
     ))
+    builder.add(InlineKeyboardButton(text=notif_label, callback_data="toggle_apk_notif"))
     builder.add(back_button("user_profile"))
     builder.adjust(1)
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "toggle_apk_notif")
+async def toggle_apk_notif_handler(callback: CallbackQuery, state: FSMContext):
+    """Переключить уведомления об APK-релизах."""
+    tg_id = callback.from_user.id
+    current = _apk_notif_get(tg_id)
+    _apk_notif_set(tg_id, not current)
+    status = "включены ✅" if not current else "отключены ❌"
+    await callback.answer(f"Уведомления об APK {status}", show_alert=False)
+    await apk_info_handler(callback, state)
 
 
 @router.callback_query(F.data == "edit_profile")

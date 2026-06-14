@@ -113,6 +113,21 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         pass
 
     try:
+        import sqlite3 as _s3
+        _ac = _s3.connect("data/main.db")
+        _ac.execute(
+            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+        )
+        _ar = _ac.execute(
+            "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?", (telegram_id,)
+        ).fetchone()
+        _ac.close()
+        ctx["apk_notif_enabled"] = bool(_ar[0]) if _ar else False
+    except Exception:
+        ctx["apk_notif_enabled"] = False
+
+    try:
         db = get_web_db(telegram_id, org_db)
         user_db_id = _get_user_db_id(db, telegram_id)
         ctx["user_db_id"] = user_db_id
@@ -513,6 +528,37 @@ async def save_invite_preset(
 
     return RedirectResponse(url="/settings#invite", status_code=303)
 
+
+
+@router.post("/settings/apk-notif")
+async def settings_apk_notif(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    apk_notif: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings", status_code=303)
+    telegram_id = int(user["sub"])
+    try:
+        import sqlite3 as _s3
+        c = _s3.connect("data/main.db")
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+        )
+        c.execute(
+            "INSERT OR REPLACE INTO apk_notif_prefs (telegram_id, enabled) VALUES (?, ?)",
+            (telegram_id, 1 if apk_notif == "on" else 0),
+        )
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 @router.post("/settings/beta-mode")
