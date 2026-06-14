@@ -30,13 +30,8 @@ jobs:
 
       - name: Install SDK components & accept licenses
         run: |
-          echo "=== ANDROID_HOME: $ANDROID_HOME ==="
           sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>/dev/null || true
           yes | sdkmanager --licenses 2>/dev/null || true
-          echo "=== cmdline-tools ==="
-          ls "$ANDROID_HOME/cmdline-tools/" 2>/dev/null || echo "(none)"
-          echo "=== build-tools ==="
-          ls "$ANDROID_HOME/build-tools/" 2>/dev/null | head -5 || echo "(none)"
 
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
@@ -47,22 +42,45 @@ jobs:
           mkdir -p ~/.bubblewrap
           printf '{"jdkPath": "%s", "androidSdkPath": "%s"}\n' \
             "$JAVA_DIR" "$ANDROID_HOME" > ~/.bubblewrap/config.json
-          echo "=== Bubblewrap config ==="
-          cat ~/.bubblewrap/config.json
+          echo "=== Bubblewrap config ===" && cat ~/.bubblewrap/config.json
 
       - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > dailysales-release.p12
-          echo "Keystore size: $(wc -c < dailysales-release.p12) bytes"
+          SIZE=$(wc -c < dailysales-release.p12)
+          echo "Keystore size: ${SIZE} bytes"
+          if [ "$SIZE" -lt 100 ]; then
+            echo "ERROR: KEYSTORE_BASE64 secret is missing or invalid (got ${SIZE} bytes)"
+            exit 1
+          fi
+
+      - name: Inject signing password into manifest
+        run: |
+          PASSWORD="${{ secrets.KEYSTORE_PASSWORD }}"
+          if [ -z "$PASSWORD" ]; then
+            echo "ERROR: KEYSTORE_PASSWORD secret is not set in GitHub Secrets"
+            exit 1
+          fi
+          python3 - <<'PYEOF'
+import json, os
+with open("twa-manifest.json") as f:
+    m = json.load(f)
+m["signingKey"]["password"] = os.environ["KEYSTORE_PASSWORD"]
+with open("twa-manifest.json", "w") as f:
+    json.dump(m, f, indent=2, ensure_ascii=False)
+print("signingKey.password injected OK")
+PYEOF
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
       - name: Build TWA APK
         run: |
-          printf '%s\n%s\n' \
-            "${{ secrets.KEYSTORE_PASSWORD }}" \
-            "${{ secrets.KEYSTORE_PASSWORD }}" \
-            | bubblewrap build --skipPwaValidation 2>&1 | tee build.log
-          echo "--- build.log tail ---"
-          tail -50 build.log
+          set -o pipefail
+          bubblewrap build --skipPwaValidation 2>&1 | tee build.log
+          EXIT=${PIPESTATUS[0]}
+          echo "--- build.log (last 60 lines) ---"
+          tail -60 build.log
+          exit $EXIT
 
       - name: Find built APK
         id: find_apk
@@ -71,8 +89,9 @@ jobs:
           if [ -z "$APK" ]; then APK=$(find . -name "*.apk" 2>/dev/null | head -1); fi
           echo "Found: $APK"
           if [ -z "$APK" ]; then
-            echo "ERROR: no APK produced. Directory listing:"
-            find . -maxdepth 4 -name "*.apk" 2>/dev/null || true
+            echo "ERROR: no APK produced"
+            echo "=== Directory listing ==="
+            find . -maxdepth 5 -type f -name "*.apk" 2>/dev/null || true
             exit 1
           fi
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
@@ -110,9 +129,6 @@ jobs:
 
             ### Обновление
             Просто установите новый APK поверх старого — данные сохранятся.
-
-            ### Push-уведомления
-            Работают через Chrome (GMS). На Huawei с GBox — через Chrome, установленный в GBox.
           files: ${{ env.APK_FILE }}
           draft: false
           prerelease: false
@@ -125,15 +141,10 @@ jobs:
           RELEASE_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           APK_URL="https://github.com/pdkiller666/Daily-Sales/releases/download/apk-${{ github.run_number }}/DailySales-v1.0.${{ github.run_number }}.apk"
           PAYLOAD="{\"version\":\"${VERSION}\",\"release_url\":\"${RELEASE_URL}\",\"apk_url\":\"${APK_URL}\",\"release_date\":\"${RELEASE_DATE}\"}"
-          echo "Notifying server: version=${VERSION}"
           STATUS=$(curl -s -o /tmp/webhook_resp.txt -w "%{http_code}" \
             -X POST "https://dailysales.app/webhook/apk-release" \
             -H "Authorization: Bearer ${{ secrets.APK_WEBHOOK_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d "${PAYLOAD}" \
-            --max-time 15 || echo "000")
+            -d "${PAYLOAD}" --max-time 15 || echo "000")
           echo "Webhook HTTP status: ${STATUS}"
           cat /tmp/webhook_resp.txt || true
-          if [ "${STATUS}" != "200" ]; then
-            echo "WARNING: Webhook returned non-200 status ${STATUS}. Continuing anyway."
-          fi
