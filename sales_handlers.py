@@ -74,7 +74,10 @@ async def _show_sale_categories(
     is_other_shop = shop_name != home_shop
 
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_quick_search"))
+    builder.row(
+        InlineKeyboardButton(text="🔍 Найти товар", callback_data="sale_quick_search"),
+        InlineKeyboardButton(text="📸 Сканировать", callback_data="sale_scan_barcode"),
+    )
 
     # Кнопка смены магазина (если торговая сеть с несколькими магазинами)
     if allow_change:
@@ -697,6 +700,148 @@ async def sale_select_network_shop(callback: CallbackQuery, state: FSMContext):
         allow_change=True,
         reset_cart=True,
     )
+
+
+@sales_router.callback_query(F.data == "sale_scan_barcode")
+async def sale_scan_barcode_start(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает у пользователя фото штрих-кода для сканирования."""
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        "📸 <b>Сканирование штрих-кода</b>\n\n"
+        "Сфотографируйте ценник или штрих-код товара и отправьте фото.\n\n"
+        "<i>Совет: снимайте при хорошем освещении, держите камеру ровно.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+        ]),
+        parse_mode="HTML"
+    )
+    await state.set_state(MultipleSaleStates.waiting_for_barcode_photo)
+
+
+@sales_router.message(MultipleSaleStates.waiting_for_barcode_photo)
+async def process_barcode_photo(message: Message, state: FSMContext):
+    """Декодирует штрих-код из фото и подставляет товар в флоу продажи."""
+    if not message.photo:
+        await fsm_edit(
+            state, message,
+            "📸 <b>Нужно фото</b>\n\nОтправьте фотографию штрих-кода или QR-кода.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        import asyncio
+        import io
+        from pyzbar.pyzbar import decode as pyzbar_decode
+        from PIL import Image as PILImage
+
+        photo = message.photo[-1]
+        file = await message.bot.get_file(photo.file_id)
+        file_bytes = await message.bot.download_file(file.file_path)
+        raw = file_bytes.read() if hasattr(file_bytes, 'read') else bytes(file_bytes)
+
+        def _decode(data: bytes):
+            img = PILImage.open(io.BytesIO(data))
+            return pyzbar_decode(img)
+
+        decoded = await asyncio.to_thread(_decode, raw)
+
+        if not decoded:
+            await fsm_edit(
+                state, message,
+                "❌ <b>Штрих-код не распознан</b>\n\n"
+                "Убедитесь, что код виден чётко и занимает большую часть фото.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📸 Попробовать снова", callback_data="sale_scan_barcode")],
+                    [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+                ]),
+                parse_mode="HTML"
+            )
+            return
+
+        article = decoded[0].data.decode("utf-8", errors="replace").strip()
+
+        current_db = await get_db(message.from_user.id, state)
+        product = await current_db.get_product_by_article(article)
+
+        if not product:
+            await fsm_edit(
+                state, message,
+                f"🔍 <b>Товар не найден</b>\n\n"
+                f"Код: <code>{he(article)}</code>\n\n"
+                f"Такого артикула нет в базе. Проверьте, что товар добавлен в систему.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📸 Сканировать снова", callback_data="sale_scan_barcode")],
+                    [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+                ]),
+                parse_mode="HTML"
+            )
+            return
+
+        product_id = product[0]
+        data = await state.get_data()
+        shop_name = data.get("shop_name", "")
+        quantity = await current_db.get_inventory(shop_name, product_id)
+
+        if quantity <= 0:
+            await fsm_edit(
+                state, message,
+                f"📦 <b>Нет в наличии</b>\n\n"
+                f"Товар «{he(product[1])}» (артикул <code>{he(article)}</code>) найден, "
+                f"но отсутствует на складе.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📸 Сканировать снова", callback_data="sale_scan_barcode")],
+                    [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+                ]),
+                parse_mode="HTML"
+            )
+            return
+
+        await state.update_data(product_id=product_id)
+
+        motivation_info = await current_db.get_product_motivation(product_id)
+        motivation_text = ""
+        if motivation_info:
+            if motivation_info['motivation_type'] == 'percentage':
+                motivation_text = f"\n🎯 Мотивация: {motivation_info['motivation_value']}% от продажи"
+            else:
+                motivation_text = f"\n🎯 Мотивация: {format_currency(motivation_info['motivation_value'])} за шт."
+
+        home_shop = data.get("sale_home_shop", shop_name)
+        shop_line = (
+            f"\n🏪 Списание с: <b>{he(shop_name)}</b> <i>(другой магазин)</i>"
+            if shop_name != home_shop else f"\n🏪 Магазин: {he(shop_name)}"
+        )
+
+        await fsm_edit(
+            state, message,
+            f"✅ <b>Товар найден по штрих-коду!</b>\n\n"
+            f"💰 Продажа товара:{shop_line}\n\n"
+            f"🏷 {he(product[1])}\n"
+            f"🔖 Артикул: <code>{he(article)}</code>\n"
+            f"💰 Цена: {format_currency(product[3])}\n"
+            f"📦 В наличии: {quantity} шт.{motivation_text}\n\n"
+            f"Выберите количество или введите вручную:",
+            reply_markup=_make_qty_keyboard(quantity),
+            parse_mode="HTML"
+        )
+        await state.set_state(SaleStates.entering_quantity)
+
+    except Exception as exc:
+        logging.error(f"process_barcode_photo error: {exc}")
+        await fsm_edit(
+            state, message,
+            "❌ <b>Ошибка обработки фото</b>\n\nПопробуйте ещё раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📸 Попробовать снова", callback_data="sale_scan_barcode")],
+                [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
+            ]),
+            parse_mode="HTML"
+        )
 
 
 @sales_router.callback_query(F.data == "sale_quick_search")

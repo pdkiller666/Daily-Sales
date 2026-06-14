@@ -13,6 +13,8 @@ _PHOTO_DIR = Path("web/static/product_photos")
 _PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 _PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 _GALLERY_MAX = 10  # максимум фото на товар
+_LOGO_DIR = Path("web/static/product_photos")  # логотип ценника рядом с фото товаров
+_LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB для логотипа
 
 
 def _get_org_hash(org_db: str) -> str:
@@ -42,6 +44,26 @@ def _save_product_photo(upload: UploadFile, raw: bytes, org_db: str = "") -> str
     save_dir = _PHOTO_DIR / org_hash
     save_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{_uuid.uuid4().hex}{ext}"
+    (save_dir / fname).write_bytes(raw)
+    return f"/static/product_photos/{org_hash}/{fname}"
+
+
+def _save_label_logo(raw: bytes, filename: str, org_db: str = "") -> str:
+    """Save logo for label design; overwrites previous logo for this org.
+    Returns web path like /static/product_photos/org_hash/label_logo.ext.
+    """
+    ext = Path(filename or "logo.png").suffix.lower()
+    if ext not in _PHOTO_EXTS:
+        ext = ".png"
+    org_hash = _get_org_hash(org_db)
+    save_dir = _LOGO_DIR / org_hash
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for old in save_dir.glob("label_logo.*"):
+        try:
+            old.unlink()
+        except Exception:
+            pass
+    fname = f"label_logo{ext}"
     (save_dir / fname).write_bytes(raw)
     return f"/static/product_photos/{org_hash}/{fname}"
 
@@ -878,6 +900,219 @@ def products_delete(
         logging.error(f"products_delete error: {exc}")
 
     return RedirectResponse(url="/products?success=Товар+удалён", status_code=303)
+
+
+def _make_qr_b64(data: str) -> str:
+    """Generate a QR code PNG as a base64 string. Returns '' on failure."""
+    try:
+        import qrcode as _qr
+        qr = _qr.QRCode(version=1, error_correction=_qr.constants.ERROR_CORRECT_M,
+                        box_size=8, border=2)
+        qr.add_data(data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return __import__("base64").b64encode(buf.getvalue()).decode()
+    except Exception as exc:
+        logging.warning(f"_make_qr_b64 failed: {exc}")
+        return ""
+
+
+_DEFAULT_LABEL_SETTINGS = {
+    'bg_color': '#ffffff', 'text_color': '#000000',
+    'price_color': '#000000', 'logo_path': '', 'font_size': 'medium',
+}
+
+
+def _build_label_ctx(product) -> dict:
+    """Build context dict for a single product label."""
+    article = product[7] if len(product) > 7 else ""
+    qr_b64 = _make_qr_b64(article) if article else ""
+    return {
+        "name": product[1] or "",
+        "price": int(product[3]) if product[3] is not None else 0,
+        "article": article or "",
+        "qr_b64": qr_b64,
+    }
+
+
+_VALID_LABEL_SIZES = {"58x40", "40x30", "a6"}
+
+
+def _get_label_settings_safe(db) -> dict:
+    """Fetch label settings, returning defaults on any error."""
+    try:
+        return db.get_label_settings()
+    except Exception:
+        return dict(_DEFAULT_LABEL_SETTINGS)
+
+
+@router.get("/products/{product_id}/label")
+def product_label(request: Request, product_id: int, print: str = "", size: str = "58x40"):
+    """Render a print-friendly price label for a single product."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/products/{product_id}", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    product = db.get_product(product_id)
+    if not product:
+        return RedirectResponse(url="/products", status_code=302)
+
+    from web.auth import get_csrf_token
+    if size not in _VALID_LABEL_SIZES:
+        size = "58x40"
+    label_settings = _get_label_settings_safe(db)
+    label = _build_label_ctx(product)
+    return request.app.state.templates.TemplateResponse(
+        request, "products/label.html", {
+            "request": request,
+            "labels": [label],
+            "auto_print": bool(print),
+            "initial_size": size,
+            "label_settings": label_settings,
+            "is_owner": user.get("role") in ("owner", "super_admin"),
+            "csrf_token": get_csrf_token(request),
+        }
+    )
+
+
+@router.post("/products/labels")
+async def products_labels_bulk(request: Request):
+    """Return a print page with labels for multiple products (JSON body: {product_ids: [...]})."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        from fastapi.responses import Response
+        return Response(content="Unauthorized", status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        from fastapi.responses import Response
+        return Response(content="Forbidden", status_code=403)
+
+    try:
+        body = await request.json()
+        csrf = body.get("csrf_token", "")
+        product_ids = [int(x) for x in body.get("product_ids", [])]
+        size = body.get("size", "58x40")
+    except Exception:
+        from fastapi.responses import Response
+        return Response(content="Bad request", status_code=400)
+
+    if size not in _VALID_LABEL_SIZES:
+        size = "58x40"
+
+    if not verify_csrf_token(request, csrf):
+        from fastapi.responses import Response
+        return Response(content="CSRF error", status_code=403)
+
+    if not product_ids:
+        from fastapi.responses import Response
+        return Response(content="No products selected", status_code=400)
+
+    from web.auth import get_csrf_token
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+    label_settings = _get_label_settings_safe(db)
+
+    labels = []
+    for pid in product_ids[:200]:
+        try:
+            product = db.get_product(pid)
+            if product:
+                labels.append(_build_label_ctx(product))
+        except Exception:
+            pass
+
+    if not labels:
+        from fastapi.responses import Response
+        return Response(content="No valid products", status_code=400)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "products/label.html", {
+            "request": request,
+            "labels": labels,
+            "auto_print": True,
+            "initial_size": size,
+            "label_settings": label_settings,
+            "is_owner": user.get("role") in ("owner", "super_admin"),
+            "csrf_token": get_csrf_token(request),
+        }
+    )
+
+
+@router.post("/products/label-settings")
+async def save_label_settings(
+    request: Request,
+    bg_color: str = Form("#ffffff"),
+    text_color: str = Form("#000000"),
+    price_color: str = Form("#000000"),
+    font_size: str = Form("medium"),
+    clear_logo: str = Form(""),
+    logo: UploadFile = File(None),
+):
+    """Save label design settings (owner only). Accepts multipart/form-data."""
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import Response
+
+    user = get_session_user(request)
+    if not user:
+        return Response(content="Unauthorized", status_code=401)
+    if user.get("role") not in ("owner", "super_admin"):
+        return Response(content="Forbidden", status_code=403)
+
+    form = await request.form()
+    csrf = form.get("csrf_token", "")
+    if not verify_csrf_token(request, csrf):
+        return Response(content="CSRF error", status_code=403)
+
+    _VALID_FONT_SIZES = {"small", "medium", "large"}
+    if font_size not in _VALID_FONT_SIZES:
+        font_size = "medium"
+
+    import re as _re
+    _color_re = _re.compile(r'^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$')
+    bg_color = bg_color if _color_re.match(bg_color) else "#ffffff"
+    text_color = text_color if _color_re.match(text_color) else "#000000"
+    price_color = price_color if _color_re.match(price_color) else "#000000"
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    db = get_web_db(telegram_id, org_db)
+
+    logo_path = None
+    if clear_logo == "1":
+        existing = _get_label_settings_safe(db).get("logo_path", "")
+        if existing and existing.startswith("/static/product_photos/"):
+            try:
+                fpath = Path("web") / existing.lstrip("/")
+                if fpath.exists():
+                    fpath.unlink()
+            except Exception:
+                pass
+        logo_path = ""
+    elif logo and logo.filename:
+        try:
+            raw = await logo.read()
+            if raw and len(raw) <= _LOGO_MAX_BYTES and _is_valid_image(raw):
+                logo_path = _save_label_logo(raw, logo.filename, org_db or "")
+        except Exception as exc:
+            logging.warning(f"label logo upload failed: {exc}")
+
+    db.save_label_settings(bg_color, text_color, price_color, logo_path, font_size)
+
+    return JSONResponse({"ok": True})
 
 
 @router.get("/products/{product_id}")

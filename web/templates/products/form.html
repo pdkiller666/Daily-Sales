@@ -78,7 +78,10 @@
 
         <!-- Article / SKU -->
         <div class="mb-5">
-            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-article">
+            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-article">
+                <svg class="w-4 h-4 text-amber-500 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <rect x="1" y="4" width="1.5" height="16"/><rect x="4" y="4" width="3" height="16"/><rect x="9" y="4" width="1.5" height="16"/><rect x="12" y="4" width="2.5" height="16"/><rect x="16" y="4" width="1.5" height="16"/><rect x="19.5" y="4" width="1" height="16"/><rect x="21.5" y="4" width="1.5" height="16"/>
+                </svg>
                 Артикул (SKU)
             </label>
             <input id="f-article" type="text" name="article"
@@ -86,9 +89,9 @@
                    placeholder="Оставьте пустым — сгенерируется автоматически"
                    maxlength="25"
                    oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\-_]/g,'')"
-                   class="w-full border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800
+                   class="w-full border border-amber-200 dark:border-amber-700/50 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800
                           focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent tracking-wide">
-            <p class="mt-1 text-xs text-slate-400">Буквы, цифры, дефис. Оставьте пустым — артикул создастся по категории автоматически.</p>
+            <p class="mt-1 text-xs text-slate-400">Буквы, цифры, дефис. Оставьте пустым — артикул создастся по категории автоматически. По нему продавцы находят товар через сканер.</p>
         </div>
 
         <!-- Price -->

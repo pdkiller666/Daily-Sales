@@ -40,6 +40,7 @@ class MultipleSaleStates(StatesGroup):
     adding_items = State()
     reviewing_cart = State()
     confirming_sale = State()
+    waiting_for_barcode_photo = State()
 
 class EditSaleStates(StatesGroup):
     choosing_sale = State()

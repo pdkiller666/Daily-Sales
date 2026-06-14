@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ценники — DailySales</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
+
+/* ── CSS vars — layout (updated by Alpine) + design (updated by JS/server) ── */
+:root {
+    /* Layout vars — Alpine labelSizer() writes these */
+    --sheet-cols: repeat(4, 1fr);
+    --lbl-w: 58mm;
+    --lbl-h: 40mm;
+    --lbl-pad: 3mm 3mm 2mm;
+    --lbl-gap: 4mm;
+    --lbl-name-size: 7.5pt;
+    --lbl-price-size: 16pt;
+    --lbl-currency-size: 10pt;
+    --lbl-qr-size: 22mm;
+    --lbl-article-size: 6pt;
+    /* Design vars — set from saved org settings */
+    --label-bg:    {{ label_settings.bg_color }};
+    --label-text:  {{ label_settings.text_color }};
+    --label-price: {{ label_settings.price_color }};
+}
+
+/* ── Screen toolbar ── */
+.toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; padding: 10px 16px;
+    background: #1e293b; color: #e2e8f0;
+    position: sticky; top: 0; z-index: 10;
+}
+.toolbar h1 { font-size: 14px; font-weight: 600; }
+.toolbar .meta { font-size: 12px; color: #94a3b8; }
+.toolbar-left  { display: flex; align-items: center; gap: 10px; }
+.toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.btn-print {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #2563eb; color: #fff; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; padding: 7px 16px;
+    border-radius: 8px; text-decoration: none; transition: background .15s;
+    white-space: nowrap;
+}
+.btn-print:hover { background: #1d4ed8; }
+.btn-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #94a3b8; border: 1px solid #334155; background: transparent;
+    cursor: pointer; font-size: 12px; padding: 6px 12px;
+    border-radius: 8px; text-decoration: none; transition: color .15s;
+    white-space: nowrap;
+}
+.btn-back:hover { color: #e2e8f0; border-color: #64748b; }
+
+/* ── Size switcher ── */
+.size-switcher {
+    display: inline-flex; align-items: center; gap: 2px;
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px;
+}
+.size-btn {
+    font-size: 11px; font-weight: 600; padding: 4px 10px;
+    border: none; border-radius: 6px; cursor: pointer;
+    transition: background .12s, color .12s;
+    color: #94a3b8; background: transparent;
+    white-space: nowrap;
+}
+.size-btn.active { background: #2563eb; color: #fff; }
+.size-btn:not(.active):hover { color: #e2e8f0; }
+
+/* ── Design button ── */
+.btn-design {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #e2e8f0; border: 1px solid #475569; background: #334155;
+    cursor: pointer; font-size: 12px; padding: 6px 12px;
+    border-radius: 8px; transition: background .15s; white-space: nowrap;
+}
+.btn-design:hover { background: #475569; }
+
+/* ── Design panel ── */
+.design-panel {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 16px 20px;
+    display: none;
+}
+.design-panel.open { display: block; }
+.design-panel h2 { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 14px; }
+.design-grid { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; }
+.design-field { display: flex; flex-direction: column; gap: 4px; }
+.design-field label { font-size: 11px; color: #94a3b8; }
+.design-field input[type=color] {
+    width: 52px; height: 32px; border: 1px solid #334155;
+    border-radius: 6px; cursor: pointer; padding: 2px; background: #1e293b;
+}
+.design-field select {
+    background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+    border-radius: 6px; padding: 5px 8px; font-size: 12px; cursor: pointer;
+}
+.logo-preview { max-height: 36px; max-width: 80px; object-fit: contain; border-radius: 4px; }
+.logo-clear {
+    background: none; border: none; color: #ef4444; font-size: 11px;
+    cursor: pointer; padding: 2px 0; text-decoration: underline;
+}
+.design-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.btn-save-design {
+    background: #2563eb; color: #fff; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600; padding: 7px 18px;
+    border-radius: 8px; transition: background .15s;
+}
+.btn-save-design:hover { background: #1d4ed8; }
+.btn-save-design:disabled { background: #475569; cursor: not-allowed; }
+.btn-reset-design {
+    background: none; border: 1px solid #475569; color: #94a3b8;
+    cursor: pointer; font-size: 12px; padding: 7px 14px;
+    border-radius: 8px; transition: color .15s, border-color .15s;
+    white-space: nowrap;
+}
+.btn-reset-design:hover { color: #e2e8f0; border-color: #94a3b8; }
+.save-status { font-size: 11px; color: #4ade80; display: none; }
+
+/* ── A4 sheet ── */
+.sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    padding: 10mm;
+    background: #fff;
+    box-shadow: 0 2px 20px rgba(0,0,0,.15);
+    display: grid;
+    grid-template-columns: var(--sheet-cols);
+    grid-auto-rows: min-content;
+    gap: var(--lbl-gap);
+    align-content: start;
+}
+
+/* ── Single label ── */
+.label {
+    width: var(--lbl-w);
+    min-height: var(--lbl-h);
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: var(--lbl-pad);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    background: var(--label-bg);
+}
+
+.label-logo {
+    max-height: 10mm;
+    max-width: 50mm;
+    object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+}
+
+.label-name {
+    font-size: var(--lbl-name-size);
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.25;
+    color: var(--label-text);
+    word-break: break-word;
+    hyphens: auto;
+    width: 100%;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.label-price {
+    font-size: var(--lbl-price-size);
+    font-weight: 900;
+    color: var(--label-price);
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+}
+.label-price .currency {
+    font-size: var(--lbl-currency-size);
+    font-weight: 600;
+    margin-left: 1px;
+}
+
+.label-qr {
+    width: var(--lbl-qr-size);
+    height: var(--lbl-qr-size);
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
+.label-article {
+    font-size: var(--lbl-article-size);
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--label-text);
+    opacity: 0.55;
+    text-align: center;
+    letter-spacing: .5px;
+    word-break: break-all;
+}
+.label-article-dash {
+    font-size: var(--lbl-article-size);
+    color: var(--label-text);
+    opacity: 0.25;
+    text-align: center;
+}
+
+.label-sep {
+    width: 100%;
+    border: none;
+    border-top: 0.5px solid currentColor;
+    opacity: 0.2;
+    margin: 0;
+}
+
+/* ── Font density variants (multiplied on top of Alpine layout size) ── */
+.fs-small  .label-name    { font-size: calc(var(--lbl-name-size)  * 0.8); }
+.fs-large  .label-name    { font-size: calc(var(--lbl-name-size)  * 1.25); }
+.fs-small  .label-price   { font-size: calc(var(--lbl-price-size) * 0.8); }
+.fs-large  .label-price   { font-size: calc(var(--lbl-price-size) * 1.25); }
+.fs-small  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 0.8); }
+.fs-large  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 1.25); }
+
+/* ── @media print ── */
+@media print {
+    body { background: #fff; }
+    .toolbar { display: none !important; }
+    .design-panel { display: none !important; }
+    .sheet {
+        width: 100%;
+        min-height: unset;
+        margin: 0;
+        padding: 5mm;
+        box-shadow: none;
+        page-break-after: auto;
+    }
+    .label {
+        border-color: #bbb;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 5mm;
+    }
+}
+</style>
+</head>
+
+<body x-data="labelSizer()" x-init="init()" x-effect="applyVars()">
+
+<!-- Screen-only toolbar -->
+<div class="toolbar">
+    <div class="toolbar-left">
+        <a href="javascript:history.back()" class="btn-back">← Назад</a>
+        <div>
+            <h1>🏷 Ценники</h1>
+            <div class="meta" x-text="metaText()"></div>
+        </div>
+    </div>
+    <div class="toolbar-right">
+        <!-- Size switcher -->
+        <div class="size-switcher">
+            <template x-for="s in sizes" :key="s.key">
+                <button class="size-btn" :class="size === s.key ? 'active' : ''"
+                        @click="setSize(s.key)" x-text="s.label"></button>
+            </template>
+        </div>
+        {% if is_owner %}
+        <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
+        {% endif %}
+        <button class="btn-print" onclick="window.print()">🖨 Печать</button>
+    </div>
+</div>
+
+{% if is_owner %}
+<!-- Design settings panel (owner only) -->
+<div class="design-panel" id="designPanel">
+    <h2>🎨 Дизайн ценника</h2>
+    <form id="designForm" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="design-grid">
+            <div class="design-field">
+                <label>Фон ценника</label>
+                <input type="color" name="bg_color" id="bgColor" value="{{ label_settings.bg_color }}"
+                       oninput="applyDesignPreview()">
+            </div>
+            <div class="design-field">
+                <label>Цвет текста</label>
+                <input type="color" name="text_color" id="textColor" value="{{ label_settings.text_color }}"
+                       oninput="applyDesignPreview()">
+            </div>
+            <div class="design-field">
+                <label>Цвет цены</label>
+                <input type="color" name="price_color" id="priceColor" value="{{ label_settings.price_color }}"
+                       oninput="applyDesignPreview()">
+            </div>
+            <div class="design-field">
+                <label>Плотность текста</label>
+                <select name="font_size" id="fontSize" onchange="applyDesignPreview()">
+                    <option value="small"  {% if label_settings.font_size == 'small'  %}selected{% endif %}>Компактный</option>
+                    <option value="medium" {% if label_settings.font_size == 'medium' %}selected{% endif %}>Стандартный</option>
+                    <option value="large"  {% if label_settings.font_size == 'large'  %}selected{% endif %}>Крупный</option>
+                </select>
+            </div>
+            <div class="design-field">
+                <label>Логотип</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    {% if label_settings.logo_path %}
+                    <img src="{{ label_settings.logo_path }}" class="logo-preview" id="logoPreviewImg" alt="Лого">
+                    <button type="button" class="logo-clear" onclick="clearLogo()">✕ Убрать</button>
+                    {% else %}
+                    <img src="" class="logo-preview" id="logoPreviewImg" alt="" style="display:none">
+                    {% endif %}
+                    <input type="file" name="logo" id="logoInput" accept="image/*"
+                           style="font-size:11px;color:#94a3b8;max-width:160px"
+                           onchange="previewLogo(this)">
+                    <input type="hidden" name="clear_logo" id="clearLogoFlag" value="">
+                </div>
+            </div>
+        </div>
+        <div class="design-actions">
+            <button type="button" class="btn-save-design" id="saveBtn" onclick="saveDesign()">
+                💾 Сохранить дизайн
+            </button>
+            <button type="button" class="btn-reset-design" onclick="resetDesign()">
+                ↺ Сбросить к стандартному
+            </button>
+            <span class="save-status" id="saveStatus">✓ Сохранено</span>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<!-- A4 sheet with labels grid -->
+<div class="sheet" id="labelSheet">
+{% for lb in labels %}
+<div class="label">
+    {% if label_settings.logo_path %}
+    <img class="label-logo" src="{{ label_settings.logo_path }}" alt="Лого">
+    {% else %}
+    <img class="label-logo" src="" alt="" style="display:none">
+    {% endif %}
+
+    <div class="label-name">{{ lb.name }}</div>
+    <div class="label-price">
+        {{ "{:,}".format(lb.price).replace(",", "\u202f") }}<span class="currency">₽</span>
+    </div>
+    <hr class="label-sep">
+    {% if lb.qr_b64 %}
+    <img class="label-qr" src="data:image/png;base64,{{ lb.qr_b64 }}" alt="QR {{ lb.article }}">
+    {% endif %}
+    {% if lb.article %}
+    <div class="label-article">{{ lb.article }}</div>
+    {% else %}
+    <div class="label-article-dash">— артикул не задан —</div>
+    {% endif %}
+</div>
+{% endfor %}
+</div>
+
+<!-- Alpine: label size switcher -->
+<script>
+function labelSizer() {
+    const SIZES = [
+        {
+            key: '58x40', label: '58×40 мм', cols: 4,
+            vars: {
+                '--sheet-cols': 'repeat(4, 1fr)',
+                '--lbl-w': '58mm', '--lbl-h': '40mm',
+                '--lbl-pad': '3mm 3mm 2mm', '--lbl-gap': '4mm',
+                '--lbl-name-size': '7.5pt', '--lbl-price-size': '16pt',
+                '--lbl-currency-size': '10pt', '--lbl-qr-size': '22mm',
+                '--lbl-article-size': '6pt',
+            }
+        },
+        {
+            key: '40x30', label: '40×30 мм', cols: 4,
+            vars: {
+                '--sheet-cols': 'repeat(4, 1fr)',
+                '--lbl-w': '40mm', '--lbl-h': '30mm',
+                '--lbl-pad': '2mm 2mm 1.5mm', '--lbl-gap': '3mm',
+                '--lbl-name-size': '6pt', '--lbl-price-size': '11pt',
+                '--lbl-currency-size': '7pt', '--lbl-qr-size': '14mm',
+                '--lbl-article-size': '5pt',
+            }
+        },
+        {
+            key: 'a6', label: 'A6', cols: 2,
+            vars: {
+                '--sheet-cols': 'repeat(2, 1fr)',
+                '--lbl-w': '100%', '--lbl-h': '74mm',
+                '--lbl-pad': '5mm 5mm 4mm', '--lbl-gap': '5mm',
+                '--lbl-name-size': '11pt', '--lbl-price-size': '26pt',
+                '--lbl-currency-size': '15pt', '--lbl-qr-size': '34mm',
+                '--lbl-article-size': '8pt',
+            }
+        },
+    ];
+
+    return {
+        sizes: SIZES,
+        size: new URLSearchParams(location.search).get('size') || '{{ initial_size }}',
+
+        init() {
+            const saved = localStorage.getItem('ds_label_size');
+            const urlSize = new URLSearchParams(location.search).get('size');
+            if (!urlSize && saved && SIZES.some(s => s.key === saved)) {
+                this.size = saved;
+            }
+            /* Apply initial font-density class from saved design setting */
+            var fs = document.getElementById('fontSize') ? document.getElementById('fontSize').value : 'medium';
+            var sheet = document.getElementById('labelSheet');
+            if (sheet && fs !== 'medium') sheet.classList.add('fs-' + fs);
+        },
+
+        get current() {
+            return this.sizes.find(s => s.key === this.size) || this.sizes[0];
+        },
+
+        metaText() {
+            const c = this.current;
+            return '{{ labels|length }} шт. · ' + c.label + ' · ' + c.cols + ' в ряд · A4';
+        },
+
+        setSize(key) {
+            this.size = key;
+            localStorage.setItem('ds_label_size', key);
+            const url = new URL(location.href);
+            url.searchParams.set('size', key);
+            history.replaceState(null, '', url.toString());
+        },
+
+        applyVars() {
+            const vars = this.current.vars;
+            const root = document.documentElement;
+            for (const [k, v] of Object.entries(vars)) {
+                root.style.setProperty(k, v);
+            }
+        },
+    };
+}
+</script>
+
+{% if auto_print %}
+<script>
+window.addEventListener('load', function() {
+    setTimeout(function() { window.print(); }, 500);
+});
+</script>
+{% endif %}
+
+{% if is_owner %}
+<!-- Design panel JS -->
+<script>
+function toggleDesignPanel() {
+    document.getElementById('designPanel').classList.toggle('open');
+}
+
+function applyDesignPreview() {
+    var root = document.documentElement;
+    root.style.setProperty('--label-bg',    document.getElementById('bgColor').value);
+    root.style.setProperty('--label-text',  document.getElementById('textColor').value);
+    root.style.setProperty('--label-price', document.getElementById('priceColor').value);
+
+    var fs = document.getElementById('fontSize').value;
+    var sheet = document.getElementById('labelSheet');
+    sheet.classList.remove('fs-small', 'fs-large');
+    if (fs !== 'medium') sheet.classList.add('fs-' + fs);
+}
+
+function previewLogo(input) {
+    if (!input.files || !input.files[0]) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        document.querySelectorAll('.label-logo').forEach(function(img) {
+            img.src = e.target.result;
+            img.style.display = '';
+        });
+        document.getElementById('clearLogoFlag').value = '';
+    };
+    reader.readAsDataURL(input.files[0]);
+}
+
+function clearLogo() {
+    document.getElementById('clearLogoFlag').value = '1';
+    document.getElementById('logoInput').value = '';
+    document.querySelectorAll('.label-logo').forEach(function(img) {
+        img.src = '';
+        img.style.display = 'none';
+    });
+}
+
+function resetDesign() {
+    if (!confirm('Сбросить дизайн к стандартному (белый фон, чёрный текст, без логотипа)?')) return;
+    document.getElementById('bgColor').value    = '#ffffff';
+    document.getElementById('textColor').value  = '#000000';
+    document.getElementById('priceColor').value = '#000000';
+    document.getElementById('fontSize').value   = 'medium';
+    document.getElementById('clearLogoFlag').value = '1';
+    document.getElementById('logoInput').value  = '';
+    document.querySelectorAll('.label-logo').forEach(function(img) {
+        img.src = ''; img.style.display = 'none';
+    });
+    applyDesignPreview();
+    saveDesign();
+}
+
+function saveDesign() {
+    var btn = document.getElementById('saveBtn');
+    var status = document.getElementById('saveStatus');
+    btn.disabled = true;
+    status.style.display = 'none';
+
+    fetch('/products/label-settings', {
+        method: 'POST',
+        body: new FormData(document.getElementById('designForm')),
+        credentials: 'same-origin'
+    })
+    .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    })
+    .then(function(json) {
+        if (json.ok) {
+            status.style.display = 'inline';
+            setTimeout(function() { status.style.display = 'none'; }, 3000);
+        }
+    })
+    .catch(function(err) { alert('Ошибка сохранения: ' + err.message); })
+    .finally(function() { btn.disabled = false; });
+}
+</script>
+{% endif %}
+
+</body>
+</html>

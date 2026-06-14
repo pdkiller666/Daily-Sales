@@ -177,7 +177,12 @@
                             <div>
                                 <p class="font-medium text-slate-800 max-w-[200px] truncate" title="{{ p[1] }}">{{ p[1] }}</p>
                                 {% if p|length > 7 and p[7] %}
-                                <p class="text-[10px] font-mono text-slate-400 leading-none mt-0.5">{{ p[7] }}</p>
+                                <p class="inline-flex items-center gap-0.5 text-[10px] font-mono text-amber-600 dark:text-amber-400 leading-none mt-0.5" title="Артикул / SKU">
+                                    <svg class="w-2.5 h-2.5 shrink-0 opacity-60" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                        <rect x="1" y="4" width="1.5" height="16"/><rect x="4" y="4" width="3" height="16"/><rect x="9" y="4" width="1.5" height="16"/><rect x="12" y="4" width="2.5" height="16"/><rect x="16" y="4" width="1.5" height="16"/><rect x="19.5" y="4" width="1" height="16"/><rect x="21.5" y="4" width="1.5" height="16"/>
+                                    </svg>
+                                    {{ p[7] }}
+                                </p>
                                 {% endif %}
                             </div>
                             {% set abc = abc_grades.get(p[0]) %}
@@ -249,6 +254,13 @@
      class="fixed bottom-[4.5rem] left-1/2 -translate-x-1/2 z-50 bg-white shadow-2xl border border-slate-200 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2.5 max-w-[calc(100vw-2rem)]"
      style="min-width:320px">
     <span class="text-sm font-semibold text-slate-700 mr-1" x-text="`${sel.size} выбрано`"></span>
+
+    <!-- Print labels -->
+    <button type="button"
+            @click="dsPrintLabels(selArr, '{{ csrf_token_for(request) }}')"
+            class="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors bg-violet-50 text-violet-700 hover:bg-violet-100">
+        🖨 Ценники
+    </button>
 
     <!-- Delete -->
     <button type="button"
@@ -377,6 +389,26 @@ window.dsEditPrice = function(pid, curPrice, cell) {
     inp.addEventListener('keydown', function(e){
         if (e.key === 'Escape') window.dsCancelPrice(pid, orig);
     });
+};
+window.dsPrintLabels = async function(ids, csrf) {
+    if (!ids || ids.length === 0) return;
+    try {
+        const size = localStorage.getItem('ds_label_size') || '58x40';
+        const resp = await fetch('/products/labels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({csrf_token: csrf, product_ids: ids, size: size}),
+        });
+        if (!resp.ok) { alert('Ошибка при формировании ценников'); return; }
+        const html = await resp.text();
+        const w = window.open('', '_blank');
+        if (!w) { alert('Разрешите всплывающие окна для этого сайта'); return; }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+    } catch(e) {
+        alert('Ошибка соединения');
+    }
 };
 window.dsBulkAssignArticles = async function() {
     const btn = document.getElementById('btn-bulk-articles');

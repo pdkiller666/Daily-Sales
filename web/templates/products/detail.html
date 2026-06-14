@@ -134,7 +134,10 @@
                 {{ product[2] or 'Без категории' }}
             </a>
             {% if product|length > 7 and product[7] %}
-            <span class="text-xs font-mono bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium whitespace-nowrap select-all" title="Артикул товара">
+            <span class="inline-flex items-center gap-1 text-xs font-mono bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700/50 px-2.5 py-1 rounded-lg font-semibold whitespace-nowrap select-all cursor-copy shadow-sm" title="Артикул / SKU — скопируйте для поиска при сканировании">
+                <svg class="w-3.5 h-3.5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <rect x="1" y="4" width="1.5" height="16"/><rect x="4" y="4" width="3" height="16"/><rect x="9" y="4" width="1.5" height="16"/><rect x="12" y="4" width="2.5" height="16"/><rect x="16" y="4" width="1.5" height="16"/><rect x="19.5" y="4" width="1" height="16"/><rect x="21.5" y="4" width="1.5" height="16"/>
+                </svg>
                 {{ product[7] }}
             </span>
             {% endif %}
@@ -148,10 +151,17 @@
         </div>
         {% if is_admin %}
         {% set _safe = product[1]|replace("'", "") %}
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
             <a href="/products/{{ product[0] }}/edit"
                class="text-xs px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 hover:bg-blue-100 transition-colors font-medium whitespace-nowrap">
                 ✏️ Изменить
+            </a>
+            <a id="btn-label-{{ product[0] }}"
+               href="/products/{{ product[0] }}/label?print=1"
+               target="_blank"
+               onclick="(function(a){var s=localStorage.getItem('ds_label_size');if(s){var u=new URL(a.href,location.href);u.searchParams.set('size',s);a.href=u.toString();}return true;})(this)"
+               class="text-xs px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 hover:bg-violet-100 transition-colors font-medium whitespace-nowrap">
+                🖨 Ценник
             </a>
             <button onclick="if(confirm('Удалить товар «{{ _safe }}»?\nЭто действие нельзя отменить.'))document.getElementById('del-form').submit()"
                     class="text-xs px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-900/30 text-red-500 hover:bg-red-100 transition-colors font-medium whitespace-nowrap">

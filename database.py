@@ -1546,6 +1546,19 @@ class Database:
                 )
             ''')
 
+        # ── Настройки дизайна ценника (per-org, singleton row id=1) ───────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS org_label_settings (
+                id          INTEGER PRIMARY KEY DEFAULT 1,
+                bg_color    TEXT    DEFAULT '#ffffff',
+                text_color  TEXT    DEFAULT '#000000',
+                price_color TEXT    DEFAULT '#000000',
+                logo_path   TEXT    DEFAULT '',
+                font_size   TEXT    DEFAULT 'medium',
+                updated_at  TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
 
@@ -2812,6 +2825,66 @@ class Database:
         result = [row[0] for row in cursor.fetchall()]
         conn.close()
         return [c for c in result if c]
+
+    # ── Настройки дизайна ценника ─────────────────────────────────────────────
+    def get_label_settings(self) -> dict:
+        """Return label design settings. Returns defaults if not set."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT bg_color, text_color, price_color, logo_path, font_size '
+            'FROM org_label_settings WHERE id=1'
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {
+                'bg_color':    row[0] or '#ffffff',
+                'text_color':  row[1] or '#000000',
+                'price_color': row[2] or '#000000',
+                'logo_path':   row[3] or '',
+                'font_size':   row[4] or 'medium',
+            }
+        return {
+            'bg_color': '#ffffff', 'text_color': '#000000',
+            'price_color': '#000000', 'logo_path': '', 'font_size': 'medium',
+        }
+
+    def save_label_settings(self, bg_color: str, text_color: str,
+                            price_color: str, logo_path: str, font_size: str) -> None:
+        """Upsert label design settings (singleton row id=1).
+        Pass logo_path=None to preserve the existing logo; '' to clear it.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if logo_path is None:
+            cursor.execute(
+                '''INSERT INTO org_label_settings (id, bg_color, text_color, price_color, font_size)
+                   VALUES (1, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       bg_color=excluded.bg_color,
+                       text_color=excluded.text_color,
+                       price_color=excluded.price_color,
+                       font_size=excluded.font_size,
+                       updated_at=datetime('now')''',
+                (bg_color, text_color, price_color, font_size),
+            )
+        else:
+            cursor.execute(
+                '''INSERT INTO org_label_settings
+                       (id, bg_color, text_color, price_color, logo_path, font_size)
+                   VALUES (1, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                       bg_color=excluded.bg_color,
+                       text_color=excluded.text_color,
+                       price_color=excluded.price_color,
+                       logo_path=excluded.logo_path,
+                       font_size=excluded.font_size,
+                       updated_at=datetime('now')''',
+                (bg_color, text_color, price_color, logo_path, font_size),
+            )
+        conn.commit()
+        conn.close()
 
     # Методы для работы с товарами
     def get_all_products(self):
