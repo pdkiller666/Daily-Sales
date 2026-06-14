@@ -620,7 +620,9 @@ async def check_scheduled_notifications(bot: Bot):
                     _rcpt_info = {}
                     if recipients_list_raw:
                         try:
-                            _rcpt_info = _sn_json.loads(recipients_list_raw)
+                            _parsed = _sn_json.loads(recipients_list_raw)
+                            if isinstance(_parsed, dict):
+                                _rcpt_info = _parsed
                         except Exception:
                             pass
                     _rcpt_type   = _rcpt_info.get('type', 'all')
