@@ -163,6 +163,19 @@
         @keyframes ds-fade-in{from{opacity:0}to{opacity:1}}
         @keyframes ds-logo-glow{0%,100%{box-shadow:0 4px 14px rgba(59,130,246,.4),0 0 0 0 rgba(59,130,246,0)}50%{box-shadow:0 4px 20px rgba(59,130,246,.6),0 0 0 5px rgba(59,130,246,.12)}}
 
+        /* ── Changelog panel ── */
+        .ds-cl-dot{position:absolute;top:-3px;right:-3px;width:9px;height:9px;background:#60a5fa;border:2px solid #0f172a;border-radius:50%;pointer-events:none}
+        .ds-cl-panel{position:absolute;left:0;right:0;top:64px;z-index:60;background:#1e293b;border-bottom:1px solid rgba(59,130,246,.18);overflow-y:auto;max-height:72vh;box-shadow:0 8px 32px rgba(0,0,0,.45)}
+        .ds-cl-entry{padding:12px 16px;border-bottom:1px solid rgba(148,163,184,.1)}
+        .ds-cl-entry:last-child{border-bottom:none}
+        .ds-cl-ver{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#93c5fd;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+        .ds-cl-date{font-size:10px;color:#64748b;margin-left:auto}
+        .ds-cl-item{font-size:12px;color:#cbd5e1;line-height:1.5;padding:1px 0}
+        html.dark .ds-cl-panel{background:#0f172a;border-color:rgba(59,130,246,.15)}
+        html.dark .ds-cl-item{color:#94a3b8}
+        @keyframes ds-cl-slide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+        .ds-cl-panel[x-show]{animation:ds-cl-slide .18s ease both}
+
         /* Page content entrance — opacity only, NO transform (transform breaks position:fixed children) */
         main.ds-main{animation:ds-fade-in .28s ease both}
 
@@ -276,14 +289,58 @@ function toastMgr() {
 <aside :class="open?'translate-x-0':'-translate-x-full'"
        class="fixed inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 transform transition-transform duration-200 -translate-x-full lg:translate-x-0 lg:static lg:inset-0">
 
-    <!-- Logo -->
-    <a href="/dashboard" class="flex items-center h-16 shrink-0 px-4 sidebar-logo-bg group" style="text-decoration:none">
-        <div class="ds-logo-mark w-9 h-9 rounded-xl flex items-center justify-center text-white font-extrabold text-sm shrink-0 select-none">DS</div>
-        <div class="ml-2.5 min-w-0">
-            <p class="text-[15px] font-extrabold text-white tracking-tight leading-none">DailySales</p>
-            <p class="text-[9px] font-semibold text-blue-400/80 tracking-[0.12em] uppercase mt-0.5">CRM for Sellers</p>
+    <!-- Logo + Changelog -->
+    <div x-data="dsChangelog()" class="relative shrink-0">
+        <button @click="toggle()" type="button"
+                class="flex items-center w-full h-16 px-4 sidebar-logo-bg group text-left cursor-pointer"
+                :title="open ? 'Закрыть' : 'Что нового'">
+            <div class="relative shrink-0">
+                <div class="ds-logo-mark w-9 h-9 rounded-xl flex items-center justify-center text-white font-extrabold text-sm select-none">DS</div>
+                <span x-show="hasUnread" x-cloak class="ds-cl-dot"></span>
+            </div>
+            <div class="ml-2.5 min-w-0 flex-1">
+                <p class="text-[15px] font-extrabold text-white tracking-tight leading-none">DailySales</p>
+                <p class="text-[9px] font-semibold tracking-[0.12em] uppercase mt-0.5"
+                   :class="open ? 'text-blue-300' : 'text-blue-400/80'"
+                   x-text="'v' + ver + (hasUnread ? ' · новое' : '')">CRM for Sellers</p>
+            </div>
+            <svg class="w-3.5 h-3.5 shrink-0 transition-transform duration-200 text-slate-500"
+                 :class="open ? 'rotate-180 text-blue-400' : ''"
+                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </button>
+
+        <!-- Changelog dropdown panel -->
+        <div x-show="open" x-cloak @click.outside="open=false"
+             class="ds-cl-panel">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-700/50">
+                <span class="text-[11px] font-bold text-blue-400 uppercase tracking-widest">История версий</span>
+                <a href="/dashboard" @click="open=false"
+                   class="text-[11px] text-slate-400 hover:text-blue-300 transition-colors">
+                    Дашборд →
+                </a>
+            </div>
+            <!-- Entries -->
+            <template x-for="(entry, i) in entries" :key="i">
+                <div class="ds-cl-entry">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="ds-cl-ver">
+                            <svg class="w-3 h-3 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                            </svg>
+                            v<span x-text="entry.version"></span>
+                        </span>
+                        <span class="ds-cl-date" x-text="entry.date"></span>
+                    </div>
+                    <template x-for="(item, j) in entry.items" :key="j">
+                        <p class="ds-cl-item" x-text="item"></p>
+                    </template>
+                </div>
+            </template>
         </div>
-    </a>
+    </div>
 
     <!-- Nav -->
     <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
@@ -2389,6 +2446,29 @@ function mainApp() {
 </script>
 {% endif %}
 
+
+<script>
+/* ── Changelog dropdown (Alpine component) ── */
+window.dsChangelog = function() {
+    var _ENTRIES = {{ changelog_entries() | tojson }};
+    var _VER     = {{ changelog_version() | tojson }};
+    var SEEN_KEY = 'ds_cl_seen_v';
+    return {
+        open:    false,
+        entries: _ENTRIES,
+        ver:     _VER,
+        get hasUnread() {
+            try { return localStorage.getItem(SEEN_KEY) !== _VER; } catch(e) { return false; }
+        },
+        toggle: function() {
+            this.open = !this.open;
+            if (this.open) {
+                try { localStorage.setItem(SEEN_KEY, _VER); } catch(e) {}
+            }
+        }
+    };
+};
+</script>
 
 <script>
 /* dsOnce — безопасный disable submit-кнопки: сначала checkValidity(), потом блокировка.

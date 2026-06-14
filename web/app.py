@@ -372,6 +372,10 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['chat_enabled'] = _is_chat_enabled
 
+    from web.changelog import CURRENT_VERSION as _CL_VER, ENTRIES as _CL_ENTRIES
+    templates.env.globals['changelog_version'] = lambda: _CL_VER
+    templates.env.globals['changelog_entries'] = lambda: _CL_ENTRIES
+
     def _open_tasks_count(request):
         """Счётчик незакрытых задач для сайдбара."""
         try:
