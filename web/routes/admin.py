@@ -5,7 +5,9 @@ All routes require user.role == 'super_admin'.
 import contextlib
 import os
 import sqlite3
+from collections import defaultdict
 from datetime import datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -206,6 +208,90 @@ async def admin_cancel_sub(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  APK Download Statistics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/apk")
+def admin_apk(request: Request):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+
+    conn = None
+    apk_version = "—"
+    apk_date = "—"
+    apk_url = ""
+    apk_total = 0
+    apk_by_day = []
+    release_history = []
+
+    try:
+        conn = _raw_conn()
+        for row in conn.execute(
+            "SELECT key, value FROM payment_settings WHERE key IN ('apk_latest_version','apk_release_date','apk_release_url')"
+        ).fetchall():
+            k, v = row
+            if k == "apk_latest_version":
+                apk_version = v or "—"
+            elif k == "apk_release_date":
+                apk_date = (v or "")[:10] or "—"
+            elif k == "apk_release_url":
+                apk_url = v or ""
+
+        try:
+            apk_total = conn.execute("SELECT COUNT(*) FROM download_events").fetchone()[0]
+        except Exception:
+            apk_total = 0
+
+        try:
+            rows = conn.execute("""
+                SELECT strftime('%Y-%m-%d', timestamp) AS day, COUNT(*)
+                FROM download_events
+                GROUP BY day ORDER BY day DESC LIMIT 30
+            """).fetchall()
+            apk_by_day = [{"day": r[0], "count": r[1]} for r in rows]
+        except Exception:
+            apk_by_day = []
+
+        try:
+            hist_rows = conn.execute("""
+                SELECT version, release_url, release_date, recorded_at
+                FROM apk_release_history
+                ORDER BY id DESC LIMIT 50
+            """).fetchall()
+            release_history = [
+                {
+                    "version": r[0],
+                    "url": r[1] or "",
+                    "release_date": (r[2] or "")[:10] or "—",
+                    "recorded_at": (r[3] or "")[:16].replace("T", " "),
+                }
+                for r in hist_rows
+            ]
+        except Exception:
+            release_history = []
+
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+    return request.app.state.templates.TemplateResponse(
+        request,
+        "admin/apk.html",
+        _ctx(request, user, {
+            "apk_version": apk_version,
+            "apk_date": apk_date,
+            "apk_url": apk_url,
+            "apk_total": apk_total,
+            "apk_by_day": apk_by_day,
+            "release_history": release_history,
+        }),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Payment Statistics
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -252,20 +338,81 @@ async def admin_stats(request: Request):
                 FROM download_events
                 GROUP BY day ORDER BY day DESC LIMIT 30
             """).fetchall()
+            apk_ref_raw = conn.execute("""
+                SELECT referrer, COUNT(*) AS cnt
+                FROM download_events
+                GROUP BY referrer
+                ORDER BY cnt DESC
+            """).fetchall()
+            apk_device_raw = conn.execute("""
+                SELECT
+                    strftime('%Y-%m-%d', timestamp) AS day,
+                    CASE
+                        WHEN lower(user_agent) LIKE '%mobile%'
+                          OR lower(user_agent) LIKE '%android%'
+                          OR lower(user_agent) LIKE '%iphone%'
+                          OR lower(user_agent) LIKE '%ipad%' THEN 'Mobile'
+                        ELSE 'Desktop'
+                    END AS device,
+                    COUNT(*) AS cnt
+                FROM download_events
+                GROUP BY day, device
+                ORDER BY day DESC
+                LIMIT 60
+            """).fetchall()
         except Exception:
             apk_total = 0
             apk_by_day_raw = []
+            apk_ref_raw = []
+            apk_device_raw = []
     except Exception:
         recent = []
         chart_raw = []
         apk_total = 0
         apk_by_day_raw = []
+        apk_ref_raw = []
+        apk_device_raw = []
     finally:
         if conn:
             conn.close()
 
     chart = [{"month": r[0], "revenue": float(r[1] or 0)} for r in chart_raw]
-    apk_by_day = [{"day": r[0], "count": r[1]} for r in apk_by_day_raw]
+
+    # Build device-type map: {day -> {"Mobile": n, "Desktop": n}}
+    _device_map: dict = defaultdict(lambda: {"Mobile": 0, "Desktop": 0})
+    for day, device, cnt in apk_device_raw:
+        _device_map[day][device] = cnt
+
+    apk_by_day = [
+        {
+            "day": r[0],
+            "count": r[1],
+            "mobile": _device_map.get(r[0], {}).get("Mobile", 0),
+            "desktop": _device_map.get(r[0], {}).get("Desktop", 0),
+        }
+        for r in apk_by_day_raw
+    ]
+
+    # Classify referrers into named buckets
+    _source_counts: dict = defaultdict(int)
+    for ref, cnt in apk_ref_raw:
+        ref = ref or ""
+        if not ref.strip():
+            label = "Прямой"
+        elif "t.me" in ref or "telegram" in ref.lower():
+            label = "Бот"
+        else:
+            try:
+                domain = urlparse(ref).netloc or ref
+            except Exception:
+                domain = ref
+            label = domain[:40] if domain else ref[:40]
+        _source_counts[label] += cnt
+
+    apk_sources = [
+        {"source": s, "count": c}
+        for s, c in sorted(_source_counts.items(), key=lambda x: -x[1])[:5]
+    ]
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -276,6 +423,7 @@ async def admin_stats(request: Request):
             "chart": chart,
             "apk_total": apk_total,
             "apk_by_day": apk_by_day,
+            "apk_sources": apk_sources,
         }),
     )
 

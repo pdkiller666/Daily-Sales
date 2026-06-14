@@ -798,6 +798,11 @@ def create_web_app() -> FastAPI:
                     "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
                     ("apk_release_date", release_date),
                 )
+            conn.execute(
+                """INSERT INTO apk_release_history (version, release_url, release_date)
+                   VALUES (?, ?, ?)""",
+                (version, release_url, release_date),
+            )
             conn.commit()
             conn.close()
         except Exception as e:
@@ -806,6 +811,7 @@ def create_web_app() -> FastAPI:
             return JSONResponse({"error": "DB error"}, status_code=500)
         try:
             import bot_holder as _bh
+            import asyncio as _asyncio
             bot = _bh.get_bot()
             admin_id = os.environ.get("ADMIN_CHAT_ID", "").strip()
             if bot and admin_id:
@@ -817,13 +823,48 @@ def create_web_app() -> FastAPI:
                 if release_url:
                     msg_text += f'<a href="{release_url}">Скачать APK</a>'
                 if _main_loop and not _main_loop.is_closed():
-                    import asyncio as _asyncio
                     _asyncio.run_coroutine_threadsafe(
                         bot.send_message(
                             int(admin_id), msg_text,
                             parse_mode="HTML",
                             disable_web_page_preview=True,
                         ),
+                        _main_loop,
+                    )
+            # Notify all active org owners (skip super-admin already notified above)
+            if bot and _main_loop and not _main_loop.is_closed():
+                owner_msg = f"📱 <b>Доступна новая версия приложения</b> <code>v{version}</code>"
+                if release_url:
+                    owner_msg += f'\n<a href="{release_url}">Скачать APK</a>'
+                try:
+                    _conn = sqlite3.connect("data/main.db")
+                    _rows = _conn.execute(
+                        "SELECT DISTINCT owner_id FROM organizations "
+                        "WHERE is_active = 1 AND owner_id IS NOT NULL"
+                    ).fetchall()
+                    _conn.close()
+                    owner_ids = [
+                        r[0] for r in _rows
+                        if r[0] and str(r[0]) != admin_id
+                    ]
+                except Exception:
+                    owner_ids = []
+
+                async def _notify_owners(_bot, _ids, _text):
+                    for _tg_id in _ids:
+                        try:
+                            await _bot.send_message(
+                                _tg_id, _text,
+                                parse_mode="HTML",
+                                disable_web_page_preview=True,
+                            )
+                        except Exception:
+                            pass
+                        await _asyncio.sleep(0.05)
+
+                if owner_ids:
+                    _asyncio.run_coroutine_threadsafe(
+                        _notify_owners(bot, owner_ids, owner_msg),
                         _main_loop,
                     )
         except Exception:

@@ -1533,6 +1533,15 @@ class Database:
             cursor.execute(
                 'CREATE INDEX IF NOT EXISTS idx_download_events_ts ON download_events(timestamp)'
             )
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS apk_release_history (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version      TEXT    NOT NULL,
+                    release_url  TEXT    DEFAULT '',
+                    release_date TEXT    DEFAULT '',
+                    recorded_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                )
+            ''')
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)

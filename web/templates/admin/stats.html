@@ -109,6 +109,40 @@
             Всего: {{ apk_total }}
         </span>
     </div>
+
+    {% if apk_sources %}
+    <!-- Referrer sources -->
+    <div class="mb-5">
+        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Источники переходов</p>
+        <div class="space-y-2">
+            {% set max_count = apk_sources[0].count if apk_sources else 1 %}
+            {% for src in apk_sources %}
+            <div class="flex items-center gap-3">
+                <div class="w-28 shrink-0 flex items-center gap-1.5">
+                    {% if src.source == 'Бот' %}
+                    <span class="text-sm">🤖</span>
+                    {% elif src.source == 'Прямой' %}
+                    <span class="text-sm">🔗</span>
+                    {% else %}
+                    <span class="text-sm">🌐</span>
+                    {% endif %}
+                    <span class="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{{ src.source }}</span>
+                </div>
+                <div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                    <div class="h-2 rounded-full
+                        {% if src.source == 'Бот' %}bg-blue-500
+                        {% elif src.source == 'Прямой' %}bg-slate-400
+                        {% else %}bg-emerald-500{% endif %}"
+                        style="width: {{ ((src.count / max_count) * 100) | int }}%">
+                    </div>
+                </div>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300 w-8 text-right">{{ src.count }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {% if apk_by_day %}
     <div class="relative h-36 mb-4">
         <canvas id="apkChart"></canvas>
@@ -118,7 +152,9 @@
             <thead>
                 <tr class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700">
                     <th class="text-left py-2 font-semibold">Дата</th>
-                    <th class="text-right py-2 font-semibold">Скачиваний</th>
+                    <th class="text-right py-2 font-semibold">Всего</th>
+                    <th class="text-right py-2 font-semibold hidden sm:table-cell">📱 Mobile</th>
+                    <th class="text-right py-2 font-semibold hidden sm:table-cell">🖥 Desktop</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -126,6 +162,12 @@
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                     <td class="py-2 text-slate-700 dark:text-slate-300">{{ row.day }}</td>
                     <td class="py-2 text-right font-semibold text-emerald-600">{{ row.count }}</td>
+                    <td class="py-2 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell">
+                        {% if row.mobile %}<span class="text-xs">{{ row.mobile }}</span>{% else %}<span class="text-slate-300 dark:text-slate-600">—</span>{% endif %}
+                    </td>
+                    <td class="py-2 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell">
+                        {% if row.desktop %}<span class="text-xs">{{ row.desktop }}</span>{% else %}<span class="text-slate-300 dark:text-slate-600">—</span>{% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
