@@ -25,25 +25,40 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Fix Android SDK cmdline-tools layout
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK"
+          echo "=== cmdline-tools contents ==="
+          ls "$SDK/cmdline-tools/" 2>/dev/null || echo "(empty)"
+
+          # bubblewrap requires cmdline-tools/latest — create symlink if missing
+          if [ -d "$SDK/cmdline-tools" ] && [ ! -d "$SDK/cmdline-tools/latest" ]; then
+            SLOT=$(ls "$SDK/cmdline-tools" | head -1)
+            echo "Creating symlink: cmdline-tools/$SLOT -> cmdline-tools/latest"
+            ln -s "$SDK/cmdline-tools/$SLOT" "$SDK/cmdline-tools/latest"
+          fi
+
+          # Accept all licenses
+          SDKMAN=$(find "$SDK" -name sdkmanager -type f 2>/dev/null | head -1)
+          if [ -n "$SDKMAN" ]; then
+            yes | "$SDKMAN" --licenses 2>/dev/null || true
+            "$SDKMAN" "build-tools;34.0.0" "platforms;android-34" 2>/dev/null || true
+          fi
+
+          echo "=== cmdline-tools after fix ==="
+          ls "$SDK/cmdline-tools/" 2>/dev/null
+
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
 
-      - name: Accept Android SDK licenses
-        run: |
-          SDK="$ANDROID_HOME"
-          SDKMAN=$(find "$SDK" -name sdkmanager -type f 2>/dev/null | head -1)
-          echo "SDK: $SDK  sdkmanager: $SDKMAN"
-          if [ -n "$SDKMAN" ]; then
-            yes | "$SDKMAN" --licenses 2>/dev/null || true
-          fi
-
       - name: Configure Bubblewrap
         run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
-          SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           mkdir -p ~/.bubblewrap
-          printf '{\n  "jdkPath": "%s",\n  "androidSdkPath": "%s"\n}\n' \
-            "$JAVA_DIR" "$SDK_DIR" > ~/.bubblewrap/config.json
+          printf '{"jdkPath": "%s", "androidSdkPath": "%s"}\n' \
+            "$JAVA_DIR" "$SDK" > ~/.bubblewrap/config.json
           echo "=== Bubblewrap config ==="
           cat ~/.bubblewrap/config.json
 
@@ -52,95 +67,37 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > dailysales-release.p12
           echo "Keystore size: $(wc -c < dailysales-release.p12) bytes"
 
-      - name: Generate Android project (bubblewrap init phase)
+      - name: Build TWA APK
         run: |
-          # bubblewrap build without signing flags: pipe passwords to stdin
-          # Order: 1) store password 2) key password
           printf '%s\n%s\n' \
             "${{ secrets.KEYSTORE_PASSWORD }}" \
             "${{ secrets.KEYSTORE_PASSWORD }}" \
-            | bubblewrap build --skipPwaValidation 2>&1 | tee build.log || true
-          echo "=== build.log tail ==="
-          tail -30 build.log
+            | bubblewrap build --skipPwaValidation 2>&1 | tee build.log
+          echo "--- build.log tail ---"
+          tail -40 build.log
 
-      - name: Check if APK was produced
-        id: check_apk
+      - name: Find built APK
+        id: find_apk
         run: |
+          # prefer signed (non-unsigned) APK
           APK=$(find . -name "*.apk" 2>/dev/null | grep -v unsigned | head -1)
-          UNSIGNED=$(find . -name "*unsigned*.apk" -o -name "*release*.apk" 2>/dev/null | head -1)
-          echo "Signed APK: $APK"
-          echo "Unsigned APK: $UNSIGNED"
-          if [ -n "$APK" ] && [ "$APK" != "$UNSIGNED" ]; then
-            echo "apk_path=$APK" >> $GITHUB_OUTPUT
-            echo "needs_sign=false" >> $GITHUB_OUTPUT
-          elif [ -n "$UNSIGNED" ]; then
-            echo "apk_path=$UNSIGNED" >> $GITHUB_OUTPUT
-            echo "needs_sign=true" >> $GITHUB_OUTPUT
-          else
-            # Try to build unsigned APK via Gradle directly
-            echo "needs_sign=true" >> $GITHUB_OUTPUT
-            echo "apk_path=" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build unsigned APK via Gradle (fallback)
-        if: steps.check_apk.outputs.apk_path == ''
-        run: |
-          if [ -d "android" ]; then
-            cd android
-            chmod +x gradlew
-            ./gradlew assembleRelease --no-daemon 2>&1 | tail -50
-          else
-            echo "ERROR: android/ directory not found after bubblewrap"
-            ls -la
-            exit 1
-          fi
-
-      - name: Find APK after Gradle
-        if: steps.check_apk.outputs.apk_path == ''
-        id: find_apk2
-        run: |
-          APK=$(find android -name "*.apk" 2>/dev/null | head -1)
-          echo "apk_path=$APK" >> $GITHUB_OUTPUT
-          echo "Found: $APK"
-
-      - name: Sign APK with apksigner
-        id: sign
-        run: |
-          APK="${{ steps.check_apk.outputs.apk_path }}"
           if [ -z "$APK" ]; then
-            APK="${{ steps.find_apk2.outputs.apk_path }}"
+            APK=$(find . -name "*.apk" 2>/dev/null | head -1)
           fi
-          NEEDS_SIGN="${{ steps.check_apk.outputs.needs_sign }}"
-          echo "APK to process: $APK  needs_sign: $NEEDS_SIGN"
-
-          FINAL="DailySales-v1.0.${{ github.run_number }}.apk"
-
-          if [ "$NEEDS_SIGN" = "true" ] && [ -n "$APK" ]; then
-            SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-            APKSIGNER=$(find "$SDK" -name apksigner -type f 2>/dev/null | head -1)
-            echo "apksigner: $APKSIGNER"
-            if [ -n "$APKSIGNER" ]; then
-              "$APKSIGNER" sign \
-                --ks dailysales-release.p12 \
-                --ks-type PKCS12 \
-                --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-                --ks-key-alias dailysales \
-                --key-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-                --out "$FINAL" \
-                "$APK"
-              echo "Signed: $FINAL ($(wc -c < "$FINAL") bytes)"
-            else
-              echo "apksigner not found, using APK as-is"
-              cp "$APK" "$FINAL"
-            fi
-          elif [ -n "$APK" ]; then
-            cp "$APK" "$FINAL"
-          else
-            echo "ERROR: No APK found"
+          echo "Found: $APK"
+          if [ -z "$APK" ]; then
+            echo "ERROR: no APK produced"
             find . -name "*.apk" 2>/dev/null || true
             exit 1
           fi
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+
+      - name: Rename APK
+        run: |
+          FINAL="DailySales-v1.0.${{ github.run_number }}.apk"
+          cp "${{ steps.find_apk.outputs.apk_path }}" "$FINAL"
           echo "APK_FILE=$FINAL" >> $GITHUB_ENV
+          echo "Size: $(wc -c < "$FINAL") bytes"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
