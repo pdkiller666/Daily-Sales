@@ -824,6 +824,7 @@ def create_web_app() -> FastAPI:
             admin_id = os.environ.get("ADMIN_CHAT_ID", "").strip()
             _dl_link = apk_url or release_url
             if bot and admin_id:
+                from notif_utils import add_read_btn as _add_read_btn
                 msg_text = (
                     f"📱 <b>Новая версия APK опубликована!</b>\n\n"
                     f"Версия: <code>{version}</code>\n"
@@ -837,6 +838,7 @@ def create_web_app() -> FastAPI:
                             int(admin_id), msg_text,
                             parse_mode="HTML",
                             disable_web_page_preview=True,
+                            reply_markup=_add_read_btn(),
                         ),
                         _main_loop,
                     )
@@ -859,6 +861,8 @@ def create_web_app() -> FastAPI:
                 except Exception:
                     owner_ids = []
 
+                from notif_utils import add_read_btn as _add_read_btn_o
+
                 async def _notify_owners(_bot, _ids, _text):
                     for _tg_id in _ids:
                         try:
@@ -866,6 +870,7 @@ def create_web_app() -> FastAPI:
                                 _tg_id, _text,
                                 parse_mode="HTML",
                                 disable_web_page_preview=True,
+                                reply_markup=_add_read_btn_o(),
                             )
                         except Exception:
                             pass
