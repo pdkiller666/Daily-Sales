@@ -65,3 +65,24 @@ signingConfigs {
 **Логирование:** `secrets` нельзя в `if:` условии шага → проверять через env var в shell-скрипте. Для диагностики использовать `set +e; gradle ... > build.log 2>&1; BUILD_EXIT=$?; set -e; tail -120 build.log`.
 
 **APK path после сборки:** `android/app/build/outputs/apk/release/app-release.apk`
+
+## Webhook URL — критичный gotcha
+
+Webhook в `build-twa.yml` должен указывать на **реальный Amvera-домен**:
+```
+https://dailysalesdeploy-pdkiller666.amvera.io/webhook/apk-release
+```
+НЕ на `dailysales.app` (домен не существует). Ошибка привела к тому, что все сборки отправляли webhook в никуда, APK никогда не скачивался на persistent volume Amvera, и `/download/android` всегда делал redirect на GitHub вместо прямой отдачи файла.
+
+**Why:** Если webhook не доходит до сервера → `data/apk/DailySales-latest.apk` не создаётся → FileResponse недоступен → fallback на GitHub CDN (работает, но медленнее и требует Github аккаунт у пользователя для скачивания).
+
+**How to apply:** При любом изменении webhook URL в workflow — сразу проверять curl вручную: `curl -I https://<domain>/webhook/apk-release`
+
+## Android app icon
+
+Иконки создаются из `web/static/icon-512.png` (512x512 RGBA) в mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/:
+- `ic_launcher.png` — стандартная квадратная
+- `ic_launcher_round.png` — круглая (через pixel-level mask)
+- `ic_launcher_fg.png` — foreground для adaptive icon
+- `mipmap-anydpi-v26/ic_launcher.xml` — adaptive icon XML (background=#2563EB + foreground)
+AndroidManifest.xml: `android:icon="@mipmap/ic_launcher"` + `android:roundIcon="@mipmap/ic_launcher_round"`
