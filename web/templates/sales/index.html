@@ -792,11 +792,16 @@ function saleModal() {
 
         // ── Barcode scanner ────────────────────────────────────────────────
         async openBarcodeScanner() {
+            // Re-entry guard: invalidate any previous in-flight open + stop old stream/detector.
+            const runId = (this._scanRunId = (this._scanRunId || 0) + 1);
+            if (this._scanRaf) { cancelAnimationFrame(this._scanRaf); this._scanRaf = null; }
+            if (this._zxingReader) { try { this._zxingReader.reset(); } catch(_) {} this._zxingReader = null; }
+            if (this._scanStream) { try { this._scanStream.getTracks().forEach(t => t.stop()); } catch(_) {} this._scanStream = null; }
+
             this.scanOpen = true;
             this.scanStatus = 'Запуск камеры…';
             this.scanResult = null;
             this.scanError = '';
-            this._scanStream = null;
 
             // Must be HTTPS or localhost for camera access
             if (!location.protocol.startsWith('https') && location.hostname !== 'localhost') {
@@ -809,11 +814,13 @@ function saleModal() {
                 { video: { facingMode: { ideal: 'environment' } } },
                 { video: true }
             ];
-            let _lastErr = null;
+            let _lastErr = null, _stream = null;
             for (const c of _constraints) {
-                try { this._scanStream = await navigator.mediaDevices.getUserMedia(c); _lastErr = null; break; }
+                try { _stream = await navigator.mediaDevices.getUserMedia(c); _lastErr = null; break; }
                 catch (e) { _lastErr = e; }
             }
+            // Stale invocation (a newer open/retry started) — discard this stream and bail.
+            if (runId !== this._scanRunId) { if (_stream) { try { _stream.getTracks().forEach(t => t.stop()); } catch(_) {} } return; }
             if (_lastErr) {
                 const n = (_lastErr.name || '');
                 const _standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -833,10 +840,12 @@ function saleModal() {
                 return;
             }
 
+            this._scanStream = _stream;
             const video = document.getElementById('barcode-video');
             if (!video) { this.closeBarcodeScanner(); return; }
             video.srcObject = this._scanStream;
             await video.play().catch(() => {});
+            if (runId !== this._scanRunId) return;  // stale after play()
 
             this.scanStatus = 'Сканирование…';
 
@@ -922,21 +931,13 @@ function saleModal() {
         },
 
         restartScan() {
-            // Full re-init: stop any old stream/detector, then re-acquire the camera.
-            // (Just restarting the detector left a black screen when the stream was
-            //  never acquired — e.g. after a denied first attempt.)
-            if (this._scanRaf) { cancelAnimationFrame(this._scanRaf); this._scanRaf = null; }
-            if (this._zxingReader) { try { this._zxingReader.reset(); } catch(_) {} this._zxingReader = null; }
-            if (this._scanStream) {
-                try { this._scanStream.getTracks().forEach(t => t.stop()); } catch(_) {}
-                this._scanStream = null;
-            }
-            const video = document.getElementById('barcode-video');
-            if (video) { video.srcObject = null; }
+            // openBarcodeScanner() self-cleans (run token bumps + stops old stream/detector
+            // + re-acquires the camera), so a plain re-open is the correct retry.
             this.openBarcodeScanner();
         },
 
         closeBarcodeScanner() {
+            this._scanRunId = (this._scanRunId || 0) + 1;  // invalidate any in-flight open
             this.scanOpen = false;
             this.scanStatus = '';
             this.scanResult = null;
