@@ -44,14 +44,20 @@ jobs:
 
       - name: Build APK
         run: |
+          set +e
           gradle :app:assembleRelease \
             --project-dir android \
             --no-daemon \
-            --stacktrace 2>&1 | tail -80
+            --info > build.log 2>&1
+          BUILD_EXIT=$?
+          set -e
+          echo "=== BUILD LOG (last 120 lines) ==="
+          tail -120 build.log
+          echo "=== EXIT: $BUILD_EXIT ==="
+          [ $BUILD_EXIT -eq 0 ] || exit $BUILD_EXIT
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEYSTORE_PATH: ${{ github.workspace }}/dailysales-release.p12
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Find built APK
         id: find_apk
