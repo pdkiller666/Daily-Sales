@@ -192,6 +192,11 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         ctx["is_owner"] = user.get("role") in ("owner", "super_admin")
         ctx["label_settings"] = _get_label_settings_safe(db)
         ctx["first_product_id"] = all_products[0][0] if all_products else None
+        try:
+            from billing_utils import is_extension_denied as _ied
+            ctx["barcode_locked"] = _ied(telegram_id, "barcodes")
+        except Exception:
+            ctx["barcode_locked"] = False
 
         # ── ABC-анализ: выручка по товарам за 90 дней ────────────────────────
         try:

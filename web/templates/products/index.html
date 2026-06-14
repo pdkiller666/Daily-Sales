@@ -133,6 +133,17 @@
         {% endif %}
     </div>
 </div>
+{% elif (is_owner or is_admin) and barcode_locked %}
+<div class="mb-5 flex items-center gap-4 p-4 bg-violet-50 border border-violet-200 rounded-xl">
+    <div class="text-2xl shrink-0">🏷️</div>
+    <div class="flex-1 min-w-0">
+        <p class="font-semibold text-violet-900 text-sm">Штрихкоды и ценники</p>
+        <p class="text-xs text-violet-600 mt-0.5">Сканируйте товары камерой и печатайте профессиональные ценники с QR-кодом</p>
+    </div>
+    <a href="/subscription" class="shrink-0 text-xs font-semibold px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors whitespace-nowrap">
+        Подключить →
+    </a>
+</div>
 {% endif %}
 
 <!-- Search + category filter -->
@@ -195,12 +206,35 @@
     showLabelSz: false,
     newCat: '',
     pct: '',
+    lastIds: JSON.parse(localStorage.getItem('ds_label_last_ids') || '[]'),
+    showPrintPreview: false,
+    previewSz: '58x40',
     get selArr() { return Array.from(this.sel); },
+    get previewSzLabel() { return {'58x40':'58×40 мм','40x30':'40×30 мм','a6':'A6 (105×148)'}[this.previewSz] || this.previewSz; },
+    openPrintPreview(sz) { this.previewSz = sz; this.showPrintPreview = true; this.showLabelSz = false; },
+    confirmPrint() { dsPrintLabels(this.selArr, '{{ csrf_token_for(request) }}', this.previewSz); this.showPrintPreview = false; },
+    restoreLastIds() { if (this.lastIds.length) { this.sel = new Set(this.lastIds.map(Number).filter(Boolean)); } },
     toggle(id) { if(this.sel.has(id)) this.sel.delete(id); else this.sel.add(id); this.sel = new Set(this.sel); },
-    clear() { this.sel = new Set(); this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; },
+    clear() { this.sel = new Set(); this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; this.showPrintPreview=false; },
     closePopups() { this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; }
 }">
 {% endif %}
+
+{% if is_admin %}
+<div x-show="lastIds.length > 0 && sel.size === 0" x-cloak
+     class="mb-3 flex items-center gap-3 px-4 py-2.5 bg-violet-50 border border-violet-200 rounded-xl">
+    <span class="text-base shrink-0">🔄</span>
+    <span class="flex-1 text-violet-700 text-xs font-medium"
+          x-text="`Последний выбор: ${lastIds.length} товар${lastIds.length===1?'':lastIds.length<5?'а':'ов'}`"></span>
+    <button @click="restoreLastIds()"
+            class="text-xs font-semibold px-2.5 py-1 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors">
+        Восстановить
+    </button>
+    <button @click="lastIds=[];localStorage.removeItem('ds_label_last_ids')"
+            class="text-slate-400 hover:text-slate-600 transition-colors ml-1 text-lg leading-none">×</button>
+</div>
+{% endif %}
+
 <div class="card overflow-hidden">
     {% if products %}
     <div class="overflow-x-auto">
@@ -339,7 +373,7 @@
             <p class="text-[10px] font-semibold text-slate-400 uppercase px-1 mb-1.5">Размер ценника</p>
             <template x-for="sz in ['58x40','40x30','a6']">
                 <button type="button"
-                        @click="dsPrintLabels(selArr, '{{ csrf_token_for(request) }}', sz); showLabelSz=false"
+                        @click="openPrintPreview(sz)"
                         class="w-full text-left px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded-lg transition-colors"
                         x-text="sz === 'a6' ? 'A6 (105×148 мм)' : sz + ' мм'"></button>
             </template>
@@ -418,6 +452,48 @@
             Применить
         </button>
         <button type="button" @click="showPct=false" class="text-xs text-slate-500 hover:text-slate-700">Отмена</button>
+    </div>
+</div>
+
+<!-- #25: Print preview modal -->
+<div x-show="showPrintPreview" x-cloak
+     @click.self="showPrintPreview=false"
+     class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div @click.stop
+         class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 mx-4 max-w-xs w-full">
+        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-4">🖨 Предпросмотр ценника</h3>
+        <!-- mini label preview -->
+        <div class="flex justify-center mb-4">
+            <div class="rounded-xl overflow-hidden border border-slate-200 shadow flex items-center justify-center"
+                 style="width:130px;height:82px;background:{{ label_settings.bg_color if label_settings else '#ffffff' }};">
+                <div style="display:flex;flex-direction:column;justify-content:center;padding:10px 14px;gap:4px;width:100%;height:100%;">
+                    <div style="color:{{ label_settings.text_color if label_settings else '#0f172a' }};font-weight:600;font-size:11px;line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">
+                        Название товара
+                    </div>
+                    <div style="color:{{ label_settings.price_color if label_settings else '#1d4ed8' }};font-weight:700;font-size:16px;line-height:1.1;">
+                        1 234 <span style="font-size:11px;font-weight:600;">₽</span>
+                    </div>
+                    <div style="color:{{ label_settings.text_color if label_settings else '#64748b' }};font-size:9px;opacity:0.7;">
+                        ▓▓▓ QR-код
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="text-center mb-5 space-y-1">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200"
+               x-text="`${sel.size} ценник${sel.size===1?'':sel.size>1&&sel.size<5?'а':'ов'}`"></p>
+            <p class="text-xs text-slate-500" x-text="`Размер: ${previewSzLabel}`"></p>
+        </div>
+        <div class="flex gap-3">
+            <button @click="showPrintPreview=false"
+                    class="flex-1 py-2.5 border border-slate-200 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                Отмена
+            </button>
+            <button @click="confirmPrint()"
+                    class="flex-1 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 transition-colors">
+                Скачать PDF
+            </button>
+        </div>
     </div>
 </div>
 
