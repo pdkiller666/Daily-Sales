@@ -4,9 +4,32 @@ Checks for required environment variables before launching.
 """
 import os
 import sys
+import socket
+import signal
+import subprocess
 from dotenv import load_dotenv
 
 load_dotenv('data/.env', override=False)
+
+def _free_port(port: int) -> None:
+    """Kill any process occupying the given port before binding."""
+    try:
+        result = subprocess.run(
+            ["fuser", f"{port}/tcp"],
+            capture_output=True, text=True
+        )
+        pids = result.stdout.strip().split()
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGTERM)
+            except (ProcessLookupError, ValueError):
+                pass
+        if pids:
+            import time; time.sleep(0.8)
+    except FileNotFoundError:
+        pass  # fuser not available
+
+_free_port(5000)
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
