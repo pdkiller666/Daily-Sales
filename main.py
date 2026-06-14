@@ -864,7 +864,8 @@ async def send_post_restart_start(bot):
             await bot.send_message(
                 chat_id,
                 f"✅ <b>Перезапуск завершен</b>\n\nПричина: {reason}\nБаза данных восстановлена. Бот готов к работе.",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=add_read_btn(),
             )
             
             # Автоматически показываем главное меню

@@ -1822,11 +1822,13 @@ async def process_grant_billing(message: Message, state: FSMContext):
             reply_markup=_back_kb)
         # Уведомляем пользователя
         try:
+            from notif_utils import add_read_btn as _arb
             await message.bot.send_message(
                 chat_id=tg_id,
                 text=(f"🧩 <b>Вам подключён доступ:</b> {he(item_name)}\n"
                       f"📅 Срок: {_term}\n\nВсе функции уже доступны."),
                 parse_mode="HTML",
+                reply_markup=_arb(),
             )
         except Exception:
             pass

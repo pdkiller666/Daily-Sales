@@ -255,10 +255,11 @@ async def _notify_org_join(telegram_id: int, first_name: str, last_name: str,
             f"Организация: {he(org_name or '—')}\n\n"
             f"Присоединился через приглашение ✅"
         )
+        from notif_utils import add_read_btn
         for tid in admin_tids:
             if tid != telegram_id:
                 try:
-                    await bot.send_message(tid, text, parse_mode="HTML")
+                    await bot.send_message(tid, text, parse_mode="HTML", reply_markup=add_read_btn())
                 except Exception:
                     pass
     except Exception:
