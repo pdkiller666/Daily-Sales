@@ -25,40 +25,28 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Fix Android SDK cmdline-tools layout
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK components & accept licenses
         run: |
-          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          echo "ANDROID_HOME=$SDK"
-          echo "=== cmdline-tools contents ==="
-          ls "$SDK/cmdline-tools/" 2>/dev/null || echo "(empty)"
-
-          # bubblewrap requires cmdline-tools/latest — create symlink if missing
-          if [ -d "$SDK/cmdline-tools" ] && [ ! -d "$SDK/cmdline-tools/latest" ]; then
-            SLOT=$(ls "$SDK/cmdline-tools" | head -1)
-            echo "Creating symlink: cmdline-tools/$SLOT -> cmdline-tools/latest"
-            ln -s "$SDK/cmdline-tools/$SLOT" "$SDK/cmdline-tools/latest"
-          fi
-
-          # Accept all licenses
-          SDKMAN=$(find "$SDK" -name sdkmanager -type f 2>/dev/null | head -1)
-          if [ -n "$SDKMAN" ]; then
-            yes | "$SDKMAN" --licenses 2>/dev/null || true
-            "$SDKMAN" "build-tools;34.0.0" "platforms;android-34" 2>/dev/null || true
-          fi
-
-          echo "=== cmdline-tools after fix ==="
-          ls "$SDK/cmdline-tools/" 2>/dev/null
+          echo "=== ANDROID_HOME: $ANDROID_HOME ==="
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>/dev/null || true
+          yes | sdkmanager --licenses 2>/dev/null || true
+          echo "=== cmdline-tools ==="
+          ls "$ANDROID_HOME/cmdline-tools/" 2>/dev/null || echo "(none)"
+          echo "=== build-tools ==="
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null | head -5 || echo "(none)"
 
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
 
       - name: Configure Bubblewrap
         run: |
-          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
           mkdir -p ~/.bubblewrap
           printf '{"jdkPath": "%s", "androidSdkPath": "%s"}\n' \
-            "$JAVA_DIR" "$SDK" > ~/.bubblewrap/config.json
+            "$JAVA_DIR" "$ANDROID_HOME" > ~/.bubblewrap/config.json
           echo "=== Bubblewrap config ==="
           cat ~/.bubblewrap/config.json
 
@@ -74,20 +62,17 @@ jobs:
             "${{ secrets.KEYSTORE_PASSWORD }}" \
             | bubblewrap build --skipPwaValidation 2>&1 | tee build.log
           echo "--- build.log tail ---"
-          tail -40 build.log
+          tail -50 build.log
 
       - name: Find built APK
         id: find_apk
         run: |
-          # prefer signed (non-unsigned) APK
           APK=$(find . -name "*.apk" 2>/dev/null | grep -v unsigned | head -1)
-          if [ -z "$APK" ]; then
-            APK=$(find . -name "*.apk" 2>/dev/null | head -1)
-          fi
+          if [ -z "$APK" ]; then APK=$(find . -name "*.apk" 2>/dev/null | head -1); fi
           echo "Found: $APK"
           if [ -z "$APK" ]; then
-            echo "ERROR: no APK produced"
-            find . -name "*.apk" 2>/dev/null || true
+            echo "ERROR: no APK produced. Directory listing:"
+            find . -maxdepth 4 -name "*.apk" 2>/dev/null || true
             exit 1
           fi
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
