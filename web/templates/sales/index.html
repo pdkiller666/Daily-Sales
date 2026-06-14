@@ -816,8 +816,11 @@ function saleModal() {
             }
             if (_lastErr) {
                 const n = (_lastErr.name || '');
+                const _standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
                 if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
-                    this.scanError = '🔒 Доступ к камере запрещён. Нажмите на 🔒 рядом с адресом сайта и разрешите камеру.';
+                    this.scanError = _standalone
+                        ? '🔒 Доступ к камере запрещён. Откройте настройки телефона → Приложения → DailySales → Разрешения → Камера и включите доступ, затем вернитесь и нажмите «Попробовать снова».'
+                        : '🔒 Доступ к камере запрещён. Нажмите на 🔒 рядом с адресом сайта и разрешите камеру.';
                 } else if (n === 'NotReadableError' || n === 'TrackStartError') {
                     this.scanError = '📵 Камера занята другим приложением. Закройте другие приложения с камерой и попробуйте снова.';
                 } else if (n === 'NotFoundError' || n === 'DevicesNotFoundError') {
@@ -919,17 +922,18 @@ function saleModal() {
         },
 
         restartScan() {
-            this.scanResult = null;
-            this.scanError = '';
-            this.scanStatus = 'Сканирование…';
-            const video = document.getElementById('barcode-video');
-            if (video && this._scanStream) {
-                if (typeof BarcodeDetector !== 'undefined') {
-                    this._startNativeDetector(video);
-                } else {
-                    this._startZxingDetector(video);
-                }
+            // Full re-init: stop any old stream/detector, then re-acquire the camera.
+            // (Just restarting the detector left a black screen when the stream was
+            //  never acquired — e.g. after a denied first attempt.)
+            if (this._scanRaf) { cancelAnimationFrame(this._scanRaf); this._scanRaf = null; }
+            if (this._zxingReader) { try { this._zxingReader.reset(); } catch(_) {} this._zxingReader = null; }
+            if (this._scanStream) {
+                try { this._scanStream.getTracks().forEach(t => t.stop()); } catch(_) {}
+                this._scanStream = null;
             }
+            const video = document.getElementById('barcode-video');
+            if (video) { video.srcObject = null; }
+            this.openBarcodeScanner();
         },
 
         closeBarcodeScanner() {
