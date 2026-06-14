@@ -607,6 +607,8 @@ async def check_scheduled_notifications(bot: Bot):
 
                     try:
                         scheduled_utc = datetime.fromisoformat(str(scheduled_dt).replace('Z', '+00:00'))
+                        if scheduled_utc.tzinfo is None:
+                            scheduled_utc = scheduled_utc.replace(tzinfo=pytz.UTC)
                     except Exception:
                         continue
 
