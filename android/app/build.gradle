@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.dailysales.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.dailysales.app'
+        minSdk 19
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    signingConfigs {
+        release {
+            storeFile new File(System.getenv('KEYSTORE_PATH') ?: "${rootDir}/../../dailysales-release.p12")
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: ''
+            keyAlias 'dailysales'
+            keyPassword System.getenv('KEYSTORE_PASSWORD') ?: ''
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

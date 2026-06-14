@@ -20,11 +20,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -32,84 +27,39 @@ jobs:
         run: |
           sdkmanager "platforms;android-34" "build-tools;34.0.0" 2>/dev/null || true
           yes | sdkmanager --licenses 2>/dev/null || true
+          echo "=== SDK ready: $ANDROID_HOME ==="
+          ls "$ANDROID_HOME/build-tools/" 2>/dev/null | head -3 || true
 
-      - name: Debug environment
-        run: |
-          echo "=== Java ==="
-          echo "JAVA_HOME: $JAVA_HOME"
-          java -version 2>&1
-          echo "=== Android SDK ==="
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          ls "$ANDROID_HOME/" 2>/dev/null || echo "ANDROID_HOME missing"
-          echo "--- cmdline-tools ---"
-          ls "$ANDROID_HOME/cmdline-tools/" 2>/dev/null || echo "no cmdline-tools"
-          echo "--- build-tools ---"
-          ls "$ANDROID_HOME/build-tools/" 2>/dev/null | head -5 || echo "no build-tools"
-          echo "--- platforms ---"
-          ls "$ANDROID_HOME/platforms/" 2>/dev/null | head -5 || echo "no platforms"
-
-      - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli@1.13.6
-
-      - name: Configure Bubblewrap
-        run: |
-          mkdir -p ~/.bubblewrap
-          cat > ~/.bubblewrap/config.json <<EOF
-          {"jdkPath": "$JAVA_HOME", "androidSdkPath": "$ANDROID_HOME"}
-          EOF
-          echo "=== Bubblewrap config ===" && cat ~/.bubblewrap/config.json
-          echo "=== Bubblewrap version ===" && bubblewrap --version 2>/dev/null || true
+      - name: Setup Gradle
+        uses: gradle/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
 
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > dailysales-release.p12
-          SIZE=$(wc -c < dailysales-release.p12)
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "${{ github.workspace }}/dailysales-release.p12"
+          SIZE=$(wc -c < "${{ github.workspace }}/dailysales-release.p12")
           echo "Keystore size: ${SIZE} bytes"
-          if [ "$SIZE" -lt 100 ]; then
-            echo "ERROR: KEYSTORE_BASE64 secret is missing or invalid"
-            exit 1
-          fi
+          [ "$SIZE" -gt 100 ] || { echo "ERROR: KEYSTORE_BASE64 invalid (${SIZE} bytes)"; exit 1; }
 
-      - name: Inject signing password into manifest
+      - name: Build APK
         run: |
-          python3 - <<'PYEOF'
-import json, os, sys
-password = os.environ.get("KEYSTORE_PASSWORD", "")
-if not password:
-    print("ERROR: KEYSTORE_PASSWORD is empty", file=sys.stderr)
-    sys.exit(1)
-with open("twa-manifest.json") as f:
-    m = json.load(f)
-m["signingKey"]["password"] = password
-with open("twa-manifest.json", "w") as f:
-    json.dump(m, f, indent=2, ensure_ascii=False)
-print("signingKey.password injected OK")
-PYEOF
+          gradle :app:assembleRelease \
+            --project-dir android \
+            --no-daemon \
+            --stacktrace 2>&1 | tail -80
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-
-      - name: Build TWA APK
-        run: |
-          set +e
-          bubblewrap build --skipPwaValidation > build.log 2>&1
-          BWRAP_EXIT=$?
-          set -e
-          echo "=== FULL BUBBLEWRAP LOG ==="
-          cat build.log
-          echo "=== EXIT CODE: $BWRAP_EXIT ==="
-          [ $BWRAP_EXIT -eq 0 ] || exit $BWRAP_EXIT
+          KEYSTORE_PATH: ${{ github.workspace }}/dailysales-release.p12
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Find built APK
         id: find_apk
         run: |
-          APK=$(find . -name "*.apk" 2>/dev/null | grep -v unsigned | head -1)
-          if [ -z "$APK" ]; then APK=$(find . -name "*.apk" 2>/dev/null | head -1); fi
+          APK=$(find android -name "*.apk" 2>/dev/null | grep release | grep -v unsigned | head -1)
+          if [ -z "$APK" ]; then APK=$(find android -name "*.apk" 2>/dev/null | head -1); fi
           echo "Found: $APK"
-          if [ -z "$APK" ]; then
-            echo "ERROR: no APK produced"
-            find . -maxdepth 5 -type f -name "*.apk" 2>/dev/null || true
-            exit 1
-          fi
+          [ -n "$APK" ] || { echo "No APK produced"; find android -type f 2>/dev/null | tail -20; exit 1; }
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
 
       - name: Rename APK
