@@ -145,13 +145,16 @@
 ### 📱 Android APK (TWA)
 
 - **Нативное Android-приложение** через Trusted Web Activity (TWA) — оболочка вокруг PWA без лишних прав
-- **Автосборка APK** через GitHub Actions при каждом деплое (Java 17 + Android SDK + Bubblewrap CLI)
+- **Автосборка APK** через GitHub Actions при каждом деплое (Java 17 + Android SDK + прямой Gradle build из `android/`)
 - APK публикуется в **GitHub Releases** автоматически — `DailySales-v1.0.N.apk`
 - Установка одним файлом: скачать APK → «Установить из неизвестных источников» → иконка на рабочем столе
 - **Digital Asset Links** (`/.well-known/assetlinks.json`) на сервере — Android доверяет APK домену
 - Push-уведомления работают через Chrome (GMS); на Huawei с GBox — через Chrome, установленный в GBox
-- `twa-manifest.json` в корне репозитория — вся конфигурация TWA
+- `twa-manifest.json` — TWA конфиг (packageId, host, fingerprint SHA-256, shortcuts); `android/` — Gradle проект
 - Shortcuts в APK: Касса POS / Дашборд / Продажи
+- **Webhook**: `POST /webhook/apk-release` → локальное кеширование APK + рассылка уведомлений всем owner_id
+- **Суперадмин**: `/admin/apk` — статистика скачиваний, история релизов, источники переходов (Chart.js)
+- **⚠️ Gotcha**: bubblewrap CLI не работает в GitHub Actions — используется прямой Gradle build
 
 ### 🌐 Веб-кабинет (FastAPI)
 
