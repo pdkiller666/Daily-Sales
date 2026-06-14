@@ -75,12 +75,14 @@ PYEOF
 
       - name: Build TWA APK
         run: |
-          set -o pipefail
-          bubblewrap build --skipPwaValidation 2>&1 | tee build.log
-          EXIT=${PIPESTATUS[0]}
-          echo "--- build.log (last 60 lines) ---"
-          tail -60 build.log
-          exit $EXIT
+          set +e
+          bubblewrap build --skipPwaValidation > build.log 2>&1
+          BWRAP_EXIT=$?
+          set -e
+          echo "=== FULL BUBBLEWRAP LOG ==="
+          cat build.log
+          echo "=== EXIT CODE: $BWRAP_EXIT ==="
+          [ $BWRAP_EXIT -eq 0 ] || exit $BWRAP_EXIT
 
       - name: Find built APK
         id: find_apk
