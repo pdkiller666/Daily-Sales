@@ -1172,6 +1172,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     # Кнопка подписки и контактов доступны всем пользователям
     builder.add(InlineKeyboardButton(text="💳 Подписка", callback_data="subscription_menu"))
     builder.add(InlineKeyboardButton(text="📞 Контакты", callback_data="view_contacts"))
+    builder.add(InlineKeyboardButton(text="📱 Приложение", callback_data="apk_info"))
     
     builder.add(back_button("main_menu"))
     builder.adjust(1)
@@ -1181,6 +1182,31 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
+
+@router.callback_query(F.data == "apk_info")
+async def apk_info_handler(callback: CallbackQuery, state: FSMContext):
+    """Информация о Android-приложении DailySales"""
+    await callback.answer()
+    text = (
+        "📱 <b>Android-приложение DailySales</b>\n\n"
+        "Установите приложение на Android-устройство для быстрого доступа к веб-кабинету.\n\n"
+        "<b>Инструкция по установке:</b>\n"
+        "1️⃣ Нажмите кнопку «Скачать APK» ниже\n"
+        "2️⃣ Разрешите установку из неизвестных источников\n"
+        "   (Настройки → Безопасность → Неизвестные источники)\n"
+        "3️⃣ Откройте скачанный файл и нажмите «Установить»\n\n"
+        "💡 Приложение работает как полноценный веб-кабинет — "
+        "без установки из Google Play."
+    )
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(
+        text="⬇️ Скачать APK",
+        url="https://dailysalesdeploy-pdkiller666.amvera.io/download/android"
+    ))
+    builder.add(back_button("user_profile"))
+    builder.adjust(1)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
 
 @router.callback_query(F.data == "edit_profile")
 async def edit_profile_menu(callback: CallbackQuery, state: FSMContext):

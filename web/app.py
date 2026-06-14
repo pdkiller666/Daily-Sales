@@ -209,6 +209,7 @@ Disallow: /subs
 Disallow: /switch_org
 Disallow: /unread-count
 Disallow: /users
+Disallow: /download/
 
 Sitemap: https://dailysales.app/sitemap.xml
 """
@@ -682,6 +683,14 @@ def create_web_app() -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(email_auth_router)
     app.include_router(ai_router)
+
+    @app.get("/download/android", include_in_schema=False)
+    async def download_android():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(
+            "https://github.com/pdkiller666/Daily-Sales/releases/latest",
+            status_code=302,
+        )
 
     @app.get("/.well-known/assetlinks.json", include_in_schema=False)
     async def assetlinks():

@@ -40,6 +40,21 @@
     </button>
 </div>
 
+<!-- APK banner — dismissible via localStorage -->
+<div id="apk-banner" class="mb-5 flex items-center gap-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200">
+    <span class="text-base shrink-0">📱</span>
+    <div class="flex-1 min-w-0">
+        <span class="font-medium">Попробуйте Android-приложение</span>
+        <span class="text-emerald-700 dark:text-emerald-300 hidden sm:inline"> — быстрый доступ прямо с телефона</span>
+    </div>
+    <a href="/download/android" class="shrink-0 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg px-3 py-1.5 transition-colors whitespace-nowrap">Скачать APK</a>
+    <button onclick="document.getElementById('apk-banner').remove();localStorage.setItem('ds_apk_banner','1')"
+            class="shrink-0 text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300 ml-1 transition-colors" aria-label="Закрыть">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+</div>
+<script>if(localStorage.getItem('ds_apk_banner')==='1'){var b=document.getElementById('apk-banner');if(b)b.remove();}</script>
+
 {% if gate_title %}
 <div class="mb-5 flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200">
     <span class="shrink-0 text-base">🔒</span>

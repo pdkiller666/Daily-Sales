@@ -350,6 +350,22 @@
             </div>
         </div>
 
+        <!-- Mobile app card -->
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 mb-1">📱 Мобильное приложение</h2>
+            <p class="text-xs text-slate-500 mb-4">Android-приложение (TWA) для быстрого доступа к веб-кабинету</p>
+            <a href="/download/android"
+               class="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors mb-4">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Скачать APK
+            </a>
+            <ol class="space-y-2 text-xs text-slate-600">
+                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">1.</span>Скачайте APK и откройте файл на Android-устройстве</li>
+                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">2.</span>Разрешите установку из неизвестных источников (Настройки → Безопасность)</li>
+                <li class="flex gap-2"><span class="shrink-0 font-semibold text-emerald-600">3.</span>Нажмите «Установить» и откройте приложение</li>
+            </ol>
+        </div>
+
         <!-- Invite section (admins only) -->
         {% if is_admin and org_id %}
         <div id="invite" class="card p-5 scroll-mt-6">
