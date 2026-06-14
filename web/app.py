@@ -967,4 +967,47 @@ def create_web_app() -> FastAPI:
             status_code=500,
         )
 
+    @app.on_event("startup")
+    async def _startup_ensure_apk():
+        """При старте: если APK отсутствует на persistent volume — скачать с GitHub Releases."""
+        import logging as _log
+        import aiohttp
+        if _APK_LOCAL.exists() and _APK_LOCAL.stat().st_size >= _APK_MIN_SIZE:
+            _log.info(f"APK already cached: {_APK_LOCAL} ({_APK_LOCAL.stat().st_size:,} bytes)")
+            return
+        try:
+            api_url = "https://api.github.com/repos/pdkiller666/Daily-Sales/releases/latest"
+            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+            token = os.environ.get("GITHUB_TOKEN", "")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            async with aiohttp.ClientSession(headers=headers) as session:
+                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        _log.warning(f"startup APK check: GitHub API returned {resp.status}")
+                        return
+                    release = await resp.json()
+            assets = release.get("assets", [])
+            apk_asset = next((a for a in assets if a.get("name", "").endswith(".apk")), None)
+            if not apk_asset:
+                _log.warning("startup APK check: no .apk asset in latest GitHub release")
+                return
+            apk_url = apk_asset["browser_download_url"]
+            version = release.get("tag_name", "")
+            _log.info(f"startup APK check: downloading {version} from {apk_url}")
+            await _download_apk_to_local(apk_url)
+            # Сохраняем версию и URL в БД для webhook-совместимости
+            try:
+                conn = sqlite3.connect(_SHOP_BOT_DB)
+                for k, v in [("apk_latest_version", version), ("apk_download_url", apk_url)]:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO payment_settings (key, value) VALUES (?, ?)", (k, v)
+                    )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+        except Exception as e:
+            _log.warning(f"startup APK check failed: {e}")
+
     return app
