@@ -1,5 +1,5 @@
-/* DailySales Service Worker v6 */
-const CACHE_NAME = 'dailysales-v6';
+/* DailySales Service Worker v7 */
+const CACHE_NAME = 'dailysales-v7';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
