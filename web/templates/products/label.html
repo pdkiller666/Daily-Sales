@@ -628,6 +628,28 @@ function labelSizer() {
             var fs = document.getElementById('fontSize') ? document.getElementById('fontSize').value : 'medium';
             var sheet = document.getElementById('labelSheet');
             if (sheet && fs !== 'medium') sheet.classList.add('fs-' + fs);
+            /* Auto-fit to viewport on mobile so the sheet is legible on first load */
+            if (window.innerWidth <= 640) {
+                this.$nextTick(() => this.toggleZoom());
+            }
+            /* Re-apply zoom when label size changes so fit stays active */
+            this.$watch('size', () => {
+                if (this.zoomed) {
+                    this.$nextTick(() => this._applyZoom());
+                }
+            });
+        },
+
+        _applyZoom() {
+            var sheet = document.getElementById('labelSheet');
+            var wrap = document.getElementById('sheetScrollWrap');
+            if (!sheet) return;
+            var vw = Math.min(window.innerWidth, document.documentElement.clientWidth);
+            var factor = (vw - 32) / 794;
+            sheet.style.transform = 'scale(' + factor + ')';
+            sheet.style.transformOrigin = 'top left';
+            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - factor)) + 'px';
+            if (wrap) { wrap.style.overflowX = 'hidden'; wrap.style.paddingLeft = '0'; wrap.style.paddingRight = '0'; }
         },
 
         toggleZoom() {
@@ -636,12 +658,7 @@ function labelSizer() {
             var wrap = document.getElementById('sheetScrollWrap');
             if (!sheet) return;
             if (this.zoomed) {
-                var vw = Math.min(window.innerWidth, document.documentElement.clientWidth);
-                var factor = (vw - 32) / 794;
-                sheet.style.transform = 'scale(' + factor + ')';
-                sheet.style.transformOrigin = 'top left';
-                sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - factor)) + 'px';
-                if (wrap) { wrap.style.overflowX = 'hidden'; wrap.style.paddingLeft = '0'; wrap.style.paddingRight = '0'; }
+                this._applyZoom();
             } else {
                 sheet.style.transform = '';
                 sheet.style.transformOrigin = '';
