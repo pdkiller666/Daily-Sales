@@ -408,7 +408,7 @@ class Database:
                 "UPDATE subscription_plans SET can_use_integrations=1 WHERE name != 'Бесплатный'"
             )
 
-        # Миграция таблицы products: фото, описание, артикул
+        # Миграция таблицы products: фото, описание, артикул, штрихкод
         cursor.execute("PRAGMA table_info(products)")
         _prod_cols = [c[1] for c in cursor.fetchall()]
         if 'photo_file_id' not in _prod_cols:
@@ -417,6 +417,12 @@ class Database:
             cursor.execute("ALTER TABLE products ADD COLUMN description TEXT")
         if 'article' not in _prod_cols:
             cursor.execute("ALTER TABLE products ADD COLUMN article TEXT")
+        if 'barcode' not in _prod_cols:
+            cursor.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode "
+            "ON products(barcode) WHERE barcode IS NOT NULL AND barcode != ''"
+        )
 
         # Галерея фото товаров (единое хранилище бот+веб)
         cursor.execute('''
@@ -3000,20 +3006,21 @@ class Database:
             return 'PRD'
         return prefix.ljust(3, 'X')
 
-    def add_product(self, name, category, price, photo_file_id=None, description=None, article=None):
+    def add_product(self, name, category, price, photo_file_id=None, description=None, article=None, barcode=None):
         """Добавление нового товара. Если article=None — генерируется автоматически."""
         conn = self.get_connection()
         cursor = conn.cursor()
+        barcode_val = barcode.strip() if barcode and barcode.strip() else None
         try:
             if article:
                 cursor.execute(
-                    'INSERT INTO products (name, category, price, photo_file_id, description, article) VALUES (?, ?, ?, ?, ?, ?)',
-                    (name, category, price, photo_file_id, description, article.strip().upper()),
+                    'INSERT INTO products (name, category, price, photo_file_id, description, article, barcode) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (name, category, price, photo_file_id, description, article.strip().upper(), barcode_val),
                 )
             else:
                 cursor.execute(
-                    'INSERT INTO products (name, category, price, photo_file_id, description) VALUES (?, ?, ?, ?, ?)',
-                    (name, category, price, photo_file_id, description),
+                    'INSERT INTO products (name, category, price, photo_file_id, description, barcode) VALUES (?, ?, ?, ?, ?, ?)',
+                    (name, category, price, photo_file_id, description, barcode_val),
                 )
             product_id = cursor.lastrowid
             if not article:
@@ -3070,8 +3077,9 @@ class Database:
         return added, skipped
 
     def update_product(self, product_id, name=None, category=None, price=None,
-                       photo_file_id=None, description=None, article=None):
-        """Обновление товара. article='' → оставить без изменений; article='XXX' → установить."""
+                       photo_file_id=None, description=None, article=None, barcode=None):
+        """Обновление товара. article='' → оставить без изменений; article='XXX' → установить.
+        barcode=None → не трогать; barcode='' → очистить; barcode='...' → установить."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -3096,6 +3104,9 @@ class Database:
         if article is not None and article != '':
             updates.append('article = ?')
             params.append(article.strip().upper())
+        if barcode is not None:
+            updates.append('barcode = ?')
+            params.append(barcode.strip() if barcode.strip() else None)
 
         if updates:
             params.append(product_id)
@@ -3189,6 +3200,19 @@ class Database:
         row = conn.execute(
             "SELECT * FROM products WHERE UPPER(article)=?", (article.strip().upper(),)
         ).fetchone()
+        conn.close()
+        return row
+
+    def get_product_by_barcode(self, barcode: str):
+        """Поиск товара по штрихкоду (без учёта регистра)."""
+        conn = self.get_connection()
+        row = conn.execute(
+            "SELECT * FROM products WHERE barcode=?", (barcode.strip(),)
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM products WHERE UPPER(barcode)=?", (barcode.strip().upper(),)
+            ).fetchone()
         conn.close()
         return row
 

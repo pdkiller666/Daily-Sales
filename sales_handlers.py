@@ -780,17 +780,21 @@ async def process_barcode_photo(message: Message, state: FSMContext):
             )
             return
 
-        article = decoded[0].strip()
+        decoded_str = decoded[0].strip()
 
         current_db = await get_db(message.from_user.id, state)
-        product = await current_db.get_product_by_article(article)
+        product = await asyncio.to_thread(current_db.get_product_by_barcode, decoded_str)
+        lookup_by = "barcode"
+        if not product:
+            product = await asyncio.to_thread(current_db.get_product_by_article, decoded_str)
+            lookup_by = "article"
 
         if not product:
             await fsm_edit(
                 state, message,
                 f"🔍 <b>Товар не найден</b>\n\n"
-                f"Код: <code>{he(article)}</code>\n\n"
-                f"Такого артикула нет в базе. Проверьте, что товар добавлен в систему.",
+                f"Код: <code>{he(decoded_str)}</code>\n\n"
+                f"Штрихкод и артикул не совпадают ни с одним товаром в базе. Проверьте, что товар добавлен в систему.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📸 Сканировать снова", callback_data="sale_scan_barcode")],
                     [InlineKeyboardButton(text="⌨️ Выбрать вручную", callback_data="new_sale")]
@@ -805,10 +809,11 @@ async def process_barcode_photo(message: Message, state: FSMContext):
         quantity = await current_db.get_inventory(shop_name, product_id)
 
         if quantity <= 0:
+            _id_line = f"штрихкод <code>{he(decoded_str)}</code>" if lookup_by == "barcode" else f"артикул <code>{he(decoded_str)}</code>"
             await fsm_edit(
                 state, message,
                 f"📦 <b>Нет в наличии</b>\n\n"
-                f"Товар «{he(product[1])}» (артикул <code>{he(article)}</code>) найден, "
+                f"Товар «{he(product[1])}» ({_id_line}) найден, "
                 f"но отсутствует на складе.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📸 Сканировать снова", callback_data="sale_scan_barcode")],
@@ -834,12 +839,19 @@ async def process_barcode_photo(message: Message, state: FSMContext):
             if shop_name != home_shop else f"\n🏪 Магазин: {he(shop_name)}"
         )
 
+        _art_val = product[7] if len(product) > 7 and product[7] else None
+        _bc_val = product[8] if len(product) > 8 and product[8] else None
+        _id_lines = ""
+        if _bc_val:
+            _id_lines += f"\n📦 Штрихкод: <code>{he(_bc_val)}</code>"
+        if _art_val:
+            _id_lines += f"\n🔖 Артикул: <code>{he(_art_val)}</code>"
+
         await fsm_edit(
             state, message,
-            f"✅ <b>Товар найден по штрих-коду!</b>\n\n"
+            f"✅ <b>Товар найден по {'штрих-коду' if lookup_by == 'barcode' else 'артикулу'}!</b>\n\n"
             f"💰 Продажа товара:{shop_line}\n\n"
-            f"🏷 {he(product[1])}\n"
-            f"🔖 Артикул: <code>{he(article)}</code>\n"
+            f"🏷 {he(product[1])}{_id_lines}\n"
             f"💰 Цена: {format_currency(product[3])}\n"
             f"📦 В наличии: {quantity} шт.{motivation_text}\n\n"
             f"Выберите количество или введите вручную:",
@@ -902,8 +914,9 @@ async def process_quick_search(message: Message, state: FSMContext):
     for p in all_products:
         pid, name, category, price = p[0], p[1], p[2], p[3]
         article = p[7] if len(p) > 7 and p[7] else ""
+        barcode = p[8] if len(p) > 8 and p[8] else ""
         qty = await current_db.get_inventory(shop_name, pid)
-        if qty > 0 and (query_lower in name.lower() or query_lower in article.lower()):
+        if qty > 0 and (query_lower in name.lower() or query_lower in article.lower() or query_lower in barcode.lower()):
             matching.append((pid, name, category or "Без категории", price, qty))
 
     if not matching:

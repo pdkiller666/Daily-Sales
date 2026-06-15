@@ -638,13 +638,74 @@ function labelSizer() {
                     this.$nextTick(() => this._applyZoom());
                 }
             });
+
+            /*
+             * Resize / rotation / pinch-zoom handling.
+             *
+             * Problem: window.innerWidth on mobile reflects the VISUAL viewport
+             * (shrinks when the user pinch-zooms), while our fit-factor must
+             * always be based on the LAYOUT viewport (clientWidth).  If we
+             * blindly call _applyZoom() during a pinch, the two zoom levels
+             * fight each other and produce unexpected results on rotation.
+             *
+             * Strategy:
+             *  1. Always use document.documentElement.clientWidth in _applyZoom
+             *     so pinch-zoom never distorts the fit factor.
+             *  2. Track whether the user is actively pinch-zooming via the
+             *     VisualViewport API.  Suppress auto-refit during a pinch so
+             *     the browser's own zoom gesture is not overridden.
+             *  3. On rotation (clientWidth changes, even while pinch-zoomed)
+             *     always refit — the sheet must adapt to the new orientation.
+             *  4. When the pinch returns to scale ≈ 1, refit once to snap back.
+             */
+            let _rzTimer = null;
+            let _pinchActive = false;
+
+            const scheduleRefit = () => {
+                if (!this.zoomed) return;
+                clearTimeout(_rzTimer);
+                _rzTimer = setTimeout(() => this._applyZoom(), 100);
+            };
+
+            if (window.visualViewport) {
+                let _lastScale = window.visualViewport.scale;
+                let _lastClientWidth = document.documentElement.clientWidth;
+
+                window.visualViewport.addEventListener('resize', () => {
+                    const scale = window.visualViewport.scale;
+                    const cw = document.documentElement.clientWidth;
+                    const rotated = Math.abs(cw - _lastClientWidth) > 10;
+
+                    _pinchActive = scale > 1.05;
+
+                    if (rotated) {
+                        /* Orientation changed — always refit regardless of pinch */
+                        _lastClientWidth = cw;
+                        scheduleRefit();
+                    } else if (!_pinchActive && _lastScale > 1.05) {
+                        /* Pinch zoom released — snap fit back */
+                        scheduleRefit();
+                    }
+
+                    _lastScale = scale;
+                });
+            }
+
+            /* Fallback for browsers without VisualViewport: fire on layout resize only */
+            window.addEventListener('resize', () => {
+                if (_pinchActive) return;
+                scheduleRefit();
+            });
         },
 
         _applyZoom() {
             var sheet = document.getElementById('labelSheet');
             var wrap = document.getElementById('sheetScrollWrap');
             if (!sheet) return;
-            var vw = Math.min(window.innerWidth, document.documentElement.clientWidth);
+            /* Use layout-viewport width (clientWidth) — NOT window.innerWidth.
+               On mobile, innerWidth shrinks when the user pinch-zooms, which
+               would produce a wrong fit factor.  clientWidth is stable. */
+            var vw = document.documentElement.clientWidth;
             var factor = (vw - 32) / 794;
             sheet.style.transform = 'scale(' + factor + ')';
             sheet.style.transformOrigin = 'top left';

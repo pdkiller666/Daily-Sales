@@ -163,6 +163,7 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
                 if ql in (p[1] or "").lower()
                 or ql in (p[2] or "").lower()
                 or ql in (p[7] if len(p) > 7 and p[7] else "").lower()
+                or ql in (p[8] if len(p) > 8 and p[8] else "").lower()
             ]
 
         products.sort(key=lambda p: ((p[2] or ""), (p[1] or "").lower()))
@@ -513,6 +514,7 @@ async def products_create(
     price: str = Form(default="0"),
     description: str = Form(default=""),
     article: str = Form(default=""),
+    barcode: str = Form(default=""),
     photos: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token, get_csrf_token
@@ -538,7 +540,8 @@ async def products_create(
             "csrf_token": get_csrf_token(request),
             "categories": categories,
             "form_data": fd or {"name": name, "category": category, "price": price,
-                                "description": description, "article": article, "existing_photos": []},
+                                "description": description, "article": article,
+                                "barcode": barcode, "existing_photos": []},
             "error": err, "is_edit": False,
         })
 
@@ -593,6 +596,7 @@ async def products_create(
     first_photo = saved_urls[0] if saved_urls else None
     try:
         article_clean = article.strip().upper() if article and article.strip() else None
+        barcode_clean = barcode.strip() or None
         new_id = db.add_product(
             name=name_clean,
             category=category.strip() or None,
@@ -600,6 +604,7 @@ async def products_create(
             description=description.strip() or None,
             photo_file_id=first_photo,
             article=article_clean,
+            barcode=barcode_clean,
         )
         if not new_id:
             for u in saved_urls:
@@ -653,6 +658,7 @@ def products_edit_form(request: Request, product_id: int):
             "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
             "description": product[6] if len(product) > 6 else "",
             "article": product[7] if len(product) > 7 else "",
+            "barcode": product[8] if len(product) > 8 else "",
             "existing_photos": existing_photos,
         },
         "error": None, "is_edit": True,
@@ -671,6 +677,7 @@ async def products_update(
     price: str = Form(default="0"),
     description: str = Form(default=""),
     article: str = Form(default=""),
+    barcode: str = Form(default=""),
     photos: List[UploadFile] = File(default=[]),
     delete_photo_ids: str = Form(default=""),
 ):
@@ -698,7 +705,7 @@ async def products_update(
             "csrf_token": get_csrf_token(request),
             "categories": categories,
             "form_data": {"name": name, "category": category, "price": price, "description": description,
-                          "article": article, "existing_photos": existing_photos},
+                          "article": article, "barcode": barcode, "existing_photos": existing_photos},
             "error": err, "is_edit": True,
             "edit_id": product_id, "product_name": name,
         })
@@ -762,12 +769,14 @@ async def products_update(
         all_photos = db.get_product_photos(product_id) or []
         first_photo_url = all_photos[0][2] if all_photos else (saved_urls[0] if saved_urls else None)
         article_clean = article.strip().upper() if article and article.strip() else ""
+        barcode_clean = barcode.strip() or ""
         kwargs: dict = dict(
             name=name_clean,
             category=category.strip() or "",
             price=price_val,
             description=description.strip() or "",
             article=article_clean or None,
+            barcode=barcode_clean or None,
         )
         if first_photo_url is not None:
             kwargs["photo_file_id"] = first_photo_url

@@ -94,6 +94,42 @@
             <p class="mt-1 text-xs text-slate-400">Буквы, цифры, дефис. Оставьте пустым — артикул создастся по категории автоматически. По нему продавцы находят товар через сканер.</p>
         </div>
 
+        <!-- Barcode -->
+        <div class="mb-5">
+            <label class="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-barcode">
+                <svg class="w-4 h-4 text-emerald-600 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <rect x="1" y="4" width="2" height="16"/><rect x="5" y="4" width="1" height="16"/><rect x="8" y="4" width="2" height="16"/><rect x="12" y="4" width="1" height="16"/><rect x="15" y="4" width="3" height="16"/><rect x="20" y="4" width="1" height="16"/><rect x="22" y="4" width="1" height="16"/>
+                </svg>
+                Штрихкод (EAN-13, QR и др.)
+            </label>
+            <div class="flex gap-2">
+                <input id="f-barcode" type="text" name="barcode"
+                       value="{{ form_data.barcode if form_data and form_data.barcode else '' }}"
+                       placeholder="Введите или отсканируйте штрихкод"
+                       maxlength="100"
+                       class="flex-1 border border-emerald-200 dark:border-emerald-700/50 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-4 py-2.5 text-sm font-mono text-slate-800
+                              focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent tracking-wide">
+                <button type="button" id="btn-scan-barcode"
+                        title="Сканировать штрихкод камерой"
+                        class="flex items-center gap-1 px-3 py-2 rounded-xl border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-sm font-medium transition-colors dark:border-emerald-700 dark:text-emerald-300 dark:bg-emerald-900/30">
+                    📷
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-slate-400">Заводской штрихкод упаковки (EAN-13, Code128, QR). По нему продавцы находят товар сканированием в кассе.</p>
+            <!-- Camera scanner modal -->
+            <div id="barcode-scanner-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-label="Сканер штрихкода">
+                <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-4 flex flex-col gap-3">
+                    <div class="flex items-center justify-between">
+                        <span class="font-semibold text-slate-800 dark:text-slate-100">📷 Сканирование штрихкода</span>
+                        <button type="button" id="close-barcode-scanner" class="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+                    </div>
+                    <video id="barcode-video" class="w-full rounded-xl bg-black aspect-video object-cover" autoplay playsinline muted></video>
+                    <p class="text-xs text-slate-500 text-center">Направьте камеру на штрихкод товара</p>
+                    <p id="barcode-scan-status" class="text-xs text-center text-emerald-600 hidden">✅ Штрихкод распознан!</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Price -->
         <div class="mb-5">
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-price">
@@ -287,5 +323,68 @@ function photoFormState() {
         }
     };
 }
+
+// Barcode camera scanner for product form
+(function() {
+    const btnScan = document.getElementById('btn-scan-barcode');
+    const modal = document.getElementById('barcode-scanner-modal');
+    const video = document.getElementById('barcode-video');
+    const closeBtn = document.getElementById('close-barcode-scanner');
+    const statusEl = document.getElementById('barcode-scan-status');
+    const input = document.getElementById('f-barcode');
+    if (!btnScan || !modal || !video) return;
+
+    let stream = null;
+    let scanInterval = null;
+    let canvas = null;
+
+    function stopScanner() {
+        if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        video.srcObject = null;
+        modal.classList.add('hidden');
+        if (statusEl) statusEl.classList.add('hidden');
+    }
+
+    async function startScanner() {
+        if (!('BarcodeDetector' in window)) {
+            alert('Ваш браузер не поддерживает встроенный сканер штрихкодов. Введите штрихкод вручную или используйте Chrome/Edge.');
+            return;
+        }
+        modal.classList.remove('hidden');
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = stream;
+            await video.play();
+            canvas = document.createElement('canvas');
+            const detector = new BarcodeDetector({ formats: [
+                'code_128','code_39','ean_13','ean_8','upc_a','upc_e','qr_code','data_matrix','itf','codabar'
+            ]});
+            scanInterval = setInterval(async () => {
+                if (!stream) { clearInterval(scanInterval); return; }
+                try {
+                    const barcodes = await detector.detect(video);
+                    if (barcodes && barcodes.length > 0) {
+                        const val = barcodes[0].rawValue;
+                        input.value = val;
+                        if (statusEl) { statusEl.textContent = '✅ Штрихкод: ' + val; statusEl.classList.remove('hidden'); }
+                        setTimeout(stopScanner, 900);
+                    }
+                } catch(e) {}
+            }, 250);
+        } catch(err) {
+            stopScanner();
+            if (err.name === 'NotAllowedError') {
+                alert('Нет доступа к камере. Разрешите использование камеры в настройках браузера.');
+            } else {
+                alert('Не удалось открыть камеру: ' + (err.message || err));
+            }
+        }
+    }
+
+    btnScan.addEventListener('click', startScanner);
+    closeBtn && closeBtn.addEventListener('click', stopScanner);
+    modal.addEventListener('click', function(e) { if (e.target === modal) stopScanner(); });
+})();
 </script>
 {% endblock %}

@@ -415,19 +415,20 @@ async def process_product_price(message: Message, state: FSMContext):
     F.data.startswith("confirm_article_")
 )
 async def confirm_article(callback: CallbackQuery, state: FSMContext):
-    """Подтвердить авто-артикул → перейти к описанию"""
+    """Подтвердить авто-артикул → перейти к шагу штрихкода"""
     await callback.answer()
     data = await state.get_data()
     product_id = data.get('new_product_id')
     auto_article = data.get('product_article', '')
 
-    await state.set_state(ProductStates.waiting_for_description)
+    await state.set_state(ProductStates.waiting_for_barcode)
     await callback.message.edit_text(
         f"✅ Артикул: <code>{he(auto_article)}</code>\n\n"
-        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
-        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        f"5️⃣ <b>Штрихкод товара</b> (необязательно)\n"
+        f"<i>Введите заводской штрихкод (EAN-13, QR), отсканируйте фото упаковки или пропустите.</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [InlineKeyboardButton(text="📸 Сканировать штрихкод", callback_data=f"scan_product_barcode_{product_id}")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"skip_product_barcode_{product_id}")],
             [back_button("products")]
         ]),
         parse_mode="HTML"
@@ -478,14 +479,15 @@ async def process_product_article(message: Message, state: FSMContext):
     await asyncio.to_thread(current_db.update_product, product_id, article=raw)
     await state.update_data(product_article=raw)
 
-    await state.set_state(ProductStates.waiting_for_description)
+    await state.set_state(ProductStates.waiting_for_barcode)
     await fsm_edit(
         state, message,
         f"✅ Артикул: <code>{he(raw)}</code>\n\n"
-        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
-        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        f"5️⃣ <b>Штрихкод товара</b> (необязательно)\n"
+        f"<i>Введите заводской штрихкод (EAN-13, QR), отсканируйте фото упаковки или пропустите.</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [InlineKeyboardButton(text="📸 Сканировать штрихкод", callback_data=f"scan_product_barcode_{product_id}")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"skip_product_barcode_{product_id}")],
             [back_button("products")]
         ]),
     )
@@ -545,6 +547,140 @@ async def _show_product_added_final(
             pass
 
     await clear_state_keep_org(state)
+
+
+@products_router.callback_query(
+    ProductStates.waiting_for_barcode,
+    F.data.startswith("skip_product_barcode_")
+)
+async def skip_product_barcode(callback: CallbackQuery, state: FSMContext):
+    """Пропустить шаг штрихкода → перейти к описанию"""
+    await callback.answer()
+    data = await state.get_data()
+    product_id = data.get('new_product_id')
+    await state.set_state(ProductStates.waiting_for_description)
+    await callback.message.edit_text(
+        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
+        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [back_button("products")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@products_router.callback_query(
+    ProductStates.waiting_for_barcode,
+    F.data.startswith("scan_product_barcode_")
+)
+async def scan_product_barcode_start(callback: CallbackQuery, state: FSMContext):
+    """Запросить фото для сканирования штрихкода при создании товара"""
+    await callback.answer()
+    data = await state.get_data()
+    product_id = data.get('new_product_id', 0)
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        "📸 <b>Отправьте фото штрих-кода</b>\n\n"
+        "Сфотографируйте упаковку товара и отправьте фото.\n"
+        "<i>Совет: снимайте при хорошем освещении, штрихкод должен занимать большую часть кадра.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"skip_product_barcode_{product_id}")],
+            [back_button("products")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+@products_router.message(ProductStates.waiting_for_barcode)
+async def process_product_barcode(message: Message, state: FSMContext):
+    """Обработка штрихкода при создании товара — текст или фото"""
+    data = await state.get_data()
+    product_id = data.get('new_product_id')
+    _barcode_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📸 Сканировать штрихкод", callback_data=f"scan_product_barcode_{product_id}")],
+        [InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"skip_product_barcode_{product_id}")],
+        [back_button("products")]
+    ])
+
+    barcode_value = None
+
+    if message.photo:
+        try:
+            import cv2
+            import numpy as np
+            photo = message.photo[-1]
+            file = await message.bot.get_file(photo.file_id)
+            file_bytes = await message.bot.download_file(file.file_path)
+            raw = file_bytes.read() if hasattr(file_bytes, 'read') else bytes(file_bytes)
+
+            def _decode_bc(data: bytes):
+                arr = np.frombuffer(data, dtype=np.uint8)
+                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if img is None:
+                    return []
+                found = []
+                try:
+                    qr_data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+                    if qr_data:
+                        found.append(qr_data)
+                except Exception:
+                    pass
+                if not found:
+                    try:
+                        ok, bar_info, _, _ = cv2.barcode.BarcodeDetector().detectAndDecodeMulti(img)
+                        if ok and bar_info:
+                            found.extend(s for s in bar_info if s)
+                    except Exception:
+                        pass
+                return found
+
+            decoded = await asyncio.to_thread(_decode_bc, raw)
+            if not decoded:
+                await fsm_edit(state, message,
+                               "❌ Штрих-код не распознан. Попробуйте снова или введите вручную:",
+                               reply_markup=_barcode_kb)
+                return
+            barcode_value = decoded[0].strip()
+        except Exception as exc:
+            logging.error(f"process_product_barcode photo decode error: {exc}")
+            await fsm_edit(state, message, "❌ Ошибка обработки фото. Попробуйте снова:", reply_markup=_barcode_kb)
+            return
+    elif message.text:
+        barcode_value = message.text.strip()
+        if len(barcode_value) < 3:
+            await fsm_edit(state, message, "❌ Штрихкод слишком короткий (мин. 3 символа). Введите снова или пропустите:", reply_markup=_barcode_kb)
+            return
+        if len(barcode_value) > 100:
+            await fsm_edit(state, message, "❌ Штрихкод слишком длинный (макс. 100 символов). Введите снова:", reply_markup=_barcode_kb)
+            return
+    else:
+        await fsm_edit(state, message, "📸 Отправьте фото или введите штрихкод текстом:", reply_markup=_barcode_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, barcode_value)
+    if existing_bc and existing_bc[0] != product_id:
+        await fsm_edit(
+            state, message,
+            f"❌ Штрихкод <code>{he(barcode_value)}</code> уже используется товаром «{he(existing_bc[1])}».\n\nВведите другой или пропустите:",
+            reply_markup=_barcode_kb
+        )
+        return
+
+    await asyncio.to_thread(current_db.update_product, product_id, barcode=barcode_value)
+
+    await state.set_state(ProductStates.waiting_for_description)
+    await fsm_edit(
+        state, message,
+        f"✅ Штрихкод сохранён: <code>{he(barcode_value)}</code>\n\n"
+        f"📝 <b>Добавьте описание товара</b> (необязательно):\n"
+        f"<i>Введите текст описания или нажмите «Пропустить».</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить описание", callback_data=f"skip_product_description_{product_id}")],
+            [back_button("products")]
+        ]),
+    )
 
 
 @products_router.callback_query(
@@ -1168,20 +1304,23 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     _raw_desc = product[6] if len(product) > 6 and product[6] else ""
     _desc_hint = f"\n📝 {_raw_desc[:40]}{'…' if len(_raw_desc) > 40 else ''}" if _raw_desc else ""
     _art = product[7] if len(product) > 7 and product[7] else "—"
+    _bc = product[8] if len(product) > 8 and product[8] else "—"
     await callback.message.edit_text(
         f"✏️ Редактирование товара:\n\n"
         f"🏷 Название: {he(product[1])}\n"
         f"📂 Категория: {he(product[2])}\n"
         f"💰 Цена: {format_currency(product[3])}\n"
-        f"🔖 Артикул: <code>{he(_art)}</code>{_photo_hint}{_desc_hint}\n\n"
+        f"🔖 Артикул: <code>{he(_art)}</code>\n"
+        f"📦 Штрихкод: <code>{he(_bc)}</code>{_photo_hint}{_desc_hint}\n\n"
         f"Что хотите изменить?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏷 Название", callback_data="edit_param_name"),
              InlineKeyboardButton(text="📂 Категория", callback_data="edit_param_category")],
             [InlineKeyboardButton(text="💰 Цена", callback_data="edit_param_price"),
              InlineKeyboardButton(text="🔖 Артикул", callback_data="edit_param_article")],
-            [InlineKeyboardButton(text="📝 Описание", callback_data="edit_param_description"),
+            [InlineKeyboardButton(text="📦 Штрихкод", callback_data="edit_param_barcode"),
              InlineKeyboardButton(text="📷 Фото", callback_data="edit_param_photo")],
+            [InlineKeyboardButton(text="📝 Описание", callback_data="edit_param_description")],
             [back_button("edit_product")]
         ]),
         parse_mode="HTML"
@@ -1217,6 +1356,26 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
         )
         await state.set_state(ProductStates.waiting_for_edit_value)
+        return
+    elif param == 'barcode':
+        await callback.answer()
+        data = await state.get_data()
+        product_id = data.get('edit_product_id')
+        current_db = await get_db(callback.from_user.id, state)
+        product = await current_db.get_product(product_id)
+        current_bc = (product[8] if product and len(product) > 8 and product[8] else None) if product else None
+        bc_line = f"\nТекущий штрихкод: <code>{he(current_bc)}</code>" if current_bc else "\nШтрихкод не задан."
+        await callback.message.edit_text(
+            f"📦 <b>Изменить штрихкод товара</b>{bc_line}\n\n"
+            "Введите новый штрихкод текстом, отправьте фото упаковки для сканирования,\n"
+            "или введите «-» чтобы удалить штрихкод.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📸 Сканировать фото", callback_data="edit_scan_barcode")],
+                [back_button("edit_product")]
+            ]),
+            parse_mode="HTML"
+        )
+        await state.set_state(ProductStates.waiting_for_edit_barcode)
         return
 
     param_names = {
@@ -1317,15 +1476,169 @@ async def process_edit_value_product(message: Message, state: FSMContext):
         pass
 
     _art_upd = product[7] if len(product) > 7 and product[7] else "—"
+    _bc_upd = product[8] if len(product) > 8 and product[8] else "—"
     await fsm_edit(state, message,
                    f"✅ Товар обновлен!\n\n"
                    f"🏷 Название: {product[1]}\n"
                    f"📂 Категория: {product[2]}\n"
                    f"💰 Цена: {format_currency(product[3])}\n"
-                   f"🔖 Артикул: <code>{he(_art_upd)}</code>{_gs_sfx}",
+                   f"🔖 Артикул: <code>{he(_art_upd)}</code>\n"
+                   f"📦 Штрихкод: <code>{he(_bc_upd)}</code>{_gs_sfx}",
                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
 
     await clear_state_keep_org(state)
+
+
+@products_router.callback_query(
+    ProductStates.waiting_for_edit_barcode,
+    F.data == "edit_scan_barcode"
+)
+async def edit_scan_barcode_start(callback: CallbackQuery, state: FSMContext):
+    """Запросить фото для сканирования штрихкода при редактировании товара"""
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await callback.message.edit_text(
+        "📸 <b>Отправьте фото штрих-кода</b>\n\n"
+        "Сфотографируйте упаковку товара и отправьте фото.\n"
+        "<i>Совет: снимайте при хорошем освещении, штрихкод должен занимать большую часть кадра.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]]),
+        parse_mode="HTML"
+    )
+    await state.set_state(ProductStates.waiting_for_edit_barcode_photo)
+
+
+@products_router.message(ProductStates.waiting_for_edit_barcode_photo)
+async def process_edit_barcode_photo(message: Message, state: FSMContext):
+    """Декодирует фото штрих-кода при редактировании товара"""
+    _edit_bc_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
+    if not message.photo:
+        await fsm_edit(state, message, "📸 Нужно фото штрих-кода. Отправьте фотографию:", reply_markup=_edit_bc_kb)
+        return
+    try:
+        import cv2
+        import numpy as np
+        photo = message.photo[-1]
+        file = await message.bot.get_file(photo.file_id)
+        file_bytes = await message.bot.download_file(file.file_path)
+        raw = file_bytes.read() if hasattr(file_bytes, 'read') else bytes(file_bytes)
+
+        def _decode_bc2(data: bytes):
+            arr = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                return []
+            found = []
+            try:
+                qr_data, _, _ = cv2.QRCodeDetector().detectAndDecode(img)
+                if qr_data:
+                    found.append(qr_data)
+            except Exception:
+                pass
+            if not found:
+                try:
+                    ok, bar_info, _, _ = cv2.barcode.BarcodeDetector().detectAndDecodeMulti(img)
+                    if ok and bar_info:
+                        found.extend(s for s in bar_info if s)
+                except Exception:
+                    pass
+            return found
+
+        decoded = await asyncio.to_thread(_decode_bc2, raw)
+        if not decoded:
+            await fsm_edit(state, message,
+                           "❌ Штрих-код не распознан. Попробуйте снова или вернитесь назад:",
+                           reply_markup=_edit_bc_kb)
+            return
+        barcode_value = decoded[0].strip()
+    except Exception as exc:
+        logging.error(f"process_edit_barcode_photo error: {exc}")
+        await fsm_edit(state, message, "❌ Ошибка обработки фото. Попробуйте снова:", reply_markup=_edit_bc_kb)
+        return
+
+    data = await state.get_data()
+    product_id = data.get('edit_product_id')
+    current_db = await get_db(message.from_user.id, state)
+    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, barcode_value)
+    if existing_bc and existing_bc[0] != product_id:
+        await fsm_edit(
+            state, message,
+            f"❌ Штрихкод <code>{he(barcode_value)}</code> уже используется товаром «{he(existing_bc[1])}».\n\nВернитесь и введите другой:",
+            reply_markup=_edit_bc_kb
+        )
+        return
+
+    await asyncio.to_thread(current_db.update_product, product_id, barcode=barcode_value)
+    product = await current_db.get_product(product_id)
+    await fsm_edit(
+        state, message,
+        f"✅ Штрихкод обновлён: <code>{he(barcode_value)}</code>\n\n"
+        f"🏷 {he(product[1] if product else '')}\n"
+        f"🔖 Артикул: <code>{he(product[7] if product and len(product)>7 and product[7] else '—')}</code>\n"
+        f"📦 Штрихкод: <code>{he(barcode_value)}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
+    )
+    await clear_state_keep_org(state)
+
+
+@products_router.message(ProductStates.waiting_for_edit_barcode)
+async def process_edit_barcode_text(message: Message, state: FSMContext):
+    """Обработка нового штрихкода при редактировании товара — текстовый ввод"""
+    if not is_any_admin(message.from_user.id) and not env_manager.is_super_admin(message.from_user.id):
+        return
+    _edit_bc_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📸 Сканировать фото", callback_data="edit_scan_barcode")],
+        [back_button("edit_product")]
+    ])
+    if not message.text:
+        await fsm_edit(state, message, "📦 Введите штрихкод текстом или отправьте фото:", reply_markup=_edit_bc_kb)
+        return
+
+    data = await state.get_data()
+    product_id = data.get('edit_product_id')
+    if not product_id:
+        await fsm_edit(state, message, "❌ Ошибка: товар не найден. Попробуйте снова.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
+        await clear_state_keep_org(state)
+        return
+
+    raw = message.text.strip()
+    if raw == '-':
+        current_db = await get_db(message.from_user.id, state)
+        await asyncio.to_thread(current_db.update_product, product_id, barcode="")
+        await fsm_edit(state, message, "✅ Штрихкод удалён.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
+        await clear_state_keep_org(state)
+        return
+
+    if len(raw) < 3:
+        await fsm_edit(state, message, "❌ Штрихкод слишком короткий (мин. 3 символа). Введите снова:", reply_markup=_edit_bc_kb)
+        return
+    if len(raw) > 100:
+        await fsm_edit(state, message, "❌ Штрихкод слишком длинный (макс. 100 символов):", reply_markup=_edit_bc_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, raw)
+    if existing_bc and existing_bc[0] != product_id:
+        await fsm_edit(
+            state, message,
+            f"❌ Штрихкод <code>{he(raw)}</code> уже используется товаром «{he(existing_bc[1])}».\n\nВведите другой:",
+            reply_markup=_edit_bc_kb
+        )
+        return
+
+    await asyncio.to_thread(current_db.update_product, product_id, barcode=raw)
+    product = await current_db.get_product(product_id)
+    await fsm_edit(
+        state, message,
+        f"✅ Штрихкод обновлён!\n\n"
+        f"🏷 {he(product[1] if product else '')}\n"
+        f"🔖 Артикул: <code>{he(product[7] if product and len(product)>7 and product[7] else '—')}</code>\n"
+        f"📦 Штрихкод: <code>{he(raw)}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]])
+    )
+    await clear_state_keep_org(state)
+
 
 async def _render_delete_product_page(callback: CallbackQuery, state: FSMContext, page: int = 0):
     """Отрисовка страницы удаления товара с пагинацией."""
