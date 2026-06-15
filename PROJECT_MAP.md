@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-14 (сессия 676: APK build — bubblewrap заменён на прямой Gradle build; android/ проект; /admin/apk; уведомления owner при новом APK) · 55 модулей · GitHub актуально · Amvera актуально
+> Последнее обновление: 2026-06-15 (сессия 714: Permissions-Policy camera=(self); разделение article/barcode в products; сканер при создании/редактировании товара; мобильная адаптация конструктора ценников с zoom-to-fit) · 55 модулей · GitHub актуально · Amvera актуально
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -68,7 +68,7 @@ Telegram API
 | Таблица | Описание |
 |---|---|
 | `users` | id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, **username** (индекс 12) |
-| `products` | id, name, category, price, motivation_type, motivation_value, **photo_file_id** TEXT (Telegram file_id), **description** TEXT — добавлены ALTER TABLE миграцией |
+| `products` | id[0], name[1], category[2], price[3], created_at[4], photo_file_id[5] TEXT (Telegram file_id), description[6] TEXT, **article**[7] TEXT UNIQUE (внутренний артикул орг., авто-генерируется), **barcode**[8] TEXT UNIQUE (штрихкод производителя, EAN-13/QR, опциональный) — article и barcode добавлены ALTER TABLE миграцией; позиционные индексы важны (row[7]/row[8] в handlers) |
 | `inventory` | id, shop_name, product_id, quantity, last_updated |
 | `inventory_history` | id, shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
 | `sales` | id, product_id, shop_name, quantity_sold, sale_price, user_id, sale_date |
@@ -121,7 +121,9 @@ idx_sales_user_date, idx_sales_shop_date, idx_inventory_shop_prod,
 idx_work_schedule_date, idx_seller_earnings_sale,
 idx_users_shop_name, idx_users_telegram_id,
 idx_absence_user (absence_records · user_id+start_date),
-idx_absence_status (absence_records · status)
+idx_absence_status (absence_records · status),
+idx_products_article (products · article WHERE article IS NOT NULL, UNIQUE),
+idx_products_barcode (products · barcode WHERE barcode IS NOT NULL AND TRIM(barcode)!='', UNIQUE)
 ```
 
 ---
@@ -951,7 +953,7 @@ web/
 - **Internal org chat (DM)**: `direct_messages` table in org_*.db; 9 DB-methods (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 file methods; WS /ws/chat/dm for real-time delivery; `chat_search?topic_id=0` merges topic+DM results; FAB badge = topicNew + dmUnread (`/api/unread-count .dms`)
 - **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
 - **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
-- **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod
+- **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(self)`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod. **⚠️ camera=(self)** — пустые скобки `camera=()` молча блокируют getUserMedia без промпта и без записи в разрешениях браузера; всегда разрешать камеру для своего origin
 - **Session cookie security**: `httponly=True`, `secure=True`, `samesite='lax'`, `max_age=7d`; secret derived from `SHA256(BOT_TOKEN)` — rotates automatically if BOT_TOKEN changes
 - **CSRF**: all POST routes use `verify_csrf_token(request, form_token)` — token is HMAC-SHA256 of session JWT, deterministic per session, checked with `hmac.compare_digest`; GET `/auth/code` serves `login_nonce`; POST verifies via `verify_login_nonce()`
 - **Telegram auth**: `verify_telegram_auth()` checks HMAC against BOT_TOKEN + rejects `auth_date` older than 24h

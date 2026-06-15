@@ -88,6 +88,9 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 
 ## Gotchas
 
+0. **`Permissions-Policy: camera=()`** — пустые скобки МОЛЧА блокируют `getUserMedia` без промпта и без записи в разрешениях браузера. Всегда ставить `camera=(self)` в `SecurityHeadersMiddleware` (`web/app.py`). Симптом: другие сайты спрашивают камеру, наш — нет. Диагноз: grep `Permissions-Policy` в `web/app.py`.
+0b. **`products` row positional indices**: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6] **article**[7] **barcode**[8] — barcode добавлен 2026-06-15; все `row[:7]` срезы в ranking/label не включают barcode — проверять при новых фичах.
+
 1. `clear_state_keep_org(state)` **AFTER** `fsm_edit(...)`, never before — otherwise state clears before message edits
 2. `plans_progress = []` must be initialized **before** try/except — NameError if exception and variable unused
 3. `state.clear()` is **banned** — always use `clear_state_keep_org(state)` (preserves `selected_org_db`)

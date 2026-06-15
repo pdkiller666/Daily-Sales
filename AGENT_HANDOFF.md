@@ -36,6 +36,20 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
+**Сессии 711–714 (2026-06-15) — штрихкоды, мобильные ценники, камера TWA:**
+
+- **Сессия 711 (фикс камеры)**: `Permissions-Policy: camera=()` в `SecurityHeadersMiddleware` (`web/app.py` строки 122-124) молча блокировал `getUserMedia` во всех контекстах (regular Chrome, installed PWA, TWA) без промпта и без записи разрешений. Исправлено на `camera=(self)`. GitHub `2ac9f72` · Amvera `3fea13e`. Урок: всегда проверять `Permissions-Policy` ПЕРВЫМ когда камера не запрашивается.
+
+- **Сессия 712 (Task #53 — мобильный конструктор ценников)**: `web/templates/products/label.html` — A4-лист (210mm/~794px) обёрнут в `<div class="sheet-scroll-wrap">` с `overflow-x:auto`; кнопка «↔ Вписать» (zoom-to-fit, Alpine `toggleZoom()`, scale factor = `(vw-32)/794`, только ≤640px); тулбар — `min-height:44px` на всех кнопках, кнопка «🖨 Печать» скрыта на мобильном; дизайн-панель — `width:100%` полях, крупные цветовые пикеры. GitHub `f612210` · Amvera `dd365bd`.
+
+- **Сессия 713 (Tasks #54+#57 — auto-fit + zoom стабильность)**: auto-fit при открытии на телефоне (`init()` проверяет `window.innerWidth<=640` → `$nextTick(() => this.toggleZoom())`); zoom сохраняется при переключении размера ценника (`$watch('size', ...)` → `$nextTick(() => this._applyZoom())`); рефактор `_applyZoom()` как отдельный метод. GitHub `a63ec12` · Amvera `dec00e9`.
+
+- **Сессия 714 (Tasks #56+#58+#59 — barcode/article + zoom on rotation + pinch-zoom fix)**:
+  - **#56 — разделение article и barcode**: новая колонка `barcode TEXT` в `products` (org_*.db) с уникальным частичным индексом `idx_products_barcode`; `get_product_by_barcode()` + `add_product(barcode=)` + `update_product(barcode=)`; бот — шаг «Штрихкод» при создании товара (FSM `waiting_for_barcode`) с кнопками «📸 Сканировать» / «⏭ Пропустить», редактирование штрихкода отдельным пунктом; `process_barcode_photo` в `sales_handlers.py` ищет сначала по `get_product_by_barcode`, потом fallback на `get_product_by_article`; поиск товаров в боте и веб охватывает `barcode`(индекс 8) и `article`(индекс 7); веб-форма (`form.html`, `detail.html`, `index.html`) — поле barcode + кнопка-сканер.
+  - **#58** — zoom-to-fit перезапускается при повороте экрана (debounced `resize` listener).
+  - **#59** — `_applyZoom()` использует `document.documentElement.clientWidth` (layout viewport, не зависит от pinch-zoom); VisualViewport API подавляет refit во время активного пинч-зума, при повороте — всегда refits.
+  - GitHub `c8b5e8b` · Amvera `7e7b8d3`.
+
 **Сессия 676 (2026-06-14) — ФИНАЛЬНЫЙ ФИК: bubblewrap заменён на прямой Gradle build:**
 
 **Проблема:** bubblewrap CLI стабильно падал в GitHub Actions с `cli ERROR The provided androidSdk isn't correct` — 36 сборок, 25+ различных попыток. Ни симлинк `cmdline-tools/latest`, ни `android-actions/setup-android@v3`, ни ручная конфигурация SDK не помогали. Bubblewrap имеет жёсткую внутреннюю валидацию пути, которая не проходит ни в одной из конфигураций CI.

@@ -1,6 +1,7 @@
 - [UX hub pattern](ux-hub-pattern.md) — консолидация кнопок в хаб-меню: 3→1 кнопка + промежуточный экран; back из хаба → родительское меню
 - [Dashboard в главном меню](menu-dashboard.md) — `_quick_menu_summary()` в handlers.py: sync DB-методы в async OK (SQLite fast), всё в try/except, пустая строка при любой ошибке
-- [Product photo/description columns](product-photo-desc.md) — products table: id(0) name(1) category(2) price(3) created_at(4) photo_file_id(5) description(6); added via ALTER TABLE migration guard
+- [Product photo/description columns](product-photo-desc.md) — products table full: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6] article[7] barcode[8]; barcode added 2026-06-15
+- [Camera Permissions-Policy block](twa-camera-permission.md) — camera=() in Permissions-Policy silently blocks getUserMedia with no prompt/entry; must use camera=(self)
 - [Addon limits use shop_bot.db](addon-limits.md) — subscription_addons always stored in shop_bot.db; _get_addon_totals_for_user() reads SHOP_BOT_DB directly regardless of org context
 - [Money-grant paths idempotent+tested](money-grant-paths.md) — оплата→выдача: идемпотентность по payment_request_id + регресс-тест; внешний except глотает ошибки выдачи (был инцидент: addon в несуществующую колонку)
 - [Addon plan_type routing](confirm-payment-addon.md) — confirm_payment_request: plan_type starting 'addon_' calls create_subscription_addon instead of create_subscription; format: addon_shops_1, addon_products_1
