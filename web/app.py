@@ -117,7 +117,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), payment=(self)"
+            "camera=(self), microphone=(), geolocation=(), payment=(self)"
         )
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Content-Security-Policy"] = _CSP

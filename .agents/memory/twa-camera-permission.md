@@ -24,26 +24,27 @@ first attempt the stream was null, so retry showed a **black screen** and did no
 **Error copy is context-aware:** in standalone mode (`matchMedia('(display-mode: standalone)')`)
 there is no address bar, so the "tap 🔒 near the address bar" hint is replaced with TWA guidance.
 
-## Chrome stores the camera denial per-origin, NOT in the Android app
+## NEVER gate the camera flow on navigator.permissions.query in a TWA
 
-**Rule:** Once the user taps "Block" in Chrome's camera prompt, Chrome remembers the denial for
-that *origin* — independently of the Android app's CAMERA permission. Granting the Android app
-permission AND reinstalling the TWA APK does **not** clear it, because Chrome is a separate app
-with its own per-site data. `navigator.permissions.query({name:'camera'})` then returns `denied`
-and `getUserMedia` rejects instantly.
+**Rule:** Do **not** add a pre-flight `navigator.permissions.query({name:'camera'})` that
+early-returns/shows an error when state is `denied`. In the TWA wrapper this query returns `denied`
+**falsely** — even when there is NO site-level camera block (Chrome → Site settings → the origin
+shows only Notifications/Sound, no Camera entry) and the global "sites can ask" is on. Gating on it
+means `getUserMedia` is never called, so Chrome's in-page camera prompt never appears and the user
+can never grant — a self-inflicted dead end.
 
-**Why:** TWA web content runs in Chrome; Chrome owns the web-origin permission, the Android OS owns
-the app permission. Both must allow camera. The Android grant is necessary but not sufficient.
+**Why:** In a TWA, camera is **not** delegated to the Android app the way notifications/geolocation
+are. `getUserMedia` triggers Chrome's own in-page permission prompt; that call is the only reliable
+source of truth. The permissions API is unreliable in the TWA context. The Android app's CAMERA
+manifest permission is still required (for hardware access), but it is necessary, not sufficient —
+the actual grant happens through Chrome's getUserMedia prompt.
 
-**The only reliable user fix** (the per-site "Camera" list often doesn't show the origin):
-Chrome app → ⋮ → Settings → Site settings → **All sites** → find the origin → **"Clear & reset"**.
-This wipes the remembered denial AND the service-worker cache, so the next getUserMedia prompts fresh
-and the new template loads. We do a pre-flight `navigator.permissions.query({name:'camera'})` and, if
-`denied`, show this Clear&Reset instruction instead of attempting getUserMedia.
-
-**How to apply:** pre-flight check + denied-state copy live in both scanner templates
-(`web/templates/pos/index.html`, `web/templates/sales/index.html` — duplicated scanner logic, fix
-both). Manifest CAMERA permission in `android/app/src/main/AndroidManifest.xml`.
+**How to apply:** the scanner in both templates (`web/templates/pos/index.html`,
+`web/templates/sales/index.html` — duplicated, fix both) must call `getUserMedia` directly and only
+show an error in the `catch` (NotAllowedError → context-aware copy). Manifest CAMERA permission in
+`android/app/src/main/AndroidManifest.xml`. If a user ever DID tap "Block" in Chrome's prompt, the
+fix is Chrome → ⋮ → Settings → Site settings → All sites → origin → "Clear & reset" (forces a fresh
+prompt); but do not assume denial in code — let getUserMedia prompt every time.
 
 ## Re-entry guard (run token)
 
