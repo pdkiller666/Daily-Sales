@@ -1046,7 +1046,10 @@ def api_product_by_article(request: Request, q: str = ""):
     if not q or not q.strip():
         return JSONResponse({"ok": False, "error": "q required"}, status_code=400)
     db = get_web_db(int(user["sub"]), user.get("org_db") or "")
-    row = db.get_product_by_article(q.strip())
+    q_clean = q.strip()
+    row = db.get_product_by_article(q_clean)
+    if not row:
+        row = db.get_product_by_barcode(q_clean)
     if not row:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
     return JSONResponse({

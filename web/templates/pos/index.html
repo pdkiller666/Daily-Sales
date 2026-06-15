@@ -1071,7 +1071,7 @@ function posApp() {
                         return;
                     }
                 }
-                this.scanError = '🔍 Товар с артикулом «' + code + '» не найден в базе.';
+                this.scanError = '🔍 Товар с артикулом или штрихкодом «' + code + '» не найден в базе.';
             } catch (_) {
                 this.scanError = '❌ Ошибка соединения при поиске товара.';
             }
