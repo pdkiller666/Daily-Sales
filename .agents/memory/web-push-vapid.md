@@ -33,5 +33,12 @@ description: web/push_utils.py API (single/bulk/async), where pushes are wired, 
 - **Приложение НЕ может писать env-переменные Amvera изнутри контейнера** — модель только «сгенерировал → скопировал → вставил в Amvera вручную → перезапуск».
 - **Ротация VAPID обнуляет все `push_subscriptions`** (старый applicationServerKey больше не валиден) — юзеры переподписываются. Безопасно только при первичной настройке.
 
+## ROOT CAUSE: "Could not deserialize key data ... ASN.1 parsing error: invalid length"
+**Symptom:** push fails for ALL subscriptions with that ValueError, persists even after generating brand-new keys.
+**Cause:** pywebpush 2.x passes the key string to py_vapid `Vapid.from_string()` (NOT `from_pem`). `from_string` only `.replace("\n","")` then `b64urldecode(WHOLE string)` — it does NOT strip the `-----BEGIN/END-----` armor, so any **PEM** input gets mangled → truncated DER → "invalid length". `from_pem` would strip the armor, but pywebpush never calls it for a string arg (only for file paths / Vapid instances).
+**Fix:** `_normalize_vapid_key()` must output **single-line url-safe base64 PKCS8 DER** (~184 chars, no newlines, no armor), NOT PEM. Convert every input (PEM/collapsed-PEM/DER-b64/raw-32B-scalar/explicit-params-via-openssl) into a `cryptography` key object, then `private_bytes(DER, PKCS8) → urlsafe_b64encode → rstrip("=")`.
+**Why this matters:** earlier "fixes" that normalized TO PEM made it worse. The whole point is the format py_vapid.from_string round-trips. Verify any change with `Vapid02.from_string(private_key=normalized)`.
+**How to apply:** never return a PEM from `_normalize_vapid_key`; admin generator can still SHOW PEM, but the env value that works is the single-line url-safe DER.
+
 ## Gotcha: VAPID_PRIVATE_KEY shows "Не настроен" despite being set
 **Symptom:** диагностика/`_is_configured()` = False хотя ключ задан в env. **Cause:** многострочный PEM, вставленный в env-UI хостинга (Amvera), приходит с ведущим `\n`/пробелом/кавычками → `startswith("-----BEGIN")` ломается → Web Push молча выключен (отправка тоже гейтится `_is_configured`). **Fix:** `_VAPID_PRIVATE` чистится `.strip().strip('"').strip("'").strip()`; `_is_configured()` лоялен — `"BEGIN" in ... and "KEY" in ...` (PEM) ИЛИ компактная base64 ≥20 без пробелов (raw url-safe ключ). Не возвращать к строгому `startswith`.
