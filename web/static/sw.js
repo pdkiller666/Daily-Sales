@@ -1,5 +1,5 @@
-/* DailySales Service Worker v7 */
-const CACHE_NAME = 'dailysales-v7';
+/* DailySales Service Worker v8 */
+const CACHE_NAME = 'dailysales-v8';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
@@ -102,16 +102,39 @@ self.addEventListener('notificationclick', e => {
 
 /* ── Push subscription change ── */
 self.addEventListener('pushsubscriptionchange', e => {
-    /* Re-subscribe automatically and send new subscription to server */
-    if (!e.oldSubscription) return;   /* guard: old sub may be null */
-    e.waitUntil(
-        self.registration.pushManager.subscribe(e.oldSubscription.options)
-            .then(sub => fetch('/api/push/subscribe', {
+    /* Re-subscribe automatically and send new subscription to server.
+       NOTE: e.oldSubscription can be null on Chrome/Android — the old guard
+       `if (!e.oldSubscription) return` was a bug that silently abandoned renewal.
+       Strategy (most → least capable):
+         1. e.newSubscription  — some browsers provide the renewed sub directly
+         2. getSubscription()  — existing sub still valid, just re-sync to server
+         3. subscribe(opts)    — expired; re-create using oldSubscription.options  */
+    e.waitUntil((async () => {
+        try {
+            /* 1. Browser already renewed it */
+            if (e.newSubscription) {
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(e.newSubscription.toJSON()),
+                    credentials: 'same-origin',
+                });
+                return;
+            }
+            /* 2. Current subscription may still be alive */
+            let sub = await self.registration.pushManager.getSubscription();
+            if (!sub) {
+                /* 3. Expired — re-subscribe using old options (carries applicationServerKey) */
+                const opts = e.oldSubscription && e.oldSubscription.options;
+                if (!opts) return; /* no options → can't re-subscribe without server key */
+                sub = await self.registration.pushManager.subscribe(opts);
+            }
+            await fetch('/api/push/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(sub.toJSON()),
                 credentials: 'same-origin',
-            }))
-            .catch(() => {})
-    );
+            });
+        } catch (_) { /* best-effort */ }
+    })());
 });

@@ -318,6 +318,130 @@
         </div>
         {% endif %}
 
+        <!-- Push diagnostics card -->
+        <div class="card p-5" id="push-diag"
+             x-data="{
+                loading: true,
+                vapid: null,
+                subs: null,
+                perm: null,
+                msg: '',
+                msgOk: true,
+                async init() {
+                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                    try {
+                        const r = await fetch('/api/push/status', {credentials:'same-origin'});
+                        const d = await r.json();
+                        if (d.ok) { this.vapid = d.vapid; this.subs = d.subs_count; }
+                    } catch(e) {}
+                    this.loading = false;
+                },
+                async test() {
+                    this.msg = ''; this.msgOk = true;
+                    if (this.perm !== 'granted') {
+                        await window.dsSubscribeWebPush();
+                        this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                    }
+                    const r = await fetch('/api/push/test', {method:'POST', credentials:'same-origin'});
+                    const d = await r.json();
+                    this.msg = d.msg || (d.ok ? '✅ Отправлено' : '❌ Ошибка');
+                    this.msgOk = d.ok;
+                    if (d.ok) { this.subs = (this.subs || 0) + 1; }
+                    if (!d.ok && (d.code === 'no_subscriptions' || d.code === 'send_failed')) {
+                        const r2 = await fetch('/api/push/status', {credentials:'same-origin'});
+                        const d2 = await r2.json();
+                        if (d2.ok) this.subs = d2.subs_count;
+                    }
+                },
+                async reconnect() {
+                    this.msg = '⏳ Переподключение…'; this.msgOk = true;
+                    await window.dsPushReconnect();
+                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                    const r = await fetch('/api/push/status', {credentials:'same-origin'});
+                    const d = await r.json();
+                    if (d.ok) { this.vapid = d.vapid; this.subs = d.subs_count; }
+                    this.msg = '✅ Готово — попробуйте «Проверить»';
+                }
+             }">
+            <h2 class="font-semibold text-slate-800 mb-3">🔔 Диагностика push-уведомлений</h2>
+
+            <div x-show="loading" class="text-xs text-slate-400 py-2">Загрузка…</div>
+
+            <template x-if="!loading">
+                <div class="space-y-2.5">
+                    <!-- Browser permission -->
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-slate-600">Разрешение браузера</span>
+                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                              :class="{
+                                'bg-emerald-100 text-emerald-700': perm === 'granted',
+                                'bg-red-100 text-red-600': perm === 'denied',
+                                'bg-amber-100 text-amber-700': perm === 'default',
+                                'bg-slate-100 text-slate-500': perm === 'unsupported'
+                              }"
+                              x-text="perm === 'granted' ? '✅ Разрешено' : perm === 'denied' ? '🚫 Запрещено' : perm === 'default' ? '⏳ Не запрошено' : '— Не поддерживается'">
+                        </span>
+                    </div>
+
+                    <!-- Server subscriptions -->
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-slate-600">Подписок на сервере</span>
+                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                              :class="{
+                                'bg-emerald-100 text-emerald-700': subs > 0,
+                                'bg-amber-100 text-amber-700': subs === 0
+                              }"
+                              x-text="subs === null ? '…' : subs > 0 ? '✅ ' + subs + ' устр.' : '⚠️ Нет'">
+                        </span>
+                    </div>
+
+                    <!-- VAPID -->
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-slate-600">VAPID-ключи (сервер)</span>
+                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                              :class="{
+                                'bg-emerald-100 text-emerald-700': vapid === true,
+                                'bg-red-100 text-red-600': vapid === false
+                              }"
+                              x-text="vapid === null ? '…' : vapid ? '✅ Настроены' : '❌ Не настроены'">
+                        </span>
+                    </div>
+
+                    <!-- Huawei hint -->
+                    <div x-show="subs !== null && subs === 0 && perm === 'granted'"
+                         class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-1">
+                        Подписка не зарегистрирована. Нажмите «Переподключить» чтобы восстановить её.
+                    </div>
+                    <div x-show="perm === 'denied'"
+                         class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mt-1">
+                        Уведомления заблокированы в настройках браузера. Разрешите их вручную и нажмите «Переподключить».
+                    </div>
+
+                    <!-- Result message -->
+                    <div x-show="msg"
+                         :class="msgOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
+                         class="text-xs rounded-lg px-3 py-2 mt-1" x-text="msg">
+                    </div>
+
+                    <!-- Action buttons -->
+                    <div class="flex gap-2 pt-1">
+                        <button @click="test()"
+                                :disabled="vapid === false"
+                                class="flex-1 py-2 text-sm font-semibold rounded-xl transition-colors
+                                       bg-blue-600 hover:bg-blue-700 text-white
+                                       disabled:opacity-40 disabled:cursor-not-allowed">
+                            🔔 Проверить
+                        </button>
+                        <button @click="reconnect()"
+                                class="flex-1 py-2 text-sm font-semibold rounded-xl border border-slate-200
+                                       text-slate-600 hover:bg-slate-50 transition-colors">
+                            🔄 Переподключить
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
         <!-- APK notification toggle — separate form -->
         <div class="card p-5">
             <h2 class="font-semibold text-slate-800 mb-1">📱 Уведомления об обновлении APK</h2>

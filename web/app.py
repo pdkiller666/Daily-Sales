@@ -128,12 +128,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             )
         path = request.url.path
         ct = response.headers.get("content-type", "")
-        if path.startswith("/static/"):
+        if path == "/sw.js" or path.startswith("/sw.js?"):
+            # Service Worker must NEVER be cached — browser must always check for
+            # updates so a new SW version is picked up immediately on next page load.
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        elif path.startswith("/static/"):
             # Long-lived cache for immutable static assets (versioned by deploy)
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif "text/html" in ct or (
-            not path.startswith("/sw.js")
-            and not path.startswith("/api/")
+            not path.startswith("/api/")
             and not path.endswith((".js", ".css", ".png", ".jpg", ".ico", ".webp", ".woff2"))
         ):
             # No caching for HTML and dynamic responses

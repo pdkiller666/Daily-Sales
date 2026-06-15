@@ -229,6 +229,31 @@ def unread_count(request: Request):
         return {"ok": False, "total": 0, "notifs": 0, "dms": 0}
 
 
+@router.get("/push/status")
+def push_status(request: Request):
+    """Diagnostic endpoint: VAPID configured + server-side subscription count.
+
+    Returns:
+      vapid      — True if VAPID private key is configured on the server
+      subs_count — number of active push subscriptions for this user in DB
+      permission — placeholder ("unknown"); actual browser permission is
+                   read client-side via Notification.permission
+    """
+    from web.auth import get_session_user
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    tg_id = int(user["sub"])
+    try:
+        from web.push_utils import is_configured, _get_subscriptions
+        vapid = is_configured()
+        subs_count = len(_get_subscriptions(tg_id))
+        return {"ok": True, "vapid": vapid, "subs_count": subs_count, "permission": "unknown"}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "vapid": False, "subs_count": 0,
+                             "permission": "unknown", "error": str(exc)}, status_code=500)
+
+
 @router.get("/push/vapid-public-key")
 def push_vapid_key(request: Request):
     """Return VAPID public key for browser subscription."""
@@ -242,24 +267,51 @@ def push_vapid_key(request: Request):
 
 @router.post("/push/test")
 async def push_test(request: Request):
-    """Send a test push to the current user (for QA / debugging)."""
+    """Send a test push to the current user (for QA / debugging).
+
+    Returns honest diagnostic info:
+      ok=True  + code="ok"               — sent successfully
+      ok=False + code="vapid_missing"    — VAPID keys not configured on server
+      ok=False + code="no_subscriptions" — browser sub not registered / expired
+      ok=False + code="send_failed"      — subscriptions found but push service rejected all
+      ok=False + code="error"            — unexpected exception
+    """
     from web.auth import get_session_user
     user = get_session_user(request)
     if not user:
-        return JSONResponse({"ok": False}, status_code=401)
+        return JSONResponse({"ok": False, "code": "auth"}, status_code=401)
     tg_id = int(user["sub"])
     try:
-        from web.push_utils import send_web_push
         import asyncio
-        await asyncio.to_thread(
+        from web.push_utils import send_web_push, is_configured, _get_subscriptions
+        if not is_configured():
+            return JSONResponse({
+                "ok": False, "code": "vapid_missing",
+                "msg": "VAPID-ключи не настроены на сервере",
+            })
+        subs_count = len(_get_subscriptions(tg_id))
+        if subs_count == 0:
+            return JSONResponse({
+                "ok": False, "code": "no_subscriptions",
+                "msg": "Нет активных подписок — браузер не зарегистрирован",
+            })
+        result = await asyncio.to_thread(
             send_web_push, tg_id,
             "🔔 Тестовое уведомление",
             "Push-уведомления работают корректно ✅",
             "/dashboard",
         )
-        return {"ok": True, "msg": "Тестовый push отправлен"}
+        sent = result.get("sent", 0) if isinstance(result, dict) else 0
+        gone = result.get("gone", 0) if isinstance(result, dict) else 0
+        if sent == 0:
+            return JSONResponse({
+                "ok": False, "code": "send_failed",
+                "msg": f"Подписок найдено: {subs_count}, отправлено: 0, просрочено: {gone}",
+            })
+        return {"ok": True, "code": "ok", "sent": sent,
+                "msg": f"Тестовый push отправлен на {sent} устройств(а)"}
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "code": "error", "error": str(exc)}, status_code=500)
 
 
 @router.post("/push/subscribe")

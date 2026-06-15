@@ -936,18 +936,51 @@ window.dsRefreshBadge = function() {
     /* Re-check when user opens the More sheet */
     document.addEventListener('ds-open-more', function () { setTimeout(_showPrompt, 50); });
 
-    /* Test push (called from More sheet "Проверить" button) */
+    /* Force-resubscribe: unsubscribe browser + clear server record, then re-subscribe fresh */
+    window.dsPushReconnect = async function () {
+        const btn = document.getElementById('ds-push-reconnect-btn');
+        if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
+        try {
+            await window.dsUnsubscribeWebPush();
+            sessionStorage.removeItem('ds_push_synced');
+            await window.dsSubscribeWebPush();
+            if (btn) { btn.textContent = '✅ Готово'; btn.disabled = false; }
+        } catch (_) {
+            if (btn) { btn.textContent = '❌'; btn.disabled = false; }
+        }
+        setTimeout(() => { if (btn) { btn.textContent = '🔄'; btn.disabled = false; } }, 3000);
+    };
+
+    /* Test push (called from More sheet "Проверить" button).
+       If server reports no_subscriptions — auto-reconnect and retry once. */
     window.dsPushTest = async function () {
         const btn = document.getElementById('ds-push-test-btn');
         if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
         try {
-            /* Ensure subscription is active first */
+            /* Ensure current browser subscription is synced to server */
             await window.dsSubscribeWebPush();
-            const res = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
-            const d = await res.json();
-            if (btn) { btn.textContent = d.ok ? '✅ Отправлено' : '❌ Ошибка'; btn.disabled = false; }
-            setTimeout(() => { if (btn) btn.textContent = 'Проверить'; }, 4000);
-        } catch (err) {
+            let res = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
+            let d = await res.json();
+
+            /* Auto-recovery: no subscription on server → force full reconnect + retry */
+            if (!d.ok && d.code === 'no_subscriptions') {
+                if (btn) btn.textContent = '🔄...';
+                await window.dsUnsubscribeWebPush();
+                sessionStorage.removeItem('ds_push_synced');
+                await window.dsSubscribeWebPush();
+                res = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
+                d = await res.json();
+            }
+
+            let label;
+            if (d.ok)                          label = '✅ Отправлено';
+            else if (d.code === 'vapid_missing') label = '⚙️ Нет VAPID';
+            else if (d.code === 'no_subscriptions') label = '🔕 Нет подписки';
+            else if (d.code === 'send_failed')  label = '📵 Не доставлено';
+            else                               label = '❌ Ошибка';
+            if (btn) { btn.textContent = label; btn.disabled = false; }
+            setTimeout(() => { if (btn) btn.textContent = 'Проверить'; }, 5000);
+        } catch (_) {
             if (btn) { btn.textContent = '❌ Ошибка'; btn.disabled = false; }
             setTimeout(() => { if (btn) btn.textContent = 'Проверить'; }, 4000);
         }
@@ -2108,12 +2141,15 @@ function mainApp() {
             <span class="flex-1 leading-snug">Уведомления заблокированы в браузере. Чтобы включить — откройте <b>Настройки сайта</b> в браузере и разрешите уведомления для этого сайта.</span>
             <button onclick="document.getElementById('ds-notif-denied').classList.add('hidden')" class="shrink-0 text-amber-400 hover:text-amber-600 text-base leading-none px-1">×</button>
         </div>
-        <!-- Notification granted: test push button -->
+        <!-- Notification granted: test push + reconnect buttons -->
         <div id="ds-notif-granted"
              class="hidden flex items-center gap-2.5 p-3 bg-green-50 border border-green-100 rounded-xl text-xs text-green-800">
             <span class="text-lg shrink-0">🔔</span>
             <span class="flex-1 leading-snug">Push-уведомления <b>включены</b></span>
-            <button id="ds-push-test-btn" onclick="dsPushTest()" class="shrink-0 px-2.5 py-1 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors">Проверить</button>
+            <div class="flex items-center gap-1 shrink-0">
+                <button id="ds-push-test-btn" onclick="dsPushTest()" class="px-2.5 py-1 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors">Проверить</button>
+                <button id="ds-push-reconnect-btn" onclick="dsPushReconnect()" title="Переподключить уведомления (если не приходят)" class="px-2 py-1 bg-slate-400 text-white rounded-lg font-semibold hover:bg-slate-500 transition-colors">🔄</button>
+            </div>
         </div>
 
         <!-- PWA install prompt -->

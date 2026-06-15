@@ -38,6 +38,11 @@ def _vapid_claims() -> dict:
     return {"sub": _VAPID_MAILTO}
 
 
+def is_configured() -> bool:
+    """Public helper — returns True when VAPID private key is present and valid."""
+    return _is_configured()
+
+
 def _is_configured() -> bool:
     # Accept both PEM (PKCS8/SEC1 "-----BEGIN ... KEY-----") and raw url-safe
     # base64 application-server keys. Be lenient about exact prefix/whitespace.
@@ -159,22 +164,59 @@ def _push_to_user(tg_id: int, payload: bytes, webpush, WebPushException) -> int:
     return sent
 
 
-def send_web_push(tg_id: int, title: str, body: str, url: str = "/dashboard", badge: int = 1):
-    """Send a Web Push notification to all browser subscriptions of tg_id."""
+def send_web_push(
+    tg_id: int, title: str, body: str, url: str = "/dashboard", badge: int = 1
+) -> dict:
+    """Send a Web Push notification to all browser subscriptions of tg_id.
+
+    Returns a dict: {"sent": int, "failed": int, "gone": int, "subs_found": int,
+                     "vapid": bool, "code": str}
+    Code values: "ok" | "vapid_missing" | "no_subscriptions" | "import_error"
+    """
     if not _is_configured():
-        return
+        return {"sent": 0, "failed": 0, "gone": 0, "subs_found": 0,
+                "vapid": False, "code": "vapid_missing"}
     try:
         tg_id = int(tg_id)
     except (ValueError, TypeError):
-        return
-    if not _get_subscriptions(tg_id):
-        return
+        return {"sent": 0, "failed": 0, "gone": 0, "subs_found": 0,
+                "vapid": True, "code": "no_subscriptions"}
+    subs = _get_subscriptions(tg_id)
+    if not subs:
+        return {"sent": 0, "failed": 0, "gone": 0, "subs_found": 0,
+                "vapid": True, "code": "no_subscriptions"}
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
         logger.warning("push_utils: pywebpush not installed")
-        return
-    _push_to_user(tg_id, _build_payload(title, body, url, badge), webpush, WebPushException)
+        return {"sent": 0, "failed": 0, "gone": 0, "subs_found": len(subs),
+                "vapid": True, "code": "import_error"}
+    sent = failed = gone = 0
+    payload = _build_payload(title, body, url, badge)
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=_VAPID_PRIVATE,
+                vapid_claims=_vapid_claims(),
+            )
+            sent += 1
+        except Exception as exc:
+            _gone = False
+            try:
+                if isinstance(exc, WebPushException) and exc.response is not None:
+                    _gone = exc.response.status_code in (404, 410)
+            except Exception:
+                pass
+            if _gone:
+                _delete_subscription(tg_id, sub["endpoint"])
+                gone += 1
+            else:
+                logger.warning("push_utils push tg_id=%s: %s", tg_id, exc)
+                failed += 1
+    return {"sent": sent, "failed": failed, "gone": gone, "subs_found": len(subs),
+            "vapid": True, "code": "ok" if sent > 0 else "send_failed"}
 
 
 def send_web_push_bulk(tg_ids, title: str, body: str, url: str = "/dashboard", badge: int = 1) -> int:
