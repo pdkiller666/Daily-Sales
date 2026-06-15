@@ -196,8 +196,10 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         try:
             from billing_utils import is_extension_denied as _ied
             ctx["barcode_locked"] = _ied(telegram_id, "barcodes")
+            ctx["labels_locked"] = _ied(telegram_id, "labels")
         except Exception:
             ctx["barcode_locked"] = False
+            ctx["labels_locked"] = False
 
         # ── ABC-анализ: выручка по товарам за 90 дней ────────────────────────
         try:

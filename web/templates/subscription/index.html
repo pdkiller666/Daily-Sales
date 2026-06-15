@@ -155,6 +155,30 @@
 </div>
 {% endif %}
 
+{% if need_ext %}
+<div class="mb-5 rounded-2xl border-2 border-violet-400 bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/30 dark:to-purple-900/20 dark:border-violet-600 overflow-hidden">
+    <div class="flex items-start gap-4 p-4">
+        <div class="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-800/50 flex items-center justify-center text-2xl shrink-0">{{ need_ext.icon }}</div>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+                <p class="font-bold text-violet-900 dark:text-violet-100 text-base">{{ need_ext.name }}</p>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-200 dark:bg-violet-700 text-violet-800 dark:text-violet-200">{{ need_ext.price_fmt }}</span>
+            </div>
+            {% if need_ext.description %}
+            <p class="text-sm text-violet-700 dark:text-violet-300">{{ need_ext.description }}</p>
+            {% endif %}
+            <p class="text-xs text-violet-500 dark:text-violet-400 mt-1.5">Перейдите во вкладку «Расширения» и нажмите «Подключить».</p>
+        </div>
+    </div>
+    <div class="px-4 pb-4">
+        <a href="/subscription?tab=extensions&need={{ need_ext.key }}"
+           class="inline-flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+            ⚡ Подключить расширение →
+        </a>
+    </div>
+</div>
+{% endif %}
+
 {% if has_pending %}
 <div class="mb-5 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl text-sm text-amber-700">
     <span class="text-xl shrink-0">⏳</span>

@@ -133,16 +133,22 @@
         {% endif %}
     </div>
 </div>
-{% elif (is_owner or is_admin) and barcode_locked %}
+{% elif (is_owner or is_admin) and (barcode_locked or labels_locked) %}
 <div class="mb-5 flex items-center gap-4 p-4 bg-violet-50 border border-violet-200 rounded-xl">
     <div class="text-2xl shrink-0">🏷️</div>
     <div class="flex-1 min-w-0">
         <p class="font-semibold text-violet-900 text-sm">Штрихкоды и ценники</p>
         <p class="text-xs text-violet-600 mt-0.5">Сканируйте товары камерой и печатайте профессиональные ценники с QR-кодом</p>
     </div>
-    <a href="/subscription" class="shrink-0 text-xs font-semibold px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors whitespace-nowrap">
+    {% if barcode_locked %}
+    <a href="/subscription?need=barcodes" class="shrink-0 text-xs font-semibold px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors whitespace-nowrap">
         Подключить →
     </a>
+    {% elif labels_locked %}
+    <a href="/subscription?need=labels" class="shrink-0 text-xs font-semibold px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors whitespace-nowrap">
+        Подключить →
+    </a>
+    {% endif %}
 </div>
 {% endif %}
 

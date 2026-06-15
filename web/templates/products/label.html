@@ -279,6 +279,42 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 }
 .btn-zoom-fit:hover { background: #475569; }
 .btn-zoom-fit.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.btn-zoom-fit.pinch-paused { opacity: .6; }
+.btn-zoom-fit.pinch-paused .zoom-fit-dot {
+    display: inline-block;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #facc15;
+    margin-left: 4px;
+    animation: zoom-pulse .8s ease-in-out infinite;
+}
+.zoom-fit-dot { display: none; }
+@keyframes zoom-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: .4; transform: scale(.6); }
+}
+
+/* ── Pinch-zoom percentage badge ── */
+.zoom-pct-badge {
+    position: fixed;
+    top: 62px;
+    right: 14px;
+    z-index: 100;
+    background: rgba(15, 23, 42, .82);
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 4px 11px;
+    border-radius: 20px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,.12);
+    opacity: 0;
+    transition: opacity .25s ease;
+}
+.zoom-pct-badge.visible { opacity: 1; }
+/* Only meaningful on mobile where pinch-zoom badge applies */
+@media (min-width: 641px) { .zoom-pct-badge { display: none; } }
 
 /* ── Mobile breakpoints ── */
 @media (max-width: 640px) {
@@ -444,7 +480,9 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
             <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
             {% endif %}
             <!-- Zoom-to-fit: visible only on mobile via CSS -->
-            <button class="btn-zoom-fit" :class="zoomed ? 'active' : ''" @click="toggleZoom()">↔ Вписать</button>
+            <button class="btn-zoom-fit" :class="{ active: zoomed, 'pinch-paused': pinchActive }" @click="toggleZoom()" :title="pinchActive ? 'Fit-zoom приостановлен — идёт pinch-zoom' : 'Вписать в экран'">↔ Вписать<span class="zoom-fit-dot"></span></button>
+            <!-- Pinch-zoom percentage badge (mobile only, positioned fixed via CSS) -->
+            <div class="zoom-pct-badge" :class="{ visible: showZoomPct }" aria-hidden="true" x-text="zoomPct + '%'"></div>
             <button class="btn-print" onclick="window.print()">🖨 Печать</button>
         </div>
     </div>
@@ -617,6 +655,9 @@ function labelSizer() {
         sizes: SIZES,
         size: new URLSearchParams(location.search).get('size') || '{{ initial_size | default("58x40") }}',
         zoomed: false,
+        pinchActive: false,
+        zoomPct: 100,
+        showZoomPct: false,
 
         init() {
             const saved = localStorage.getItem('ds_label_size');
@@ -660,11 +701,23 @@ function labelSizer() {
              */
             let _rzTimer = null;
             let _pinchActive = false;
+            let _pctFadeTimer = null;
 
             const scheduleRefit = () => {
                 if (!this.zoomed) return;
                 clearTimeout(_rzTimer);
                 _rzTimer = setTimeout(() => this._applyZoom(), 100);
+            };
+
+            const showZoomBadge = (scale) => {
+                this.zoomPct = Math.round(scale * 100);
+                this.showZoomPct = true;
+                clearTimeout(_pctFadeTimer);
+            };
+
+            const hideZoomBadgeDelayed = () => {
+                clearTimeout(_pctFadeTimer);
+                _pctFadeTimer = setTimeout(() => { this.showZoomPct = false; }, 900);
             };
 
             if (window.visualViewport) {
@@ -677,6 +730,16 @@ function labelSizer() {
                     const rotated = Math.abs(cw - _lastClientWidth) > 10;
 
                     _pinchActive = scale > 1.05;
+                    this.pinchActive = _pinchActive;
+
+                    /* Update zoom percentage badge */
+                    if (_pinchActive) {
+                        showZoomBadge(scale);
+                    } else if (_lastScale > 1.05) {
+                        /* Pinch just released — show final value then fade out */
+                        showZoomBadge(_lastScale);
+                        hideZoomBadgeDelayed();
+                    }
 
                     if (rotated) {
                         /* Orientation changed — always refit regardless of pinch */

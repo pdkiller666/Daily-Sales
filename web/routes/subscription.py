@@ -453,7 +453,7 @@ def _get_payment_requisites() -> str:
 
 
 @router.get("/subscription")
-def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
+def subscription_page(request: Request, msg: str = "", tab: str = "modules", need: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from billing_utils import get_active_billing_items
 
@@ -469,6 +469,9 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
     extensions = _get_all_billing_extensions()
     mmap = _modules_map(modules, extensions)
     requisites = _get_payment_requisites()
+
+    need = need.strip()[:64]
+    need_ext = next((e for e in extensions if e["key"] == need), None) if need else None
 
     if user.get("role") == "super_admin":
         return request.app.state.templates.TemplateResponse(
@@ -491,6 +494,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
                 "requisites": requisites,
                 "tariff": None,
                 "tariff_plans": [],
+                "need_ext": need_ext,
             },
         )
 
@@ -527,6 +531,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules"):
             "requisites": requisites,
             "tariff": tariff,
             "tariff_plans": tariff_plans,
+            "need_ext": need_ext,
         },
     )
 
