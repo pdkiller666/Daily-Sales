@@ -268,6 +268,31 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
     padding: 0 16px;
 }
 
+/* ── Pinch-zoom reset pill (appears when user has zoomed in) ── */
+.btn-pinch-reset {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    background: rgba(15, 23, 42, .88);
+    color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 24px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    white-space: nowrap;
+    transition: opacity .2s ease, transform .2s ease;
+    touch-action: manipulation;
+}
+.btn-pinch-reset:active { background: rgba(37, 99, 235, .85); }
+/* Only show on touch devices (mobile) */
+@media (min-width: 641px) { .btn-pinch-reset { display: none; } }
+
 /* ── Zoom-to-fit button (mobile only) ── */
 .btn-zoom-fit {
     display: none;
@@ -578,6 +603,12 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 </div>
 {% endif %}
 
+<!-- Pinch-zoom reset pill — visible on mobile when user has zoomed in -->
+<button class="btn-pinch-reset" x-show="userZoomed" x-transition @click="resetPinch()"
+        aria-label="Сбросить масштаб">
+    ✕ Сбросить масштаб
+</button>
+
 <!-- A4 sheet with labels grid -->
 <div class="sheet-scroll-wrap" id="sheetScrollWrap">
 <div class="sheet" id="labelSheet">
@@ -656,6 +687,10 @@ function labelSizer() {
         pinchActive: false,
         zoomPct: 100,
         showZoomPct: false,
+        userZoomed: false,
+        _upScale: 1,
+        _upTx: 0,
+        _upTy: 0,
 
         init() {
             const saved = localStorage.getItem('ds_label_size');
@@ -787,6 +822,86 @@ function labelSizer() {
                     onDesktopZoom();
                 }
             });
+
+            /* ── Contained pinch-zoom & pan within the sheet scroll wrapper ──
+             *
+             * This intercepts 2-finger touch gestures on the sheet container and
+             * applies CSS transform scale/translate to the sheet element itself —
+             * independent of the browser's native viewport pinch-zoom.
+             * Single-finger scrolling (when not zoomed in) is passed through.
+             * When the user has zoomed in, single-finger drag also pans.
+             * Double-tap resets zoom to 1×.
+             */
+            var _wrap = document.getElementById('sheetScrollWrap');
+            if (_wrap && ('ontouchstart' in window)) {
+                var _self = this;
+                var _ptActive = false, _panActive = false;
+                var _ptDist = 0, _ptMx = 0, _ptMy = 0;
+                var _ptScale0 = 1, _ptTx0 = 0, _ptTy0 = 0;
+                var _panSX = 0, _panSY = 0, _panTx0 = 0, _panTy0 = 0;
+                var _lastTap = 0;
+
+                var _d2 = function(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); };
+
+                var _doApply = function() {
+                    if (_self.zoomed) _self._applyZoom();
+                    else _self._applyUserTransform();
+                    _self.userZoomed = _self._upScale > 1.05;
+                };
+
+                _wrap.addEventListener('touchstart', function(e) {
+                    if (e.touches.length === 2) {
+                        _ptActive = true; _panActive = false;
+                        _ptDist = _d2(e.touches[0], e.touches[1]);
+                        _ptMx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                        _ptMy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                        _ptScale0 = _self._upScale;
+                        _ptTx0 = _self._upTx;
+                        _ptTy0 = _self._upTy;
+                        e.preventDefault();
+                    } else if (e.touches.length === 1) {
+                        if (_self._upScale > 1.05) {
+                            _panActive = true;
+                            _panSX = e.touches[0].clientX; _panSY = e.touches[0].clientY;
+                            _panTx0 = _self._upTx; _panTy0 = _self._upTy;
+                        }
+                        /* Double-tap resets zoom */
+                        var now = Date.now();
+                        if (now - _lastTap < 300 && _self._upScale > 1) {
+                            _self.resetPinch();
+                            e.preventDefault();
+                        }
+                        _lastTap = now;
+                    }
+                }, { passive: false });
+
+                _wrap.addEventListener('touchmove', function(e) {
+                    if (_ptActive && e.touches.length === 2) {
+                        var d = _d2(e.touches[0], e.touches[1]);
+                        var newScale = Math.max(0.8, Math.min(5, _ptScale0 * (d / _ptDist)));
+                        /* Keep pinch midpoint fixed in screen space */
+                        _self._upTx = _ptMx - (_ptMx - _ptTx0) * (newScale / _ptScale0);
+                        _self._upTy = _ptMy - (_ptMy - _ptTy0) * (newScale / _ptScale0);
+                        _self._upScale = newScale;
+                        _doApply();
+                        e.preventDefault();
+                    } else if (_panActive && e.touches.length === 1 && _self._upScale > 1.05) {
+                        _self._upTx = _panTx0 + e.touches[0].clientX - _panSX;
+                        _self._upTy = _panTy0 + e.touches[0].clientY - _panSY;
+                        _doApply();
+                        e.preventDefault();
+                    }
+                }, { passive: false });
+
+                _wrap.addEventListener('touchend', function(e) {
+                    if (e.touches.length < 2) _ptActive = false;
+                    if (e.touches.length === 0) _panActive = false;
+                }, { passive: true });
+
+                _wrap.addEventListener('touchcancel', function() {
+                    _ptActive = false; _panActive = false;
+                }, { passive: true });
+            }
         },
 
         _applyZoom() {
@@ -797,14 +912,36 @@ function labelSizer() {
                On mobile, innerWidth shrinks when the user pinch-zooms, which
                would produce a wrong fit factor.  clientWidth is stable. */
             var vw = document.documentElement.clientWidth;
-            var factor = (vw - 32) / 794;
-            sheet.style.transform = 'scale(' + factor + ')';
-            sheet.style.transformOrigin = 'top left';
-            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - factor)) + 'px';
+            var fit = (vw - 32) / 794;
+            var total = fit * this._upScale;
+            sheet.style.transformOrigin = '0 0';
+            sheet.style.transform = 'translate(' + this._upTx + 'px,' + this._upTy + 'px) scale(' + total + ')';
+            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - total)) + 'px';
             if (wrap) { wrap.style.overflowX = 'hidden'; wrap.style.paddingLeft = '0'; wrap.style.paddingRight = '0'; }
         },
 
+        _applyUserTransform() {
+            var sheet = document.getElementById('labelSheet');
+            if (!sheet) return;
+            if (this._upScale <= 1.01 && this._upTx === 0 && this._upTy === 0) return;
+            sheet.style.transformOrigin = '0 0';
+            sheet.style.transform = 'translate(' + this._upTx + 'px,' + this._upTy + 'px) scale(' + this._upScale + ')';
+            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - this._upScale)) + 'px';
+        },
+
+        resetPinch() {
+            this._upScale = 1; this._upTx = 0; this._upTy = 0;
+            this.userZoomed = false;
+            if (this.zoomed) {
+                this._applyZoom();
+            } else {
+                var sheet = document.getElementById('labelSheet');
+                if (sheet) { sheet.style.transform = ''; sheet.style.transformOrigin = ''; sheet.style.marginBottom = ''; }
+            }
+        },
+
         toggleZoom() {
+            this.resetPinch();
             this.zoomed = !this.zoomed;
             var sheet = document.getElementById('labelSheet');
             var wrap = document.getElementById('sheetScrollWrap');
@@ -829,6 +966,7 @@ function labelSizer() {
         },
 
         setSize(key) {
+            this.resetPinch();
             this.size = key;
             localStorage.setItem('ds_label_size', key);
             const url = new URL(location.href);

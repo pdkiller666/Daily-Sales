@@ -1950,6 +1950,16 @@ function mainApp() {
                     <span class="sht-icon">📅</span>
                     <span class="sht-label">График</span>
                 </a>
+                <a href="/absences" @click="moreOpen=false"
+                   class="sht-item {% if _p.startswith('/absences') %}sht-active{% endif %}">
+                    <span class="sht-icon relative inline-block">
+                        📋
+                        {% if _abscnt > 0 %}
+                        <span class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none">{{ _abscnt }}</span>
+                        {% endif %}
+                    </span>
+                    <span class="sht-label">Отсутствия</span>
+                </a>
                 {% endif %}
                 {% if _nm.plans_motivation %}
                 <a href="/contests" @click="moreOpen=false"
