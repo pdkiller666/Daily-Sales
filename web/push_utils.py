@@ -42,11 +42,81 @@ def _log_delivery(tg_id: int, title: str) -> None:
     except Exception as e:
         logger.debug("push_utils._log_delivery: %s", e)
 
+def _normalize_vapid_key(raw: str) -> str:
+    """Normalize VAPID private key to PKCS8 PEM that works with current cryptography.
+
+    Handles common pasting issues:
+      1. Collapsed PEM lines (no line-breaks in base64 body) → re-wrap at 64 chars
+      2. Explicit EC parameters (deprecated in newer cryptography) → re-export as named-curve PKCS8
+      3. Raw url-safe base64 EC private key scalar (py_vapid 1.x format) → wrap in PKCS8 PEM
+    """
+    if not raw:
+        return raw
+
+    # --- step 0: basic cleanup ---
+    key = raw.replace("\\n", "\n").strip().strip('"').strip("'").strip()
+
+    if not key:
+        return key
+
+    # --- step 1: re-wrap collapsed PEM base64 body ---
+    if "BEGIN" in key and "KEY" in key:
+        lines = key.splitlines()
+        if len(lines) < 4:
+            # PEM body is collapsed onto one line — re-wrap at 64 chars
+            header = next((l for l in lines if l.startswith("-----BEGIN")), "")
+            footer = next((l for l in lines if l.startswith("-----END")), "")
+            body = "".join(
+                l for l in lines if not l.startswith("-----")
+            ).replace(" ", "")
+            if body:
+                wrapped = "\n".join(body[i:i+64] for i in range(0, len(body), 64))
+                key = f"{header}\n{wrapped}\n{footer}"
+
+    # --- step 2: try to load with cryptography and re-export as PKCS8 PEM ---
+    # This fixes explicit EC parameters and other deprecated formats.
+    if "BEGIN" in key and "KEY" in key:
+        try:
+            from cryptography.hazmat.primitives.serialization import (
+                load_pem_private_key, Encoding, PrivateFormat, NoEncryption,
+            )
+            loaded = load_pem_private_key(key.encode(), password=None)
+            key = loaded.private_bytes(
+                Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+            ).decode().strip()
+            logger.debug("push_utils: VAPID key normalized to PKCS8 PEM via re-export")
+            return key
+        except Exception as _e:
+            logger.debug("push_utils: PKCS8 re-export failed: %s", _e)
+
+    # --- step 3: raw url-safe base64 EC private key scalar (py_vapid 1.x) ---
+    # A P-256 private key scalar is 32 bytes → base64url without padding = 43 chars.
+    raw_b64 = key.replace("\n", "").replace("=", "")
+    if 40 <= len(raw_b64) <= 48 and " " not in raw_b64 and "BEGIN" not in raw_b64:
+        try:
+            import base64 as _b64
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives.serialization import (
+                Encoding, PrivateFormat, NoEncryption,
+            )
+            d_bytes = _b64.urlsafe_b64decode(raw_b64 + "==")
+            if len(d_bytes) == 32:
+                priv = ec.derive_private_key(int.from_bytes(d_bytes, "big"), ec.SECP256R1())
+                key = priv.private_bytes(
+                    Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+                ).decode().strip()
+                logger.debug("push_utils: VAPID key converted from raw scalar to PKCS8 PEM")
+                return key
+        except Exception as _e:
+            logger.debug("push_utils: raw scalar conversion failed: %s", _e)
+
+    return key
+
+
 _raw_vapid_key = os.environ.get("VAPID_PRIVATE_KEY", "")
-# Strip surrounding whitespace/quotes that often sneak in when pasting a
-# multi-line PEM into a hosting env-var UI (e.g. Amvera) — a leading newline
-# would otherwise break the "-----BEGIN" check and silently disable Web Push.
-_VAPID_PRIVATE = _raw_vapid_key.replace("\\n", "\n").strip().strip('"').strip("'").strip()
+# Normalize the key at import time — handles collapsed PEM, explicit EC params,
+# and the old py_vapid 1.x raw-scalar format used by some key generators.
+_VAPID_PRIVATE = _normalize_vapid_key(_raw_vapid_key)
 
 _VAPID_MAILTO = (os.environ.get("VAPID_MAILTO", "") or "").strip()
 if not _VAPID_MAILTO:
