@@ -1335,6 +1335,21 @@ class Database:
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id)')
 
+        # ── push_delivery_log (только shop_bot.db) ───────────────────────────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS push_delivery_log (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id  INTEGER NOT NULL,
+                    title    TEXT,
+                    sent_at  TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_push_log_user '
+                'ON push_delivery_log(user_id, sent_at)'
+            )
+
         # ── web_credentials (только shop_bot.db) ────────────────────────────
         if 'shop_bot' in self.db_file:
             cursor.execute('''
@@ -11752,6 +11767,52 @@ class Database:
             return [{"endpoint": r[0], "p256dh": r[1], "auth": r[2]} for r in rows]
         except Exception as exc:
             logger.error("get_push_subscriptions: %s", exc)
+            return []
+
+    # ── push_delivery_log methods (shop_bot.db only) ──────────────────────────
+
+    def log_push_delivery(self, user_id: int, title: str) -> bool:
+        """Record that a push notification was successfully sent to user_id."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO push_delivery_log (user_id, title) VALUES (?, ?)",
+                (user_id, title or ""),
+            )
+            conn.execute(
+                """DELETE FROM push_delivery_log
+                   WHERE user_id = ?
+                     AND id NOT IN (
+                         SELECT id FROM push_delivery_log
+                         WHERE user_id = ?
+                         ORDER BY sent_at DESC
+                         LIMIT 20
+                     )""",
+                (user_id, user_id),
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("log_push_delivery: %s", exc)
+            return False
+
+    def get_recent_push_deliveries(self, user_id: int, limit: int = 3) -> list:
+        """Return up to `limit` most recent push events for user_id.
+
+        Each row: {"title": str, "sent_at": str} — sent_at is a UTC ISO string.
+        """
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT title, sent_at FROM push_delivery_log
+                   WHERE user_id = ?
+                   ORDER BY sent_at DESC
+                   LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+            return [{"title": r[0], "sent_at": r[1]} for r in rows]
+        except Exception as exc:
+            logger.error("get_recent_push_deliveries: %s", exc)
             return []
 
     # ── AI smart alert settings ───────────────────────────────────────────────

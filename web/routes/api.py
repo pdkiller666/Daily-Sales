@@ -234,10 +234,12 @@ def push_status(request: Request):
     """Diagnostic endpoint: VAPID configured + server-side subscription count.
 
     Returns:
-      vapid      — True if VAPID private key is configured on the server
-      subs_count — number of active push subscriptions for this user in DB
-      permission — placeholder ("unknown"); actual browser permission is
-                   read client-side via Notification.permission
+      vapid         — True if VAPID private key is configured on the server
+      subs_count    — number of active push subscriptions for this user in DB
+      permission    — placeholder ("unknown"); actual browser permission is
+                      read client-side via Notification.permission
+      last_sent     — ISO UTC string of most recent successful delivery, or null
+      recent_pushes — list of up to 3 recent deliveries [{title, sent_at}, ...]
     """
     from web.auth import get_session_user
     user = get_session_user(request)
@@ -246,12 +248,42 @@ def push_status(request: Request):
     tg_id = int(user["sub"])
     try:
         from web.push_utils import is_configured, _get_subscriptions
+        import sqlite3 as _sqlite3
+        import os as _os2
         vapid = is_configured()
         subs_count = len(_get_subscriptions(tg_id))
-        return {"ok": True, "vapid": vapid, "subs_count": subs_count, "permission": "unknown"}
+        _shop_db = _os2.path.join(
+            _os2.path.dirname(_os2.path.dirname(_os2.path.dirname(__file__))),
+            "data", "shop_bot.db",
+        )
+        recent_pushes: list = []
+        last_sent: str | None = None
+        try:
+            _conn = _sqlite3.connect(_shop_db)
+            rows = _conn.execute(
+                """SELECT title, sent_at FROM push_delivery_log
+                   WHERE user_id = ?
+                   ORDER BY sent_at DESC
+                   LIMIT 3""",
+                (tg_id,),
+            ).fetchall()
+            _conn.close()
+            recent_pushes = [{"title": r[0], "sent_at": r[1]} for r in rows]
+            last_sent = recent_pushes[0]["sent_at"] if recent_pushes else None
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "vapid": vapid,
+            "subs_count": subs_count,
+            "permission": "unknown",
+            "last_sent": last_sent,
+            "recent_pushes": recent_pushes,
+        }
     except Exception as exc:
         return JSONResponse({"ok": False, "vapid": False, "subs_count": 0,
-                             "permission": "unknown", "error": str(exc)}, status_code=500)
+                             "permission": "unknown", "last_sent": None,
+                             "recent_pushes": [], "error": str(exc)}, status_code=500)
 
 
 @router.get("/push/vapid-public-key")

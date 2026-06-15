@@ -325,15 +325,33 @@
                 vapid: null,
                 subs: null,
                 perm: null,
+                lastSent: null,
+                recentPushes: [],
+                showLog: false,
                 msg: '',
                 msgOk: true,
-                async init() {
-                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                fmtDate(iso) {
+                    if (!iso) return '—';
+                    try {
+                        const d = new Date(iso.replace(' ', 'T') + 'Z');
+                        return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+                    } catch(e) { return iso; }
+                },
+                async loadStatus() {
                     try {
                         const r = await fetch('/api/push/status', {credentials:'same-origin'});
                         const d = await r.json();
-                        if (d.ok) { this.vapid = d.vapid; this.subs = d.subs_count; }
+                        if (d.ok) {
+                            this.vapid = d.vapid;
+                            this.subs = d.subs_count;
+                            this.lastSent = d.last_sent || null;
+                            this.recentPushes = d.recent_pushes || [];
+                        }
                     } catch(e) {}
+                },
+                async init() {
+                    this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+                    await this.loadStatus();
                     this.loading = false;
                 },
                 async test() {
@@ -347,19 +365,13 @@
                     this.msg = d.msg || (d.ok ? '✅ Отправлено' : '❌ Ошибка');
                     this.msgOk = d.ok;
                     if (d.ok) { this.subs = (this.subs || 0) + 1; }
-                    if (!d.ok && (d.code === 'no_subscriptions' || d.code === 'send_failed')) {
-                        const r2 = await fetch('/api/push/status', {credentials:'same-origin'});
-                        const d2 = await r2.json();
-                        if (d2.ok) this.subs = d2.subs_count;
-                    }
+                    await this.loadStatus();
                 },
                 async reconnect() {
                     this.msg = '⏳ Переподключение…'; this.msgOk = true;
                     await window.dsPushReconnect();
                     this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-                    const r = await fetch('/api/push/status', {credentials:'same-origin'});
-                    const d = await r.json();
-                    if (d.ok) { this.vapid = d.vapid; this.subs = d.subs_count; }
+                    await this.loadStatus();
                     this.msg = '✅ Готово — попробуйте «Проверить»';
                 }
              }">
@@ -406,6 +418,34 @@
                               x-text="vapid === null ? '…' : vapid ? '✅ Настроены' : '❌ Не настроены'">
                         </span>
                     </div>
+
+                    <!-- Last delivery -->
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-slate-600">Последняя доставка</span>
+                        <span class="font-medium px-2 py-0.5 rounded-full text-xs"
+                              :class="lastSent ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                              x-text="lastSent ? fmtDate(lastSent) : 'Нет данных'">
+                        </span>
+                    </div>
+
+                    <!-- Recent pushes mini-log (collapsible) -->
+                    <template x-if="recentPushes.length > 0">
+                        <div>
+                            <button @click="showLog = !showLog"
+                                    class="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5">
+                                <span x-text="showLog ? '▲ Скрыть историю' : '▼ История доставок (' + recentPushes.length + ')'"></span>
+                            </button>
+                            <div x-show="showLog" x-transition
+                                 class="mt-2 rounded-lg border border-slate-100 bg-slate-50 divide-y divide-slate-100 text-xs">
+                                <template x-for="p in recentPushes" :key="p.sent_at">
+                                    <div class="flex items-center justify-between px-3 py-1.5 gap-2">
+                                        <span class="text-slate-700 truncate" x-text="p.title || '—'"></span>
+                                        <span class="text-slate-400 whitespace-nowrap flex-shrink-0" x-text="fmtDate(p.sent_at)"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
 
                     <!-- Huawei hint -->
                     <div x-show="subs !== null && subs === 0 && perm === 'granted'"

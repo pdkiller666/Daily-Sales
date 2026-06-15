@@ -16,6 +16,32 @@ logger = logging.getLogger(__name__)
 
 _SHOP_BOT_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "shop_bot.db")
 
+
+def _log_delivery(tg_id: int, title: str) -> None:
+    """Write a push delivery record to push_delivery_log (fire-and-forget)."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_SHOP_BOT_DB)
+        conn.execute(
+            "INSERT INTO push_delivery_log (user_id, title) VALUES (?, ?)",
+            (tg_id, title or ""),
+        )
+        conn.execute(
+            """DELETE FROM push_delivery_log
+               WHERE user_id = ?
+                 AND id NOT IN (
+                     SELECT id FROM push_delivery_log
+                     WHERE user_id = ?
+                     ORDER BY sent_at DESC
+                     LIMIT 20
+                 )""",
+            (tg_id, tg_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.debug("push_utils._log_delivery: %s", e)
+
 _raw_vapid_key = os.environ.get("VAPID_PRIVATE_KEY", "")
 # Strip surrounding whitespace/quotes that often sneak in when pasting a
 # multi-line PEM into a hosting env-var UI (e.g. Amvera) — a leading newline
@@ -215,6 +241,8 @@ def send_web_push(
             else:
                 logger.warning("push_utils push tg_id=%s: %s", tg_id, exc)
                 failed += 1
+    if sent > 0:
+        _log_delivery(tg_id, title)
     return {"sent": sent, "failed": failed, "gone": gone, "subs_found": len(subs),
             "vapid": True, "code": "ok" if sent > 0 else "send_failed"}
 
