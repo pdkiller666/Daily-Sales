@@ -42,118 +42,128 @@ def _log_delivery(tg_id: int, title: str) -> None:
     except Exception as e:
         logger.debug("push_utils._log_delivery: %s", e)
 
-def _normalize_vapid_key(raw: str) -> str:
-    """Normalize VAPID private key to PKCS8 PEM that works with current cryptography.
+def _key_to_single_line_der(priv) -> str:
+    """Export a cryptography EC private key as single-line url-safe base64 PKCS8 DER."""
+    import base64 as _b64
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, PrivateFormat, NoEncryption,
+    )
+    der = priv.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+    return _b64.urlsafe_b64encode(der).decode().rstrip("=")
 
-    Handles common pasting issues:
-      1. Collapsed PEM lines (no line-breaks in base64 body) → re-wrap at 64 chars
-      2. Explicit EC parameters (deprecated in newer cryptography) → re-export as named-curve PKCS8
-      3. Raw url-safe base64 EC private key scalar (py_vapid 1.x format) → wrap in PKCS8 PEM
+
+def _normalize_vapid_key(raw: str) -> str:
+    """Normalize VAPID private key to SINGLE-LINE url-safe base64 PKCS8 DER.
+
+    CRITICAL: pywebpush hands the key string to py_vapid ``Vapid.from_string()``,
+    which simply strips newlines and url-safe-base64-decodes the WHOLE string —
+    it does NOT strip the PEM ``-----BEGIN/END-----`` header/footer. Feeding it a
+    PEM therefore fails with
+        ValueError: Could not deserialize key data ... ASN.1 parsing error: invalid length
+    The only format that works is a single-line url-safe base64 DER (~184 chars,
+    no newlines, no PEM armor). So we convert EVERY accepted input into a
+    cryptography key object and re-export it in that exact format.
+
+    Accepted inputs:
+      * PKCS8 / SEC1 PEM (incl. lines collapsed by Amvera env UI)
+      * EC keys with explicit parameters (via openssl fallback)
+      * standard OR url-safe base64 DER (PKCS8)
+      * raw 32-byte EC private scalar (py_vapid 1.x format)
     """
     if not raw:
         return raw
 
     # --- step 0: basic cleanup ---
     key = raw.replace("\\n", "\n").strip().strip('"').strip("'").strip()
-
     if not key:
         return key
 
-    # --- step 1: re-wrap collapsed PEM base64 body ---
-    # Use regex so it works even when header/body/footer are all on one line
-    # (Amvera and some env UIs strip newlines from multiline values).
+    import base64 as _b64
+    from cryptography.hazmat.primitives.serialization import (
+        load_pem_private_key, load_der_private_key,
+    )
+
+    priv = None
+
+    # --- step 1: PEM input → load (re-wrapping collapsed bodies first) ---
     if "BEGIN" in key and "KEY" in key:
         import re as _re
+        pem_text = key
         _m = _re.match(r"(-----BEGIN[^-]+-{5})([\s\S]*?)(-----END[^-]+-{5})", key)
         if _m:
             _hdr = _m.group(1).strip()
-            _body = _re.sub(r"[\s]", "", _m.group(2))
+            _body = _re.sub(r"\s", "", _m.group(2))
             _ftr = _m.group(3).strip()
             if _body:
                 _wrapped = "\n".join(_body[i:i+64] for i in range(0, len(_body), 64))
-                key = f"{_hdr}\n{_wrapped}\n{_ftr}"
-
-    # --- step 2: try to load with cryptography and re-export as PKCS8 PEM ---
-    # This fixes explicit EC parameters and other deprecated formats.
-    if "BEGIN" in key and "KEY" in key:
+                pem_text = f"{_hdr}\n{_wrapped}\n{_ftr}"
         try:
-            from cryptography.hazmat.primitives.serialization import (
-                load_pem_private_key, Encoding, PrivateFormat, NoEncryption,
-            )
-            loaded = load_pem_private_key(key.encode(), password=None)
-            key = loaded.private_bytes(
-                Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-            ).decode().strip()
-            logger.debug("push_utils: VAPID key normalized to PKCS8 PEM via re-export")
-            return key
+            priv = load_pem_private_key(pem_text.encode(), password=None)
         except Exception as _e:
-            logger.debug("push_utils: PKCS8 re-export failed (%s), trying openssl", _e)
-
-        # --- step 2b: openssl subprocess conversion ---
-        # cryptography ≥ 42 refuses to load "explicit parameters" EC keys
-        # (common in old VAPID tools). openssl handles any EC format → PKCS8 named-curve.
-        try:
-            import subprocess, tempfile, os as _os
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as _f:
-                _f.write(key)
-                _tmp = _f.name
+            logger.debug("push_utils: load_pem failed (%s), trying openssl", _e)
+            # openssl fallback: cryptography ≥ 42 refuses "explicit parameters"
+            # EC keys; openssl re-encodes to named-curve PKCS8 DER.
             try:
-                _res = subprocess.run(
-                    ["openssl", "pkcs8", "-topk8", "-nocrypt",
-                     "-in", _tmp, "-outform", "PEM"],
-                    capture_output=True, text=True, timeout=10,
-                )
-            finally:
-                _os.unlink(_tmp)
-            if _res.returncode == 0 and "BEGIN" in _res.stdout:
-                key = _res.stdout.strip()
-                logger.info("push_utils: VAPID key converted via openssl pkcs8 (explicit-params fix)")
-                return key
-            else:
-                logger.debug("push_utils: openssl pkcs8 failed: %s", _res.stderr[:200])
-        except Exception as _e2:
-            logger.debug("push_utils: openssl conversion error: %s", _e2)
+                import subprocess, tempfile, os as _os
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as _f:
+                    _f.write(pem_text)
+                    _tmp = _f.name
+                try:
+                    _res = subprocess.run(
+                        ["openssl", "pkcs8", "-topk8", "-nocrypt",
+                         "-in", _tmp, "-outform", "DER"],
+                        capture_output=True, timeout=10,
+                    )
+                finally:
+                    _os.unlink(_tmp)
+                if _res.returncode == 0 and _res.stdout:
+                    priv = load_der_private_key(_res.stdout, password=None)
+                    logger.info("push_utils: VAPID key converted via openssl (explicit-params fix)")
+                else:
+                    logger.debug("push_utils: openssl pkcs8 failed: %s", _res.stderr[:200])
+            except Exception as _e2:
+                logger.debug("push_utils: openssl conversion error: %s", _e2)
 
-    # --- step 3: single-line DER base64 (PKCS8 DER encoded as url-safe base64) ---
-    # This is our preferred env-safe format: 184 chars, no newlines.
-    # Also handles raw EC private key scalar (py_vapid 1.x, ~43 chars).
-    compact = key.replace("\n", "").replace("=", "").strip()
-    if "BEGIN" not in compact and " " not in compact and len(compact) >= 40:
+    # --- step 2: base64 DER / raw scalar input ---
+    if priv is None:
+        compact = key.replace("\n", "").replace("=", "").strip()
+        if "BEGIN" not in compact and " " not in compact and len(compact) >= 40:
+            _pad = "=" * (-len(compact) % 4)
+            der_bytes = None
+            for _dec in (_b64.urlsafe_b64decode, _b64.b64decode):
+                try:
+                    der_bytes = _dec(compact + _pad)
+                    break
+                except Exception:
+                    der_bytes = None
+            if der_bytes:
+                if len(der_bytes) >= 64:
+                    # PKCS8 DER (P-256 key ~138 bytes)
+                    try:
+                        priv = load_der_private_key(der_bytes, password=None)
+                    except Exception as _e:
+                        logger.debug("push_utils: DER load failed: %s", _e)
+                elif len(der_bytes) == 32:
+                    # raw EC private scalar (py_vapid 1.x)
+                    try:
+                        from cryptography.hazmat.primitives.asymmetric import ec
+                        priv = ec.derive_private_key(int.from_bytes(der_bytes, "big"), ec.SECP256R1())
+                    except Exception as _e:
+                        logger.debug("push_utils: raw scalar load failed: %s", _e)
+
+    # --- step 3: export in the format py_vapid.from_string() accepts ---
+    if priv is not None:
         try:
-            import base64 as _b64
-            from cryptography.hazmat.primitives.serialization import (
-                Encoding, PrivateFormat, NoEncryption, load_der_private_key,
-            )
-            der_bytes = _b64.urlsafe_b64decode(compact + "==")
-            # DER PKCS8 key for P-256 is typically 138-150 bytes
-            if len(der_bytes) >= 64:
-                priv = load_der_private_key(der_bytes, password=None)
-                key = priv.private_bytes(
-                    Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-                ).decode().strip()
-                logger.debug("push_utils: VAPID key converted from DER base64 to PKCS8 PEM")
-                return key
+            single = _key_to_single_line_der(priv)
+            logger.info("push_utils: VAPID key normalized to single-line url-safe DER (%d chars)", len(single))
+            return single
         except Exception as _e:
-            logger.debug("push_utils: DER base64 conversion failed: %s", _e)
+            logger.error("push_utils: failed to export VAPID key to DER: %s", _e)
 
-        # sub-step: raw EC private key scalar (py_vapid 1.x) — 32 bytes
-        try:
-            import base64 as _b64
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.hazmat.primitives.serialization import (
-                Encoding, PrivateFormat, NoEncryption,
-            )
-            d_bytes = _b64.urlsafe_b64decode(compact + "==")
-            if len(d_bytes) == 32:
-                priv = ec.derive_private_key(int.from_bytes(d_bytes, "big"), ec.SECP256R1())
-                key = priv.private_bytes(
-                    Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-                ).decode().strip()
-                logger.debug("push_utils: VAPID key converted from raw scalar to PKCS8 PEM")
-                return key
-        except Exception as _e:
-            logger.debug("push_utils: raw scalar conversion failed: %s", _e)
-
+    logger.error(
+        "push_utils: VAPID_PRIVATE_KEY could not be parsed into a usable key "
+        "(len=%d) — push will fail until a valid key is set", len(key)
+    )
     return key
 
 
