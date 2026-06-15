@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import urllib.request
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
@@ -38,6 +39,16 @@ def _notify_admin_new_request(plan_type: str, amount: int, user_display: str, te
         logging.warning("_notify_admin_new_request: %s", exc)
 
 
+def _notify_admin_async(plan_type: str, amount: int, user_display: str, telegram_id: int) -> None:
+    """Fire-and-forget wrapper: отправляет уведомление в daemon-thread."""
+    t = threading.Thread(
+        target=_notify_admin_new_request,
+        args=(plan_type, amount, user_display, telegram_id),
+        daemon=True,
+    )
+    t.start()
+
+
 def _plan_type_label(plan_type: str) -> str:
     if not plan_type:
         return "—"
@@ -51,7 +62,7 @@ def _plan_type_label(plan_type: str) -> str:
         parts = plan_type.split("_")
         labels = {"shops": "Доп. магазин", "products": "Доп. товары"}
         return labels.get(parts[1] if len(parts) > 1 else "", plan_type)
-    return plan_type
+    return f"Тариф: {plan_type}"
 
 
 def _get_user_id_in_shop_bot(telegram_id: int) -> int | None:
@@ -213,9 +224,13 @@ def _get_active_trial(user_id: int | None) -> dict | None:
         return None
 
 
-def _get_payment_history(user_id: int, limit: int = 10) -> list[dict]:
+def _get_payment_history(user_id: int, limit: int = 10) -> tuple[list[dict], bool]:
+    """Returns (history_rows, has_more). has_more=True when total records > limit."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
+        total = conn.execute(
+            "SELECT COUNT(*) FROM payment_requests WHERE user_id = ?", (user_id,)
+        ).fetchone()[0]
         rows = conn.execute(
             """SELECT id, plan_type, amount, status, created_at, processed_at
                FROM payment_requests
@@ -244,9 +259,9 @@ def _get_payment_history(user_id: int, limit: int = 10) -> list[dict]:
                 "created_at": str(row[4] or "")[:16].replace("T", " "),
                 "processed_at": str(row[5] or "")[:16].replace("T", " ") if row[5] else "—",
             })
-        return result
+        return result, total > limit
     except Exception:
-        return []
+        return [], False
 
 
 def _has_pending_request(user_id: int) -> bool:
@@ -422,6 +437,42 @@ def _get_tariff_plans(current_plan_name: str | None, user_id: int | None = None)
     return result
 
 
+def _get_item_price(plan_type: str) -> int | None:
+    """Возвращает реальную цену из БД по plan_type (module_/bundle_/extension_).
+    Используется вместо клиентского amount, чтобы пользователь не мог подделать сумму."""
+    try:
+        conn = sqlite3.connect(SHOP_BOT_DB)
+        price = None
+        if plan_type.startswith("module_"):
+            key = plan_type[7:]
+            row = conn.execute(
+                "SELECT price_monthly FROM billing_modules WHERE key=? AND is_active=1 LIMIT 1",
+                (key,),
+            ).fetchone()
+            if row:
+                price = int(row[0] or 0)
+        elif plan_type.startswith("bundle_"):
+            key = plan_type[7:]
+            row = conn.execute(
+                "SELECT price_monthly FROM billing_bundles WHERE key=? AND is_active=1 LIMIT 1",
+                (key,),
+            ).fetchone()
+            if row:
+                price = int(row[0] or 0)
+        elif plan_type.startswith("extension_"):
+            key = plan_type[10:]
+            row = conn.execute(
+                "SELECT price_monthly FROM billing_extensions WHERE key=? AND is_active=1 LIMIT 1",
+                (key,),
+            ).fetchone()
+            if row:
+                price = int(row[0] or 0)
+        conn.close()
+        return price
+    except Exception:
+        return None
+
+
 def _get_tariff_plan_by_name(name: str) -> dict | None:
     """Валидация: активный платный тариф с таким именем (для заявки из веба)."""
     try:
@@ -502,7 +553,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
     trial = _get_active_trial(user_id)
     tariff = _get_tariff_overview(telegram_id)
     tariff_plans = _get_tariff_plans(tariff.get("plan_name") if tariff else None, user_id)
-    history = _get_payment_history(user_id) if user_id else []
+    history, history_has_more = _get_payment_history(user_id) if user_id else ([], False)
     has_pending = _has_pending_request(user_id) if user_id else False
     user_mod_subs = _get_user_active_module_subs(telegram_id)
     try:
@@ -528,6 +579,7 @@ def subscription_page(request: Request, msg: str = "", tab: str = "modules", nee
             "active_items": active_items,
             "has_pending": has_pending,
             "history": history,
+            "history_has_more": history_has_more,
             "requisites": requisites,
             "tariff": tariff,
             "tariff_plans": tariff_plans,
@@ -591,7 +643,6 @@ def subscription_cancel_request(
 def subscription_module_request(
     request: Request,
     plan_type: str = Form(...),
-    amount: int = Form(...),
     csrf_token: str = Form(default=""),
 ):
     """Клиентская заявка на подключение модуля, расширения или пакета."""
@@ -609,16 +660,14 @@ def subscription_module_request(
     if not any(plan_type.startswith(p) for p in valid_prefixes):
         return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
 
-    if amount < 0 or amount > 100_000:
+    amount = _get_item_price(plan_type)
+    if amount is None:
         return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
 
     telegram_id = int(user["sub"])
     user_id = _get_user_id_in_shop_bot(telegram_id)
     if not user_id:
         return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
-
-    if _has_pending_request(user_id):
-        return RedirectResponse(url="/subscription?msg=already_pending", status_code=303)
 
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
@@ -629,7 +678,7 @@ def subscription_module_request(
         )
         conn.commit()
         conn.close()
-        _notify_admin_new_request(
+        _notify_admin_async(
             plan_type, amount,
             user.get("first_name", user.get("email", "—")),
             telegram_id,
@@ -669,9 +718,6 @@ def subscription_tariff_request(
     if not user_id:
         return RedirectResponse(url="/subscription?msg=user_not_found", status_code=303)
 
-    if _has_pending_request(user_id):
-        return RedirectResponse(url="/subscription?msg=already_pending", status_code=303)
-
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         conn.execute(
@@ -681,7 +727,7 @@ def subscription_tariff_request(
         )
         conn.commit()
         conn.close()
-        _notify_admin_new_request(
+        _notify_admin_async(
             plan["name"], plan["price"],
             user.get("first_name", user.get("email", "—")),
             telegram_id,

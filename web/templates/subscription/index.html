@@ -193,7 +193,7 @@
     <div class="sub-hero-orb w-32 h-32 bg-purple-500 bottom-[-20px] left-[20%]"></div>
 
     <div class="relative z-10">
-        {% if user_mod_subs and '*' in user_mod_subs %}
+        {% if active_items.modules and '*' in active_items.modules %}
             <div class="inline-flex items-center gap-1.5 bg-amber-400/20 border border-amber-300/40 rounded-full px-3 py-1 mb-3">
                 <span class="w-1.5 h-1.5 bg-amber-300 rounded-full"></span>
                 <span class="text-xs font-bold text-amber-200 uppercase tracking-wider">Полный доступ</span>
@@ -262,7 +262,7 @@
             </div>
         </div>
         {% if tariff.days_remaining is not none %}
-        <span class="shrink-0 text-xs font-bold px-2.5 py-1 rounded-full {{ 'bg-red-100 text-red-700' if tariff.days_remaining <= 3 else 'bg-emerald-100 text-emerald-700' }}">
+        <span class="shrink-0 text-xs font-bold px-2.5 py-1 rounded-full {{ 'bg-red-100 text-red-700' if tariff.days_remaining <= 3 else ('bg-amber-100 text-amber-700' if tariff.days_remaining <= 7 else 'bg-emerald-100 text-emerald-700') }}">
             ост. {{ tariff.days_remaining }} дн.
         </span>
         {% endif %}
@@ -357,8 +357,6 @@
                     </div>
                     {% if plan.is_current %}
                     <span class="text-xs text-slate-400 italic">Активен</span>
-                    {% elif has_pending %}
-                    <button disabled class="px-5 py-2 rounded-xl bg-slate-100 text-slate-400 cursor-default text-sm font-semibold">Ожидает</button>
                     {% elif plan.is_downgrade %}
                     <form method="POST" action="/subscription/tariff-request"
                           onsubmit="return confirm('Понижение тарифа на «{{ plan.name }}».{% if plan.downgrade_days_left is not none %} До конца текущего периода ещё {{ plan.downgrade_days_left }} дн.{% endif %} При немедленной замене остаток сгорит. Создать заявку?');">
@@ -478,22 +476,18 @@
                 <div class="flex flex-col gap-2 items-end">
                     {% if is_active and not bun_sub_info %}
                     <span class="text-xs text-slate-400 italic">Включён</span>
-                    {% elif has_pending %}
-                    <button disabled class="px-5 py-2 rounded-xl bg-slate-100 text-slate-400 cursor-default text-sm font-semibold">Ожидает</button>
                     {% elif bun.price_monthly == 0 %}
                     <span class="text-sm text-slate-400">Бесплатно</span>
                     {% elif is_active %}
                     <form method="POST" action="/subscription/module-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
-                        <input type="hidden" name="amount" value="{{ bun.price_monthly }}">
                         <button type="submit" class="btn-renew">🔄 Продлить</button>
                     </form>
                     {% else %}
                     <form method="POST" action="/subscription/module-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
-                        <input type="hidden" name="amount" value="{{ bun.price_monthly }}">
                         <button type="submit" class="btn-connect">Подключить →</button>
                     </form>
                     {% endif %}
@@ -567,22 +561,18 @@
 
             {% if is_active and not sub_info %}
             <span class="text-[11px] text-slate-400">Включён</span>
-            {% elif has_pending %}
-            <button disabled class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 cursor-default font-semibold">Ожидает</button>
             {% elif mod.price_monthly == 0 %}
             <span class="text-[11px] text-slate-400">Бесплатно</span>
             {% elif is_active %}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <input type="hidden" name="amount" value="{{ mod.price_monthly }}">
                 <button type="submit" class="btn-renew">🔄 Продлить</button>
             </form>
             {% else %}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <input type="hidden" name="amount" value="{{ mod.price_monthly }}">
                 <button type="submit" class="btn-connect">Подключить</button>
             </form>
             {% endif %}
@@ -643,16 +633,19 @@
 {% set parent_active = ('*' in active_items.modules) or (ext.module_key in active_items.modules) %}
 
 {# Считаем активные расширения в группе #}
-{% set ns = namespace(active_in_group=0, total_in_group=0) %}
+{% set ns = namespace(active_in_group=0, total_in_group=0, need_in_group=false) %}
 {% for ext2 in extensions if ext2.module_key == ext.module_key %}
     {% set ns.total_in_group = ns.total_in_group + 1 %}
     {% if ('*' in active_items.extensions) or (ext2.key in active_items.extensions) %}
         {% set ns.active_in_group = ns.active_in_group + 1 %}
     {% endif %}
+    {% if need_ext and ext2.key == need_ext.key %}
+        {% set ns.need_in_group = true %}
+    {% endif %}
 {% endfor %}
 
-{# Группа: аккордеон — открыта, если есть активные расширения #}
-<div class="mb-3" x-data="{ open: {{ 'true' if ns.active_in_group > 0 else 'false' }} }">
+{# Группа: аккордеон — открыта, если есть активные расширения или группа содержит искомое расширение #}
+<div class="mb-3" x-data="{ open: {{ 'true' if (ns.active_in_group > 0 or ns.need_in_group) else 'false' }} }">
 
     {# Заголовок группы — кликабельный #}
     <button type="button" @click="open = !open"
@@ -706,22 +699,18 @@
                 <span class="text-[11px] text-slate-400 italic">нужен модуль</span>
                 {% elif is_ext_active and not ext_sub_info %}
                 <span class="text-[11px] text-slate-400">Включено</span>
-                {% elif has_pending %}
-                <button disabled class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-400 cursor-default font-semibold">Ожидает</button>
                 {% elif ext2.price_monthly == 0 %}
                 <span class="text-[11px] text-slate-400">Бесплатно</span>
                 {% elif is_ext_active %}
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
-                    <input type="hidden" name="amount" value="{{ ext2.price_monthly }}">
                     <button type="submit" class="btn-renew">🔄 Продлить</button>
                 </form>
                 {% else %}
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
-                    <input type="hidden" name="amount" value="{{ ext2.price_monthly }}">
                     <button type="submit" class="btn-connect" {{ 'disabled style="opacity:.5;cursor:default;"' if not parent_active else '' }}>Подключить</button>
                 </form>
                 {% endif %}
@@ -772,6 +761,13 @@
         </div>
         {% endfor %}
     </div>
+    {% if history_has_more %}
+    <div class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 text-center">
+        <a href="/payments" class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors">
+            Смотреть все заявки →
+        </a>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 
