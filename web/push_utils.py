@@ -218,6 +218,7 @@ def send_web_push(
         return {"sent": 0, "failed": 0, "gone": 0, "subs_found": len(subs),
                 "vapid": True, "code": "import_error"}
     sent = failed = gone = 0
+    errors: list = []
     payload = _build_payload(title, body, url, badge)
     for sub in subs:
         try:
@@ -230,21 +231,27 @@ def send_web_push(
             sent += 1
         except Exception as exc:
             _gone = False
+            err_detail = f"{type(exc).__name__}: {exc}"
             try:
                 if isinstance(exc, WebPushException) and exc.response is not None:
-                    _gone = exc.response.status_code in (404, 410)
+                    status = exc.response.status_code
+                    _gone = status in (404, 410)
+                    err_detail = f"HTTP {status}: {exc.response.text[:300]}"
             except Exception:
                 pass
             if _gone:
                 _delete_subscription(tg_id, sub["endpoint"])
                 gone += 1
             else:
-                logger.warning("push_utils push tg_id=%s: %s", tg_id, exc)
+                logger.warning("push_utils push tg_id=%s: %s", tg_id, err_detail)
                 failed += 1
+                if err_detail not in errors:
+                    errors.append(err_detail)
     if sent > 0:
         _log_delivery(tg_id, title)
     return {"sent": sent, "failed": failed, "gone": gone, "subs_found": len(subs),
-            "vapid": True, "code": "ok" if sent > 0 else "send_failed"}
+            "vapid": True, "code": "ok" if sent > 0 else "send_failed",
+            "errors": errors}
 
 
 def send_web_push_bulk(tg_ids, title: str, body: str, url: str = "/dashboard", badge: int = 1) -> int:

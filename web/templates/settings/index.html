@@ -330,6 +330,7 @@
                 showLog: false,
                 msg: '',
                 msgOk: true,
+                pushErrors: [],
                 pushDelivered: false,
                 fmtDate(iso) {
                     if (!iso) return '—';
@@ -375,6 +376,7 @@
                     const d = await r.json();
                     this.msg = d.msg || (d.ok ? '✅ Отправлено' : '❌ Ошибка');
                     this.msgOk = d.ok;
+                    this.pushErrors = d.errors || [];
                     if (d.ok) { this.subs = (this.subs || 0) + 1; }
                     await this.loadStatus();
                 },
@@ -473,6 +475,14 @@
                          :class="msgOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
                          class="text-xs rounded-lg px-3 py-2 mt-1" x-text="msg">
                     </div>
+                    <!-- Error details (shown when push fails — helps diagnose root cause) -->
+                    <template x-if="pushErrors.length > 0">
+                        <div class="mt-1 space-y-1">
+                            <template x-for="(e, i) in pushErrors" :key="i">
+                                <div class="text-xs font-mono bg-red-50 text-red-700 rounded px-2 py-1 break-all" x-text="e"></div>
+                            </template>
+                        </div>
+                    </template>
 
                     <!-- SW delivery confirmation (flashes for 3 s when push is received) -->
                     <div x-show="pushDelivered"

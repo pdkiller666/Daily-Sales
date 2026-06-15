@@ -335,10 +335,16 @@ async def push_test(request: Request):
         )
         sent = result.get("sent", 0) if isinstance(result, dict) else 0
         gone = result.get("gone", 0) if isinstance(result, dict) else 0
+        errs = result.get("errors", []) if isinstance(result, dict) else []
+        failed = result.get("failed", 0) if isinstance(result, dict) else 0
         if sent == 0:
             return JSONResponse({
                 "ok": False, "code": "send_failed",
-                "msg": f"Подписок найдено: {subs_count}, отправлено: 0, просрочено: {gone}",
+                "msg": (
+                    f"Подписок: {subs_count}, отправлено: 0, "
+                    f"просрочено: {gone}, ошибок: {failed}"
+                ),
+                "errors": errs,
             })
         return {"ok": True, "code": "ok", "sent": sent,
                 "msg": f"Тестовый push отправлен на {sent} устройств(а)"}
