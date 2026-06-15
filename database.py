@@ -11693,7 +11693,9 @@ class Database:
                 "email_verified, last_login, created_at, org_db "
                 "FROM web_credentials ORDER BY created_at DESC"
             ).fetchall()
-            return [dict(r) for r in rows]
+            _cols = ["id", "email", "first_name", "telegram_id", "synthetic_tg_id",
+                     "email_verified", "last_login", "created_at", "org_db"]
+            return [dict(zip(_cols, r)) for r in rows]
         except Exception as exc:
             logger.error("get_all_web_credentials: %s", exc)
             return []

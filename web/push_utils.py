@@ -60,18 +60,18 @@ def _normalize_vapid_key(raw: str) -> str:
         return key
 
     # --- step 1: re-wrap collapsed PEM base64 body ---
+    # Use regex so it works even when header/body/footer are all on one line
+    # (Amvera and some env UIs strip newlines from multiline values).
     if "BEGIN" in key and "KEY" in key:
-        lines = key.splitlines()
-        if len(lines) < 4:
-            # PEM body is collapsed onto one line — re-wrap at 64 chars
-            header = next((l for l in lines if l.startswith("-----BEGIN")), "")
-            footer = next((l for l in lines if l.startswith("-----END")), "")
-            body = "".join(
-                l for l in lines if not l.startswith("-----")
-            ).replace(" ", "")
-            if body:
-                wrapped = "\n".join(body[i:i+64] for i in range(0, len(body), 64))
-                key = f"{header}\n{wrapped}\n{footer}"
+        import re as _re
+        _m = _re.match(r"(-----BEGIN[^-]+-{5})([\s\S]*?)(-----END[^-]+-{5})", key)
+        if _m:
+            _hdr = _m.group(1).strip()
+            _body = _re.sub(r"[\s]", "", _m.group(2))
+            _ftr = _m.group(3).strip()
+            if _body:
+                _wrapped = "\n".join(_body[i:i+64] for i in range(0, len(_body), 64))
+                key = f"{_hdr}\n{_wrapped}\n{_ftr}"
 
     # --- step 2: try to load with cryptography and re-export as PKCS8 PEM ---
     # This fixes explicit EC parameters and other deprecated formats.
