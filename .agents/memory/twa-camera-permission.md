@@ -3,6 +3,26 @@ name: TWA camera permission
 description: Why getUserMedia fails inside the Android TWA APK and how the scan retry must work
 ---
 
+## ROOT CAUSE #1 — the server's `Permissions-Policy` header (check this FIRST)
+
+**Rule:** If `getUserMedia` shows **no permission prompt at all** and Chrome's site settings never
+create a Camera entry (only Notifications/Sound), suspect the `Permissions-Policy` response header
+before anything else. We shipped `Permissions-Policy: camera=(), microphone=(), …` — `camera=()`
+is an **empty allowlist that disables the camera for every origin including our own**, so the browser
+silently rejects getUserMedia with no prompt, in EVERY context (regular tab, installed PWA, TWA).
+Fix: `camera=(self)` (set in `web/app.py` `SecurityHeadersMiddleware.dispatch`).
+
+**Diagnostic that pinpoints it:** another camera site (e.g. dns-shop.ru) prompts fine in the same
+Chrome, but our origin never prompts — that asymmetry means OUR response, not the device/TWA, blocks
+it. Confirm by grepping `Permissions-Policy`/`camera` in `web/app.py`.
+
+**Why this wasted a whole session:** the symptom looked identical to a TWA/Android permission issue,
+so the manifest CAMERA permission, a `navigator.permissions.query` pre-flight, and Chrome
+"Clear & reset" instructions were all tried first and none helped — because the header blocked the
+API upstream of all of them. Always rule out `Permissions-Policy` (and `Feature-Policy`) FIRST when
+the prompt never appears.
+
+
 # TWA / standalone camera access
 
 **Rule:** The Android TWA APK must declare `<uses-permission android:name="android.permission.CAMERA" />`

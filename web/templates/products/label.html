@@ -261,6 +261,131 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 .fs-small  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 0.8); }
 .fs-large  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 1.25); }
 
+/* ── Sheet scroll wrapper (mobile horizontal scroll) ── */
+.sheet-scroll-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 16px;
+}
+
+/* ── Zoom-to-fit button (mobile only) ── */
+.btn-zoom-fit {
+    display: none;
+    align-items: center; gap: 5px;
+    background: #334155; color: #e2e8f0;
+    border: 1px solid #475569; cursor: pointer;
+    font-size: 12px; font-weight: 600; padding: 6px 12px;
+    border-radius: 8px; transition: background .15s; white-space: nowrap;
+}
+.btn-zoom-fit:hover { background: #475569; }
+.btn-zoom-fit.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+/* ── Mobile breakpoints ── */
+@media (max-width: 640px) {
+    /* Show zoom-fit button only on mobile */
+    .btn-zoom-fit { display: inline-flex; }
+
+    /* Hide print button on mobile */
+    .btn-print { display: none !important; }
+
+    /* Toolbar stacks: left block + two-row right block */
+    .toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 12px;
+    }
+    .toolbar-left { width: 100%; }
+    .toolbar .meta { white-space: normal; word-break: break-word; }
+
+    .toolbar-right {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    /* Size switcher takes full row */
+    .size-switcher {
+        width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+    }
+
+    /* Minimum touch targets for all toolbar buttons */
+    .btn-back, .btn-pdf, .btn-zoom-fit, .btn-design, .size-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    .btn-pdf { width: 100%; justify-content: center; }
+    .btn-design { width: 100%; justify-content: center; }
+
+    /* Row with action buttons (pdf + design + zoom) side-by-side */
+    .toolbar-actions-row {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+        flex-wrap: wrap;
+    }
+    .toolbar-actions-row .btn-pdf,
+    .toolbar-actions-row .btn-zoom-fit,
+    .toolbar-actions-row .btn-design {
+        flex: 1 1 auto;
+        width: auto;
+        justify-content: center;
+    }
+
+    /* Design panel: full-width fields, touch-friendly buttons */
+    .design-field {
+        width: 100%;
+    }
+    .design-field input[type=color] {
+        width: 64px;
+        height: 44px;
+    }
+    .design-field select {
+        width: 100%;
+        padding: 10px 8px;
+        font-size: 13px;
+        min-height: 44px;
+    }
+    .logo-clear {
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 13px;
+        padding: 10px 14px;
+        display: inline-flex;
+        align-items: center;
+    }
+    .btn-use-org-logo {
+        min-height: 44px;
+        font-size: 13px;
+        padding: 10px 14px;
+        white-space: normal;
+    }
+    .btn-reset-design {
+        min-height: 44px;
+        font-size: 13px;
+        padding: 10px 14px;
+    }
+    .btn-save-design {
+        min-height: 44px;
+        font-size: 13px;
+        padding: 10px 18px;
+    }
+    .design-actions {
+        flex-wrap: wrap;
+    }
+    .design-grid { gap: 12px 16px; }
+
+    /* File inputs more readable on mobile */
+    .design-field input[type=file] {
+        max-width: 100% !important;
+        font-size: 12px;
+    }
+    #orgLogoInput { max-width: 100% !important; }
+}
+
 /* ── @media print ── */
 @media print {
     body { background: #fff; }
@@ -299,23 +424,29 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
         </div>
     </div>
     <div class="toolbar-right">
-        <!-- Size switcher -->
+        <!-- Size switcher (always its own row on mobile) -->
         <div class="size-switcher">
             <template x-for="s in sizes" :key="s.key">
                 <button class="size-btn" :class="size === s.key ? 'active' : ''"
                         @click="setSize(s.key)" x-text="s.label"></button>
             </template>
         </div>
-        {% if is_owner %}
-        <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
-        {% endif %}
-        <!-- PDF download -->
-        {% if pdf_url %}
-        <a :href="'{{ pdf_url }}&size=' + size" class="btn-pdf" download>⬇ Скачать PDF</a>
-        {% elif bulk_product_ids %}
-        <button class="btn-pdf" @click="downloadBulkPdf($el)">⬇ Скачать PDF</button>
-        {% endif %}
-        <button class="btn-print" onclick="window.print()">🖨 Печать</button>
+        <!-- Actions row: PDF, Design, Zoom-fit, Print -->
+        <div class="toolbar-actions-row">
+            {% if pdf_url %}
+            <a :href="'{{ pdf_url }}&size=' + size" class="btn-pdf" download
+               title="Сохраните файл и откройте на ПК для печати">⬇ Скачать PDF</a>
+            {% elif bulk_product_ids %}
+            <button class="btn-pdf" @click="downloadBulkPdf($el)"
+                    title="Сохраните файл и откройте на ПК для печати">⬇ Скачать PDF</button>
+            {% endif %}
+            {% if is_owner %}
+            <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
+            {% endif %}
+            <!-- Zoom-to-fit: visible only on mobile via CSS -->
+            <button class="btn-zoom-fit" :class="zoomed ? 'active' : ''" @click="toggleZoom()">↔ Вписать</button>
+            <button class="btn-print" onclick="window.print()">🖨 Печать</button>
+        </div>
     </div>
 </div>
 
@@ -412,6 +543,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
 {% endif %}
 
 <!-- A4 sheet with labels grid -->
+<div class="sheet-scroll-wrap" id="sheetScrollWrap">
 <div class="sheet" id="labelSheet">
 {% for lb in labels %}
 <div class="label">
@@ -436,6 +568,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
     {% endif %}
 </div>
 {% endfor %}
+</div>
 </div>
 
 <!-- Alpine: label size switcher -->
@@ -483,6 +616,7 @@ function labelSizer() {
     return {
         sizes: SIZES,
         size: new URLSearchParams(location.search).get('size') || '{{ initial_size | default("58x40") }}',
+        zoomed: false,
 
         init() {
             const saved = localStorage.getItem('ds_label_size');
@@ -494,6 +628,26 @@ function labelSizer() {
             var fs = document.getElementById('fontSize') ? document.getElementById('fontSize').value : 'medium';
             var sheet = document.getElementById('labelSheet');
             if (sheet && fs !== 'medium') sheet.classList.add('fs-' + fs);
+        },
+
+        toggleZoom() {
+            this.zoomed = !this.zoomed;
+            var sheet = document.getElementById('labelSheet');
+            var wrap = document.getElementById('sheetScrollWrap');
+            if (!sheet) return;
+            if (this.zoomed) {
+                var vw = Math.min(window.innerWidth, document.documentElement.clientWidth);
+                var factor = (vw - 32) / 794;
+                sheet.style.transform = 'scale(' + factor + ')';
+                sheet.style.transformOrigin = 'top left';
+                sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - factor)) + 'px';
+                if (wrap) { wrap.style.overflowX = 'hidden'; wrap.style.paddingLeft = '0'; wrap.style.paddingRight = '0'; }
+            } else {
+                sheet.style.transform = '';
+                sheet.style.transformOrigin = '';
+                sheet.style.marginBottom = '';
+                if (wrap) { wrap.style.overflowX = 'auto'; wrap.style.paddingLeft = ''; wrap.style.paddingRight = ''; }
+            }
         },
 
         get current() {
