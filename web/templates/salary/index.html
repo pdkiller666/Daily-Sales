@@ -93,20 +93,44 @@
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
-                    <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Сотрудник</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Ставка/день</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Смен</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Оклад</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Мотивация</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Корр.</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden lg:table-cell">Конкурсы</th>
-                    <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Итого</th>
+                    <th class="text-left px-5 py-3 text-xs font-semibold uppercase">
+                        <button onclick="salarySort('name')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="name">Сотрудник <span class="sal-arrow" data-col="name"></span></button>
+                    </th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
+                        <button onclick="salarySort('rate')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="rate">Ставка/день <span class="sal-arrow" data-col="rate"></span></button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
+                        <button onclick="salarySort('shifts')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="shifts">Смен <span class="sal-arrow" data-col="shifts"></span></button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
+                        <button onclick="salarySort('base')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="base">Оклад <span class="sal-arrow" data-col="base"></span></button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
+                        <button onclick="salarySort('motiv')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="motiv">Мотивация <span class="sal-arrow" data-col="motiv"></span></button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
+                        <button onclick="salarySort('adj')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="adj">Корр. <span class="sal-arrow" data-col="adj"></span></button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden lg:table-cell">
+                        <button onclick="salarySort('contests')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="contests">Конкурсы <span class="sal-arrow" data-col="contests"></span></button>
+                    </th>
+                    <th class="text-right px-5 py-3 text-xs font-semibold uppercase">
+                        <button onclick="salarySort('total')" class="sal-th text-slate-500 hover:text-blue-600 transition-colors" data-col="total">Итого <span class="sal-arrow" data-col="total"></span></button>
+                    </th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody class="divide-y divide-slate-50" id="sal-tbody">
                 {% for s in staff_salary %}
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer
                            {% if s.user_id == selected_user_id %}bg-blue-50/40{% endif %}"
+                    data-sv-name="{{ s.first_name }} {{ s.last_name }}"
+                    data-sv-rate="{{ s.daily_rate|int }}"
+                    data-sv-shifts="{{ s.worked_days }}"
+                    data-sv-base="{{ s.base_salary|int }}"
+                    data-sv-motiv="{{ s.motivation|int }}"
+                    data-sv-adj="{{ s.adj_sum|int }}"
+                    data-sv-contests="{{ s.contest_rewards|int }}"
+                    data-sv-total="{{ s.total|int }}"
                     onclick="window.location='/salary?year={{ year }}&month={{ month }}&user_id={{ s.user_id }}'">
                     <td class="px-5 py-3">
                         <p class="font-medium text-slate-800">{{ s.first_name }} {{ s.last_name }}</p>
@@ -536,5 +560,54 @@ function rateEdit(userId, currentRate) {
         cancel() { this.editing = false; this.val = this.userId; },
     };
 }
+</script>
+<script>
+/* Persist salary sort preference in localStorage across page visits */
+var _salCol = 'total';
+var _salDir = 'desc';
+var _SAL_LS_COL = 'salary_sort_col';
+var _SAL_LS_DIR = 'salary_sort_dir';
+
+function salarySort(col) {
+    if (_salCol === col) {
+        _salDir = _salDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _salCol = col;
+        _salDir = col === 'name' ? 'asc' : 'desc';
+    }
+    try { localStorage.setItem(_SAL_LS_COL, _salCol); localStorage.setItem(_SAL_LS_DIR, _salDir); } catch(e) {}
+    _salApply();
+}
+
+function _salApply() {
+    var tbody = document.getElementById('sal-tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var col = _salCol, dir = _salDir, isNum = col !== 'name';
+    rows.sort(function(a, b) {
+        var av = a.getAttribute('data-sv-' + col) || '';
+        var bv = b.getAttribute('data-sv-' + col) || '';
+        if (isNum) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+        else { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        return av < bv ? (dir === 'asc' ? -1 : 1) : av > bv ? (dir === 'asc' ? 1 : -1) : 0;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+    document.querySelectorAll('.sal-th').forEach(function(btn) {
+        var c = btn.getAttribute('data-col');
+        var arrow = btn.querySelector('.sal-arrow');
+        btn.classList.toggle('text-blue-600', c === col);
+        btn.classList.toggle('text-slate-500', c !== col);
+        if (arrow) arrow.textContent = c === col ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+}
+
+(function() {
+    try {
+        var col = localStorage.getItem(_SAL_LS_COL);
+        var dir = localStorage.getItem(_SAL_LS_DIR);
+        if (col) { _salCol = col; _salDir = dir || 'desc'; }
+    } catch(e) {}
+    _salApply();
+})();
 </script>
 {% endblock %}

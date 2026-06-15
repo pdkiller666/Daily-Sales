@@ -137,6 +137,22 @@
         <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full ml-auto">
             {{ ranking|length }} позиций
         </span>
+        <!-- Sort buttons -->
+        <div class="flex items-center gap-1">
+            <span class="text-xs text-slate-400 mr-0.5">Сорт:</span>
+            <button id="rnk-btn-revenue" onclick="rnkSort('revenue')"
+                    class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
+                Выручка<span id="rnk-arrow-revenue" class="ml-0.5"></span>
+            </button>
+            <button id="rnk-btn-count" onclick="rnkSort('count')"
+                    class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
+                Продаж<span id="rnk-arrow-count" class="ml-0.5"></span>
+            </button>
+            <button id="rnk-btn-qty" onclick="rnkSort('qty')"
+                    class="px-2 py-1 rounded text-xs font-medium transition-colors border border-slate-200 text-slate-500 hover:border-blue-300">
+                Шт<span id="rnk-arrow-qty" class="ml-0.5"></span>
+            </button>
+        </div>
         <input x-model.debounce.200ms="q" type="search" placeholder="🔍 фильтр…"
                class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs w-32 focus:outline-none focus:ring-1 focus:ring-blue-400"
                @keydown.escape="q=''">
@@ -150,7 +166,7 @@
     {% endif %}
 
     {% if ranking %}
-    <div class="divide-y divide-slate-50">
+    <div id="rnk-list" class="divide-y divide-slate-50">
         {% for r in ranking %}
         <div class="px-5 py-4 transition-colors
                     {% if r.pos == 1 %}bg-amber-50/40{% elif r.pos == 2 %}bg-slate-50/60{% elif r.pos == 3 %}bg-orange-50/30{% endif %}
@@ -164,6 +180,9 @@
              {% elif tab == 'cities' and r.label %}onclick="window.location='/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}&city={{ r.label|urlencode }}'"
              {% endif %}
              data-label="{{ r.label|lower }}"
+             data-sv-revenue="{{ r.revenue }}"
+             data-sv-count="{{ r.count }}"
+             data-sv-qty="{{ r.qty }}"
              x-show="!q || $el.dataset.label.includes(q.toLowerCase())">
             <div class="flex items-center gap-4">
 
@@ -263,6 +282,59 @@
 
 {% block extra_head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
 {% block extra_js %}
+<script>
+/* Persist rankings sort preference in localStorage across page visits */
+var _rnkCol = 'revenue';
+var _rnkDir = 'desc';
+var _RNK_LS_COL = 'rnk_sort_col_{{ tab }}';
+var _RNK_LS_DIR = 'rnk_sort_dir_{{ tab }}';
+
+function rnkSort(col) {
+    if (_rnkCol === col) {
+        _rnkDir = _rnkDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _rnkCol = col;
+        _rnkDir = 'desc';
+    }
+    try { localStorage.setItem(_RNK_LS_COL, _rnkCol); localStorage.setItem(_RNK_LS_DIR, _rnkDir); } catch(e) {}
+    _rnkApply();
+}
+
+function _rnkApply() {
+    var list = document.getElementById('rnk-list');
+    if (!list) return;
+    var items = Array.from(list.children);
+    var col = _rnkCol, dir = _rnkDir;
+    items.sort(function(a, b) {
+        var av = parseFloat(a.getAttribute('data-sv-' + col)) || 0;
+        var bv = parseFloat(b.getAttribute('data-sv-' + col)) || 0;
+        return av < bv ? (dir === 'asc' ? -1 : 1) : av > bv ? (dir === 'asc' ? 1 : -1) : 0;
+    });
+    items.forEach(function(el) { list.appendChild(el); });
+    ['revenue', 'count', 'qty'].forEach(function(c) {
+        var btn = document.getElementById('rnk-btn-' + c);
+        var arrow = document.getElementById('rnk-arrow-' + c);
+        if (!btn) return;
+        if (c === col) {
+            btn.classList.add('text-blue-600', 'border-blue-400', 'bg-blue-50');
+            btn.classList.remove('text-slate-500', 'border-slate-200');
+            if (arrow) arrow.textContent = dir === 'asc' ? '▲' : '▼';
+        } else {
+            btn.classList.remove('text-blue-600', 'border-blue-400', 'bg-blue-50');
+            btn.classList.add('text-slate-500', 'border-slate-200');
+            if (arrow) arrow.textContent = '';
+        }
+    });
+}
+
+(function() {
+    try {
+        var col = localStorage.getItem(_RNK_LS_COL);
+        var dir = localStorage.getItem(_RNK_LS_DIR);
+        if (col) { _rnkCol = col; _rnkDir = dir || 'desc'; _rnkApply(); }
+    } catch(e) {}
+})();
+</script>
 {% if ranking|length >= 2 %}
 <script>
 (function () {

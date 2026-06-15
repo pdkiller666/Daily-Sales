@@ -280,8 +280,46 @@ def create_web_app() -> FastAPI:
         raw = str(s)
         return raw[11:16] if len(raw) > 10 else "—"
 
+    _RU_MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
+
+    def _fmt_date_badge(s, tz: str = "Europe/Moscow") -> str:
+        """Return compact date like '15 июн' for mobile badge."""
+        if not s:
+            return "—"
+        try:
+            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            if local_dt:
+                return f"{local_dt.day} {_RU_MONTHS_SHORT[local_dt.month - 1]}"
+        except Exception:
+            pass
+        raw = str(s)
+        if len(raw) >= 10:
+            try:
+                d, m = int(raw[8:10]), int(raw[5:7])
+                return f"{d} {_RU_MONTHS_SHORT[m - 1]}"
+            except Exception:
+                pass
+        return str(s)[:10]
+
+    def _is_backdated(s, tz: str = "Europe/Moscow") -> bool:
+        """Return True if sale_date is NOT today in user's timezone."""
+        if not s:
+            return False
+        try:
+            from datetime import datetime
+            import zoneinfo
+            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            if local_dt:
+                today = datetime.now(zoneinfo.ZoneInfo(tz or "Europe/Moscow")).date()
+                return local_dt.date() != today
+        except Exception:
+            pass
+        return False
+
     templates.env.filters['fmt_sale_dt'] = _fmt_sale_dt
     templates.env.filters['fmt_sale_time'] = _fmt_sale_time
+    templates.env.filters['fmt_date_badge'] = _fmt_date_badge
+    templates.env.filters['is_backdated'] = _is_backdated
 
     import bot_holder
     templates.env.globals['bot_username'] = lambda: bot_holder.get_username() or ''

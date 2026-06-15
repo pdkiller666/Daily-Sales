@@ -5297,7 +5297,7 @@ class Database:
 
         return False
 
-    def update_sale_full(self, sale_id, quantity_sold, sale_price, shop_name, changed_by=None):
+    def update_sale_full(self, sale_id, quantity_sold, sale_price, shop_name, changed_by=None, sale_date=None):
         """Обновить продажу: кол-во, цена и магазин. Пересчитывает остатки при смене магазина или кол-ва."""
         import time
         max_retries = 3
@@ -5341,10 +5341,16 @@ class Database:
                         WHERE shop_name = ? AND product_id = ?
                     ''', (quantity_diff, old_shop, product_id))
 
-                cursor.execute('''
-                    UPDATE sales SET quantity_sold = ?, sale_price = ?, shop_name = ?
-                    WHERE id = ?
-                ''', (quantity_sold, sale_price, shop_name, sale_id))
+                if sale_date:
+                    cursor.execute('''
+                        UPDATE sales SET quantity_sold = ?, sale_price = ?, shop_name = ?, sale_date = ?
+                        WHERE id = ?
+                    ''', (quantity_sold, sale_price, shop_name, sale_date, sale_id))
+                else:
+                    cursor.execute('''
+                        UPDATE sales SET quantity_sold = ?, sale_price = ?, shop_name = ?
+                        WHERE id = ?
+                    ''', (quantity_sold, sale_price, shop_name, sale_id))
 
                 try:
                     cursor.execute('''
@@ -5359,7 +5365,8 @@ class Database:
 
                 try:
                     from datetime import datetime as _dt2
-                    _sdt = _dt2.fromisoformat(_sale_date_str) if _sale_date_str else _dt2.now()
+                    _effective_date = sale_date or _sale_date_str
+                    _sdt = _dt2.fromisoformat(_effective_date) if _effective_date else _dt2.now()
                 except Exception:
                     from datetime import datetime as _dt2
                     _sdt = _dt2.now()

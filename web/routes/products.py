@@ -118,7 +118,14 @@ def _cleanup_article_sessions() -> None:
 
 
 @router.get("/products")
-def products_page(request: Request, q: str = "", category: str = "", page: int = 1):
+def products_page(
+    request: Request,
+    q: str = "",
+    category: str = "",
+    page: int = 1,
+    sort_col: str = "name",
+    sort_order: str = "asc",
+):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -128,11 +135,17 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+
+    _VALID_PROD_COLS = ("name", "category", "price", "stock")
+    sort_col = sort_col if sort_col in _VALID_PROD_COLS else "name"
+    sort_order = sort_order if sort_order in ("asc", "desc") else "asc"
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "products": [], "categories": [],
         "selected_category": category, "q": q,
+        "sort_col": sort_col, "sort_order": sort_order,
         "stock": {}, "total_count": 0, "error": None,
         "page": 1, "total_pages": 1, "base_url": "/products",
         "abc_grades": {},
@@ -166,14 +179,23 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
                 or ql in (p[8] if len(p) > 8 and p[8] else "").lower()
             ]
 
-        products.sort(key=lambda p: ((p[2] or ""), (p[1] or "").lower()))
+        # Apply user-requested sort
+        rev = (sort_order == "desc")
+        if sort_col == "category":
+            products.sort(key=lambda p: ((p[2] or "").lower(), (p[1] or "").lower()), reverse=rev)
+        elif sort_col == "price":
+            products.sort(key=lambda p: float(p[3] or 0), reverse=rev)
+        elif sort_col == "stock":
+            products.sort(key=lambda p: stock.get(p[0], 0), reverse=rev)
+        else:  # name (default)
+            products.sort(key=lambda p: (p[1] or "").lower(), reverse=rev)
 
         total = len(products)
         total_pages = max(1, (total + PRODUCTS_PAGE_SIZE - 1) // PRODUCTS_PAGE_SIZE)
         page = max(1, min(page, total_pages))
         start = (page - 1) * PRODUCTS_PAGE_SIZE
 
-        # Build base_url for pagination links (preserves filters)
+        # Build base_url for pagination links (preserves filters + sort)
         parts = []
         if q:
             from urllib.parse import quote
@@ -181,7 +203,8 @@ def products_page(request: Request, q: str = "", category: str = "", page: int =
         if category:
             from urllib.parse import quote
             parts.append(f"category={quote(category)}")
-        base_url = "/products?" + "&".join(parts) if parts else "/products?"
+        parts.append(f"sort_col={sort_col}&sort_order={sort_order}")
+        base_url = "/products?" + "&".join(parts)
 
         ctx["products"] = products[start: start + PRODUCTS_PAGE_SIZE]
         ctx["categories"] = categories

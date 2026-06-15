@@ -2512,20 +2512,27 @@ async def sale_audit_log(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     rows = await current_db.get_sale_audit_log(sale_id)
     if not rows:
-        text = "📋 <b>История изменений</b>\n\nИзменений ещё не было."
+        text = "📋 <b>История изменений</b>\n\nИзменений не зафиксировано."
     else:
         text = "📋 <b>История изменений продажи</b>\n\n"
         for row in rows:
-            # (id, sale_id, field_name, old_value, new_value, changed_by, changed_at, changer_name)
-            field = he(str(row[2]))
-            old_v = he(str(row[3])) if row[3] is not None else "—"
-            new_v = he(str(row[4])) if row[4] is not None else "—"
-            changer = he(str(row[7])) if row[7] else "—"
-            changed_at = str(row[6])[:16] if row[6] else "—"
-            text += (
-                f"🕐 <b>{changed_at}</b> · {changer}\n"
-                f"   {field}: {old_v} → <b>{new_v}</b>\n\n"
-            )
+            # row: id[0], changed_by_user_id[1], editor_name[2],
+            #      old_quantity[3], new_quantity[4],
+            #      old_price[5], new_price[6], changed_at[7]
+            editor_name = he(str(row[2])) if row[2] else "—"
+            changed_at = str(row[7])[:16] if row[7] else "—"
+            lines = []
+            old_qty, new_qty = row[3], row[4]
+            old_price, new_price = row[5], row[6]
+            if old_qty != new_qty:
+                lines.append(f"   📦 Кол-во: {old_qty} → <b>{new_qty}</b> шт.")
+            if old_price != new_price:
+                lines.append(
+                    f"   💰 Цена: {format_currency(old_price)} → <b>{format_currency(new_price)}</b>"
+                )
+            if not lines:
+                lines.append("   (запись зафиксирована)")
+            text += f"🕐 <b>{changed_at}</b> · {editor_name}\n" + "\n".join(lines) + "\n\n"
     await callback.message.edit_text(
         text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[

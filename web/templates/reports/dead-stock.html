@@ -83,17 +83,42 @@
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Товар</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Категория</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="ds-th" data-col="name" onclick="dsSort('name')">
+                            Товар<span class="ds-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
+                        <button class="ds-th" data-col="category" onclick="dsSort('category')">
+                            Категория<span class="ds-arrow ml-0.5"></span>
+                        </button>
+                    </th>
                     {% if not shop %}<th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Магазин</th>{% endif %}
-                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Остаток</th>
-                    <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Сумма</th>
-                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Последняя продажа</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="ds-th" data-col="stock" onclick="dsSort('stock')">
+                            Остаток<span class="ds-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
+                        <button class="ds-th" data-col="stock_value" onclick="dsSort('stock_value')">
+                            Сумма<span class="ds-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="ds-th" data-col="last_sale" onclick="dsSort('last_sale')">
+                            Последняя продажа<span class="ds-arrow ml-0.5"></span>
+                        </button>
+                    </th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody id="ds-tbody" class="divide-y divide-slate-50">
             {% for row in rows %}
-            <tr class="hover:bg-slate-50 transition-colors {% if row.never_sold %}bg-red-50/30{% endif %}">
+            <tr class="hover:bg-slate-50 transition-colors {% if row.never_sold %}bg-red-50/30{% endif %}"
+                data-sv-name="{{ row.name|lower }}"
+                data-sv-category="{{ row.category|lower }}"
+                data-sv-stock="{{ row.stock }}"
+                data-sv-stock_value="{{ row.stock_value }}"
+                data-sv-last_sale="{{ row.last_sale or '0000-00-00' }}">
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
                         {% if row.never_sold %}
@@ -131,6 +156,55 @@
         </table>
     </div>
 </div>
+
+<script>
+var _dsCol = 'stock_value';
+var _dsDir = 'desc';
+var _DS_LS_COL = 'ds_sort_col';
+var _DS_LS_DIR = 'ds_sort_dir';
+
+function dsSort(col) {
+    if (_dsCol === col) {
+        _dsDir = _dsDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _dsCol = col;
+        _dsDir = (col === 'name' || col === 'category') ? 'asc' : (col === 'last_sale' ? 'desc' : 'desc');
+    }
+    try { localStorage.setItem(_DS_LS_COL, _dsCol); localStorage.setItem(_DS_LS_DIR, _dsDir); } catch(e) {}
+    _dsApply();
+}
+
+function _dsApply() {
+    var tbody = document.getElementById('ds-tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var col = _dsCol, dir = _dsDir;
+    var isNum = (col === 'stock' || col === 'stock_value');
+    rows.sort(function(a, b) {
+        var av = a.getAttribute('data-sv-' + col) || '';
+        var bv = b.getAttribute('data-sv-' + col) || '';
+        if (isNum) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+        else { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        return av < bv ? (dir === 'asc' ? -1 : 1) : av > bv ? (dir === 'asc' ? 1 : -1) : 0;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+    document.querySelectorAll('.ds-th').forEach(function(btn) {
+        var c = btn.getAttribute('data-col');
+        var arrow = btn.querySelector('.ds-arrow');
+        btn.classList.toggle('text-blue-600', c === col);
+        btn.classList.toggle('text-slate-500', c !== col);
+        if (arrow) arrow.textContent = c === col ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+}
+
+(function() {
+    try {
+        var col = localStorage.getItem(_DS_LS_COL);
+        var dir = localStorage.getItem(_DS_LS_DIR);
+        if (col) { _dsCol = col; _dsDir = dir || 'desc'; _dsApply(); }
+    } catch(e) {}
+})();
+</script>
 
 {% else %}
 <div class="card p-10 text-center">

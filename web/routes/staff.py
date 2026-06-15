@@ -65,6 +65,8 @@ def staff_page(
     request: Request,
     shop: str = "",
     q: str = "",
+    sort_col: str = "role",
+    sort_order: str = "asc",
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -79,11 +81,16 @@ def staff_page(
         return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
     org_db = user.get("org_db")
 
+    _VALID_STAFF_COLS = ("role", "name", "shop", "city", "month_sales", "month_revenue")
+    sort_col = sort_col if sort_col in _VALID_STAFF_COLS else "role"
+    sort_order = sort_order if sort_order in ("asc", "desc") else "asc"
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
         "is_owner": user.get("role") in ("owner", "super_admin"),
         "staff": [], "shops": [], "shop": shop, "q": q,
+        "sort_col": sort_col, "sort_order": sort_order,
         "role_labels": ROLE_LABELS, "total_count": 0, "error": None,
         "csrf_token": get_csrf_token(request),
         "invite_code": "", "bot_link": "",
@@ -118,11 +125,13 @@ def staff_page(
                 or ql in (u[8] or "").lower()
             ]
 
-        def _sort_key(u):
+        def _role_order(u):
             role_info = org_roles.get(u[1], {})
             role = role_info.get("role", "user")
-            order = {"owner": 0, "admin": 1, "super_admin": 0, "user": 2}.get(role, 2)
-            return (order, (u[3] or "").lower(), (u[2] or "").lower())
+            return {"owner": 0, "super_admin": 0, "admin": 1, "user": 2}.get(role, 2)
+
+        def _sort_key(u):
+            return (_role_order(u), (u[3] or "").lower(), (u[2] or "").lower())
 
         all_users.sort(key=_sort_key)
 
@@ -164,6 +173,20 @@ def staff_page(
                 "month_sales": month_sales,
                 "month_revenue": month_revenue,
             })
+
+        # Apply user-requested sort on top of the default role-order pre-sort
+        rev = (sort_order == "desc")
+        if sort_col == "name":
+            staff.sort(key=lambda s: (s["last_name"].lower(), s["first_name"].lower()), reverse=rev)
+        elif sort_col == "shop":
+            staff.sort(key=lambda s: s["shop_name"].lower(), reverse=rev)
+        elif sort_col == "city":
+            staff.sort(key=lambda s: s["city"].lower(), reverse=rev)
+        elif sort_col == "month_sales":
+            staff.sort(key=lambda s: s["month_sales"], reverse=rev)
+        elif sort_col == "month_revenue":
+            staff.sort(key=lambda s: s["month_revenue"], reverse=rev)
+        # "role" (default) keeps the pre-sort order
 
         ctx["staff"] = staff
         ctx["total_count"] = len(staff)

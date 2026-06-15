@@ -132,18 +132,43 @@
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
                     <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500">#</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500">Товар</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 hidden sm:table-cell">Категория</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500">Выручка</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 hidden sm:table-cell">Доля</th>
-                    <th class="text-center px-5 py-3 text-xs font-semibold text-slate-500">Группа</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold">
+                        <button class="abc-th" data-col="name" onclick="abcSort('name')">
+                            Товар<span class="abc-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold hidden sm:table-cell">
+                        <button class="abc-th" data-col="category" onclick="abcSort('category')">
+                            Категория<span class="abc-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold">
+                        <button class="abc-th" data-col="revenue" onclick="abcSort('revenue')">
+                            Выручка<span class="abc-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold hidden sm:table-cell">
+                        <button class="abc-th" data-col="pct" onclick="abcSort('pct')">
+                            Доля<span class="abc-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-center px-5 py-3 text-xs font-semibold">
+                        <button class="abc-th" data-col="group" onclick="abcSort('group')">
+                            Группа<span class="abc-arrow ml-0.5"></span>
+                        </button>
+                    </th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody id="abc-tbody" class="divide-y divide-slate-50">
                 {% for item in abc_items %}
                 {% set badge = ('bg-emerald-100 text-emerald-700' if item.group == 'A' else ('bg-amber-100 text-amber-700' if item.group == 'B' else 'bg-slate-100 text-slate-600')) %}
-                <tr class="hover:bg-slate-50/80 transition-colors">
-                    <td class="px-5 py-3 text-xs text-slate-400">{{ loop.index }}</td>
+                <tr class="hover:bg-slate-50/80 transition-colors"
+                    data-sv-name="{{ item.name|lower }}"
+                    data-sv-category="{{ item.category|lower }}"
+                    data-sv-revenue="{{ item.revenue }}"
+                    data-sv-pct="{{ item.pct }}"
+                    data-sv-group="{{ item.group }}">
+                    <td class="px-5 py-3 text-xs text-slate-400 abc-rank-cell">{{ loop.index }}</td>
                     <td class="px-3 py-3">
                         {% if item.id %}
                         <a href="/products/{{ item.id }}" class="font-medium text-slate-800 hover:text-blue-600 transition-colors truncate block max-w-[180px]">{{ item.name }}</a>
@@ -163,6 +188,59 @@
         </table>
     </div>
 </div>
+
+<script>
+var _abcCol = 'revenue';
+var _abcDir = 'desc';
+var _ABC_LS_COL = 'abc_sort_col';
+var _ABC_LS_DIR = 'abc_sort_dir';
+
+function abcSort(col) {
+    if (_abcCol === col) {
+        _abcDir = _abcDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _abcCol = col;
+        _abcDir = (col === 'name' || col === 'category' || col === 'group') ? 'asc' : 'desc';
+    }
+    try { localStorage.setItem(_ABC_LS_COL, _abcCol); localStorage.setItem(_ABC_LS_DIR, _abcDir); } catch(e) {}
+    _abcApply();
+}
+
+function _abcApply() {
+    var tbody = document.getElementById('abc-tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var col = _abcCol, dir = _abcDir;
+    var isNum = (col === 'revenue' || col === 'pct');
+    rows.sort(function(a, b) {
+        var av = a.getAttribute('data-sv-' + col) || '';
+        var bv = b.getAttribute('data-sv-' + col) || '';
+        if (isNum) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+        else { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        return av < bv ? (dir === 'asc' ? -1 : 1) : av > bv ? (dir === 'asc' ? 1 : -1) : 0;
+    });
+    rows.forEach(function(r, i) {
+        tbody.appendChild(r);
+        var rankCell = r.querySelector('.abc-rank-cell');
+        if (rankCell) rankCell.textContent = i + 1;
+    });
+    document.querySelectorAll('.abc-th').forEach(function(btn) {
+        var c = btn.getAttribute('data-col');
+        var arrow = btn.querySelector('.abc-arrow');
+        btn.classList.toggle('text-blue-600', c === col);
+        btn.classList.toggle('text-slate-500', c !== col);
+        if (arrow) arrow.textContent = c === col ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+}
+
+(function() {
+    try {
+        var col = localStorage.getItem(_ABC_LS_COL);
+        var dir = localStorage.getItem(_ABC_LS_DIR);
+        if (col) { _abcCol = col; _abcDir = dir || 'desc'; _abcApply(); }
+    } catch(e) {}
+})();
+</script>
 
 <script>
 (function(){

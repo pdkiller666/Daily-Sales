@@ -243,6 +243,14 @@
 
 <div class="card overflow-hidden">
     {% if products %}
+    {% macro prd_icon(col) %}
+        {% if sort_col == col %}
+            {% if sort_order == "desc" %}▼{% else %}▲{% endif %}
+        {% else %}<span class="opacity-0 group-hover:opacity-40">▲</span>{% endif %}
+    {% endmacro %}
+    {% set _prd_qstr = ("&q=" ~ q|urlencode if q else "") ~ ("&category=" ~ selected_category|urlencode if selected_category else "") %}
+    {% macro prd_href(col) %}/products?sort_col={{ col }}&sort_order={{ "asc" if (sort_col == col and sort_order == "desc") else "desc" }}{{ _prd_qstr }}&page=1{% endmacro %}
+    {% macro prd_cls(col) %}{% if sort_col == col %}text-blue-600 dark:text-blue-400{% else %}text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400{% endif %}{% endmacro %}
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -255,10 +263,18 @@
                     </th>
                     {% endif %}
                     <th class="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">#</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Название</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Категория</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase">Цена</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Остаток</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold uppercase">
+                        <a href="{{ prd_href('name') }}" class="inline-flex items-center gap-1 {{ prd_cls('name') }} transition-colors group">Название{{ prd_icon('name') }}</a>
+                    </th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
+                        <a href="{{ prd_href('category') }}" class="inline-flex items-center gap-1 {{ prd_cls('category') }} transition-colors group">Категория{{ prd_icon('category') }}</a>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
+                        <a href="{{ prd_href('price') }}" class="inline-flex items-center justify-end gap-1 {{ prd_cls('price') }} transition-colors group">Цена{{ prd_icon('price') }}</a>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase hidden md:table-cell">
+                        <a href="{{ prd_href('stock') }}" class="inline-flex items-center justify-end gap-1 {{ prd_cls('stock') }} transition-colors group">Остаток{{ prd_icon('stock') }}</a>
+                    </th>
                     <th class="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase hidden md:table-cell">Статус</th>
                 </tr>
             </thead>
@@ -544,6 +560,32 @@
 {% block footer_info %}{{ total_count }} товаров · стр. {{ page }}/{{ total_pages }}{% endblock %}
 
 {% block extra_js %}
+<script>
+/* Persist products sort preference in localStorage across page visits */
+(function () {
+    var LS_COL = 'products_sort_col';
+    var LS_DIR = 'products_sort_dir';
+    var params = new URLSearchParams(window.location.search);
+
+    if (params.has('sort_col')) {
+        try {
+            localStorage.setItem(LS_COL, params.get('sort_col'));
+            localStorage.setItem(LS_DIR, params.get('sort_order') || 'asc');
+        } catch (e) {}
+    } else {
+        try {
+            var col = localStorage.getItem(LS_COL);
+            var dir = localStorage.getItem(LS_DIR) || 'asc';
+            if (col && (col !== 'name' || dir !== 'asc')) {
+                params.set('sort_col', col);
+                params.set('sort_order', dir);
+                if (!params.has('page')) params.set('page', '1');
+                window.location.replace(window.location.pathname + '?' + params.toString());
+            }
+        } catch (e) {}
+    }
+})();
+</script>
 {% if is_admin %}
 <script>
 (function(){

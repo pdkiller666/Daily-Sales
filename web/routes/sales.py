@@ -151,6 +151,8 @@ def sales_page(
     category: str = "",
     product_id: int = 0,
     page: int = 1,
+    sort_order: str = "desc",
+    sort_col: str = "date",
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -161,6 +163,8 @@ def sales_page(
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+    sort_order = sort_order if sort_order in ("asc", "desc") else "desc"
+    sort_col = sort_col if sort_col in ("date", "amount", "qty", "product", "shop") else "date"
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -175,6 +179,8 @@ def sales_page(
         "flash_err": request.query_params.get("error", ""),
         "current_user_id": None,
         "user_tz": "Europe/Moscow",
+        "sort_order": sort_order,
+        "sort_col": sort_col,
     }
 
     try:
@@ -261,6 +267,35 @@ def sales_page(
                     ctx["product_name"] = _p[1]
             except Exception:
                 pass
+
+        # Apply sorting: DB returns DESC by date by default
+        if sort_col == "date":
+            if sort_order == "asc":
+                all_sales = list(reversed(all_sales))
+        elif sort_col == "amount":
+            all_sales = sorted(
+                all_sales,
+                key=lambda s: float(s[3] or 0) * float(s[4] or 0),
+                reverse=(sort_order == "desc"),
+            )
+        elif sort_col == "qty":
+            all_sales = sorted(
+                all_sales,
+                key=lambda s: float(s[3] or 0),
+                reverse=(sort_order == "desc"),
+            )
+        elif sort_col == "product":
+            all_sales = sorted(
+                all_sales,
+                key=lambda s: (s[7] or "").lower(),
+                reverse=(sort_order == "desc"),
+            )
+        elif sort_col == "shop":
+            all_sales = sorted(
+                all_sales,
+                key=lambda s: (s[2] or "").lower(),
+                reverse=(sort_order == "desc"),
+            )
 
         total = len(all_sales)
         total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -597,6 +632,7 @@ def sales_edit(
     shop_name: Annotated[str, Form()],
     quantity: Annotated[int, Form()],
     sale_price: Annotated[float, Form()],
+    sale_date: str = Form(default=""),
     csrf_token: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -660,6 +696,13 @@ def sales_edit(
                         status_code=400,
                     )
 
+        # Validate optional sale_date (YYYY-MM-DD)
+        validated_date = None
+        if sale_date and sale_date.strip():
+            import re as _re
+            if _re.match(r'^\d{4}-\d{2}-\d{2}$', sale_date.strip()):
+                validated_date = sale_date.strip()
+
         internal_uid = _get_internal_uid(db, telegram_id)
         ok = db.update_sale_full(
             sale_id=sale_id,
@@ -667,6 +710,7 @@ def sales_edit(
             sale_price=sale_price,
             shop_name=shop_name,
             changed_by=internal_uid,
+            sale_date=validated_date,
         )
         if not ok:
             return JSONResponse({"ok": False, "error": "Ошибка обновления"}, status_code=500)
@@ -714,6 +758,92 @@ def sales_delete(
         logging.error(f"sales_delete error: {e}")
 
     return RedirectResponse(url="/sales", status_code=302)
+
+
+@router.post("/api/sales/{sale_id}/delete")
+def api_sales_delete(
+    request: Request,
+    sale_id: int,
+    csrf_token: str = Form(default=""),
+):
+    """JSON endpoint for deleting a sale from the edit modal."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF error"}, status_code=403)
+
+    is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        sale = db.get_sale_by_id(sale_id)
+        if not sale:
+            return JSONResponse({"ok": False, "error": "Продажа не найдена"}, status_code=404)
+
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if is_admin_role:
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            if sale[2] not in allowed_shops:
+                return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        else:
+            if not internal_uid or sale[5] != internal_uid:
+                return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+
+        db.delete_sale(sale_id)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        logging.error(f"api_sales_delete error: {e}")
+        return JSONResponse({"ok": False, "error": "Ошибка удаления"}, status_code=500)
+
+
+@router.get("/api/sales/{sale_id}/audit")
+def api_sales_audit(request: Request, sale_id: int):
+    """Return JSON audit log for a sale (history of quantity/price changes)."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    is_admin_role = user.get("role") in ("owner", "admin", "super_admin")
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        sale = db.get_sale_by_id(sale_id)
+        if not sale:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+
+        internal_uid = _get_internal_uid(db, telegram_id)
+        if is_admin_role:
+            allowed_shops = _get_user_allowed_shops(telegram_id, db)
+            if sale[2] not in allowed_shops:
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+        else:
+            if not internal_uid or sale[5] != internal_uid:
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+        rows = db.get_sale_audit_log(sale_id) or []
+        records = []
+        for r in rows:
+            records.append({
+                "editor": r[2] or "—",
+                "old_qty": r[3],
+                "new_qty": r[4],
+                "old_price": float(r[5]) if r[5] is not None else None,
+                "new_price": float(r[6]) if r[6] is not None else None,
+                "changed_at": (r[7] or "")[:16].replace("T", " "),
+            })
+        return JSONResponse({"records": records})
+    except Exception as e:
+        logging.error(f"api_sales_audit error: {e}")
+        return JSONResponse({"error": "Внутренняя ошибка"}, status_code=500)
 
 
 @router.get("/api/recent-products")

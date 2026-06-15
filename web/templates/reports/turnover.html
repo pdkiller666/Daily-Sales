@@ -86,18 +86,48 @@
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-slate-50 border-b border-slate-100">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Товар</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Категория</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="tov-th" data-col="name" onclick="tovSort('name')">
+                            Товар<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
+                        <button class="tov-th" data-col="category" onclick="tovSort('category')">
+                            Категория<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
                     {% if not shop %}<th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Магазин</th>{% endif %}
-                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Остаток</th>
-                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Продано за {{ days }}д</th>
-                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Ср/день</th>
-                    <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Осталось дней</th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="tov-th" data-col="stock" onclick="tovSort('stock')">
+                            Остаток<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
+                        <button class="tov-th" data-col="sold" onclick="tovSort('sold')">
+                            Продано за {{ days }}д<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide hidden sm:table-cell">
+                        <button class="tov-th" data-col="avg_daily" onclick="tovSort('avg_daily')">
+                            Ср/день<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
+                    <th class="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wide">
+                        <button class="tov-th" data-col="days_left" onclick="tovSort('days_left')">
+                            Осталось дней<span class="tov-arrow ml-0.5"></span>
+                        </button>
+                    </th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-slate-50">
+            <tbody id="tov-tbody" class="divide-y divide-slate-50">
             {% for row in rows %}
-            <tr class="hover:bg-slate-50 transition-colors">
+            <tr class="hover:bg-slate-50 transition-colors"
+                data-sv-name="{{ row.name|lower }}"
+                data-sv-category="{{ row.category|lower }}"
+                data-sv-stock="{{ row.stock }}"
+                data-sv-sold="{{ row.sold }}"
+                data-sv-avg_daily="{{ row.avg_daily }}"
+                data-sv-days_left="{{ row.days_left if row.days_left is not none else 99999 }}">
                 <td class="px-4 py-3">
                     <a href="/products/{{ row.product_id }}" class="font-medium text-slate-800 hover:text-blue-600 transition-colors">
                         {{ row.name }}
@@ -137,6 +167,55 @@
         </table>
     </div>
 </div>
+
+<script>
+var _tovCol = 'days_left';
+var _tovDir = 'asc';
+var _TOV_LS_COL = 'tov_sort_col';
+var _TOV_LS_DIR = 'tov_sort_dir';
+
+function tovSort(col) {
+    if (_tovCol === col) {
+        _tovDir = _tovDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        _tovCol = col;
+        _tovDir = (col === 'name' || col === 'category') ? 'asc' : (col === 'days_left' ? 'asc' : 'desc');
+    }
+    try { localStorage.setItem(_TOV_LS_COL, _tovCol); localStorage.setItem(_TOV_LS_DIR, _tovDir); } catch(e) {}
+    _tovApply();
+}
+
+function _tovApply() {
+    var tbody = document.getElementById('tov-tbody');
+    if (!tbody) return;
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    var col = _tovCol, dir = _tovDir;
+    var isNum = (col !== 'name' && col !== 'category');
+    rows.sort(function(a, b) {
+        var av = a.getAttribute('data-sv-' + col) || '';
+        var bv = b.getAttribute('data-sv-' + col) || '';
+        if (isNum) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+        else { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+        return av < bv ? (dir === 'asc' ? -1 : 1) : av > bv ? (dir === 'asc' ? 1 : -1) : 0;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+    document.querySelectorAll('.tov-th').forEach(function(btn) {
+        var c = btn.getAttribute('data-col');
+        var arrow = btn.querySelector('.tov-arrow');
+        btn.classList.toggle('text-blue-600', c === col);
+        btn.classList.toggle('text-slate-500', c !== col);
+        if (arrow) arrow.textContent = c === col ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+}
+
+(function() {
+    try {
+        var col = localStorage.getItem(_TOV_LS_COL);
+        var dir = localStorage.getItem(_TOV_LS_DIR);
+        if (col) { _tovCol = col; _tovDir = dir || 'asc'; _tovApply(); }
+    } catch(e) {}
+})();
+</script>
 
 {% else %}
 <div class="card p-10 text-center">

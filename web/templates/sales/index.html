@@ -107,21 +107,63 @@
                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
             </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1.5">Дата продажи</label>
+                <input type="date" x-model="editDate"
+                       class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
             <div x-show="editPrice > 0 && editQty > 0"
                  class="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 text-sm text-blue-700 dark:text-blue-300 font-medium text-center">
                 Итого: <span x-text="(parseFloat(editPrice) * parseInt(editQty)).toLocaleString('ru-RU') + ' ₽'"></span>
             </div>
-            <div class="flex gap-3 pt-1">
+            <div class="flex items-center gap-2 pt-1">
+                <button type="button" @click="deleteFromModal()"
+                        :disabled="editDeleting || editSaving"
+                        class="border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
+                    <svg x-show="!editDeleting" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    <span x-show="editDeleting" class="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"></span>
+                </button>
                 <button type="button" @click="editOpen = false"
                         class="flex-1 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     Отмена
                 </button>
                 <button type="button" @click="submitEdit()"
-                        :disabled="editSaving || editQty < 1"
+                        :disabled="editSaving || editQty < 1 || editDeleting"
                         class="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                     <span x-show="!editSaving">Сохранить</span>
                     <span x-show="editSaving">Сохраняю…</span>
                 </button>
+            </div>
+            <div class="border-t border-slate-100 dark:border-slate-700 pt-2 -mx-1">
+                <button type="button" @click="toggleAudit()"
+                        class="w-full flex items-center justify-between px-1 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                    <span>История изменений</span>
+                    <svg :class="auditOpen ? 'rotate-180' : ''" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div x-show="auditOpen" x-cloak class="mt-1">
+                    <div x-show="auditLoading" class="text-xs text-slate-400 text-center py-2">Загрузка…</div>
+                    <div x-show="!auditLoading && auditRows.length === 0" class="text-xs text-slate-400 text-center py-2">Изменений не зафиксировано</div>
+                    <div x-show="!auditLoading && auditRows.length > 0" class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-slate-400 dark:text-slate-500">
+                                <th class="text-left py-1 pr-2 font-medium">Кто</th>
+                                <th class="text-left py-1 pr-2 font-medium">Кол-во</th>
+                                <th class="text-left py-1 pr-2 font-medium">Цена</th>
+                                <th class="text-left py-1 font-medium">Когда</th>
+                            </tr></thead>
+                            <tbody>
+                                <template x-for="r in auditRows" :key="r.changed_at + r.editor">
+                                    <tr class="border-t border-slate-100 dark:border-slate-700">
+                                        <td class="py-1 pr-2 text-slate-600 dark:text-slate-300 truncate max-w-[70px]" x-text="r.editor"></td>
+                                        <td class="py-1 pr-2 text-slate-500 dark:text-slate-400" x-text="r.old_qty !== r.new_qty ? (r.old_qty + ' → ' + r.new_qty) : '—'"></td>
+                                        <td class="py-1 pr-2 text-slate-500 dark:text-slate-400" x-text="r.old_price !== r.new_price ? (Math.round(r.old_price) + ' → ' + Math.round(r.new_price)) : '—'"></td>
+                                        <td class="py-1 text-slate-400 dark:text-slate-500 whitespace-nowrap" x-text="r.changed_at"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -431,15 +473,48 @@
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
+                {% macro sort_icon(col) %}
+                    {% if sort_col == col %}
+                        {% if sort_order == "desc" %}
+                        <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+                        {% else %}
+                        <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/></svg>
+                        {% endif %}
+                    {% else %}
+                    <svg class="w-3 h-3 shrink-0 opacity-25 group-hover:opacity-60 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+                    {% endif %}
+                {% endmacro %}
+                {% macro sort_href(col) %}/sales?date_from={{ date_from }}&date_to={{ date_to }}&shop={{ selected_shop|urlencode }}&seller_id={{ selected_seller_id }}&sort_col={{ col }}&sort_order={{ "asc" if (sort_col == col and sort_order == "desc") else "desc" }}&page=1{% endmacro %}
+                {% macro sort_cls(col) %}{% if sort_col == col %}text-blue-600 dark:text-blue-400{% else %}text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400{% endif %}{% endmacro %}
                 <tr class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
                     <th class="text-left px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">#</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Товар</th>
-                    <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Магазин</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Кол.</th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold uppercase">
+                        <a href="{{ sort_href('product') }}" class="inline-flex items-center gap-1 {{ sort_cls('product') }} transition-colors group" title="Сортировать по товару">
+                            Товар{{ sort_icon('product') }}
+                        </a>
+                    </th>
+                    <th class="text-left px-3 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
+                        <a href="{{ sort_href('shop') }}" class="inline-flex items-center gap-1 {{ sort_cls('shop') }} transition-colors group" title="Сортировать по магазину">
+                            Магазин{{ sort_icon('shop') }}
+                        </a>
+                    </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
+                        <a href="{{ sort_href('qty') }}" class="inline-flex items-center justify-end gap-1 {{ sort_cls('qty') }} transition-colors group" title="Сортировать по количеству">
+                            Кол.{{ sort_icon('qty') }}
+                        </a>
+                    </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Цена</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Сумма</th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold uppercase">
+                        <a href="{{ sort_href('amount') }}" class="inline-flex items-center justify-end gap-1 {{ sort_cls('amount') }} transition-colors group" title="Сортировать по сумме">
+                            Сумма{{ sort_icon('amount') }}
+                        </a>
+                    </th>
                     <th class="text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden md:table-cell">Продавец</th>
-                    <th class="text-right px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">Дата</th>
+                    <th class="text-right px-3 sm:px-5 py-3 text-xs font-semibold uppercase hidden sm:table-cell">
+                        <a href="{{ sort_href('date') }}" class="inline-flex items-center gap-1 {{ sort_cls('date') }} transition-colors group" title="Сортировать по дате">
+                            Дата{{ sort_icon('date') }}
+                        </a>
+                    </th>
                     {% if is_admin or current_user_id %}<th class="px-2 py-3"></th>{% endif %}
                 </tr>
             </thead>
@@ -466,12 +541,20 @@
                         <p class="font-medium text-slate-800 dark:text-slate-100 max-w-[160px] sm:max-w-[200px] truncate text-sm" title="{{ s[7] }}">{{ s[7] }}</p>
                         <p class="text-xs text-slate-400 dark:text-slate-500">{{ s[8] or '—' }}</p>
                         {% endif %}
-                        <!-- Mobile: date + time + shop + seller inline -->
-                        <p class="sm:hidden text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center flex-wrap gap-1.5">
-                            <span>{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y %H:%M') if s[6] else '—' }}</span>
-                            {% if s[2] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[2] }}</span>{% endif %}
-                            {% if s[9] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[9] }}{% if s[10] %} {{ s[10][0] }}.{% endif %}</span>{% endif %}
-                        </p>
+                        <!-- Mobile: date badge + time + shop + seller -->
+                        <div class="sm:hidden mt-1 flex items-center flex-wrap gap-1.5">
+                            {% if s[6] %}
+                            {% set _bd = s[6]|is_backdated(user_tz) %}
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none shrink-0 {% if _bd %}bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400{% else %}bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400{% endif %}">
+                                {{ s[6]|fmt_date_badge(user_tz) }}
+                            </span>
+                            {% endif %}
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 flex items-center flex-wrap gap-1">
+                                {{ s[6]|fmt_sale_dt(user_tz, '%H:%M') if s[6] else '—' }}
+                                {% if s[2] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[2] }}</span>{% endif %}
+                                {% if s[9] %}<span class="text-slate-300 dark:text-slate-600">·</span><span>{{ s[9] }}{% if s[10] %} {{ s[10][0] }}.{% endif %}</span>{% endif %}
+                            </span>
+                        </div>
                     </td>
                     <td class="px-3 py-2.5 hidden sm:table-cell" data-field="shop">
                         {% if s[2] %}
@@ -522,7 +605,7 @@
     </div>
 
     <!-- Pagination -->
-    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ (selected_shop | urlencode) ~ "&seller_id=" ~ selected_seller_id %}
+    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ (selected_shop | urlencode) ~ "&seller_id=" ~ selected_seller_id ~ "&sort_order=" ~ sort_order ~ "&sort_col=" ~ sort_col %}
     {% set page_start = (page - 1) * 50 + 1 %}
     {% set page_end   = [page * 50, total_count] | min %}
     <div class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -615,6 +698,11 @@ function saleModal() {
         editPrice: 0,
         editSaving: false,
         editError: '',
+        editDate: '',
+        editDeleting: false,
+        auditOpen: false,
+        auditRows: [],
+        auditLoading: false,
 
         // Barcode scanner state
         scanOpen: false,
@@ -724,7 +812,10 @@ function saleModal() {
             this.editSaleId = saleId;
             this.editError = '';
             this.editSaving = false;
+            this.editDeleting = false;
             this.editProductName = '…';
+            this.auditOpen = false;
+            this.auditRows = [];
             fetch('/api/sales/' + saleId)
                 .then(r => r.json())
                 .then(data => {
@@ -733,9 +824,45 @@ function saleModal() {
                     this.editShop = data.shop_name || '';
                     this.editQty = data.quantity_sold || 1;
                     this.editPrice = data.sale_price || 0;
+                    this.editDate = data.sale_date || '';
                     this.editOpen = true;
                 })
                 .catch(() => { this.editError = 'Ошибка загрузки данных'; });
+        },
+
+        deleteFromModal() {
+            if (!confirm('Удалить продажу? Остатки будут восстановлены.')) return;
+            this.editDeleting = true;
+            this.editError = '';
+            const body = new URLSearchParams({ csrf_token: '{{ csrf_token }}' });
+            fetch('/api/sales/' + this.editSaleId + '/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.editDeleting = false;
+                if (data.ok) {
+                    const row = document.querySelector('tr[data-sale-id="' + this.editSaleId + '"]');
+                    if (row) row.remove();
+                    this.editOpen = false;
+                } else {
+                    this.editError = data.error || 'Ошибка удаления';
+                }
+            })
+            .catch(() => { this.editDeleting = false; this.editError = 'Ошибка соединения'; });
+        },
+
+        toggleAudit() {
+            if (this.auditOpen) { this.auditOpen = false; return; }
+            this.auditOpen = true;
+            if (this.auditRows.length > 0) return;
+            this.auditLoading = true;
+            fetch('/api/sales/' + this.editSaleId + '/audit')
+                .then(r => r.json())
+                .then(data => { this.auditLoading = false; this.auditRows = data.records || []; })
+                .catch(() => { this.auditLoading = false; });
         },
 
         fmtCurrency(n) {
@@ -767,6 +894,7 @@ function saleModal() {
                 shop_name: this.editShop,
                 quantity: this.editQty,
                 sale_price: this.editPrice,
+                sale_date: this.editDate || '',
             });
 
             fetch('/sales/' + this.editSaleId + '/edit', {
@@ -1018,6 +1146,35 @@ function saleModal() {
     document.addEventListener('click', e => {
         if (activeRow && !activeRow.contains(e.target)) closeActive();
     });
+})();
+</script>
+
+<script>
+/* Persist sort preference in localStorage across page visits */
+(function () {
+    var LS_COL = 'sales_sort_col';
+    var LS_DIR = 'sales_sort_dir';
+    var params = new URLSearchParams(window.location.search);
+
+    if (params.has('sort_col')) {
+        /* Explicit sort in URL — save it so we can restore it next time */
+        try {
+            localStorage.setItem(LS_COL, params.get('sort_col'));
+            localStorage.setItem(LS_DIR, params.get('sort_order') || 'desc');
+        } catch (e) {}
+    } else {
+        /* No sort in URL — restore saved preference if it differs from the default */
+        try {
+            var col = localStorage.getItem(LS_COL);
+            var dir = localStorage.getItem(LS_DIR) || 'desc';
+            if (col && (col !== 'date' || dir !== 'desc')) {
+                params.set('sort_col', col);
+                params.set('sort_order', dir);
+                if (!params.has('page')) params.set('page', '1');
+                window.location.replace(window.location.pathname + '?' + params.toString());
+            }
+        } catch (e) {}
+    }
 })();
 </script>
 {% endblock %}
