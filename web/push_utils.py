@@ -87,7 +87,32 @@ def _normalize_vapid_key(raw: str) -> str:
             logger.debug("push_utils: VAPID key normalized to PKCS8 PEM via re-export")
             return key
         except Exception as _e:
-            logger.debug("push_utils: PKCS8 re-export failed: %s", _e)
+            logger.debug("push_utils: PKCS8 re-export failed (%s), trying openssl", _e)
+
+        # --- step 2b: openssl subprocess conversion ---
+        # cryptography ≥ 42 refuses to load "explicit parameters" EC keys
+        # (common in old VAPID tools). openssl handles any EC format → PKCS8 named-curve.
+        try:
+            import subprocess, tempfile, os as _os
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as _f:
+                _f.write(key)
+                _tmp = _f.name
+            try:
+                _res = subprocess.run(
+                    ["openssl", "pkcs8", "-topk8", "-nocrypt",
+                     "-in", _tmp, "-outform", "PEM"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            finally:
+                _os.unlink(_tmp)
+            if _res.returncode == 0 and "BEGIN" in _res.stdout:
+                key = _res.stdout.strip()
+                logger.info("push_utils: VAPID key converted via openssl pkcs8 (explicit-params fix)")
+                return key
+            else:
+                logger.debug("push_utils: openssl pkcs8 failed: %s", _res.stderr[:200])
+        except Exception as _e2:
+            logger.debug("push_utils: openssl conversion error: %s", _e2)
 
     # --- step 3: single-line DER base64 (PKCS8 DER encoded as url-safe base64) ---
     # This is our preferred env-safe format: 184 chars, no newlines.
