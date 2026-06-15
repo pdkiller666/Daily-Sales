@@ -330,6 +330,7 @@
                 showLog: false,
                 msg: '',
                 msgOk: true,
+                pushDelivered: false,
                 fmtDate(iso) {
                     if (!iso) return '—';
                     try {
@@ -353,6 +354,16 @@
                     this.perm = ('Notification' in window) ? Notification.permission : 'unsupported';
                     await this.loadStatus();
                     this.loading = false;
+                    /* Refresh card when the SW signals that a test push arrived */
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.addEventListener('message', (ev) => {
+                            if (ev.data && ev.data.type === 'ds-push-received') {
+                                this.loadStatus();
+                                this.pushDelivered = true;
+                                setTimeout(() => { this.pushDelivered = false; }, 3000);
+                            }
+                        });
+                    }
                 },
                 async test() {
                     this.msg = ''; this.msgOk = true;
@@ -461,6 +472,18 @@
                     <div x-show="msg"
                          :class="msgOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'"
                          class="text-xs rounded-lg px-3 py-2 mt-1" x-text="msg">
+                    </div>
+
+                    <!-- SW delivery confirmation (flashes for 3 s when push is received) -->
+                    <div x-show="pushDelivered"
+                         x-transition:enter="transition ease-out duration-200"
+                         x-transition:enter-start="opacity-0 scale-95"
+                         x-transition:enter-end="opacity-100 scale-100"
+                         x-transition:leave="transition ease-in duration-300"
+                         x-transition:leave-start="opacity-100 scale-100"
+                         x-transition:leave-end="opacity-0 scale-95"
+                         class="text-xs rounded-lg px-3 py-2 mt-1 bg-emerald-100 text-emerald-800 font-semibold">
+                        ✅ Push доставлен!
                     </div>
 
                     <!-- Action buttons -->

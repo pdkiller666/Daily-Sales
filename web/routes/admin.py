@@ -621,7 +621,10 @@ async def admin_push_diagnostics(request: Request):
         viewer_tz = _db().get_user_timezone(int(user["sub"])) or "Europe/Moscow"
     except Exception:
         viewer_tz = "Europe/Moscow"
-    diag = _gather_push_diagnostics(viewer_tz)
+    q = request.query_params.get("q", "").strip()
+    date_from = request.query_params.get("date_from", "").strip()
+    date_to = request.query_params.get("date_to", "").strip()
+    diag = _gather_push_diagnostics(viewer_tz, user_filter=q, date_from=date_from, date_to=date_to)
     diag["csrf_token"] = get_csrf_token(request)
     return request.app.state.templates.TemplateResponse(
         request,
@@ -928,7 +931,12 @@ def _resolve_push_user_names(tg_ids: list) -> dict:
     return names
 
 
-def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
+def _gather_push_diagnostics(
+    viewer_tz: str = "Europe/Moscow",
+    user_filter: str = "",
+    date_from: str = "",
+    date_to: str = "",
+) -> dict:
     """Collect Web Push subscription state for the super-admin diagnostics page."""
     from timezone_utils import format_user_datetime as _fmt
     try:
@@ -968,6 +976,8 @@ def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
             "shop": info["shop"],
             "devices": [],
             "has_risk": False,
+            "last_sent": "—",
+            "recent_deliveries": [],
         })
         if prov["risk"]:
             g["has_risk"] = True
@@ -979,7 +989,64 @@ def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
             "created": _fmt(str(created).replace("T", " "), viewer_tz, "%d.%m.%Y %H:%M") if created else "—",
         })
 
-    users = sorted(by_user.values(), key=lambda x: (not x["has_risk"], x["name"].lower()))
+    # ── Delivery history from push_delivery_log ───────────────────────────────
+    delivery_conn = None
+    try:
+        delivery_conn = _raw_conn()
+        # Build WHERE clause for optional date filter
+        date_clauses: list = []
+        date_params: list = []
+        if date_from:
+            date_clauses.append("sent_at >= ?")
+            date_params.append(date_from + " 00:00:00" if len(date_from) == 10 else date_from)
+        if date_to:
+            date_clauses.append("sent_at <= ?")
+            date_params.append(date_to + " 23:59:59" if len(date_to) == 10 else date_to)
+        where_sql = ("WHERE " + " AND ".join(date_clauses)) if date_clauses else ""
+
+        # Fetch all matching log rows ordered by user + sent_at desc; group in Python
+        log_rows = delivery_conn.execute(
+            f"SELECT user_id, title, sent_at FROM push_delivery_log "
+            f"{where_sql} ORDER BY user_id, sent_at DESC",
+            date_params,
+        ).fetchall()
+
+        deliveries_by_user: dict = {}
+        for uid, title, sent_at in log_rows:
+            lst = deliveries_by_user.setdefault(int(uid), [])
+            if len(lst) < 5:
+                lst.append({
+                    "title": title or "—",
+                    "sent_at_raw": sent_at,
+                    "sent_at": _fmt(str(sent_at).replace("T", " "), viewer_tz, "%d.%m %H:%M") if sent_at else "—",
+                })
+
+        for uid, deliveries in deliveries_by_user.items():
+            if uid in by_user:
+                by_user[uid]["recent_deliveries"] = deliveries
+                if deliveries:
+                    by_user[uid]["last_sent"] = _fmt(
+                        str(deliveries[0]["sent_at_raw"]).replace("T", " "),
+                        viewer_tz, "%d.%m.%Y %H:%M",
+                    )
+    except Exception:
+        pass
+    finally:
+        if delivery_conn:
+            delivery_conn.close()
+
+    # ── Apply user_filter (name / telegram_id substring) ─────────────────────
+    uf = user_filter.strip().lower()
+    users_raw = list(by_user.values())
+    if uf:
+        users_raw = [
+            u for u in users_raw
+            if uf in u["name"].lower()
+            or uf in str(u["telegram_id"])
+            or uf in u["shop"].lower()
+        ]
+
+    users = sorted(users_raw, key=lambda x: (not x["has_risk"], x["name"].lower()))
 
     return {
         "vapid_ok": vapid_ok,
@@ -989,6 +1056,9 @@ def _gather_push_diagnostics(viewer_tz: str = "Europe/Moscow") -> dict:
         "total_users": len(by_user),
         "provider_counts": provider_counts,
         "push_users": users,
+        "user_filter": user_filter,
+        "date_from": date_from,
+        "date_to": date_to,
     }
 
 

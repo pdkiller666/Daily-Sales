@@ -1,5 +1,5 @@
-/* DailySales Service Worker v8 */
-const CACHE_NAME = 'dailysales-v8';
+/* DailySales Service Worker v9 */
+const CACHE_NAME = 'dailysales-v9';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
@@ -81,7 +81,14 @@ self.addEventListener('push', e => {
             if ('setAppBadge' in self.navigator) self.navigator.setAppBadge(1).catch(() => {});
         });
 
-    e.waitUntil(Promise.all([showNotif, updateBadge]));
+    /* Notify open clients when a test push (tag=ds-sub) is received so
+       the diagnostics card can refresh without waiting for the user to act. */
+    const notifyClients = (tag === 'ds-sub')
+        ? clients.matchAll({ type: 'window', includeUncontrolled: true })
+            .then(wins => wins.forEach(w => w.postMessage({ type: 'ds-push-received', tag })))
+        : Promise.resolve();
+
+    e.waitUntil(Promise.all([showNotif, updateBadge, notifyClients]));
 });
 
 self.addEventListener('notificationclick', e => {
