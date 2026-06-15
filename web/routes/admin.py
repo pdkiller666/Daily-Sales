@@ -655,6 +655,7 @@ def admin_generate_vapid(request: Request, csrf_token: str = Form("")):
         mailto = "mailto:" + mailto
     return JSONResponse({
         "private_pem": keys["private_pem"],
+        "private_single": keys["private_single"],
         "public_b64": keys["public_b64"],
         "mailto": mailto or "mailto:admin@dailysales.app",
     })

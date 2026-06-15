@@ -89,17 +89,36 @@ def _normalize_vapid_key(raw: str) -> str:
         except Exception as _e:
             logger.debug("push_utils: PKCS8 re-export failed: %s", _e)
 
-    # --- step 3: raw url-safe base64 EC private key scalar (py_vapid 1.x) ---
-    # A P-256 private key scalar is 32 bytes → base64url without padding = 43 chars.
-    raw_b64 = key.replace("\n", "").replace("=", "")
-    if 40 <= len(raw_b64) <= 48 and " " not in raw_b64 and "BEGIN" not in raw_b64:
+    # --- step 3: single-line DER base64 (PKCS8 DER encoded as url-safe base64) ---
+    # This is our preferred env-safe format: 184 chars, no newlines.
+    # Also handles raw EC private key scalar (py_vapid 1.x, ~43 chars).
+    compact = key.replace("\n", "").replace("=", "").strip()
+    if "BEGIN" not in compact and " " not in compact and len(compact) >= 40:
+        try:
+            import base64 as _b64
+            from cryptography.hazmat.primitives.serialization import (
+                Encoding, PrivateFormat, NoEncryption, load_der_private_key,
+            )
+            der_bytes = _b64.urlsafe_b64decode(compact + "==")
+            # DER PKCS8 key for P-256 is typically 138-150 bytes
+            if len(der_bytes) >= 64:
+                priv = load_der_private_key(der_bytes, password=None)
+                key = priv.private_bytes(
+                    Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+                ).decode().strip()
+                logger.debug("push_utils: VAPID key converted from DER base64 to PKCS8 PEM")
+                return key
+        except Exception as _e:
+            logger.debug("push_utils: DER base64 conversion failed: %s", _e)
+
+        # sub-step: raw EC private key scalar (py_vapid 1.x) — 32 bytes
         try:
             import base64 as _b64
             from cryptography.hazmat.primitives.asymmetric import ec
             from cryptography.hazmat.primitives.serialization import (
                 Encoding, PrivateFormat, NoEncryption,
             )
-            d_bytes = _b64.urlsafe_b64decode(raw_b64 + "==")
+            d_bytes = _b64.urlsafe_b64decode(compact + "==")
             if len(d_bytes) == 32:
                 priv = ec.derive_private_key(int.from_bytes(d_bytes, "big"), ec.SECP256R1())
                 key = priv.private_bytes(
@@ -155,9 +174,11 @@ def generate_vapid_keypair() -> dict:
     """Generate a fresh VAPID (EC P-256) keypair for Web Push.
 
     Returns:
-      - private_pem: PKCS8 PEM string → paste into env var VAPID_PRIVATE_KEY.
-      - public_b64:  raw uncompressed point, url-safe base64 без padding →
-                     env var VAPID_PUBLIC_KEY (он же applicationServerKey в браузере).
+      - private_pem:    PKCS8 PEM string (multiline) — fallback format.
+      - private_single: PKCS8 DER encoded as url-safe base64 (single line, 184 chars)
+                        → preferred format for VAPID_PRIVATE_KEY env var (no multiline issues).
+      - public_b64:     raw uncompressed point, url-safe base64 без padding →
+                        env var VAPID_PUBLIC_KEY (он же applicationServerKey в браузере).
 
     Nothing is persisted — the private key is returned once for the admin to copy.
     """
@@ -172,12 +193,19 @@ def generate_vapid_keypair() -> dict:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode("utf-8").strip()
+    # Single-line DER base64: safer for env vars (no multiline/newline issues)
+    private_der = priv.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    private_single = _b64.urlsafe_b64encode(private_der).rstrip(b"=").decode("utf-8")
     raw_pub = priv.public_key().public_bytes(
         encoding=serialization.Encoding.X962,
         format=serialization.PublicFormat.UncompressedPoint,
     )
     public_b64 = _b64.urlsafe_b64encode(raw_pub).rstrip(b"=").decode("utf-8")
-    return {"private_pem": private_pem, "public_b64": public_b64}
+    return {"private_pem": private_pem, "private_single": private_single, "public_b64": public_b64}
 
 
 def _get_subscriptions(tg_id: int) -> list[dict]:

@@ -68,15 +68,21 @@
 
     <template x-if="keys">
         <div class="mt-4 space-y-3" x-cloak>
-            <!-- VAPID_PRIVATE_KEY -->
-            <div>
+            <!-- VAPID_PRIVATE_KEY — однострочный (рекомендуется для Amvera) -->
+            <div class="rounded-xl border-2 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 p-3">
                 <div class="flex items-center justify-between mb-1">
-                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400">VAPID_PRIVATE_KEY</label>
-                    <button type="button" @click="copy(keys.private, $event)"
-                            class="text-xs px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium">Копировать</button>
+                    <div>
+                        <label class="text-xs font-bold text-emerald-700 dark:text-emerald-400">VAPID_PRIVATE_KEY</label>
+                        <span class="ml-2 text-[10px] bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.5 rounded font-semibold">✓ однострочный — используйте этот</span>
+                    </div>
+                    <button type="button" @click="copy(keys.private_single, $event)"
+                            class="text-xs px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-800 hover:bg-emerald-200 dark:hover:bg-emerald-700 font-medium">Копировать</button>
                 </div>
-                <textarea readonly rows="5" x-text="keys.private" @click="$event.target.select()"
-                          class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 resize-y"></textarea>
+                <input readonly :value="keys.private_single" @click="$event.target.select()"
+                       class="w-full text-xs font-mono rounded-lg border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-900 p-2.5">
+                <p class="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
+                    184 символа без переносов строк — безопасно для поля «Переменные» на Amvera.
+                </p>
             </div>
             <!-- VAPID_PUBLIC_KEY -->
             <div>
@@ -98,6 +104,21 @@
                 <input readonly :value="keys.mailto" @click="$event.target.select()"
                        class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5">
             </div>
+            <!-- PEM fallback (collapsed by default) -->
+            <details class="text-xs">
+                <summary class="cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 select-none">
+                    Многострочный PEM (только для систем поддерживающих multiline переменные)
+                </summary>
+                <div class="mt-2">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs font-bold text-slate-500 dark:text-slate-400">VAPID_PRIVATE_KEY (PEM)</label>
+                        <button type="button" @click="copy(keys.private, $event)"
+                                class="text-xs px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-medium">Копировать</button>
+                    </div>
+                    <textarea readonly rows="5" x-text="keys.private" @click="$event.target.select()"
+                              class="w-full text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 resize-y"></textarea>
+                </div>
+            </details>
             <p class="text-xs text-slate-400 mt-1">
                 После вставки в Amvera → раздел «Переменные» → сохранить → перезапустить приложение.
                 Затем обновите эту страницу: «Приватный ключ» должен стать ✓ Настроен.
@@ -292,6 +313,7 @@ function vapidGen() {
                 const d = await r.json();
                 this.keys = {
                     private: d.private_pem,
+                    private_single: d.private_single,
                     public: d.public_b64,
                     mailto: d.mailto || 'mailto:admin@dailysales.app'
                 };
