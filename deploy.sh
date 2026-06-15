@@ -44,6 +44,14 @@ else
   echo "=== Деплой: только GitHub (--no-amvera) ==="
 fi
 
+# ─── Авто-сборка changelog из фрагментов (web/changelog.d/) ──────────────────
+# Собирает «Что нового» ДО синхронизации, чтобы обновлённый changelog.py и
+# поднятая версия уехали в этот же деплой. Нет фрагментов → no-op.
+# Ошибка скрипта не должна валить деплой (|| true при set -e).
+echo "0. Сборка changelog из фрагментов..."
+( cd "$SOURCE_DIR" && python3 scripts/build_changelog.py ) \
+  || echo "   ⚠️  build_changelog.py завершился с ошибкой — продолжаю деплой"
+
 # ─── Синхронизация файлов ───────────────────────────────────────────────────
 echo "1. Синхронизация файлов..."
 
@@ -84,6 +92,7 @@ AMVERA_ONLY_EXCLUDE_FILES = {
 
 AMVERA_ONLY_EXCLUDE_DIRS = {
     '.github',
+    'web/changelog.d',
 }
 
 EXCLUDE_SUBPATHS = {'data/.env'}
