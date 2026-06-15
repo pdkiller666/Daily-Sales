@@ -10,7 +10,8 @@
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <!-- Icons -->
-    <link rel="icon" href="/static/icon-192.png" type="image/png">
+    <link rel="icon" href="/static/favicon.ico" sizes="any">
+    <link rel="icon" href="/static/favicon.png" type="image/png">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="preload" href="/static/icon-192.png" as="image">
     <!-- PWA -->
@@ -302,7 +303,10 @@ function toastMgr() {
                 class="flex items-center w-full h-16 px-4 sidebar-logo-bg group text-left cursor-pointer"
                 :title="open ? 'Закрыть' : 'Что нового'">
             <div class="relative shrink-0">
-                <div class="ds-logo-mark w-9 h-9 rounded-xl flex items-center justify-center text-white font-extrabold text-sm select-none">DS</div>
+                <div class="ds-logo-mark w-9 h-9 rounded-xl flex flex-col items-center justify-center text-white select-none">
+                    <span class="font-extrabold text-sm leading-none">DS</span>
+                    <span class="font-bold text-[6px] tracking-widest text-sky-300 leading-none mt-0.5">CRM</span>
+                </div>
                 <span x-show="hasUnread" x-cloak class="ds-cl-dot"></span>
             </div>
             <div class="ml-2.5 min-w-0 flex-1">

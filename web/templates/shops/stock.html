@@ -58,51 +58,96 @@
 </div>
 {% else %}
 
+<div class="mb-4">
+    <div class="relative">
+        <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">🔍</span>
+        <input type="text"
+               id="stock-search"
+               placeholder="Поиск по названию или категории…"
+               autocomplete="off"
+               class="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white placeholder-slate-400">
+    </div>
+    <p id="stock-no-results" class="hidden mt-3 text-center text-sm text-slate-400">Ничего не найдено</p>
+</div>
+
 <form method="post" action="/shops/{{ shop_name | urlencode }}/stock" id="stock-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-    <div class="space-y-4">
-        {% for category, products in products_by_category.items() %}
-        <div class="card overflow-hidden">
-            <div class="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                <h2 class="font-semibold text-slate-700 text-sm">{{ category }}</h2>
-                <span class="text-xs text-slate-400">{{ products | length }} поз.</span>
-            </div>
-            <div class="divide-y divide-slate-50">
-                {% for product in products %}
-                {% set pid = product[0] %}
-                {% set cur_qty = current_stock.get(pid, 0) %}
-                <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60 transition-colors">
-                    <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-slate-800 truncate">{{ product[1] }}</p>
-                        <p class="text-xs text-slate-400">
+    <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100">
+                        <th class="text-left px-4 py-3 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap hover:bg-slate-100 transition-colors"
+                            data-col="name">
+                            Товар<span class="sort-icon text-slate-400 ml-1"></span>
+                        </th>
+                        <th class="text-left px-4 py-3 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap hover:bg-slate-100 transition-colors hidden sm:table-cell"
+                            data-col="category">
+                            Категория<span class="sort-icon text-slate-400 ml-1"></span>
+                        </th>
+                        <th class="text-right px-4 py-3 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap hover:bg-slate-100 transition-colors"
+                            data-col="price">
+                            Цена<span class="sort-icon text-slate-400 ml-1"></span>
+                        </th>
+                        <th class="text-right px-4 py-3 font-semibold text-slate-600 cursor-pointer select-none whitespace-nowrap hover:bg-slate-100 transition-colors"
+                            data-col="stock">
+                            Остаток<span class="sort-icon text-slate-400 ml-1"></span>
+                        </th>
+                        <th class="text-center px-4 py-3 font-semibold text-slate-600 whitespace-nowrap">
+                            Количество
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="stock-tbody" class="divide-y divide-slate-50">
+                    {% for category, products in products_by_category.items() %}
+                    {% for product in products %}
+                    {% set pid = product[0] %}
+                    {% set cur_qty = current_stock.get(pid, 0) %}
+                    <tr class="hover:bg-slate-50/60 transition-colors"
+                        data-name="{{ product[1] | lower }}"
+                        data-category="{{ category | lower }}"
+                        data-price="{{ product[3] }}"
+                        data-stock="{{ cur_qty }}">
+                        <td class="px-4 py-3">
+                            <p class="font-medium text-slate-800 truncate max-w-[200px]">{{ product[1] }}</p>
+                            <p class="text-xs text-slate-400 sm:hidden">{{ category }}</p>
+                        </td>
+                        <td class="px-4 py-3 text-slate-500 hidden sm:table-cell">{{ category }}</td>
+                        <td class="px-4 py-3 text-right text-slate-700 tabular-nums whitespace-nowrap">
                             {{ "%.0f"|format(product[3]) }} ₽
+                        </td>
+                        <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">
                             {% if cur_qty > 0 %}
-                            · <span class="text-emerald-600 font-medium">сейчас: {{ cur_qty }} шт.</span>
+                            <span class="text-emerald-600 font-medium">{{ cur_qty }} шт.</span>
+                            {% else %}
+                            <span class="text-slate-300">—</span>
                             {% endif %}
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-1.5 shrink-0">
-                        <button type="button"
-                                onclick="adjustQty('qty_{{ pid }}', -1)"
-                                class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">−</button>
-                        <input type="number"
-                               name="qty_{{ pid }}"
-                               id="qty_{{ pid }}"
-                               value="{{ cur_qty }}"
-                               min="0"
-                               max="999999"
-                               class="w-16 text-center border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                               oninput="this.value=Math.max(0,parseInt(this.value||0))">
-                        <button type="button"
-                                onclick="adjustQty('qty_{{ pid }}', 1)"
-                                class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">+</button>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center justify-center gap-1.5">
+                                <button type="button"
+                                        onclick="adjustQty('qty_{{ pid }}', -1)"
+                                        class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">−</button>
+                                <input type="number"
+                                       name="qty_{{ pid }}"
+                                       id="qty_{{ pid }}"
+                                       value="{{ cur_qty }}"
+                                       min="0"
+                                       max="999999"
+                                       class="w-16 text-center border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                       oninput="this.value=Math.max(0,parseInt(this.value||0))">
+                                <button type="button"
+                                        onclick="adjustQty('qty_{{ pid }}', 1)"
+                                        class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:border-slate-300 transition-colors text-lg font-medium select-none">+</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        {% endfor %}
     </div>
 
     <div class="mt-5 flex items-center gap-3 flex-wrap">
@@ -124,17 +169,112 @@
 
 <script>
 function adjustQty(inputId, delta) {
-    const inp = document.getElementById(inputId);
+    var inp = document.getElementById(inputId);
     if (!inp) return;
-    const current = parseInt(inp.value || 0);
-    inp.value = Math.max(0, current + delta);
+    inp.value = Math.max(0, parseInt(inp.value || 0) + delta);
 }
 
 function resetAll() {
-    document.querySelectorAll('#stock-form input[type=number]').forEach(inp => {
+    document.querySelectorAll('#stock-form input[type=number]').forEach(function(inp) {
         inp.value = 0;
     });
 }
+
+/* Search/filter */
+(function () {
+    var inp = document.getElementById('stock-search');
+    var noResults = document.getElementById('stock-no-results');
+    if (!inp) return;
+
+    function applyFilter() {
+        var q = inp.value.trim().toLowerCase();
+        var rows = document.querySelectorAll('#stock-tbody tr');
+        var visible = 0;
+        rows.forEach(function (row) {
+            var name = (row.dataset.name || '');
+            var cat  = (row.dataset.category || '');
+            var match = !q || name.indexOf(q) !== -1 || cat.indexOf(q) !== -1;
+            row.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        if (noResults) noResults.classList.toggle('hidden', visible > 0);
+    }
+
+    inp.addEventListener('input', applyFilter);
+})();
+
+/* Sort persistence */
+(function () {
+    var LS_COL = 'stock_sort_col';
+    var LS_DIR = 'stock_sort_dir';
+    var DEFAULT_COL = 'name';
+    var DEFAULT_DIR = 'asc';
+
+    var col, dir;
+    try {
+        col = localStorage.getItem(LS_COL) || DEFAULT_COL;
+        dir = localStorage.getItem(LS_DIR) || DEFAULT_DIR;
+    } catch (e) {
+        col = DEFAULT_COL;
+        dir = DEFAULT_DIR;
+    }
+
+    function applySort() {
+        var tbody = document.getElementById('stock-tbody');
+        if (!tbody) return;
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort(function (a, b) {
+            var av = a.dataset[col] || '';
+            var bv = b.dataset[col] || '';
+            var an = parseFloat(av);
+            var bn = parseFloat(bv);
+            var cmp;
+            if (!isNaN(an) && !isNaN(bn)) {
+                cmp = an - bn;
+            } else {
+                cmp = av.localeCompare(bv, 'ru');
+            }
+            return dir === 'asc' ? cmp : -cmp;
+        });
+        rows.forEach(function (r) { tbody.appendChild(r); });
+        updateHeaders();
+    }
+
+    function updateHeaders() {
+        document.querySelectorAll('th[data-col]').forEach(function (th) {
+            var icon = th.querySelector('.sort-icon');
+            if (!icon) return;
+            if (th.dataset.col === col) {
+                icon.textContent = dir === 'asc' ? '↑' : '↓';
+                th.classList.add('text-blue-600');
+                th.classList.remove('text-slate-600');
+            } else {
+                icon.textContent = '↕';
+                th.classList.remove('text-blue-600');
+                th.classList.add('text-slate-600');
+            }
+        });
+    }
+
+    document.querySelectorAll('th[data-col]').forEach(function (th) {
+        th.addEventListener('click', function () {
+            var newCol = th.dataset.col;
+            if (newCol === col) {
+                dir = dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                col = newCol;
+                dir = 'asc';
+            }
+            try {
+                localStorage.setItem(LS_COL, col);
+                localStorage.setItem(LS_DIR, dir);
+            } catch (e) {}
+            applySort();
+        });
+    });
+
+    applySort();
+})();
 </script>
 
 {% endif %}

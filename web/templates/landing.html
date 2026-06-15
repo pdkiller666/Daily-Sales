@@ -424,7 +424,10 @@
 <nav id="navbar" class="fixed {% if beta_mode() %}top-0{% else %}top-0{% endif %} left-0 right-0 z-50 bg-slate-950/70 backdrop-blur-xl border-b border-white/[0.06] transition-all duration-300">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         <a href="/" class="flex items-center gap-3 group">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/40 group-hover:scale-110 group-hover:shadow-blue-500/60 transition-all duration-200">DS</div>
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex flex-col items-center justify-center text-white shadow-lg shadow-blue-500/40 group-hover:scale-110 group-hover:shadow-blue-500/60 transition-all duration-200 select-none">
+                <span class="font-bold text-sm leading-none">DS</span>
+                <span class="font-bold text-[6px] tracking-widest text-sky-300 leading-none mt-px">CRM</span>
+            </div>
             <span class="text-white font-semibold text-lg tracking-tight">DailySales</span>
             {% if beta_mode() %}
             <span class="text-[10px] font-bold uppercase tracking-widest bg-amber-400/15 text-amber-400 border border-amber-400/30 px-1.5 py-0.5 rounded-full leading-none">BETA</span>
@@ -1741,7 +1744,10 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
             <div class="md:col-span-2">
                 <div class="flex items-center gap-3 mb-4">
-                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-extrabold text-sm shadow-lg shadow-blue-500/30">DS</div>
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex flex-col items-center justify-center text-white shadow-lg shadow-blue-500/30 select-none">
+                        <span class="font-extrabold text-sm leading-none">DS</span>
+                        <span class="font-bold text-[6px] tracking-widest text-sky-300 leading-none mt-px">CRM</span>
+                    </div>
                     <span class="text-white font-bold text-xl tracking-tight">DailySales</span>
                 </div>
                 <p class="text-slate-400 text-sm leading-relaxed max-w-xs">

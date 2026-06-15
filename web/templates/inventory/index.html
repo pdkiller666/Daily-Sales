@@ -134,13 +134,16 @@
         </div>
         <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">Найти</button>
         {% if q or selected_category %}
-        <a href="/inventory?shop={{ selected_shop|urlencode }}" class="text-sm text-slate-400 hover:text-slate-600">× Сбросить</a>
+        <a href="/inventory?shop={{ selected_shop|urlencode }}"
+           onclick="try{localStorage.setItem('inv_q_{{ user.sub }}','');}catch(e){}"
+           class="text-sm text-slate-400 hover:text-slate-600">× Сбросить</a>
         {% endif %}
     </form>
     <!-- Category filter -->
     {% if categories %}
     <div class="flex flex-wrap gap-2">
         <a href="/inventory?shop={{ selected_shop|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}"
+           onclick="try{localStorage.setItem('inv_category_{{ user.sub }}','');}catch(e){}"
            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
                   {{ 'bg-indigo-600 text-white border-indigo-600' if not selected_category else 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-indigo-300' }}">
             Все категории
@@ -161,16 +164,19 @@
 {% set _inv_base = "/inventory?shop=" ~ (selected_shop|urlencode) ~ ("&q=" ~ (q|urlencode) if q else "") ~ ("&category=" ~ (selected_category|urlencode) if selected_category else "") %}
 <div class="grid grid-cols-3 gap-4 mb-5">
     <a href="{{ _inv_base }}"
+       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','');}catch(e){}"
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-blue-300 dark:ring-blue-700' if not selected_status else 'hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Позиций</p>
         <p class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{{ total_items }}</p>
     </a>
     <a href="{{ _inv_base }}&status=out"
+       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','out');}catch(e){}"
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-red-300 dark:ring-red-700' if selected_status == 'out' else 'hover:ring-2 hover:ring-red-200 dark:hover:ring-red-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Нет в наличии</p>
         <p class="text-xl sm:text-2xl font-bold {{ 'text-red-500' if out_of_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ out_of_stock }}</p>
     </a>
     <a href="{{ _inv_base }}&status=low"
+       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','low');}catch(e){}"
        class="card p-4 transition-all hover:-translate-y-0.5 {{ 'ring-2 ring-orange-300 dark:ring-orange-700' if selected_status == 'low' else 'hover:ring-2 hover:ring-orange-200 dark:hover:ring-orange-800' }}">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Мало (≤5 шт.)</p>
         <p class="text-xl sm:text-2xl font-bold {{ 'text-orange-500' if low_stock > 0 else 'text-slate-800 dark:text-slate-100' }}">{{ low_stock }}</p>
@@ -179,7 +185,9 @@
 {% if selected_status %}
 <div class="-mt-2 mb-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
     <span>Фильтр: <span class="font-semibold">{{ 'нет в наличии' if selected_status == 'out' else 'мало (≤5 шт.)' }}</span></span>
-    <a href="{{ _inv_base }}" class="text-blue-600 dark:text-blue-300 hover:underline">✕ Сбросить</a>
+    <a href="{{ _inv_base }}"
+       onclick="try{localStorage.setItem('inv_status_{{ user.sub }}','');}catch(e){}"
+       class="text-blue-600 dark:text-blue-300 hover:underline">✕ Сбросить</a>
 </div>
 {% endif %}
 {% endif %}
@@ -589,6 +597,124 @@ function _invApply() {
         }
         /* No stored preference → leave server order intact */
     } catch(e) {}
+})();
+</script>
+<script>
+/* ── Persist inventory shop filter in localStorage across page visits ── */
+(function () {
+    var _u   = '{{ user.sub }}';
+    var LS_K = 'inv_shop_' + _u;
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var hasShop   = urlParams.has('shop');
+
+    if (!hasShop) {
+        try {
+            var saved = localStorage.getItem(LS_K);
+            if (saved) {
+                /* Restore saved shop — use replace() so Back button still works */
+                window.location.replace('/inventory?shop=' + encodeURIComponent(saved));
+                return;
+            }
+        } catch (e) {}
+    } else {
+        /* Explicit shop in URL — persist it */
+        try { localStorage.setItem(LS_K, urlParams.get('shop')); } catch (e) {}
+    }
+})();
+</script>
+<script>
+/* ── Persist inventory search query in localStorage across page visits ── */
+(function () {
+    var _u   = '{{ user.sub }}';
+    var LS_K = 'inv_q_' + _u;
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var hasQ      = urlParams.has('q');
+
+    if (!hasQ) {
+        try {
+            var saved = localStorage.getItem(LS_K);
+            /* saved === null → never set; saved === '' → user cleared search */
+            if (saved) {
+                /* Restore saved query, keeping shop/category/status already in URL */
+                var shop = urlParams.get('shop')     || '';
+                var cat  = urlParams.get('category') || '';
+                var st   = urlParams.get('status')   || '';
+                var url  = '/inventory?shop=' + encodeURIComponent(shop)
+                         + '&q=' + encodeURIComponent(saved)
+                         + (cat ? '&category=' + encodeURIComponent(cat) : '')
+                         + (st  ? '&status='   + encodeURIComponent(st)  : '');
+                window.location.replace(url);
+                return;
+            }
+        } catch (e) {}
+    } else {
+        /* Explicit q in URL — persist it */
+        try { localStorage.setItem(LS_K, urlParams.get('q')); } catch (e) {}
+    }
+})();
+</script>
+<script>
+/* ── Persist inventory category filter in localStorage across page visits ── */
+(function () {
+    var _u   = '{{ user.sub }}';
+    var LS_K = 'inv_category_' + _u;
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var hasCat    = urlParams.has('category');
+
+    if (!hasCat) {
+        try {
+            var saved = localStorage.getItem(LS_K);
+            /* saved === null  → never set; saved === '' → user chose "all categories" */
+            if (saved) {
+                /* Restore saved category, keeping shop/q params that are already in URL */
+                var shop = urlParams.get('shop') || '';
+                var q    = urlParams.get('q')    || '';
+                var url  = '/inventory?shop=' + encodeURIComponent(shop)
+                         + (q ? '&q=' + encodeURIComponent(q) : '')
+                         + '&category=' + encodeURIComponent(saved);
+                window.location.replace(url);
+                return;
+            }
+        } catch (e) {}
+    } else {
+        /* Explicit category in URL — persist it */
+        try { localStorage.setItem(LS_K, urlParams.get('category')); } catch (e) {}
+    }
+})();
+</script>
+<script>
+/* ── Persist inventory status filter in localStorage across page visits ── */
+(function () {
+    var _u   = '{{ user.sub }}';
+    var LS_K = 'inv_status_' + _u;
+
+    var urlParams  = new URLSearchParams(window.location.search);
+    var hasStatus  = urlParams.has('status');
+
+    if (!hasStatus) {
+        try {
+            var saved = localStorage.getItem(LS_K);
+            /* saved === null → never set; saved === '' → user chose "all positions" */
+            if (saved) {
+                /* Restore saved status, keeping shop/q/category that are already in URL */
+                var shop = urlParams.get('shop')     || '';
+                var q    = urlParams.get('q')        || '';
+                var cat  = urlParams.get('category') || '';
+                var url  = '/inventory?shop=' + encodeURIComponent(shop)
+                         + (q   ? '&q='        + encodeURIComponent(q)   : '')
+                         + (cat ? '&category=' + encodeURIComponent(cat) : '')
+                         + '&status=' + encodeURIComponent(saved);
+                window.location.replace(url);
+                return;
+            }
+        } catch (e) {}
+    } else {
+        /* Explicit status in URL — persist it */
+        try { localStorage.setItem(LS_K, urlParams.get('status')); } catch (e) {}
+    }
 })();
 </script>
 {% endblock %}

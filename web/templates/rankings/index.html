@@ -283,11 +283,63 @@
 {% block extra_head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
 {% block extra_js %}
 <script>
-/* Persist rankings sort preference in localStorage across page visits */
+/* ── Persist active tab + period in localStorage (per user) ── */
+(function () {
+    /* Keys namespaced by user so shared-device users don't see each other's prefs */
+    var _u        = '{{ user.sub }}';
+    var LS_TAB    = 'rnk_tab_'    + _u;
+    var LS_PERIOD = 'rnk_period_' + _u;
+    var LS_DF     = 'rnk_df_'     + _u;
+    var LS_DT     = 'rnk_dt_'     + _u;
+
+    var urlParams = new URLSearchParams(window.location.search);
+    /* Truly bare visit: none of the relevant params present in the URL */
+    var isBare = !urlParams.has('tab') && !urlParams.has('period') &&
+                 !urlParams.has('date_from') && !urlParams.has('date_to');
+
+    if (isBare) {
+        /* Restore saved prefs — use replace() so Back button still works */
+        try {
+            var savedTab    = localStorage.getItem(LS_TAB);
+            var savedPeriod = localStorage.getItem(LS_PERIOD);
+            if (savedTab) {
+                var qs = '?tab=' + encodeURIComponent(savedTab);
+                if (savedPeriod === 'custom') {
+                    var df = localStorage.getItem(LS_DF);
+                    var dt = localStorage.getItem(LS_DT);
+                    if (df && dt) {
+                        qs += '&date_from=' + encodeURIComponent(df) + '&date_to=' + encodeURIComponent(dt);
+                    } else {
+                        qs += '&period=month';
+                    }
+                } else {
+                    qs += '&period=' + encodeURIComponent(savedPeriod || 'month');
+                }
+                window.location.replace('/rankings' + qs);
+                return;
+            }
+        } catch (e) {}
+    }
+
+    /* Save current tab + period (URL always wins — we only reach here when params are explicit or no saved pref) */
+    try {
+        localStorage.setItem(LS_TAB,    '{{ tab }}');
+        localStorage.setItem(LS_PERIOD, '{{ period }}');
+        {% if period == 'custom' and date_from and date_to %}
+        localStorage.setItem(LS_DF, '{{ date_from }}');
+        localStorage.setItem(LS_DT, '{{ date_to }}');
+        {% else %}
+        localStorage.removeItem(LS_DF);
+        localStorage.removeItem(LS_DT);
+        {% endif %}
+    } catch (e) {}
+})();
+
+/* ── Persist rankings sort preference in localStorage across page visits ── */
 var _rnkCol = 'revenue';
 var _rnkDir = 'desc';
-var _RNK_LS_COL = 'rnk_sort_col_{{ tab }}';
-var _RNK_LS_DIR = 'rnk_sort_dir_{{ tab }}';
+var _RNK_LS_COL = 'rnk_sort_col_{{ tab }}_{{ user.sub }}';
+var _RNK_LS_DIR = 'rnk_sort_dir_{{ tab }}_{{ user.sub }}';
 
 function rnkSort(col) {
     if (_rnkCol === col) {
