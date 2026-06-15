@@ -293,7 +293,7 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
     50%       { opacity: .4; transform: scale(.6); }
 }
 
-/* ── Pinch-zoom percentage badge ── */
+/* ── Pinch-zoom / browser-zoom percentage badge ── */
 .zoom-pct-badge {
     position: fixed;
     top: 62px;
@@ -313,8 +313,6 @@ body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
     transition: opacity .25s ease;
 }
 .zoom-pct-badge.visible { opacity: 1; }
-/* Only meaningful on mobile where pinch-zoom badge applies */
-@media (min-width: 641px) { .zoom-pct-badge { display: none; } }
 
 /* ── Mobile breakpoints ── */
 @media (max-width: 640px) {
@@ -702,6 +700,7 @@ function labelSizer() {
             let _rzTimer = null;
             let _pinchActive = false;
             let _pctFadeTimer = null;
+            const _initialDPR = window.devicePixelRatio || 1;
 
             const scheduleRefit = () => {
                 if (!this.zoomed) return;
@@ -719,6 +718,9 @@ function labelSizer() {
                 clearTimeout(_pctFadeTimer);
                 _pctFadeTimer = setTimeout(() => { this.showZoomPct = false; }, 900);
             };
+
+            /* Read the current browser zoom level relative to initial DPR */
+            const getDesktopZoomScale = () => (window.devicePixelRatio || 1) / _initialDPR;
 
             if (window.visualViewport) {
                 let _lastScale = window.visualViewport.scale;
@@ -758,6 +760,32 @@ function labelSizer() {
             window.addEventListener('resize', () => {
                 if (_pinchActive) return;
                 scheduleRefit();
+            });
+
+            /*
+             * Desktop zoom badge — Ctrl+scroll and Ctrl+± keyboard shortcuts.
+             *
+             * The browser intercepts these before our handler so devicePixelRatio
+             * is already updated by the time our rAF callback fires.
+             */
+            const onDesktopZoom = () => {
+                requestAnimationFrame(() => {
+                    showZoomBadge(getDesktopZoomScale());
+                    hideZoomBadgeDelayed();
+                });
+            };
+
+            window.addEventListener('wheel', (e) => {
+                if (!e.ctrlKey) return;
+                onDesktopZoom();
+            }, { passive: true });
+
+            window.addEventListener('keydown', (e) => {
+                if (!e.ctrlKey) return;
+                const k = e.key;
+                if (k === '+' || k === '=' || k === '-' || k === '0') {
+                    onDesktopZoom();
+                }
             });
         },
 
