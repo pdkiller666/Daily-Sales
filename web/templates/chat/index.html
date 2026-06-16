@@ -173,6 +173,10 @@ html.dark .search-result-item mark { background:#713f12; }
 /* Flash-highlight when navigating to found message */
 @keyframes msg-flash { 0%,100%{background:transparent} 25%,75%{background:rgba(250,204,21,.35)} }
 .search-flash { animation:msg-flash 1.6s ease; border-radius:.75rem; }
+/* One-shot repaint hint for the DM panel — see _nudgeDmPanel().
+   opacity:.999 forces a fresh paint without a visible flash and without
+   breaking position:fixed descendants (a transform would). */
+.dm-reflow { opacity:.999; }
 </style>
 {% endblock %}
 
@@ -1219,15 +1223,21 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
            On mobile the x-show display:none→flex switch doesn't always lay out
            the flex subtree until a forced reflow — that's why toggling the dark
            theme (a class change on <html>) "revealed" the panel. We replicate
-           that reflow here so the panel renders immediately on first switch. */
+           that reflow here WITHOUT touching inline `display` (which x-show owns):
+           offsetHeight forces synchronous layout, the .dm-reflow class forces a
+           paint. The dmMode guards prevent us from acting after a fast switch
+           back to group mode. */
         _nudgeDmPanel() {
             this.$nextTick(() => {
+                if (!this.dmMode) return;
                 const el = document.getElementById('dm-panel');
                 if (!el) return;
-                el.style.display = 'none';
                 void el.offsetHeight;
-                el.style.display = '';
-                requestAnimationFrame(() => { void el.offsetHeight; });
+                el.classList.add('dm-reflow');
+                requestAnimationFrame(() => {
+                    el.classList.remove('dm-reflow');
+                    if (this.dmMode) void el.offsetHeight;
+                });
             });
         },
         switchToGroup() {
