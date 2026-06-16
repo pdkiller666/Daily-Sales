@@ -2,11 +2,14 @@
 AI/LLM utility module — DeepSeek → Gemini → OpenRouter fallback chain.
 
 Usage:
-    from web.ai_utils import ask_llm, is_configured
+    from web.ai_utils import ask_llm, ask_llm_with_tools, is_configured
 
     result = await ask_llm("Объясни эти данные...", system="Ты аналитик продаж.")
     if result is None:
         # все провайдеры недоступны / ключи не заданы
+
+    # Tool-calling (multi-turn) variant for the chat AI assistant:
+    result = await ask_llm_with_tools(user_question, system_prompt, db_instance)
 
 Ключи в env vars: DEEPSEEK_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY
 Порядок попыток: DeepSeek → Gemini → OpenRouter (первый ответивший побеждает).
@@ -17,8 +20,10 @@ Usage:
 - пустой ответ (empty string) тоже считается сбоем и вызывает fallback
 - ошибка парсинга ответа (KeyError, IndexError) → logged + fallback
 """
+import json
 import logging
 import os
+import re
 
 import aiohttp
 
@@ -230,6 +235,232 @@ async def ask_llm(
             logger.warning("ask_llm: provider %s failed — %s: %s", name, type(exc).__name__, exc)
 
     logger.warning("ask_llm: all %d provider(s) failed or returned empty", len(providers))
+    return None
+
+
+# ─── Multi-provider messages helper ──────────────────────────────────────────
+
+async def _ask_with_messages(
+    messages: list[dict],
+    max_tokens: int = 400,
+    temperature: float = 0.2,
+) -> str | None:
+    """Send a messages array (OpenAI-style) to the first available provider.
+
+    For Gemini (which does not support the messages API) the conversation is
+    flattened into a single text prompt.
+    """
+    _reload_keys()
+
+    async def _deepseek(msgs: list[dict]) -> str:
+        url = "https://api.deepseek.com/v1/chat/completions"
+        payload = {
+            "model": "deepseek-chat",
+            "messages": msgs,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        headers = {
+            "Authorization": f"Bearer {_DEEPSEEK_KEY}",
+            "Content-Type": "application/json",
+        }
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise ValueError("DeepSeek empty choices")
+                content = choices[0].get("message", {}).get("content", "").strip()
+                if not content:
+                    raise ValueError("DeepSeek empty content")
+                return content
+
+    async def _gemini(msgs: list[dict]) -> str:
+        parts = []
+        for m in msgs:
+            role = m.get("role", "user")
+            text = m.get("content", "")
+            if role == "system":
+                parts.append(f"[Системная инструкция]: {text}")
+            elif role == "assistant":
+                parts.append(f"[Ассистент]: {text}")
+            else:
+                parts.append(f"[Пользователь]: {text}")
+        flat = "\n\n".join(parts)
+        base = "https://generativelanguage.googleapis.com/v1beta/models"
+        gen_cfg = {"maxOutputTokens": max_tokens, "temperature": temperature}
+        payload = {
+            "contents": [{"parts": [{"text": flat}]}],
+            "generationConfig": gen_cfg,
+        }
+        for model_id in ("gemini-flash-latest", "gemini-2.5-flash-lite"):
+            url = f"{base}/{model_id}:generateContent?key={_GEMINI_KEY}"
+            async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 404:
+                        continue
+                    resp.raise_for_status()
+                    data = await resp.json()
+                    candidates = data.get("candidates") or []
+                    if not candidates:
+                        raise ValueError("Gemini no candidates")
+                    parts_resp = candidates[0].get("content", {}).get("parts") or []
+                    if not parts_resp:
+                        raise ValueError("Gemini no parts")
+                    content = parts_resp[0].get("text", "").strip()
+                    if not content:
+                        raise ValueError("Gemini empty text")
+                    return content
+        raise RuntimeError("Gemini models exhausted")
+
+    async def _openrouter(msgs: list[dict]) -> str:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {_OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://dailysales.app",
+            "X-Title": "DailySales",
+        }
+        or_models = [
+            "deepseek/deepseek-chat",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-4o-mini",
+        ]
+        last_err: Exception | None = None
+        for model in or_models:
+            payload = {
+                "model": model, "messages": msgs,
+                "max_tokens": max_tokens, "temperature": temperature,
+            }
+            try:
+                async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+                    async with session.post(url, json=payload, headers=headers) as resp:
+                        if resp.status in (404, 429, 503):
+                            continue
+                        resp.raise_for_status()
+                        data = await resp.json()
+                        choices = data.get("choices") or []
+                        if not choices:
+                            continue
+                        content = choices[0].get("message", {}).get("content", "").strip()
+                        if content:
+                            return content
+            except Exception as exc:
+                last_err = exc
+        raise RuntimeError(f"OpenRouter exhausted: {last_err}")
+
+    providers: list[tuple[str, object]] = []
+    if _DEEPSEEK_KEY:
+        providers.append(("DeepSeek", _deepseek))
+    if _GEMINI_KEY:
+        providers.append(("Gemini", _gemini))
+    if _OPENROUTER_KEY:
+        providers.append(("OpenRouter", _openrouter))
+
+    if not providers:
+        return None
+
+    for name, fn in providers:
+        try:
+            result = await fn(messages)  # type: ignore[operator]
+            if result:
+                return result
+        except Exception as exc:
+            logger.warning("_ask_with_messages: %s failed — %s", name, exc)
+
+    return None
+
+
+# ─── Tool-calling loop ────────────────────────────────────────────────────────
+
+_TOOL_CALL_RE = re.compile(
+    r'TOOL_CALL:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\})', re.DOTALL
+)
+
+_TOOL_SYSTEM_APPENDIX = """\
+
+{tools_description}
+
+Как работать с инструментами:
+- Если для ответа нужны данные, которых нет в контексте, ответь ТОЛЬКО одной строкой:
+  TOOL_CALL: {{"tool": "название_инструмента", "params": {{"ключ": "значение"}}}}
+- Если данных уже достаточно или вопрос не требует инструментов — отвечай сразу.
+- Вызывай по ОДНОМУ инструменту за раз. Не придумывай данные — если их нет, скажи честно.
+- Ответы только про данные ЭТОЙ организации. Ответ: 2–4 предложения."""
+
+
+async def ask_llm_with_tools(
+    user_question: str,
+    system: str,
+    db,
+    max_rounds: int = 3,
+    max_tokens: int = 450,
+    history: list[dict] | None = None,
+) -> str | None:
+    """Multi-turn tool-calling loop for the chat AI assistant.
+
+    Protocol:
+      1. Sends system (with tool descriptions appended) + user question.
+      2. If the response contains TOOL_CALL: {...} → calls the tool, appends result.
+      3. Repeats up to *max_rounds* times, then returns the final text answer.
+
+    Returns None only when all LLM providers fail.
+    """
+    from web.ai_tools import call_tool, get_tools_description
+
+    _reload_keys()
+
+    tools_desc  = get_tools_description()
+    full_system = system + _TOOL_SYSTEM_APPENDIX.format(tools_description=tools_desc)
+
+    messages: list[dict] = [{"role": "system", "content": full_system}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_question})
+
+    for round_idx in range(max_rounds + 1):
+        response = await _ask_with_messages(messages, max_tokens=max_tokens)
+        if not response:
+            return None
+
+        m = _TOOL_CALL_RE.search(response)
+        if not m or round_idx >= max_rounds:
+            clean = _TOOL_CALL_RE.sub("", response).strip()
+            return clean or response
+
+        try:
+            call_data  = json.loads(m.group(1))
+            tool_name  = str(call_data.get("tool", ""))
+            tool_params = dict(call_data.get("params", {}))
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            clean = _TOOL_CALL_RE.sub("", response).strip()
+            return clean or response
+
+        if not tool_name:
+            clean = _TOOL_CALL_RE.sub("", response).strip()
+            return clean or response
+
+        import anyio
+        tool_result = await anyio.to_thread.run_sync(
+            lambda tn=tool_name, tp=tool_params: call_tool(tn, tp, db)
+        )
+        logger.info(
+            "ask_llm_with_tools: round %d tool=%s params=%s result_len=%d",
+            round_idx + 1, tool_name, tool_params, len(tool_result),
+        )
+
+        messages.append({"role": "assistant", "content": response})
+        messages.append({
+            "role": "user",
+            "content": (
+                f"TOOL_RESULT [{tool_name}]:\n{tool_result}\n\n"
+                "Теперь ответь на исходный вопрос, используя полученные данные. "
+                "Если нужен ещё один инструмент — вызови его. "
+                "Иначе — дай финальный ответ (2–4 предложения)."
+            ),
+        })
+
     return None
 
 

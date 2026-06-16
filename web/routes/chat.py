@@ -173,6 +173,44 @@ _AI_CHAT_DAILY_LIMIT = 50
 AI_PEER_ID = -1
 
 
+_HISTORY_MAX_CHARS = 5_000   # ~1 600 токенов — держим контекст без расточительства
+
+
+def _rows_to_history(rows: list, uid_col: int, text_col: int,
+                     fname_col: int | None = None,
+                     lname_col: int | None = None) -> list[dict]:
+    """Конвертирует строки БД (ASC) в список сообщений для LLM.
+
+    Оставляет самые свежие сообщения, укладывающиеся в _HISTORY_MAX_CHARS.
+    user_id == 0  → role='assistant' (AI), прочие → role='user'.
+    Для многопользовательских тем fname_col/lname_col добавляют «Имя: » перед текстом.
+    """
+    tail: list[dict] = []
+    total = 0
+    for row in reversed(rows):
+        uid  = row[uid_col]
+        text = (row[text_col] or "").strip()
+        if not text:
+            continue
+        if uid == 0:
+            text = text.removeprefix("🤖 ").strip()
+            role = "assistant"
+        else:
+            role = "user"
+            if fname_col is not None:
+                fname = row[fname_col] or ""
+                lname = (row[lname_col] or "") if lname_col is not None else ""
+                name  = f"{fname} {lname}".strip()
+                if name:
+                    text = f"{name}: {text}"
+        total += len(text)
+        if total > _HISTORY_MAX_CHARS:
+            break
+        tail.append({"role": role, "content": text})
+    tail.reverse()
+    return tail
+
+
 def _ai_ext_ok(db, telegram_id: int) -> bool:
     """Доступен ли AI-ассистент: оплачено ли расширение ai_chat_assistant у владельца."""
     try:
@@ -183,11 +221,13 @@ def _ai_ext_ok(db, telegram_id: int) -> bool:
         return False
 
 
-async def _build_ai_org_context(db, user_db_id: int) -> tuple[str, str, list]:
-    """Собирает обогащённый контекст организации для AI-ассистента.
+async def _build_ai_system_prompt(db, user_db_id: int) -> tuple[str, str]:
+    """Собирает системный промпт для AI-ассистента с инструментами.
 
-    Возвращает (org_name, user_name, context_parts) — три составляющих промпта.
-    Вызывается из _ai_chat_reply и _ai_dm_reply чтобы не дублировать логику.
+    Возвращает (system_prompt, user_name).
+    Базовый контекст (сегодня/месяц/планы) включается сразу — без вызова инструментов.
+    Детальные данные (остатки, зарплата, задачи, рейтинги и т.д.) AI запрашивает
+    через инструменты по мере необходимости.
     """
     import anyio
 
@@ -195,62 +235,34 @@ async def _build_ai_org_context(db, user_db_id: int) -> tuple[str, str, list]:
     sales_month    = await anyio.to_thread.run_sync(db.get_sales_summary_month)
     user_row       = await anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id))
     org_name       = await anyio.to_thread.run_sync(db.get_org_name)
-    top_products   = await anyio.to_thread.run_sync(db.get_top_products_month)
-    active_sellers = await anyio.to_thread.run_sync(db.get_active_sellers_month)
     plans_progress = await anyio.to_thread.run_sync(db.get_plans_with_progress)
 
-    user_name = ""
+    user_name = "сотрудник"
     if user_row:
         fn = user_row[3] if len(user_row) > 3 else ""
         ln = user_row[4] if len(user_row) > 4 else ""
         user_name = f"{fn or ''} {ln or ''}".strip() or "сотрудник"
-
-    top_products_text = ""
-    if top_products:
-        lines = []
-        for i, (pname, qty, rev) in enumerate(top_products, 1):
-            lines.append(f"  {i}. {pname}: {rev:,.0f} руб. ({qty} шт.)")
-        top_products_text = "Топ товаров за месяц:\n" + "\n".join(lines)
-
-    sellers_text = ""
-    if active_sellers:
-        names = []
-        for fn2, ln2, shop, rev in active_sellers:
-            name = f"{fn2 or ''} {ln2 or ''}".strip() or "—"
-            shop_part = f" ({shop})" if shop else ""
-            names.append(f"{name}{shop_part}: {rev:,.0f} руб.")
-        sellers_text = "Активные продавцы за месяц:\n" + "\n".join(f"  - {n}" for n in names)
 
     plans_text = ""
     if plans_progress:
         lines = []
         for p in plans_progress[:5]:
             metric_unit = "руб." if "выручка" in p["label"] else "шт."
-            line = (
+            lines.append(
                 f"  - {p['label']}: {p['current']:,.0f} / {p['target']:,.0f} {metric_unit} ({p['pct']}%)"
             )
-            lines.append(line)
-            if p.get("seller_breakdown"):
-                for bd in p["seller_breakdown"]:
-                    lines.append(
-                        f"      • {bd['name']}: {bd['current']:,.0f} {metric_unit} ({bd['pct']}%)"
-                    )
-            elif p.get("seller_name"):
-                lines.append(f"      • Продавец: {p['seller_name']}")
-        plans_text = "Планы продаж (прогресс):\n" + "\n".join(lines)
+        plans_text = "\nПланы продаж (прогресс):\n" + "\n".join(lines)
 
-    context_parts = [
-        f"- Продажи сегодня: {sales_today}",
-        f"- Продажи за месяц: {sales_month}",
-    ]
-    if top_products_text:
-        context_parts.append(top_products_text)
-    if sellers_text:
-        context_parts.append(sellers_text)
-    if plans_text:
-        context_parts.append(plans_text)
-
-    return org_name, user_name, context_parts
+    system = (
+        f"Ты — AI-ассистент торговой организации «{org_name}».\n"
+        f"Отвечай на русском языке, кратко и по делу.\n"
+        f"Текущие данные организации:\n"
+        f"  - Продажи сегодня: {sales_today}\n"
+        f"  - Продажи за месяц: {sales_month}"
+        f"{plans_text}\n"
+        f"Спрашивает: {user_name}."
+    )
+    return system, user_name
 
 
 async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text: str):
@@ -258,10 +270,11 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
 
     Запускается через asyncio.create_task — основной /chat/send не ждёт.
     Любой сбой глотается: AI-ошибка никогда не роняет основной чат.
+    Использует ask_llm_with_tools — AI сам запрашивает нужные данные через инструменты.
     """
     try:
         from billing_utils import has_extension
-        from web.ai_utils import ask_llm
+        from web.ai_utils import ask_llm_with_tools
         from web.deps import get_web_db
         from web.rate_store import check_and_increment_ai
         import anyio
@@ -288,21 +301,23 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             )
             return
 
-        org_name, user_name, context_parts = await _build_ai_org_context(db, user_db_id)
+        system, _user_name = await _build_ai_system_prompt(db, user_db_id)
 
-        prompt = (
-            f"Ты AI-ассистент торговой организации «{org_name}».\n"
-            f"Отвечай коротко и по делу на русском языке.\n\n"
-            f"Текущие данные:\n"
-            + "\n".join(context_parts)
-            + f"\n- Спрашивает: {user_name}\n\n"
-            f"Вопрос: {user_text}\n\n"
-            f"Ответь в 2-4 предложениях. Если вопрос не связан с продажами/магазином — "
-            f"скажи что можешь помочь только с данными организации."
+        # История диалога в теме (последние 20 сообщений до текущего)
+        # get_chat_messages → ASC; последний ряд = только что добавленное сообщение → [:-1]
+        # uid=row[1], text=row[2], fname=row[8], lname=row[9]
+        _hist_rows = await anyio.to_thread.run_sync(
+            lambda: db.get_chat_messages(limit=21, topic_id=topic_id)
+        )
+        history = _rows_to_history(
+            _hist_rows[:-1] if _hist_rows else [],
+            uid_col=1, text_col=2, fname_col=8, lname_col=9,
         )
 
         try:
-            answer = await ask_llm(prompt, max_tokens=300)
+            answer = await ask_llm_with_tools(
+                user_text, system, db, max_rounds=3, max_tokens=500, history=history
+            )
         except Exception:
             answer = None
         if not answer:
@@ -328,7 +343,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
     """
     try:
         from billing_utils import has_extension
-        from web.ai_utils import ask_llm
+        from web.ai_utils import ask_llm_with_tools
         from web.deps import get_web_db
         from web.rate_store import check_and_increment_ai
         from web.ws_manager import dm_manager
@@ -370,21 +385,23 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             )
             return
 
-        org_name, user_name, context_parts = await _build_ai_org_context(db, sender_db_id)
+        system, _user_name = await _build_ai_system_prompt(db, sender_db_id)
 
-        prompt = (
-            f"Ты AI-ассистент торговой организации «{org_name}».\n"
-            f"Отвечай коротко и по делу на русском языке.\n\n"
-            f"Текущие данные:\n"
-            + "\n".join(context_parts)
-            + f"\n- Спрашивает: {user_name}\n\n"
-            f"Вопрос: {user_text}\n\n"
-            f"Ответь в 2-4 предложениях. Если вопрос не связан с продажами/магазином — "
-            f"скажи что можешь помочь только с данными организации."
+        # История личного диалога с AI (последние 20 сообщений до текущего)
+        # get_ai_dm_conversation → ASC; последний ряд = только что добавленное → [:-1]
+        # uid=row[1], text=row[3]
+        _hist_rows = await anyio.to_thread.run_sync(
+            lambda: db.get_ai_dm_conversation(sender_db_id, limit=21)
+        )
+        history = _rows_to_history(
+            _hist_rows[:-1] if _hist_rows else [],
+            uid_col=1, text_col=3,
         )
 
         try:
-            answer = await ask_llm(prompt, max_tokens=300)
+            answer = await ask_llm_with_tools(
+                user_text, system, db, max_rounds=3, max_tokens=500, history=history
+            )
         except Exception:
             answer = None
         if not answer:

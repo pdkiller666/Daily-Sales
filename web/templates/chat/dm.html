@@ -319,8 +319,11 @@ const PEER_INITIAL = {{ (peer.initial if peer else "?") | tojson }};
 let ws = null;
 let wsRetryDelay = 1000;
 let wsRetryTimer = null;
-let typingTimer   = null;
-let typingHideTimer = null;
+let typingTimer      = null;
+let typingHideTimer  = null;
+let aiThinkingTimer  = null;
+
+const IS_AI_PEER = PEER_ID < 0;
 
 function wsDot(state) {
     const d = document.getElementById('dm-ws-dot');
@@ -362,6 +365,10 @@ function handleWsMessage(data) {
                       || (data.from_user_id === PEER_ID && data.to_user_id === MY_DB_ID)
                       || (data.from_user_id === MY_DB_ID && data.to_user_id === PEER_ID);
         if (!relevant) return;
+        if (isAi) {
+            // AI reply arrived — hide the thinking indicator
+            hideAiThinking();
+        }
         if (data.confirmed) {
             // Find temp message and confirm it
             const tmp = document.querySelector('[data-id="tmp"]');
@@ -381,7 +388,7 @@ function handleWsMessage(data) {
                 is_ai: data.is_ai || (data.from_user_id === 0),
                 can_delete: false,
             });
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (ws && ws.readyState === WebSocket.OPEN && !IS_AI_PEER) {
                 ws.send(JSON.stringify({type: 'read', peer_id: PEER_ID}));
             }
         }
@@ -448,8 +455,9 @@ async function dmSend() {
     const btn = document.getElementById('dm-send-btn');
     btn.disabled = true;
 
-    // Try WS first (text only, no file)
-    if (!file && ws && ws.readyState === WebSocket.OPEN) {
+    // Try WS first (text only, no file, non-AI peer)
+    // AI peer (PEER_ID < 0) must always use HTTP so the server handles generation.
+    if (!file && !IS_AI_PEER && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'message', to_user_id: PEER_ID, message: text}));
         const now = new Date();
         const nowStr = String(now.getDate()).padStart(2,'0') + '.'
@@ -464,7 +472,7 @@ async function dmSend() {
         return;
     }
 
-    // HTTP fallback (always for files)
+    // HTTP path (always for files; always for AI peer)
     const fd = new FormData();
     fd.append('csrf_token', CSRF_TOKEN);
     fd.append('to_user_id', PEER_ID);
@@ -475,10 +483,12 @@ async function dmSend() {
         const res = await fetch('/chat/dm/send', {method:'POST', body:fd});
         const data = await res.json();
         if (data.ok) {
-            appendMessage({...data.message, is_mine:true, can_delete:true});
+            appendMessage({...data.message, is_mine:true, can_delete: !IS_AI_PEER});
             input.value = '';
             input.style.height = 'auto';
             dmClearFile();
+            // Show thinking indicator while waiting for AI response
+            if (IS_AI_PEER) showAiThinking();
         } else {
             alert(data.error || 'Ошибка отправки');
         }
@@ -509,6 +519,22 @@ function showTyping() {
     el.textContent = `${PEER_NAME} печатает…`;
     clearTimeout(typingHideTimer);
     typingHideTimer = setTimeout(() => { if (el) el.textContent = ''; }, 3000);
+}
+
+// ── AI thinking indicator ────────────────────────────────────────────────────
+function showAiThinking() {
+    const el = document.getElementById('dm-typing');
+    if (!el) return;
+    el.textContent = '🤖 ИИ думает…';
+    clearTimeout(aiThinkingTimer);
+    // Auto-hide after 60s as a safety fallback
+    aiThinkingTimer = setTimeout(() => hideAiThinking(), 60000);
+}
+
+function hideAiThinking() {
+    clearTimeout(aiThinkingTimer);
+    const el = document.getElementById('dm-typing');
+    if (el) el.textContent = '';
 }
 
 function onInputTyping() {

@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.34.0"
+CURRENT_VERSION = "1.35.0"
 
 ENTRIES = [
+    {
+        "version": "1.35.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Чат с AI-ассистентом: вопросы теперь всегда доходят до сервера и запускают генерацию ответа; пока ИИ думает — виден индикатор «🤖 ИИ думает…»; ответ появляется в открытом диалоге мгновенно без перезагрузки страницы.",
+            "Fix chat layout to prevent scrolling and ensure fixed elements stay in place",
+            "Fix AI chat: realtime replies + thinking indicator",
+            "AI assistant full org data access via 15-tool function-calling layer",
+        ],
+    },
     {
         "version": "1.34.0",
         "date": "16 июня 2026",
