@@ -7,6 +7,39 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai")
 
+# ─── Plan-analysis in-memory TTL cache ────────────────────────────────────────
+# Key: (org_db, plan_id) → {"text": str, "expires_at": datetime, "cached_at": datetime}
+AI_PLAN_CACHE_TTL: int = 7200  # seconds; 2 hours default
+
+_plan_analysis_cache: dict[tuple, dict] = {}
+
+
+def get_plan_analysis_cache(org_db: str, plan_id: int) -> dict | None:
+    """Return cached plan analysis dict {text, cached_at} or None if missing/expired."""
+    key = (org_db, plan_id)
+    entry = _plan_analysis_cache.get(key)
+    if not entry:
+        return None
+    if _dt.datetime.utcnow() > entry["expires_at"]:
+        _plan_analysis_cache.pop(key, None)
+        return None
+    return {"text": entry["text"], "cached_at": entry["cached_at"]}
+
+
+def set_plan_analysis_cache(org_db: str, plan_id: int, text: str) -> None:
+    """Store plan analysis result in TTL cache."""
+    now = _dt.datetime.utcnow()
+    _plan_analysis_cache[(org_db, plan_id)] = {
+        "text": text,
+        "cached_at": now,
+        "expires_at": now + _dt.timedelta(seconds=AI_PLAN_CACHE_TTL),
+    }
+
+
+def invalidate_plan_analysis_cache(org_db: str, plan_id: int) -> None:
+    """Remove a cached entry (e.g. after plan edit)."""
+    _plan_analysis_cache.pop((org_db, plan_id), None)
+
 
 def _api_csrf_ok(request: Request) -> bool:
     """Same-origin guard for JSON API endpoints.
@@ -465,6 +498,7 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
         if not answer:
             return JSONResponse({"ok": False, "error": "AI не смог построить анализ. Попробуйте позже."})
 
+        set_plan_analysis_cache(org_db or "", plan_id, answer)
         return JSONResponse({"ok": True, "text": answer})
 
     except Exception as exc:

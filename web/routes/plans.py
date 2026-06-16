@@ -734,6 +734,7 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
         "target_labels": TARGET_LABELS,
         "csrf_token": "",
         "has_ai_plan_analysis": has_ai_plan_analysis,
+        "ai_cached": None,
     }
 
     try:
@@ -779,6 +780,13 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
         if _hex(telegram_id, "milestone_alerts"):
             ctx["milestones"] = _load_milestone_history(db, plan_id)
         ctx["has_milestone_alerts"] = _hex(telegram_id, "milestone_alerts")
+
+        if has_ai_plan_analysis:
+            try:
+                from web.routes.ai_routes import get_plan_analysis_cache
+                ctx["ai_cached"] = get_plan_analysis_cache(org_db or "", plan_id)
+            except Exception:
+                pass
 
     except Exception as exc:
         logger.error(f"plan_detail {plan_id} error: {exc}")

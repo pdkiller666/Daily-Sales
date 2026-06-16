@@ -147,10 +147,39 @@
     </div>
 </div>
 
-<!-- AI analysis button -->
+<!-- AI analysis block -->
 {% if has_ai_plan_analysis and plan.pct_raw < 95 %}
-<div class="mb-5 flex flex-col gap-2">
+<div class="mb-5 flex flex-col gap-2" id="ai-analysis-wrap-{{ plan.id }}">
+    <!-- Cached result shown immediately if available -->
+    {% if ai_cached %}
+    <div id="ai-analysis-{{ plan.id }}"
+         class="p-4 bg-violet-50 border border-violet-100 rounded-xl text-sm text-slate-700"
+         style="white-space:pre-wrap;line-height:1.6;">
+        <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <span class="flex items-center gap-1.5 text-violet-600 font-medium text-sm">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346A3.285 3.285 0 0019 16.586V17a2 2 0 01-2 2H7a2 2 0 01-2-2v-.414a3.285 3.285 0 00-.964-2.33l-.347-.346z"/>
+                </svg>
+                AI-разбор плана
+            </span>
+            <span class="text-xs text-slate-400" title="Время анализа (UTC)">
+                🕐 {{ ai_cached.cached_at.strftime('%d.%m %H:%M') }} UTC
+            </span>
+        </div>
+        {{ ai_cached.text | e }}
+    </div>
     <button type="button"
+            id="ai-btn-{{ plan.id }}"
+            onclick="aiAnalyzePlan({{ plan.id }}, this)"
+            class="inline-flex items-center gap-1.5 self-start px-4 py-2 text-sm font-medium
+                   bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200
+                   rounded-xl transition-colors">
+        🔄 Обновить анализ
+    </button>
+    {% else %}
+    <button type="button"
+            id="ai-btn-{{ plan.id }}"
             onclick="aiAnalyzePlan({{ plan.id }}, this)"
             class="inline-flex items-center gap-1.5 self-start px-4 py-2 text-sm font-medium
                    bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200
@@ -163,6 +192,7 @@
         <span class="text-violet-400 text-xs">({{ plan.pct_raw|int }}%)</span>
     </button>
     <div id="ai-analysis-{{ plan.id }}" class="hidden"></div>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -278,6 +308,28 @@ function confirmDelete() {
 {% block extra_js %}
 {% if has_ai_plan_analysis %}
 <script>
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _buildAnalysisBox(text) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ts = pad(now.getUTCDate()) + '.' + pad(now.getUTCMonth()+1) +
+               ' ' + pad(now.getUTCHours()) + ':' + pad(now.getUTCMinutes()) + ' UTC';
+    return '<div class="flex items-center justify-between gap-2 mb-2 flex-wrap">' +
+        '<span class="flex items-center gap-1.5 text-violet-600 font-medium text-sm">' +
+        '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +
+        'd="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346A3.285 3.285 0 0019 16.586V17a2 2 0 01-2 2H7a2 2 0 01-2-2v-.414a3.285 3.285 0 00-.964-2.33l-.347-.346z"/>' +
+        '</svg> AI-разбор плана</span>' +
+        '<span class="text-xs text-slate-400">🕐 ' + ts + '</span>' +
+        '</div>' +
+        escHtml(text);
+}
+
 async function aiAnalyzePlan(planId, btn) {
     const box = document.getElementById('ai-analysis-' + planId);
     if (!box) return;
@@ -289,9 +341,6 @@ async function aiAnalyzePlan(planId, btn) {
         '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>' +
         ' Анализирую…';
 
-    box.className = 'hidden';
-    box.innerHTML = '';
-
     try {
         const fd = new FormData();
         fd.append('plan_id', planId);
@@ -299,39 +348,32 @@ async function aiAnalyzePlan(planId, btn) {
         const data = await resp.json();
 
         if (data.ok && data.text) {
-            box.innerHTML =
-                '<div class="p-4 bg-violet-50 border border-violet-100 rounded-xl text-sm text-slate-700" ' +
-                '     style="white-space:pre-wrap;line-height:1.6;">' +
-                '<div class="flex items-center gap-1.5 mb-2 text-violet-600 font-medium text-sm">' +
-                '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
-                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +
-                'd="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346A3.285 3.285 0 0019 16.586V17a2 2 0 01-2 2H7a2 2 0 01-2-2v-.414a3.285 3.285 0 00-.964-2.33l-.347-.346z"/>' +
-                '</svg> AI-разбор плана</div>' +
-                escHtml(data.text) + '</div>';
-            box.classList.remove('hidden');
+            box.className = 'p-4 bg-violet-50 border border-violet-100 rounded-xl text-sm text-slate-700';
+            box.style = 'white-space:pre-wrap;line-height:1.6;';
+            box.innerHTML = _buildAnalysisBox(data.text);
             btn.innerHTML = '🔄 Обновить анализ';
         } else {
-            box.innerHTML =
-                '<div class="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">' +
-                escHtml(data.error || 'Неизвестная ошибка') + '</div>';
-            box.classList.remove('hidden');
+            const errDiv = document.createElement('div');
+            errDiv.className = 'p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600';
+            errDiv.textContent = data.error || 'Неизвестная ошибка';
+            box.className = '';
+            box.style = '';
+            box.innerHTML = '';
+            box.appendChild(errDiv);
             btn.innerHTML = origHtml;
         }
     } catch (e) {
-        box.innerHTML =
-            '<div class="p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">' +
-            'Ошибка сети. Попробуйте позже.</div>';
-        box.classList.remove('hidden');
+        const errDiv = document.createElement('div');
+        errDiv.className = 'p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600';
+        errDiv.textContent = 'Ошибка сети. Попробуйте позже.';
+        box.className = '';
+        box.style = '';
+        box.innerHTML = '';
+        box.appendChild(errDiv);
         btn.innerHTML = origHtml;
     } finally {
         btn.disabled = false;
     }
-}
-
-function escHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 </script>
 {% endif %}

@@ -32,12 +32,37 @@ ADDON_INFO = {
         'days': 30,
         'addon_key': 'products',
     },
+    'extra_ai_network_insights': {
+        'label': '🌐 AI-инсайты сети',
+        'description': 'Сравнительный AI-анализ по всем магазинам сети — тренды, возможности, риски (30 дней). Требуется модуль AI-ассистент.',
+        'price': 399,
+        'days': 30,
+        'addon_key': 'ai_network_insights',
+    },
 }
 
 _ADDON_LABEL = {
     'addon_shops_1': '🏪 Доп. магазин (+1)',
     'addon_products_1': '📦 +100 товаров',
+    'addon_ai_network_insights_1': '🌐 AI-инсайты сети',
 }
+
+
+def _count_owner_orgs(telegram_id: int) -> int:
+    """Возвращает кол-во активных организаций, где пользователь — owner."""
+    try:
+        import sqlite3 as _sql3
+        _conn = _sql3.connect('data/main.db')
+        row = _conn.execute(
+            "SELECT COUNT(*) FROM user_org_mapping m "
+            "JOIN organizations o ON o.id = m.org_id "
+            "WHERE m.telegram_id = ? AND m.role = 'owner' AND o.is_active = 1",
+            (telegram_id,)
+        ).fetchone()
+        _conn.close()
+        return row[0] if row else 0
+    except Exception:
+        return 0
 
 
 @addon_router.callback_query(F.data == "subscription_addons")
@@ -53,17 +78,32 @@ async def addons_menu(callback: CallbackQuery, state: FSMContext):
     extra_shops = totals.get('extra_shops', 0)
     extra_prods = totals.get('extra_products', 0)
 
+    # Проверяем, является ли пользователь владельцем сети (≥2 орг)
+    owner_org_count = _count_owner_orgs(telegram_id)
+    is_network_owner = owner_org_count >= 2
+
+    # Статус AI-инсайтов
+    ai_insights_active = False
+    if is_network_owner:
+        try:
+            from billing_utils import has_extension as _hex
+            ai_insights_active = _hex(telegram_id, 'ai_network_insights')
+        except Exception:
+            pass
+
     text = (
         "➕ <b>Надстройки (Add-ons)</b>\n\n"
         "Расширьте возможности без смены тарифа.\n"
         "Надстройки суммируются с лимитами текущего тарифа на 30 дней.\n\n"
         "<b>Ваши активные надстройки:</b>\n"
         f"• Доп. магазины: <b>+{extra_shops}</b>\n"
-        f"• Доп. товары: <b>+{extra_prods * 100}</b>\n\n"
-        "<b>Доступно для покупки:</b>"
+        f"• Доп. товары: <b>+{extra_prods * 100}</b>\n"
     )
+    if is_network_owner:
+        text += f"• AI-инсайты сети: <b>{'✅ активны' if ai_insights_active else '❌ не активны'}</b>\n"
+    text += "\n<b>Доступно для покупки:</b>"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    buttons = [
         [InlineKeyboardButton(
             text="🏪 +1 магазин — 150₽/30 дней",
             callback_data="addon_buy_shops_1"
@@ -72,8 +112,17 @@ async def addons_menu(callback: CallbackQuery, state: FSMContext):
             text="📦 +100 товаров — 100₽/30 дней",
             callback_data="addon_buy_products_1"
         )],
-        [back_button("subscription_menu")]
-    ])
+    ]
+
+    if is_network_owner and not ai_insights_active:
+        buttons.append([InlineKeyboardButton(
+            text="🌐 AI-инсайты сети — 399₽/30 дней",
+            callback_data="addon_buy_ai_network_insights_1"
+        )])
+
+    buttons.append([back_button("subscription_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 

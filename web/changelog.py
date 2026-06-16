@@ -1,6 +1,18 @@
-CURRENT_VERSION = "1.12.0"
+CURRENT_VERSION = "1.13.0"
 
 ENTRIES = [
+    {
+        "version": "1.13.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Владельцы сети с ≥2 магазинами теперь могут подключить расширение **🌐 AI-инсайты сети** (399₽/мес) прямо из бота — через меню «➕ Надстройки».",
+            "Show AI network insights widget on the web dashboard for multi-shop owners",
+            "Cache AI plan analysis results to avoid redundant LLM calls",
+            "Let owners choose what time they receive the weekly AI digest",
+            "Let owners buy the AI network insights add-on directly from the bot",
+            "Давать AI больше контекста: топ-продукты, активные планы, список сотрудников",
+        ],
+    },
     {
         "version": "1.12.0",
         "date": "16 июня 2026",

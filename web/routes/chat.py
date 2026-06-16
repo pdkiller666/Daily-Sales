@@ -176,10 +176,13 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
             return
 
-        sales_today = await anyio.to_thread.run_sync(db.get_sales_summary_today)
-        sales_month = await anyio.to_thread.run_sync(db.get_sales_summary_month)
-        user_row    = await anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id))
-        org_name    = await anyio.to_thread.run_sync(db.get_org_name)
+        sales_today   = await anyio.to_thread.run_sync(db.get_sales_summary_today)
+        sales_month   = await anyio.to_thread.run_sync(db.get_sales_summary_month)
+        user_row      = await anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id))
+        org_name      = await anyio.to_thread.run_sync(db.get_org_name)
+        top_products  = await anyio.to_thread.run_sync(db.get_top_products_month)
+        active_sellers = await anyio.to_thread.run_sync(db.get_active_sellers_month)
+        plans_progress = await anyio.to_thread.run_sync(db.get_plans_with_progress)
 
         user_name = ""
         if user_row:
@@ -187,13 +190,51 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             ln = user_row[4] if len(user_row) > 4 else ""
             user_name = f"{fn or ''} {ln or ''}".strip() or "сотрудник"
 
+        # top products block (up to 3 lines)
+        top_products_text = ""
+        if top_products:
+            lines = []
+            for i, (pname, qty, rev) in enumerate(top_products, 1):
+                lines.append(f"  {i}. {pname}: {rev:,.0f} руб. ({qty} шт.)")
+            top_products_text = "Топ товаров за месяц:\n" + "\n".join(lines)
+
+        # active sellers block (up to 10 names)
+        sellers_text = ""
+        if active_sellers:
+            names = []
+            for fn2, ln2, shop, rev in active_sellers:
+                name = f"{fn2 or ''} {ln2 or ''}".strip() or "—"
+                shop_part = f" ({shop})" if shop else ""
+                names.append(f"{name}{shop_part}: {rev:,.0f} руб.")
+            sellers_text = "Активные продавцы за месяц:\n" + "\n".join(f"  - {n}" for n in names)
+
+        # plans progress block (up to 5 plans)
+        plans_text = ""
+        if plans_progress:
+            lines = []
+            for p in plans_progress[:5]:
+                lines.append(
+                    f"  - {p['label']}: {p['current']:,.0f} / {p['target']:,.0f} ({p['pct']}%)"
+                )
+            plans_text = "Планы продаж (прогресс):\n" + "\n".join(lines)
+
+        context_parts = [
+            f"- Продажи сегодня: {sales_today}",
+            f"- Продажи за месяц: {sales_month}",
+        ]
+        if top_products_text:
+            context_parts.append(top_products_text)
+        if sellers_text:
+            context_parts.append(sellers_text)
+        if plans_text:
+            context_parts.append(plans_text)
+
         prompt = (
             f"Ты AI-ассистент торговой организации «{org_name}».\n"
             f"Отвечай коротко и по делу на русском языке.\n\n"
             f"Текущие данные:\n"
-            f"- Продажи сегодня: {sales_today}\n"
-            f"- Продажи за месяц: {sales_month}\n"
-            f"- Спрашивает: {user_name}\n\n"
+            + "\n".join(context_parts)
+            + f"\n- Спрашивает: {user_name}\n\n"
             f"Вопрос: {user_text}\n\n"
             f"Ответь в 2-4 предложениях. Если вопрос не связан с продажами/магазином — "
             f"скажи что можешь помочь только с данными организации."

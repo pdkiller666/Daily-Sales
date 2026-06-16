@@ -1537,6 +1537,14 @@ class Database:
                     generated_at  TEXT NOT NULL
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS ai_network_digest_prefs (
+                    tg_id         INTEGER PRIMARY KEY,
+                    weekday       INTEGER DEFAULT 0,
+                    hour_msk      INTEGER DEFAULT 12,
+                    updated_at    TEXT DEFAULT (datetime(\'now\'))
+                )
+            ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
@@ -3837,6 +3845,38 @@ class Database:
 
             # Обработка надстроек (add-ons): addon_shops_1 или addon_products_1
             if plan_type and plan_type.startswith('addon_'):
+                # Специальный случай: AI-инсайты сети — грант через billing_module_subs
+                if plan_type == 'addon_ai_network_insights_1':
+                    _user_info = self.get_user_by_id(user_id)
+                    if _user_info:
+                        _tg_id = _user_info[1]
+                        _res = self.grant_billing_item(
+                            user_telegram_id=_tg_id,
+                            item_type='extension',
+                            item_key='ai_network_insights',
+                            duration_days=30,
+                            price_paid=399.0,
+                            granted_by='payment_confirmed',
+                            payment_request_id=request_id,
+                        )
+                        if not _res:
+                            try:
+                                _cc = self.get_connection()
+                                _cc.execute(
+                                    "UPDATE payment_requests SET status='pending', processed_at=NULL, processed_by=NULL WHERE id=?",
+                                    (request_id,)
+                                )
+                                _cc.commit()
+                                _cc.close()
+                                logger.error(
+                                    "confirm_payment_request: выдача ai_network_insights не удалась для request_id=%s, user_id=%s.",
+                                    request_id, user_id
+                                )
+                            except Exception as _ce:
+                                logger.error("confirm_payment_request ai_network_insights compensation: %s", _ce)
+                            return False
+                    return True
+
                 _parts = plan_type.split('_')
                 _addon_ok = True
                 if len(_parts) >= 3:
@@ -4121,6 +4161,142 @@ class Database:
             return f"{cnt} продаж на сумму {total:,.0f} руб."
         except Exception:
             return "нет данных"
+
+    def get_top_products_month(self, limit: int = 3):
+        """Топ-N товаров по выручке за текущий месяц.
+        Возвращает список кортежей (product_name, qty, revenue)."""
+        try:
+            from datetime import date
+            month_start = date.today().replace(day=1).isoformat()
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT p.name, SUM(s.quantity_sold) AS qty, "
+                "SUM(s.quantity_sold * s.sale_price) AS revenue "
+                "FROM sales s JOIN products p ON s.product_id = p.id "
+                "WHERE date(s.sale_date) >= ? "
+                "GROUP BY p.id, p.name ORDER BY revenue DESC LIMIT ?",
+                (month_start, limit),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+        except Exception:
+            return []
+
+    def get_active_sellers_month(self, limit: int = 10):
+        """Продавцы с продажами в текущем месяце — тонкая обёртка над get_sales_ranking().
+        Возвращает список кортежей (first_name, last_name, shop_name, revenue)."""
+        try:
+            from datetime import date
+            month_start = date.today().replace(day=1).isoformat()
+            today_str   = date.today().isoformat()
+            rows = self.get_sales_ranking(start_date=month_start, end_date=today_str)
+            # get_sales_ranking returns 9 cols:
+            # [0] first_name [1] last_name [2] shop_name [3] total_sold
+            # [4] total_revenue [5] total_sales [6] total_earnings
+            # [7] user_db_id   [8] username
+            return [(r[0], r[1], r[2], r[4]) for r in rows[:limit]]
+        except Exception:
+            return []
+
+    def get_plans_with_progress(self):
+        """Активные планы продаж с текущим прогрессом (с учётом target_type и filter_type).
+        Возвращает список словарей с ключами: label, target, current, pct."""
+        try:
+            import json as _json2
+            from datetime import date, timedelta
+            today = date.today()
+            plans = self.get_sales_plans(active_only=True)
+            if not plans:
+                return []
+            result = []
+            for plan in plans:
+                plan_type   = plan[1] or "monthly"
+                metric_type = plan[2] or "turnover"
+                target_val  = float(plan[3] or 0)
+                target_type = plan[4] or "shop"
+                user_id     = plan[5]
+                shop_name   = plan[6]
+                filter_type = plan[7] or "all"
+                filter_value = plan[8]
+                fn, ln      = plan[12] or "", plan[13] or ""
+                # date range for current period
+                if plan_type == "daily":
+                    start = today.isoformat()
+                    end   = today.isoformat()
+                elif plan_type == "weekly":
+                    start = (today - timedelta(days=today.weekday())).isoformat()
+                    end   = today.isoformat()
+                else:
+                    start = today.replace(day=1).isoformat()
+                    end   = today.isoformat()
+                # build canonical query identical to _calc_actual_for_plan in salary calcs
+                metric_expr = (
+                    "COALESCE(SUM(s.sale_price * s.quantity_sold), 0)"
+                    if metric_type == "turnover"
+                    else "COALESCE(SUM(s.quantity_sold), 0)"
+                )
+                conditions = ["date(s.sale_date) BETWEEN date(?) AND date(?)"]
+                params: list = [start, end]
+                if target_type == "seller" and user_id:
+                    conditions.append("s.user_id = ?")
+                    params.append(user_id)
+                elif target_type == "shop" and shop_name:
+                    conditions.append("s.shop_name = ?")
+                    params.append(shop_name)
+                join_clause = ""
+                if filter_type == "category" and filter_value:
+                    join_clause = "JOIN products p ON s.product_id = p.id"
+                    try:
+                        cats = _json2.loads(filter_value)
+                        if isinstance(cats, list) and cats:
+                            ph = ",".join("?" * len(cats))
+                            conditions.append(f"p.category IN ({ph})")
+                            params.extend(cats)
+                        else:
+                            conditions.append("p.category = ?")
+                            params.append(filter_value)
+                    except Exception:
+                        conditions.append("p.category = ?")
+                        params.append(filter_value)
+                elif filter_type == "product" and filter_value:
+                    try:
+                        ids = _json2.loads(filter_value)
+                        if ids:
+                            ph = ",".join("?" * len(ids))
+                            conditions.append(f"s.product_id IN ({ph})")
+                            params.extend(ids)
+                    except Exception:
+                        pass
+                where = " AND ".join(conditions)
+                q = f"SELECT {metric_expr} FROM sales s {join_clause} WHERE {where}"
+                try:
+                    conn = self.get_connection()
+                    row = conn.execute(q, params).fetchone()
+                    conn.close()
+                    current = float(row[0] or 0) if row else 0.0
+                except Exception:
+                    current = 0.0
+                pct = round(current / target_val * 100) if target_val else 0
+                # human label
+                scope = ""
+                if target_type == "seller" and (fn or ln):
+                    scope = f"{fn} {ln}".strip()
+                elif target_type == "shop" and shop_name:
+                    scope = shop_name
+                period_ru = {"daily": "день", "weekly": "неделю", "monthly": "месяц"}.get(plan_type, plan_type)
+                metric_ru = "выручка" if metric_type == "turnover" else "шт."
+                label = f"{'на ' + scope + ': ' if scope else ''}{metric_ru} за {period_ru}"
+                result.append({
+                    "label":   label,
+                    "target":  target_val,
+                    "current": current,
+                    "pct":     pct,
+                })
+            return result
+        except Exception:
+            return []
 
     def get_notification_settings(self, user_id):
         conn = self.get_connection()
@@ -12474,6 +12650,44 @@ class Database:
             return True
         except Exception as exc:
             logger.error("save_ai_alert_settings: %s", exc)
+            return False
+
+    # ── AI weekly digest preferences (shop_bot.db) ────────────────────────────
+
+    def get_network_digest_prefs(self, tg_id: int) -> dict:
+        """Return weekly AI digest delivery prefs for a network owner. Defaults: Mon, 12:00 MSK."""
+        defaults = {"weekday": 0, "hour_msk": 12}
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT weekday, hour_msk FROM ai_network_digest_prefs WHERE tg_id = ?",
+                (int(tg_id),)
+            ).fetchone()
+            conn.close()
+            if row:
+                return {"weekday": int(row[0]), "hour_msk": int(row[1])}
+            return defaults
+        except Exception as exc:
+            logger.error("get_network_digest_prefs: %s", exc)
+            return defaults
+
+    def save_network_digest_prefs(self, tg_id: int, weekday: int, hour_msk: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                """INSERT INTO ai_network_digest_prefs (tg_id, weekday, hour_msk, updated_at)
+                   VALUES (?, ?, ?, datetime('now'))
+                   ON CONFLICT(tg_id) DO UPDATE SET
+                       weekday    = excluded.weekday,
+                       hour_msk   = excluded.hour_msk,
+                       updated_at = excluded.updated_at""",
+                (int(tg_id), int(weekday), int(hour_msk)),
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as exc:
+            logger.error("save_network_digest_prefs: %s", exc)
             return False
 
     # ── BILLING SYSTEM ────────────────────────────────────────────────────────

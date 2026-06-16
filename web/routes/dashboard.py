@@ -321,4 +321,21 @@ def dashboard(request: Request, msg: str = ""):
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
+    # ── AI Network Insights widget (owners with ai_network_insights + ≥2 orgs) ──
+    ctx["ai_network_widget"] = None
+    if role == "owner":
+        try:
+            from billing_utils import has_extension as _has_ext
+            if _has_ext(telegram_id, "ai_network_insights"):
+                from web.routes.ai_insights import _get_owner_orgs, _get_cached_insights
+                _orgs = _get_owner_orgs(telegram_id)
+                if len(_orgs) >= 2:
+                    _cached = _get_cached_insights(telegram_id)
+                    ctx["ai_network_widget"] = {
+                        "org_count": len(_orgs),
+                        "cached": _cached,
+                    }
+        except Exception:
+            pass
+
     return request.app.state.templates.TemplateResponse(request, "dashboard/index.html", ctx)

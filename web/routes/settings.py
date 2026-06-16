@@ -107,6 +107,9 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "web_cred": None,
         # AI alert settings (admin only)
         "ai_alert_settings": None,
+        # AI weekly digest prefs (owners with ai_network_insights)
+        "has_network_insights": False,
+        "digest_prefs": {"weekday": 0, "hour_msk": 12},
     }
 
     try:
@@ -195,6 +198,21 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                     "enabled": True, "threshold_pct": 35,
                     "alert_hour_msk": 10, "metrics": ["revenue"],
                 }
+
+        # AI weekly digest prefs (owners with ai_network_insights extension)
+        if is_owner:
+            try:
+                from billing_utils import has_extension as _has_ext, has_module as _has_mod
+                ctx["has_network_insights"] = (
+                    _has_mod(telegram_id, "ai_assistant") and
+                    _has_ext(telegram_id, "ai_network_insights")
+                )
+                if ctx["has_network_insights"]:
+                    from database import Database as _SBDb
+                    _sb = _SBDb("data/shop_bot.db")
+                    ctx["digest_prefs"] = _sb.get_network_digest_prefs(telegram_id)
+            except Exception:
+                ctx["has_network_insights"] = False
 
         # Scheduled notifications (admin only)
         if is_admin:
@@ -682,6 +700,35 @@ async def settings_ai_alerts(
         pass
 
     return RedirectResponse(url="/settings?saved=1#ai-alerts", status_code=303)
+
+
+@router.post("/settings/ai-digest")
+async def settings_ai_digest(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    digest_weekday: int = Form(default=0),
+    digest_hour_msk: int = Form(default=12),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "super_admin"):
+        return RedirectResponse(url="/settings", status_code=303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings?error=csrf", status_code=303)
+
+    digest_weekday = max(0, min(6, digest_weekday))
+    digest_hour_msk = max(0, min(23, digest_hour_msk))
+
+    try:
+        from database import Database as _SBDb
+        _sb = _SBDb("data/shop_bot.db")
+        _sb.save_network_digest_prefs(int(user["sub"]), digest_weekday, digest_hour_msk)
+    except Exception:
+        pass
+
+    return RedirectResponse(url="/settings?saved=1#ai-digest", status_code=303)
 
 
 @router.get("/settings/backup")

@@ -917,6 +917,50 @@
         </div>
         {% endif %}
 
+        <!-- AI weekly digest prefs (owners with ai_network_insights) -->
+        {% if has_network_insights %}
+        <div class="card p-5" id="ai-digest">
+            <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🌐 AI-дайджест сети</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Выберите, когда получать еженедельный AI-отчёт по всем магазинам</p>
+            <form method="post" action="/settings/ai-digest" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <!-- Day of week -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-1.5">День недели</label>
+                    <select name="digest_weekday"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% set _wd_names = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'] %}
+                        {% for wd in range(7) %}
+                        <option value="{{ wd }}" {% if digest_prefs.weekday == wd %}selected{% endif %}>
+                            {{ _wd_names[wd] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Delivery hour (MSK) -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-1.5">Время отправки (московское)</label>
+                    <select name="digest_hour_msk"
+                            class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        {% for h in [7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2,3,4,5,6] %}
+                        <option value="{{ h }}" {% if digest_prefs.hour_msk == h %}selected{% endif %}>
+                            {{ '%02d'|format(h) }}:00 МСК
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1.5">По умолчанию: понедельник, 12:00 МСК</p>
+                </div>
+
+                <button type="submit"
+                        class="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                    Сохранить расписание дайджеста
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
         <!-- Backup card -->
         {% if is_admin %}
         <div class="card p-5">

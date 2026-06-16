@@ -1245,6 +1245,11 @@ async def main():
             if db_path and _os2.path.exists(db_path) and db_path != "data/shop_bot.db":
                 owner_orgs.setdefault(tg_id, []).append({"org_db": db_path, "name": org_name or f"org#{org_id}"})
 
+        import datetime as _dt
+        _now_utc = _dt.datetime.utcnow()
+        _current_utc_weekday = _now_utc.weekday()  # 0=Mon
+        _current_utc_hour = _now_utc.hour
+
         for tg_id, in owner_rows:
             try:
                 if not tg_id or tg_id <= 0:
@@ -1253,6 +1258,24 @@ async def main():
                     continue
                 if not _has_ext(tg_id, "ai_network_insights"):
                     continue
+
+                # Per-owner delivery schedule check
+                try:
+                    from database import Database as _DbPrefs
+                    _sb = _DbPrefs('data/shop_bot.db')
+                    _prefs = _sb.get_network_digest_prefs(int(tg_id))
+                except Exception:
+                    _prefs = {"weekday": 0, "hour_msk": 12}
+                _msk_hour = int(_prefs.get("hour_msk", 12))
+                _weekday_msk = int(_prefs.get("weekday", 0))
+                _expected_utc_hour = (_msk_hour - 3) % 24
+                # If MSK hour < 3, UTC day is one day earlier (MSK+3 wraps to next day)
+                if _msk_hour < 3:
+                    _expected_utc_weekday = (_weekday_msk - 1) % 7
+                else:
+                    _expected_utc_weekday = _weekday_msk
+                if _current_utc_weekday != _expected_utc_weekday or _current_utc_hour != _expected_utc_hour:
+                    continue  # not this owner's preferred time
                 orgs = owner_orgs.get(tg_id, [])
                 if len(orgs) < 2:
                     continue
@@ -1335,11 +1358,11 @@ async def main():
 
     scheduler.add_job(
         send_weekly_network_insights,
-        CronTrigger(day_of_week='mon', hour=9, minute=0),
+        CronTrigger(hour='*', minute=0),
         id='ai_network_insights',
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=7200,
+        misfire_grace_time=3600,
     )
 
     # AI умные алерты — каждый час в :05, час отправки настраивается per-org (МСК)
