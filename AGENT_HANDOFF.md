@@ -36,6 +36,16 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
+**Сессия 785–786 (2026-06-16) — AI-сессии: явный сброс, авто-сжатие, авто-архивация:**
+
+- **is_session_break / is_ai_summary**: новые bool-колонки в `direct_messages` и `chat_messages` (org_*.db); миграция `ALTER TABLE … ADD COLUMN IF NOT EXISTS` в `create_tables()`
+- **14 новых DB-методов**: `add_dm_session_break`, `add_chat_session_break`, `get_dm_session_messages`, `get_chat_session_messages`, `get_last_dm_ai_activity`, `get_last_chat_ai_activity`, плюс методы для summary/поиска/архивации
+- **chat.py**: `_fetch_ai_dm_history()` / `_fetch_ai_chat_history()` — считывают контекст ТОЛЬКО с последнего разрыва; `_maybe_compress_dm_session()` / `_maybe_compress_chat_session()` — авто-сжатие (>12 msg → summary + 6 свежих); новые роуты `POST /chat/ai/reset` (DM) и `POST /chat/topic/ai/reset` (топик), оба с CSRF
+- **UI (chat/index.html)**: кнопка «🔄 Новый диалог» (только AI-контексты); кнопка вложений скрыта в AI-тредах (`x-show`); AI thinking indicator «🤔 ИИ думает…»
+- **APScheduler**: +2 задачи → `prune_ai_tool_stats` (03:15) и `auto_archive_ai_sessions` (03:20); последняя обходит все org_*.db и вставляет разрывы для неактивных >30 дней AI-сессий
+- **Константы**: `_SESSION_COMPRESS_AT=12`, `_SESSION_KEEP_FRESH=6` в chat.py
+- GitHub `ba92ad8` · Amvera `0e7058a`. Приложение запущено, все 12 APScheduler-задач зарегистрированы.
+
 **Сессии 711–714 (2026-06-15) — штрихкоды, мобильные ценники, камера TWA:**
 
 - **Сессия 711 (фикс камеры)**: `Permissions-Policy: camera=()` в `SecurityHeadersMiddleware` (`web/app.py` строки 122-124) молча блокировал `getUserMedia` во всех контекстах (regular Chrome, installed PWA, TWA) без промпта и без записи разрешений. Исправлено на `camera=(self)`. GitHub `2ac9f72` · Amvera `3fea13e`. Урок: всегда проверять `Permissions-Policy` ПЕРВЫМ когда камера не запрашивается.
@@ -270,11 +280,11 @@ Telegram API                       Browser (admin/owner)
     ↓                                     ↓
 main.py  — polling, регистрация     web/app.py — FastAPI (порт 5000)
            роутеров, APScheduler    web/routes/*.py — 15 роутеров (read+write)
-           (9 задач)                web/templates/*.html — Jinja2+Tailwind
+           (12 задач)               web/templates/*.html — Jinja2+Tailwind
     ↓                                     ↓
   [оба читают одни и те же SQLite БД через Database()]
 
-main.py  — polling, регистрация роутеров, APScheduler (9 задач)
+main.py  — polling, регистрация роутеров, APScheduler (12 задач)
     ↓
 ┌──────────────────────────────────────────────────────────────────┐
 │  25 РОУТЕРОВ (handlers)                                          │
@@ -783,7 +793,7 @@ paginate(items, page=0, per_page) → (page_items, total_pages)
 page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 ```
 
-### main.py — APScheduler (9 задач)
+### main.py — APScheduler (12 задач)
 
 | ID задачи | Расписание | Назначение |
 |---|---|---|
@@ -797,8 +807,10 @@ page_nav_row(page, total_pages, prefix) → list[InlineKeyboardButton]
 | `auto_reject_stale_payments` | 10:15 ежедневно | авто-отклонение pending СБП-заявок >72ч |
 | `backup_job` | 03:00 ежедневно | авто-бэкап всех БД (retention 30 дней) |
 | `cleanup_fsm_storage` | воскресенье 04:30 | удаление FSM-записей старше 30 дней из `fsm_data` |
+| `prune_ai_tool_stats` | 03:15 ежедневно | обрезка старой статистики AI-инструментов |
+| `auto_archive_ai_sessions` | 03:20 ежедневно | авто-разрыв AI-сессий без активности >30 дней (все org_*.db) |
 
-**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются. Итого: **10 задач**.
+**APScheduler config:** `misfire_grace_time=60`, `coalesce=True`, `max_instances=1` — никакого параллельного запуска, пропущенные таски схлопываются. Итого: **12 задач** (добавлены `prune_ai_tool_stats` 03:15 и `auto_archive_ai_sessions` 03:20).
 
 **Timezone в APScheduler:** все задачи используют `datetime.now()` (UTC на Amvera), конвертируют через `.astimezone(user_tz)` для сравнения с настроенным временем.
 

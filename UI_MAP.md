@@ -2,11 +2,37 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-10
+> Обновлён: 2026-06-16
 
 ---
 
 ## История изменений интерфейса
+
+### v10 — 2026-06-16: AI-сессии — явный сброс, авто-сжатие, AI thinking indicator
+
+**AI DM и AI chat-тема — управление сессиями:**
+- **Кнопка «🔄 Новый диалог»** — появляется только в AI-контекстах: DM (`dmPeerId === -1`) и org-чат (`currentTopicIsAi`); вызывает `resetAiDmSession()` / `resetAiTopicSession()` → `POST /chat/ai/reset` / `POST /chat/topic/ai/reset` (с CSRF-токеном); по ответу `{ok:true}` → очищает `messages[]`, добавляет системное сообщение «✅ Новый диалог начат»
+- **Скрытие кнопки вложений** — `<label x-show="dmPeerId !== -1 && !currentTopicIsAi">` в `web/templates/chat/index.html`; в AI-тредах кнопка прикрепить-файл скрыта (`display:none`), не disabled
+- **AI thinking indicator** — пока AI отвечает, показывается строка «🤔 ИИ думает…» с CSS-анимацией; убирается при получении ответа
+- **`is_session_break`** и **`is_ai_summary`** — новые bool-колонки в `direct_messages` и `chat_messages` (org_*.db); `is_session_break=1` — специальный маркер разрыва сессии (не показывается в UI, только разделяет историю); `is_ai_summary=1` — сжатое summary старого контекста
+
+**Авто-сжатие контекста (`_SESSION_COMPRESS_AT=12`, `_SESSION_KEEP_FRESH=6`):**
+- При >12 сообщений в текущей сессии — первые (N−6) сообщений заменяются одним AI-summary (`is_ai_summary=1`), последние 6 остаются «свежими»
+- `_maybe_compress_dm_session()` / `_maybe_compress_chat_session()` — вызываются из AI-обработчика ПЕРЕД генерацией ответа
+
+**Новые DB-методы (database.py):**
+- `add_dm_session_break(peer_a, peer_b)` — вставка разрыва в DM
+- `add_chat_session_break(topic_id)` — вставка разрыва в топик
+- `get_dm_session_messages(peer_a, peer_b, limit)` — только с последнего разрыва
+- `get_chat_session_messages(topic_id, limit)` — только с последнего разрыва
+- `get_last_dm_ai_activity(peer_a, peer_b)` — для авто-архивации
+- `get_last_chat_ai_activity(topic_id)` — для авто-архивации
+- (плюс 8 дополнительных методов для summary, поиска разрывов и архивации)
+
+**APScheduler `auto_archive_ai_sessions` (03:20 UTC):**
+- Обходит все org_*.db; для каждого AI-треда/AI-DM без активности >30 дней → вставляет `is_session_break=1`; логирует кол-во обработанных сессий
+
+---
 
 ### v9 — 2026-06-10: G1–G5 — самостоятельная покупка модулей в боте
 

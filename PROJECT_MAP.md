@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-15 (сессия 714: Permissions-Policy camera=(self); разделение article/barcode в products; сканер при создании/редактировании товара; мобильная адаптация конструктора ценников с zoom-to-fit) · 55 модулей · GitHub актуально · Amvera актуально
+> Последнее обновление: 2026-06-16 (сессия 785–786: AI-сессии — явный сброс «Новый диалог», авто-сжатие контекста при >12 сообщений, авто-архивация через 30 дней; скрыть вложения в AI-треде; AI thinking indicator; AI tool usage stats + charts; APScheduler +2 задачи) · 55 модулей · GitHub `ba92ad8` · Amvera `0e7058a`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -579,7 +579,7 @@ APScheduler (AsyncIOScheduler)
   coalesce=True          — пропущенные повторы схлопываются в один
   max_instances=1        — никакого параллельного запуска одного задания
 
-Задачи (10 штук):
+Задачи (12 штук):
   send_sales_alerts()               cron(minute='*', second=0)   — дневные цели продаж
   send_payment_alerts()             cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день) + trial reminders
   send_daily_reports()              cron(minute='*', second=24)  — ежедневные отчёты (async)
@@ -590,6 +590,8 @@ APScheduler (AsyncIOScheduler)
   auto_reject_stale_payments()      cron(hour=10, minute=15)     — отклонение pending СБП >72ч
   backup_job()                      cron(hour=3, minute=0)       — авто-бэкап (retention 30 дней)
   cleanup_fsm_storage()             cron(day_of_week='sun', hour=4, minute=30) — удаление FSM-записей старше 30 дней
+  prune_ai_tool_stats()             cron(hour=3, minute=15)      — обрезка старой статистики AI-инструментов
+  auto_archive_ai_sessions()        cron(hour=3, minute=20)      — авто-разрыв AI-сессий без активности >30 дней (все org_*.db)
 
 _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
@@ -825,6 +827,9 @@ web/
                          GET /api/dm/contacts, GET /api/dm/members,
                          GET /api/dm/conversation/{peer_id},
                          WS  /ws/chat/dm  ← WebSocket (read-receipts + real-time)
+                        ── AI Sessions ──
+                        POST /chat/ai/reset         ← явный разрыв AI DM сессии (CSRF)
+                        POST /chat/topic/ai/reset   ← явный разрыв AI chat-темы (CSRF)
     push_utils.py     — send_web_push(subscription, payload): pywebpush 2.3.0 + VAPID;
                          env: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_MAILTO
   sale_events.py    — async post_sale_effects(org_db_path, sale_id, shop_name, telegram_id)

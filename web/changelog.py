@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.36.0"
+CURRENT_VERSION = "1.37.0"
 
 ENTRIES = [
+    {
+        "version": "1.37.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Add AI conversation management and auto-archiving features",
+        ],
+    },
     {
         "version": "1.36.0",
         "date": "16 июня 2026",
