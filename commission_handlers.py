@@ -58,6 +58,7 @@ class MotivationStates(StatesGroup):
     waiting_for_cell_value = State()
     selecting_scope_type = State()
     selecting_scope_values = State()
+    waiting_for_edit_rate = State()
 
 # Человекочитаемые названия областей таргетинга мотивации (task #49)
 SCOPE_LABELS = {
@@ -921,7 +922,7 @@ def _build_targeted_rules_view(rules: list, page: int):
     if total_pages > 1:
         text += f" · стр. {page + 1}/{total_pages}"
     text += "\n\nПравила, привязанные к сети / городу / магазину / сотруднику.\n"
-    text += "Нажмите на правило, чтобы удалить.\n\n"
+    text += "Нажмите на правило для управления (изменить / удалить).\n\n"
 
     cur_prod = None
     for r in page_items:
@@ -937,8 +938,8 @@ def _build_targeted_rules_view(rules: list, page: int):
     for r in page_items:
         emoji = SCOPE_EMOJI.get(r['scope_type'], '🎯')
         rate = _fmt_rule_rate(r['motivation_type'], r['motivation_value'])
-        label = f"🗑 {r['product_name']} · {emoji}{r['scope_label']}: {rate}"
-        builder.button(text=label[:62], callback_data=f"del_targ_rule_{r['id']}")
+        label = f"⚙️ {r['product_name']} · {emoji}{r['scope_label']}: {rate}"
+        builder.button(text=label[:62], callback_data=f"targ_rule_{r['id']}")
     builder.adjust(1)
     nav = page_nav_row("targ_rules_p", page, has_prev, has_next, total_pages)
     if nav:
@@ -995,6 +996,154 @@ async def targeted_rules_page(callback: CallbackQuery, state: FSMContext):
     text, markup = _build_targeted_rules_view(rules, page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("targ_rule_"))
+async def targeted_rule_action(callback: CallbackQuery, state: FSMContext):
+    """Хаб действий над таргетированным правилом: изменить ставку / удалить / назад."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        rule_id = int(callback.data[len("targ_rule_"):])
+    except ValueError:
+        await callback.answer("❌ Некорректное правило", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rule = next((r for r in rules if r['id'] == rule_id), None)
+    if not rule:
+        await callback.answer("❌ Правило не найдено", show_alert=True)
+        await targeted_rules_list(callback, state)
+        return
+
+    emoji = SCOPE_EMOJI.get(rule['scope_type'], '🎯')
+    scope_name = SCOPE_LABELS.get(rule['scope_type'], rule['scope_type'])
+    rate = _fmt_rule_rate(rule['motivation_type'], rule['motivation_value'])
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✏️ Изменить ставку", callback_data=f"edit_targ_rule_{rule_id}")
+    builder.button(text="🗑️ Удалить", callback_data=f"del_targ_rule_{rule_id}")
+    builder.button(text="⬅️ Назад", callback_data="targeted_rules")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"⚙️ <b>Управление правилом</b>\n\n"
+        f"📦 Товар: <b>{he(rule['product_name'])}</b>\n"
+        f"{emoji} {scope_name}: <b>{he(str(rule['scope_label']))}</b>\n"
+        f"💰 Текущая ставка: <b>{rate}</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("edit_targ_rule_"))
+async def targeted_rule_edit_start(callback: CallbackQuery, state: FSMContext):
+    """Начало редактирования ставки — запрашиваем новое значение."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        rule_id = int(callback.data[len("edit_targ_rule_"):])
+    except ValueError:
+        await callback.answer("❌ Некорректное правило", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rule = next((r for r in rules if r['id'] == rule_id), None)
+    if not rule:
+        await callback.answer("❌ Правило не найдено", show_alert=True)
+        await targeted_rules_list(callback, state)
+        return
+
+    emoji = SCOPE_EMOJI.get(rule['scope_type'], '🎯')
+    scope_name = SCOPE_LABELS.get(rule['scope_type'], rule['scope_type'])
+    rate = _fmt_rule_rate(rule['motivation_type'], rule['motivation_value'])
+    if rule['motivation_type'] == 'percentage':
+        hint = "Введите новый процент (число от 0.1 до 50), например: <code>7</code>"
+    else:
+        hint = "Введите новую сумму (число больше 0), например: <code>500</code>"
+
+    await state.update_data(edit_rule_id=rule_id, edit_rule_type=rule['motivation_type'])
+    await state.set_state(MotivationStates.waiting_for_edit_rate)
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отмена", callback_data=f"targ_rule_{rule_id}")
+
+    await callback.message.edit_text(
+        f"✏️ <b>Изменить ставку</b>\n\n"
+        f"📦 Товар: <b>{he(rule['product_name'])}</b>\n"
+        f"{emoji} {scope_name}: <b>{he(str(rule['scope_label']))}</b>\n"
+        f"💰 Текущая: <b>{rate}</b>\n\n"
+        f"{hint}",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@commission_router.message(MotivationStates.waiting_for_edit_rate)
+async def targeted_rule_edit_value(message: Message, state: FSMContext):
+    """Обработка нового значения ставки таргетированного правила."""
+    data = await state.get_data()
+    rule_id = data.get('edit_rule_id')
+    rule_type = data.get('edit_rule_type', 'percentage')
+    cancel_markup = InlineKeyboardBuilder().button(
+        text="❌ Отмена", callback_data=f"targ_rule_{rule_id}"
+    ).as_markup()
+
+    try:
+        value = float(message.text.replace(',', '.').strip())
+    except (ValueError, AttributeError):
+        await fsm_edit(state, message,
+                       "❌ <b>Неверный формат</b>\n\nВведите число. "
+                       "Используйте точку или запятую для разделения дробной части.",
+                       reply_markup=cancel_markup)
+        return
+
+    if rule_type == 'percentage':
+        if value <= 0 or value > 50:
+            await fsm_edit(state, message,
+                           "❌ <b>Неверное значение</b>\n\nПроцент должен быть от 0.1 до 50",
+                           reply_markup=cancel_markup)
+            return
+        rate_str = f"{value}%"
+    else:
+        if value <= 0:
+            await fsm_edit(state, message,
+                           "❌ <b>Неверное значение</b>\n\nСумма должна быть больше 0",
+                           reply_markup=cancel_markup)
+            return
+        rate_str = format_price(value)
+
+    current_db = await get_db(message.from_user.id, state)
+    result = await asyncio.to_thread(
+        current_db.update_motivation_rule_value, rule_id, rule_type, value
+    )
+    await clear_state_keep_org(state)
+
+    if result is None:
+        await fsm_edit(state, message,
+                       "❌ <b>Ошибка</b>\n\nПравило не найдено (возможно, уже удалено).",
+                       reply_markup=InlineKeyboardBuilder().button(
+                           text="⬅️ К правилам", callback_data="targeted_rules"
+                       ).as_markup())
+        return
+
+    # Показываем подтверждение и обновлённый список
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    text, markup = _build_targeted_rules_view(rules, 0) if rules else (None, None)
+
+    success_prefix = f"✅ <b>Ставка обновлена:</b> {rate_str}\n\n"
+    if rules and text:
+        await fsm_edit(state, message, success_prefix + text, reply_markup=markup)
+    else:
+        await fsm_edit(state, message,
+                       success_prefix + "Таргетированных правил больше нет.",
+                       reply_markup=InlineKeyboardBuilder().button(
+                           text="⬅️ Назад", callback_data="admin_motivation"
+                       ).as_markup())
 
 
 @commission_router.callback_query(F.data.startswith("confirm_del_targ_rule_"))

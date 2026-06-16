@@ -6530,6 +6530,34 @@ class Database:
                 conn.close()
             return None
 
+    def update_motivation_rule_value(self, rule_id, motivation_type, motivation_value):
+        """Обновить ставку таргетированного правила мотивации. Возвращает product_id или None."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT product_id FROM product_motivation_rules WHERE id = ?', (rule_id,))
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return None
+            pid = row[0]
+            cursor.execute(
+                'UPDATE product_motivation_rules SET motivation_type = ?, motivation_value = ? WHERE id = ?',
+                (motivation_type, motivation_value, rule_id),
+            )
+            conn.commit()
+            conn.close()
+            try:
+                self.recalculate_month_earnings(pid)
+            except Exception as _exc:
+                logger.debug("update_motivation_rule_value recalc подавлено: %s", _exc)
+            return pid
+        except Exception as e:
+            logger.error(f"Ошибка update_motivation_rule_value: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
+
     def _get_seller_attrs(self, user_id, shop_name=None):
         """Атрибуты продавца для таргетинга мотивации: user_id, shop_name, city, trade_network.
         city/trade_network берутся из карточки сотрудника (users); shop_name — из продажи, если задан."""

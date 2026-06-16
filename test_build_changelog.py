@@ -8,7 +8,9 @@ import os
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 # ── Загрузка модуля по пути (не пакет) ─────────────────────────────────────
@@ -534,6 +536,110 @@ class TestFullNoOp(_BaseTest):
         version, entries = self._read_changelog()
         self.assertEqual(version, "1.0.0")
         self.assertEqual(len(entries), 1)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 13. _polish_with_ai: ветки fallback и успешной полировки (mock ask_llm)
+# ════════════════════════════════════════════════════════════════════════════
+
+@contextmanager
+def _mock_ai(ask_llm_impl, is_configured_result=True):
+    """Подменяет web.ai_utils в sys.modules фейковым модулем.
+
+    ask_llm_impl — async-функция (корутина), которую вызовет _polish_with_ai.
+    is_configured_result — что вернёт is_configured().
+    """
+    fake = types.ModuleType("web.ai_utils")
+    fake.ask_llm = ask_llm_impl
+
+    def _is_configured():
+        return is_configured_result
+
+    fake.is_configured = _is_configured
+
+    saved = sys.modules.get("web.ai_utils")
+    sys.modules["web.ai_utils"] = fake
+    try:
+        yield
+    finally:
+        if saved is not None:
+            sys.modules["web.ai_utils"] = saved
+        else:
+            sys.modules.pop("web.ai_utils", None)
+
+
+class TestPolishWithAI(unittest.TestCase):
+    def test_ask_llm_raises_returns_original(self):
+        bullets = ["Добавить штрихкоды", "Новый экспорт"]
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("LLM упал")
+
+        with _mock_ai(boom):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, bullets)
+
+    def test_empty_answer_returns_original(self):
+        bullets = ["Добавить штрихкоды", "Новый экспорт"]
+
+        async def empty(*args, **kwargs):
+            return ""
+
+        with _mock_ai(empty):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, bullets)
+
+    def test_wrong_count_returns_original(self):
+        bullets = ["Пункт А", "Пункт Б", "Пункт В"]
+
+        async def too_few(*args, **kwargs):
+            # Вернули N-1 пунктов → откат к исходным (не теряем новости)
+            return "🚀 Пункт А\n📦 Пункт Б"
+
+        with _mock_ai(too_few):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, bullets)
+
+    def test_extra_count_returns_original(self):
+        bullets = ["Пункт А", "Пункт Б"]
+
+        async def too_many(*args, **kwargs):
+            # Вернули N+1 пунктов → откат к исходным
+            return "🚀 Пункт А\n📦 Пункт Б\n✨ Лишний пункт"
+
+        with _mock_ai(too_many):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, bullets)
+
+    def test_exact_count_polished(self):
+        bullets = ["добавить штрихкоды", "новый экспорт в excel"]
+
+        async def ok(*args, **kwargs):
+            # Ровно N пунктов, с эмодзи, с нумерацией — нумерацию срезаем
+            return "1. 🏷️ Теперь можно сканировать штрихкоды\n2. 📊 Доступен экспорт в Excel"
+
+        with _mock_ai(ok):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, [
+            "🏷️ Теперь можно сканировать штрихкоды",
+            "📊 Доступен экспорт в Excel",
+        ])
+
+    def test_not_configured_returns_original(self):
+        bullets = ["Пункт А", "Пункт Б"]
+
+        async def never_called(*args, **kwargs):
+            raise AssertionError("ask_llm не должен вызываться без ключей")
+
+        with _mock_ai(never_called, is_configured_result=False):
+            result = bc._polish_with_ai(list(bullets))
+
+        self.assertEqual(result, bullets)
 
 
 if __name__ == "__main__":
