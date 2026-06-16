@@ -287,8 +287,8 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                   x-text="t.unread > 9 ? '9+' : t.unread"></span>
                         </button>
 
-                        <!-- Right: gear — opens menu; only for admin on non-General topics -->
-                        <button x-show="isAdmin && t.id !== 1"
+                        <!-- Right: gear — opens menu; only for admin on non-General, non-AI topics -->
+                        <button x-show="isAdmin && t.id !== 1 && !t.is_ai"
                                 class="topic-gear"
                                 @click.stop="_gearClick($event, $data)"
                                 title="Настройки темы">
@@ -573,7 +573,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                 @keydown.enter.exact.prevent="sendMessage()"
                 @keydown.enter.shift.exact="text += '\n'"
                 rows="1"
-                :placeholder="'Написать в #' + currentTopicName + '… (Enter — отправить){% if ai_chat_enabled %} · @ИИ — спросить AI{% endif %}'"
+                :placeholder="currentTopicIsAi ? '🤖 Спросите AI-ассистента…' : ('Написать в #' + currentTopicName + '… (Enter — отправить)')"
                 :disabled="sending"
                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                 style="min-height:42px;max-height:120px"
@@ -839,6 +839,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         currentTopicName: (initTopics.find(t => t.id === initTopicId) || {}).name || 'Общий',
         latestId:         initLatestId,
         topicsList:       initTopics.map(t => ({ ...t, unread: t.unread || 0 })),
+        get currentTopicIsAi() {
+            const t = this.topicsList.find(x => x.id === this.currentTopicId);
+            return !!(t && t.is_ai);
+        },
         msgs:             [],          /* single source of truth for all messages */
         loadingTopic:     false,
         myUserId,

@@ -389,6 +389,38 @@ try:
 except Exception as _e:
     _fn_fail("dedicated AI thread", _e)
 
+# 10c. Выделенная AI-тема чата: ensure/get + защита от rename/archive + флаг в списке
+try:
+    import tempfile, os as _os10c
+    _tmp10c = tempfile.mktemp(suffix='_aitopic.db')
+    _db10c = Database(_tmp10c)
+    _db10c.create_tables()
+
+    # До создания — AI-темы нет
+    assert _db10c.get_ai_topic_id() is None, "AI-тема не должна существовать до ensure_ai_topic"
+
+    # ensure создаёт ровно одну AI-тему, идемпотентен
+    _aid = _db10c.ensure_ai_topic()
+    assert _aid and _aid != 1, f"ensure_ai_topic вернул некорректный id: {_aid}"
+    assert _db10c.ensure_ai_topic() == _aid, "ensure_ai_topic не идемпотентен"
+    assert _db10c.get_ai_topic_id() == _aid, "get_ai_topic_id не совпал с ensure"
+
+    # Флаг is_ai присутствует в get_chat_topics (7-я колонка) только у AI-темы
+    _topics = {r[0]: (r[6] if len(r) > 6 else 0) for r in _db10c.get_chat_topics()}
+    assert _topics.get(_aid) == 1, "AI-тема должна иметь is_ai=1"
+    assert _topics.get(1, 0) == 0, "Тема «Общий» не должна быть AI"
+
+    # AI-тему нельзя переименовать/архивировать
+    assert _db10c.rename_chat_topic(_aid, "взлом", user_id=1, is_admin=True) is False, \
+        "AI-тему нельзя переименовывать"
+    assert _db10c.archive_chat_topic(_aid) is False, "AI-тему нельзя архивировать"
+    assert _db10c.get_ai_topic_id() == _aid, "AI-тема пропала после попытки архивации"
+
+    _os10c.unlink(_tmp10c)
+    _fn_ok("AI-тема чата: ensure/get идемпотентны, защищены от rename/archive, is_ai в списке")
+except Exception as _e:
+    _fn_fail("AI chat topic", _e)
+
 # 11. Chat HTTP end-to-end: POST /chat/read + POST /chat/dm/<peer>/read
 try:
     import tempfile, os as _os11

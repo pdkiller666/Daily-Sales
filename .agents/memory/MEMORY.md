@@ -57,3 +57,4 @@
 - [Cross-module gating](cross-module-gating.md) — задача создаёт тему чата → и UI, и бэкенд гейтить доступностью ЦЕЛЕВОГО модуля (chat_available), иначе сущность в отключённом модуле + dead link; delete_task намеренно не чистит тему
 - [AI DM replies break unread counter](dm-ai-unread.md) — AI-ответы в ЛС (from_user_id=0) счётчик считает, а mark-read/contacts по from_user_id их теряли; трактовать как переписку с ai_peer_id
 - [Dedicated AI DM thread](ai-dedicated-dm-thread.md) — AI вынесен в отдельного собеседника: routing peer=-1, storage from=0/to=0+ai_peer_id=0; legacy in-dialog (ai_peer_id>=1) не трогать; гейт _ai_ext_ok на всех AI-путях
+- [Dedicated AI chat topic](ai-chat-topic.md) — org-chat AI переехал из префикса @ии в выделенную тему (chat_topics.is_ai, partial UNIQUE); триггер = topic==get_ai_topic_id(); воркер повторно гейтит has_extension

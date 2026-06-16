@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.32.0"
+CURRENT_VERSION = "1.33.0"
 
 ENTRIES = [
+    {
+        "version": "1.33.0",
+        "date": "16 июня 2026",
+        "items": [
+            "- AI-ассистент в общем чате переехал в отдельную тему «🤖 AI-ассистент»: любое сообщение в ней — это вопрос к AI, ответ виден всей команде. Префикс «@ии» в обычных темах больше не нужен и убран.",
+            "Separate AI assistant into its own chat thread and improve validation",
+        ],
+    },
     {
         "version": "1.32.0",
         "date": "16 июня 2026",

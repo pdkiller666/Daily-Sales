@@ -1142,6 +1142,16 @@ class Database:
             INSERT OR IGNORE INTO chat_topics (id, name, sort_order)
             VALUES (1, 'Общий', 0)
         ''')
+        # Миграция: is_ai — выделенная тема «AI-ассистент» (любое сообщение → ответ AI)
+        cursor.execute("PRAGMA table_info(chat_topics)")
+        _ct_cols = [col[1] for col in cursor.fetchall()]
+        if 'is_ai' not in _ct_cols:
+            cursor.execute("ALTER TABLE chat_topics ADD COLUMN is_ai INTEGER DEFAULT 0")
+        # Не более одной AI-темы (защита от гонки при первом создании)
+        cursor.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_topics_ai '
+            'ON chat_topics(is_ai) WHERE is_ai = 1'
+        )
 
         # ── Chat messages (internal org messenger) ───────────────────────────
         cursor.execute('''
@@ -11449,7 +11459,7 @@ class Database:
         cursor = conn.cursor()
         cursor.execute('''
             SELECT t.id, t.name, t.created_by, t.created_at, t.sort_order,
-                   COUNT(m.id) AS msg_count
+                   COUNT(m.id) AS msg_count, t.is_ai
             FROM chat_topics t
             LEFT JOIN chat_messages m ON m.topic_id = t.id AND m.is_deleted = 0
             WHERE t.is_archived = 0
@@ -11459,6 +11469,50 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return rows
+
+    def get_ai_topic_id(self) -> int | None:
+        """id выделенной AI-темы (is_ai=1, не архивная) или None."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id FROM chat_topics WHERE is_ai = 1 AND is_archived = 0 ORDER BY id ASC LIMIT 1'
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+
+    def ensure_ai_topic(self, name: str = '🤖 AI-ассистент') -> int:
+        """Гарантирует наличие выделенной AI-темы. Возвращает её id.
+
+        Если тема была заархивирована — реактивирует её. Создаётся с sort_order=0,
+        чтобы стоять сразу после «Общий» (id=1, тоже sort_order=0; tie-break по id).
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, is_archived FROM chat_topics WHERE is_ai = 1 ORDER BY id ASC LIMIT 1')
+        row = cursor.fetchone()
+        if row:
+            tid = row[0]
+            if row[1]:
+                cursor.execute('UPDATE chat_topics SET is_archived = 0 WHERE id = ?', (tid,))
+                conn.commit()
+            conn.close()
+            return tid
+        try:
+            cursor.execute(
+                'INSERT INTO chat_topics (name, created_by, sort_order, is_ai) VALUES (?, ?, 0, 1)',
+                (name[:64], None)
+            )
+            new_id = cursor.lastrowid
+            conn.commit()
+        except Exception:
+            # Гонка: параллельный вызов уже создал AI-тему (partial unique index)
+            conn.rollback()
+            cursor.execute('SELECT id FROM chat_topics WHERE is_ai = 1 ORDER BY id ASC LIMIT 1')
+            _r = cursor.fetchone()
+            new_id = _r[0] if _r else 1
+        conn.close()
+        return new_id
 
     def add_chat_topic(self, name: str, created_by: int) -> int:
         """Создать новую тему. Возвращает id."""
@@ -11479,11 +11533,16 @@ class Database:
 
     def rename_chat_topic(self, topic_id: int, name: str,
                            user_id: int, is_admin: bool = False) -> bool:
-        """Переименовать тему. Разрешено admin или создателю. Тему «Общий» (id=1) нельзя переименовать."""
+        """Переименовать тему. Разрешено admin или создателю. Тему «Общий» (id=1) и AI-тему нельзя переименовать."""
         if topic_id == 1:
             return False
         conn = self.get_connection()
         cursor = conn.cursor()
+        cursor.execute('SELECT is_ai FROM chat_topics WHERE id = ?', (topic_id,))
+        _r = cursor.fetchone()
+        if _r and _r[0]:
+            conn.close()
+            return False
         if is_admin:
             cursor.execute(
                 'UPDATE chat_topics SET name = ? WHERE id = ? AND is_archived = 0',
@@ -11500,11 +11559,16 @@ class Database:
         return affected > 0
 
     def archive_chat_topic(self, topic_id: int) -> bool:
-        """Архивировать тему (только admin). Тему «Общий» (id=1) нельзя архивировать."""
+        """Архивировать тему (только admin). Тему «Общий» (id=1) и AI-тему нельзя архивировать."""
         if topic_id == 1:
             return False
         conn = self.get_connection()
         cursor = conn.cursor()
+        cursor.execute('SELECT is_ai FROM chat_topics WHERE id = ?', (topic_id,))
+        _r = cursor.fetchone()
+        if _r and _r[0]:
+            conn.close()
+            return False
         cursor.execute(
             'UPDATE chat_topics SET is_archived = 1 WHERE id = ?',
             (topic_id,)

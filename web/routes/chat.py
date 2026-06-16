@@ -405,12 +405,14 @@ def _load_dm_files_bulk(db, dm_ids: list) -> dict:
 
 
 def _fmt_topic(row) -> dict:
-    tid, name, created_by, created_at, sort_order, msg_count = row
+    tid, name, created_by, created_at, sort_order, msg_count = row[:6]
+    is_ai = bool(row[6]) if len(row) > 6 else False
     return {
         "id": tid,
         "name": name,
         "created_by": created_by,
         "msg_count": msg_count or 0,
+        "is_ai": is_ai,
     }
 
 
@@ -519,10 +521,20 @@ def chat_page(request: Request, topic: int = 1):
             user_db_id = _get_user_db_id(db, telegram_id)
             ctx["my_db_id"] = user_db_id or 0
 
+            # AI-ассистент: оплачено расширение → гарантируем выделенную тему
+            ai_topic_id = None
+            try:
+                if _ai_ext_ok(db, telegram_id):
+                    ctx["ai_chat_enabled"] = True
+                    ai_topic_id = db.ensure_ai_topic()
+            except Exception:
+                pass
+            ctx["ai_topic_id"] = ai_topic_id
+
             raw_topics = db.get_chat_topics()
             topics = [_fmt_topic(r) for r in raw_topics]
             if not topics:
-                topics = [{"id": 1, "name": "Общий", "created_by": None, "msg_count": 0}]
+                topics = [{"id": 1, "name": "Общий", "created_by": None, "msg_count": 0, "is_ai": False}]
 
             # Серверный учёт непрочитанного по темам (синхрон между устройствами)
             try:
@@ -555,13 +567,6 @@ def chat_page(request: Request, topic: int = 1):
                 for t in topics:
                     if t["id"] == topic:
                         t["unread"] = 0
-            except Exception:
-                pass
-
-            try:
-                from billing_utils import has_extension
-                owner_tg_id = db.get_org_owner_tg_id() or telegram_id
-                ctx["ai_chat_enabled"] = has_extension(owner_tg_id, 'ai_chat_assistant')
             except Exception:
                 pass
 
@@ -655,9 +660,15 @@ async def chat_send(
         if saved_files:
             db.add_chat_message_files(new_id, saved_files)
 
-        # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
-        if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
-            asyncio.create_task(_ai_chat_reply(org_db, topic_id, user_db_id, text))
+        # AI hook: в выделенной AI-теме любое текстовое сообщение → ответ AI.
+        # В обычных темах AI больше не вмешивается (хук @ии убран).
+        if text:
+            try:
+                _ai_tid = db.get_ai_topic_id()
+            except Exception:
+                _ai_tid = None
+            if _ai_tid and topic_id == _ai_tid:
+                asyncio.create_task(_ai_chat_reply(org_db, topic_id, user_db_id, text))
 
         # Web Push участникам организации (кроме отправителя) — общий чат
         try:
