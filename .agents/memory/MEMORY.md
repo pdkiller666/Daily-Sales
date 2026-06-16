@@ -14,6 +14,7 @@
 - [CSS transform breaks fixed children](css-transform-fixed.md) — transform на предке ломает position:fixed; ds-main использует ТОЛЬКО opacity-анимацию
 - [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример
 - [Internal org chat module](chat-module.md) — topics + DM (direct_messages table, 9 DB methods, WS /ws/chat/dm, Alpine dmMode); search merges topic+DM results; FAB badge = topicNew+dmUnread
+- [Chat read-state & realtime](chat-read-realtime.md) — rate-limit за прокси по telegram_id (не IP); курсор удалений >= (не >); серверный chat_read_state вместо localStorage; DM live-delete WS обоим; att_id≠msg_id; _topicReqSeq race guard
 - [aiohttp/aiogram совместимость](aiohttp-aiogram-compat.md) — aiogram 3.20 требует aiohttp<3.12; 3.12.x ломает Amvera-сборку; фиксировать aiohttp==3.11.18
 - [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes
 - [Alpine CSP unsafe-eval](alpine-csp-unsafe-eval.md) — Alpine.js 3 needs 'unsafe-eval' in CSP script-src; without it every x-* eval is blocked → 30 "Script error. @?:0" → Alpine dead, x-cloak removed but x-show never applied

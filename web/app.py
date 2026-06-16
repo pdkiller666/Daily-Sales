@@ -192,6 +192,7 @@ Disallow: /absences
 Disallow: /support
 Disallow: /chat
 Disallow: /chat/search
+Disallow: /chat/read
 Disallow: /chat/dm
 Disallow: /ws/dm
 Disallow: /tasks

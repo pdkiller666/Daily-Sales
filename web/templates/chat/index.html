@@ -822,17 +822,13 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
 const _CHAT_MY_USER_ID = {{ my_db_id or 0 }};
 const _CHAT_CSRF = '{{ csrf_token }}';
 
-function _lsKey(topicId)    { return 'ds_chat_seen_' + topicId; }
-function _getSeenId(topicId) { return parseInt(localStorage.getItem(_lsKey(topicId)) || '0', 10); }
-function _setSeenId(topicId, id) { try { localStorage.setItem(_lsKey(topicId), id); } catch(e){} }
-
 function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isAdmin, initMessages) {
     return {
         /* ── state ── */
         currentTopicId:   initTopicId,
         currentTopicName: (initTopics.find(t => t.id === initTopicId) || {}).name || 'Общий',
         latestId:         initLatestId,
-        topicsList:       initTopics.map(t => ({ ...t, unread: 0 })),
+        topicsList:       initTopics.map(t => ({ ...t, unread: t.unread || 0 })),
         msgs:             [],          /* single source of truth for all messages */
         loadingTopic:     false,
         myUserId,
@@ -865,6 +861,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
         /* ── polling ── */
         pollTimer: null,
+        _topicReqSeq: 0,    /* race guard: монотонный счётчик переключений темы */
+        _delSince: '',       /* серверная метка времени для запроса удалённых сообщений */
 
         /* ── DM mode ── */
         dmMode:            false,
@@ -912,7 +910,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.msgs = Array.isArray(initMessages) ? initMessages : [];
             this.scrollBottom(true);
             this.startPolling();
-            _setSeenId(this.currentTopicId, this.latestId);
+            this.markTopicRead(this.currentTopicId, this.latestId);
             /* Ctrl+F / Cmd+F → open search */
             document.addEventListener('keydown', e => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
@@ -939,17 +937,42 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         },
 
         async poll() {
+            if (this.dmMode) return;   /* в DM-режиме поллинг тем не нужен */
+            const seq = this._topicReqSeq;
+            const topicId = this.currentTopicId;
             try {
-                const res = await fetch(`/chat/poll?since_id=${this.latestId}&topic_id=${this.currentTopicId}`);
+                let url = `/chat/poll?since_id=${this.latestId}&topic_id=${topicId}`;
+                if (this._delSince) url += `&del_since=${encodeURIComponent(this._delSince)}`;
+                const res = await fetch(url);
                 const data = await res.json();
-                if (!data.ok || !data.messages?.length) return;
+                if (!data.ok) return;
+                /* race guard: тема сменилась пока ждали ответ — отбросить */
+                if (seq !== this._topicReqSeq || topicId !== this.currentTopicId || this.dmMode) return;
 
+                /* серверная метка времени для следующего запроса удалений */
+                if (data.now) this._delSince = data.now;
+
+                /* удалённые сообщения — убрать из текущей ленты */
+                if (Array.isArray(data.deleted_ids) && data.deleted_ids.length) {
+                    const delSet = new Set(data.deleted_ids);
+                    this.msgs = this.msgs.filter(m => !delSet.has(m.id));
+                }
+
+                /* счётчики непрочитанного по темам */
+                if (data.topic_unread && typeof data.topic_unread === 'object') {
+                    for (const t of this.topicsList) {
+                        const u = data.topic_unread[String(t.id)];
+                        t.unread = (t.id === this.currentTopicId) ? 0 : (u || 0);
+                    }
+                }
+
+                if (!data.messages?.length) return;
                 const existingIds = new Set(this.msgs.map(m => m.id));
                 const newOnes = data.messages.filter(m => !existingIds.has(m.id));
                 if (newOnes.length) {
                     this.msgs.push(...newOnes);
                     this.latestId = data.latest_id;
-                    _setSeenId(this.currentTopicId, data.latest_id);
+                    this.markTopicRead(this.currentTopicId, data.latest_id);
                     this.scrollBottom();
                     if (document.hidden) {
                         try {
@@ -963,26 +986,46 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) {}
         },
 
+        /* серверная отметка прочтения темы */
+        async markTopicRead(topicId, lastId) {
+            if (!topicId) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('topic_id', topicId);
+                fd.append('last_id', lastId || 0);
+                await fetch('/chat/read', { method: 'POST', body: fd });
+            } catch(e) {}
+        },
+
         /* ── Topic switch ── */
         async switchTopic(topicId) {
             if (topicId === this.currentTopicId) return;
+            const seq = ++this._topicReqSeq;   /* race guard: помечаем это переключение */
             this.loadingTopic = true;
             this.msgs = [];
 
+            let loaded = [];
+            let loadedLatest = 0;
             try {
                 const res = await fetch(`/chat/topics/${topicId}/messages`);
                 const data = await res.json();
                 if (data.ok) {
-                    this.msgs = data.messages;
-                    this.latestId = data.latest_id;
+                    loaded = data.messages;
+                    loadedLatest = data.latest_id;
                 }
             } catch(e) {}
 
+            /* устарело: пользователь успел снова переключить тему — отбросить */
+            if (seq !== this._topicReqSeq) return;
+
+            this.msgs = loaded;
+            this.latestId = loadedLatest;
             this.currentTopicId = topicId;
             const found = this.topicsList.find(t => t.id === topicId);
             this.currentTopicName = found ? found.name : '?';
             if (found) found.unread = 0;
-            _setSeenId(topicId, this.latestId);
+            this.markTopicRead(topicId, this.latestId);
 
             this.loadingTopic = false;
             this.startPolling();
@@ -1109,7 +1152,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         const newOnes = data.messages.filter(m => !existingIds.has(m.id));
                         this.msgs.push(...newOnes);
                         this.latestId = data.latest_id;
-                        _setSeenId(this.currentTopicId, data.latest_id);
+                        this.markTopicRead(this.currentTopicId, data.latest_id);
                         this.scrollBottom(true);
                     }
                 } else { alert(data.error || 'Ошибка отправки'); }
@@ -1463,6 +1506,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     /* Refresh contacts to get updated last_msg + unread */
                     this.dmLoadContacts();
                 }
+            } else if (data.type === 'delete') {
+                /* live-удаление сообщения у обоих собеседников */
+                this.dmMessages = this.dmMessages.filter(m => m.id !== data.id);
             } else if (data.type === 'typing' && data.from_user_id === this.dmPeerId) {
                 this.dmTypingText = this.dmPeerName + ' печатает…';
                 clearTimeout(this.dmTypingHideTimer);

@@ -1216,6 +1216,24 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_dm_msg_files_dm ON dm_message_files(dm_id)')
 
+        # ── Chat: deleted_at для live-распространения удалений по polling ───────
+        try:
+            cursor.execute('ALTER TABLE chat_messages ADD COLUMN deleted_at TEXT')
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_msg_deleted ON chat_messages(topic_id, is_deleted, deleted_at)')
+
+        # ── Chat read state (серверный учёт прочитанного по темам) ─────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_read_state (
+                user_id      INTEGER NOT NULL,
+                topic_id     INTEGER NOT NULL,
+                last_read_id INTEGER NOT NULL DEFAULT 0,
+                updated_at   TEXT    DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, topic_id)
+            )
+        ''')
+
         # ── Task topics (категории задач) ─────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS task_topics (
@@ -11220,18 +11238,90 @@ class Database:
         cursor = conn.cursor()
         if is_admin:
             cursor.execute(
-                'UPDATE chat_messages SET is_deleted = 1 WHERE id = ?',
+                "UPDATE chat_messages SET is_deleted = 1, deleted_at = datetime('now') WHERE id = ?",
                 (msg_id,)
             )
         else:
             cursor.execute(
-                'UPDATE chat_messages SET is_deleted = 1 WHERE id = ? AND user_id = ?',
+                "UPDATE chat_messages SET is_deleted = 1, deleted_at = datetime('now') WHERE id = ? AND user_id = ?",
                 (msg_id, user_id)
             )
         affected = cursor.rowcount
         conn.commit()
         conn.close()
         return affected > 0
+
+    def get_chat_deleted_ids_since(self, topic_id: int, since_ts: str) -> list:
+        """ID сообщений темы, удалённых после since_ts (UTC-строка datetime('now')).
+
+        Используется polling-ом, чтобы убрать удалённые сообщения у всех клиентов
+        в реальном времени. since_ts пустой → ничего не возвращаем (baseline).
+        """
+        if not since_ts:
+            return []
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT id FROM chat_messages
+                   WHERE topic_id = ? AND is_deleted = 1
+                     AND deleted_at IS NOT NULL AND deleted_at >= ?''',
+                (topic_id, since_ts)
+            ).fetchall()
+            conn.close()
+            return [r[0] for r in rows]
+        except Exception as e:
+            logger.error("get_chat_deleted_ids_since: %s", e)
+            return []
+
+    def set_chat_read(self, user_id: int, topic_id: int, last_read_id: int) -> None:
+        """Запомнить максимальный прочитанный id в теме для пользователя (upsert, монотонно)."""
+        if not user_id or not topic_id:
+            return
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''INSERT INTO chat_read_state (user_id, topic_id, last_read_id, updated_at)
+                   VALUES (?, ?, ?, datetime('now'))
+                   ON CONFLICT(user_id, topic_id) DO UPDATE SET
+                       last_read_id = MAX(last_read_id, excluded.last_read_id),
+                       updated_at   = datetime('now')''',
+                (user_id, topic_id, last_read_id)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error("set_chat_read: %s", e)
+
+    def get_chat_unread_counts(self, user_id: int) -> dict:
+        """{topic_id: кол-во непрочитанных} по всем не-архивным темам для пользователя.
+
+        Непрочитанное = сообщения не своего авторства (user_id != me),
+        не удалённые, с id > last_read_id (0 если тема ни разу не открывалась).
+        """
+        if not user_id:
+            return {}
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT t.id,
+                          COUNT(m.id) AS cnt
+                   FROM chat_topics t
+                   LEFT JOIN chat_read_state r
+                          ON r.topic_id = t.id AND r.user_id = ?
+                   LEFT JOIN chat_messages m
+                          ON m.topic_id = t.id
+                         AND m.is_deleted = 0
+                         AND m.user_id != ?
+                         AND m.id > COALESCE(r.last_read_id, 0)
+                   WHERE t.is_archived = 0
+                   GROUP BY t.id''',
+                (user_id, user_id)
+            ).fetchall()
+            conn.close()
+            return {r[0]: r[1] or 0 for r in rows}
+        except Exception as e:
+            logger.error("get_chat_unread_counts: %s", e)
+            return {}
 
     def add_chat_message_files(self, message_id: int, files: list) -> None:
         """Сохранить список файлов для сообщения чата (chat_message_files)."""

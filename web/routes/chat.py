@@ -49,10 +49,23 @@ def _rate_ok(store: dict, key, limit: int, window: float) -> bool:
     return True
 
 
+def _client_ip(request: Request) -> str:
+    """Реальный IP клиента за прокси Amvera: X-Forwarded-For → client.host.
+
+    За прокси request.client.host = IP прокси (один на всех) → не годится для
+    rate-limit. Авторизованные эндпойнты ключуются по telegram_id, IP — фолбэк
+    для неаутентифицированных путей.
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _send_rate_ok(tid: int)   -> bool: return _rate_ok(_SEND_RATE_STORE,   tid, 30, 60.0)
-def _poll_rate_ok(ip: str)    -> bool: return _rate_ok(_POLL_RATE_STORE,   ip,  60, 60.0)
+def _poll_rate_ok(key)        -> bool: return _rate_ok(_POLL_RATE_STORE,   key, 60, 60.0)
 def _topic_rate_ok(tid: int)  -> bool: return _rate_ok(_TOPIC_RATE_STORE,  tid,  5, 3600.0)
-def _search_rate_ok(ip: str)  -> bool: return _rate_ok(_SEARCH_RATE_STORE, ip,  30, 60.0)
+def _search_rate_ok(key)      -> bool: return _rate_ok(_SEARCH_RATE_STORE, key, 30, 60.0)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -239,12 +252,24 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
 
         db = await anyio.to_thread.run_sync(lambda: get_web_db(0, org_db))
 
+        async def _post_status(text: str):
+            try:
+                await anyio.to_thread.run_sync(
+                    lambda: db.add_chat_message(user_id=0, message=text, topic_id=topic_id)
+                )
+            except Exception:
+                pass
+
         owner_tg_id = await anyio.to_thread.run_sync(db.get_org_owner_tg_id)
         if not owner_tg_id:
             return
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+            await _post_status(
+                f"🤖 Дневной лимит AI-запросов исчерпан "
+                f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
+            )
             return
 
         org_name, user_name, context_parts = await _build_ai_org_context(db, user_db_id)
@@ -260,8 +285,12 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             f"скажи что можешь помочь только с данными организации."
         )
 
-        answer = await ask_llm(prompt, max_tokens=300)
+        try:
+            answer = await ask_llm(prompt, max_tokens=300)
+        except Exception:
+            answer = None
         if not answer:
+            await _post_status("🤖 AI-ассистент временно недоступен, попробуйте позже.")
             return
 
         ai_text = f"🤖 {answer}"
@@ -291,12 +320,38 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
 
         db = await anyio.to_thread.run_sync(lambda: get_web_db(0, org_db))
 
+        async def _post_ai_dm(text: str):
+            """Сохранить ответ/статус AI как DM и доставить по WS отправителю."""
+            new_id = await anyio.to_thread.run_sync(
+                lambda: db.add_dm(from_user_id=0, to_user_id=sender_db_id,
+                                  message=text, ai_peer_id=peer_id)
+            )
+            if not new_id:
+                return
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            await dm_manager.send_to_user(org_db, sender_db_id, {
+                "type": "message",
+                "id": new_id,
+                "from_user_id": 0,
+                "to_user_id": sender_db_id,
+                "ai_peer_id": peer_id,
+                "message": text,
+                "has_file": False,
+                "created_at": now_str,
+                "is_read": False,
+                "is_ai": True,
+            })
+
         owner_tg_id = await anyio.to_thread.run_sync(db.get_org_owner_tg_id)
         if not owner_tg_id:
             return
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+            await _post_ai_dm(
+                f"🤖 Дневной лимит AI-запросов исчерпан "
+                f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
+            )
             return
 
         org_name, user_name, context_parts = await _build_ai_org_context(db, sender_db_id)
@@ -312,32 +367,15 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             f"скажи что можешь помочь только с данными организации."
         )
 
-        answer = await ask_llm(prompt, max_tokens=300)
+        try:
+            answer = await ask_llm(prompt, max_tokens=300)
+        except Exception:
+            answer = None
         if not answer:
+            await _post_ai_dm("🤖 AI-ассистент временно недоступен, попробуйте позже.")
             return
 
-        ai_text = f"🤖 {answer}"
-        new_id = await anyio.to_thread.run_sync(
-            lambda: db.add_dm(from_user_id=0, to_user_id=sender_db_id,
-                              message=ai_text, ai_peer_id=peer_id)
-        )
-        if not new_id:
-            return
-
-        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-        payload = {
-            "type": "message",
-            "id": new_id,
-            "from_user_id": 0,
-            "to_user_id": sender_db_id,
-            "ai_peer_id": peer_id,
-            "message": ai_text,
-            "has_file": False,
-            "created_at": now_str,
-            "is_read": False,
-            "is_ai": True,
-        }
-        await dm_manager.send_to_user(org_db, sender_db_id, payload)
+        await _post_ai_dm(f"🤖 {answer}")
     except Exception:
         pass
 
@@ -469,6 +507,15 @@ def chat_page(request: Request, topic: int = 1):
             topics = [_fmt_topic(r) for r in raw_topics]
             if not topics:
                 topics = [{"id": 1, "name": "Общий", "created_by": None, "msg_count": 0}]
+
+            # Серверный учёт непрочитанного по темам (синхрон между устройствами)
+            try:
+                unread_map = db.get_chat_unread_counts(user_db_id or 0)
+                for t in topics:
+                    t["unread"] = int(unread_map.get(t["id"], 0))
+            except Exception:
+                for t in topics:
+                    t["unread"] = 0
             ctx["topics"] = topics
 
             # Проверяем что выбранная тема существует
@@ -485,6 +532,15 @@ def chat_page(request: Request, topic: int = 1):
             rows = db.get_chat_messages(limit=50, topic_id=topic)
             ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
+
+            # Текущая тема открыта → помечаем прочитанной + обнуляем её бейдж
+            try:
+                db.set_chat_read(user_db_id or 0, topic, ctx["latest_id"])
+                for t in topics:
+                    if t["id"] == topic:
+                        t["unread"] = 0
+            except Exception:
+                pass
 
             try:
                 from billing_utils import has_extension
@@ -614,7 +670,7 @@ async def chat_send(
 
 
 @router.get("/chat/poll")
-def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
+def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since: str = ""):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -624,19 +680,20 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
-    ip = request.client.host if request.client else "unknown"
+    now_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    if not _poll_rate_ok(ip):
-        return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
+    # rate-limit по пользователю (за прокси Amvera IP общий для всех)
+    if not _poll_rate_ok(telegram_id):
+        return JSONResponse({"ok": True, "messages": [], "latest_id": since_id, "now": now_ts})
 
     try:
         min_plan = _get_chat_min_plan()
         if min_plan == "Отключён":
-            return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
+            return JSONResponse({"ok": True, "messages": [], "latest_id": since_id, "now": now_ts})
 
         db = get_web_db(telegram_id, org_db)
         if not _chat_access_ok(telegram_id):
-            return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
+            return JSONResponse({"ok": True, "messages": [], "latest_id": since_id, "now": now_ts})
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
@@ -645,11 +702,29 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1):
         files_map = _load_msg_files_bulk(db, msg_ids)
         msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
-        return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
+
+        # Удаления у всех в реальном времени (с момента прошлого опроса)
+        deleted_ids = db.get_chat_deleted_ids_since(topic_id, del_since)
+
+        # Текущая тема прочитана до latest; бейджи остальных тем
+        try:
+            db.set_chat_read(user_db_id, topic_id, latest)
+        except Exception:
+            pass
+        topic_unread = {}
+        try:
+            topic_unread = {str(k): v for k, v in db.get_chat_unread_counts(user_db_id).items()}
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "ok": True, "messages": msgs, "latest_id": latest,
+            "deleted_ids": deleted_ids, "topic_unread": topic_unread, "now": now_ts,
+        })
 
     except Exception as exc:
         logger.error(f"chat_poll error: {exc}")
-        return JSONResponse({"ok": True, "messages": [], "latest_id": since_id})
+        return JSONResponse({"ok": True, "messages": [], "latest_id": since_id, "now": now_ts})
 
 
 @router.get("/chat/topics/{topic_id}/messages")
@@ -664,9 +739,8 @@ def chat_topic_messages(request: Request, topic_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
-    ip = request.client.host if request.client else "unknown"
 
-    if not _poll_rate_ok(ip):
+    if not _poll_rate_ok(telegram_id):
         return JSONResponse({"ok": True, "messages": [], "latest_id": 0})
 
     try:
@@ -685,11 +759,47 @@ def chat_topic_messages(request: Request, topic_id: int):
         files_map = _load_msg_files_bulk(db, msg_ids)
         msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
+        try:
+            db.set_chat_read(user_db_id, topic_id, latest)
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "messages": msgs, "latest_id": latest})
 
     except Exception as exc:
         logger.error(f"chat_topic_messages error: {exc}")
         return JSONResponse({"ok": True, "messages": [], "latest_id": 0})
+
+
+@router.post("/chat/read")
+def chat_mark_read(
+    request: Request,
+    topic_id: int = Form(default=0),
+    last_id: int = Form(default=0),
+    csrf_token: str = Form(default=""),
+):
+    """Отметить тему прочитанной до last_id (серверный учёт, синхрон между устройствами)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _chat_access_ok(telegram_id):
+            return JSONResponse({"ok": False}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if user_db_id and topic_id:
+            db.set_chat_read(user_db_id, topic_id, last_id)
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.error(f"chat_mark_read error: {exc}")
+        return JSONResponse({"ok": False}, status_code=500)
 
 
 @router.get("/chat/file/attachment/{att_id}")
@@ -962,8 +1072,10 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
     if not user:
         return JSONResponse({"ok": False, "results": []}, status_code=401)
 
-    ip = request.client.host if request.client else "unknown"
-    if not _search_rate_ok(ip):
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    if not _search_rate_ok(telegram_id):
         return JSONResponse({"ok": False, "results": [], "error": "Слишком много запросов"}, status_code=429)
 
     q = q.strip()[:100]
@@ -973,9 +1085,6 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
     min_plan = _get_chat_min_plan()
     if min_plan == "Отключён":
         return JSONResponse({"ok": False, "results": []})
-
-    telegram_id = int(user["sub"])
-    org_db = user.get("org_db") or ""
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -1021,7 +1130,7 @@ _DM_POLL_RATE:   dict[str, list[float]] = {}
 
 
 def _dm_send_ok(tid: int)  -> bool: return _rate_ok(_DM_SEND_RATE, tid, 30, 60.0)
-def _dm_poll_ok(ip: str)   -> bool: return _rate_ok(_DM_POLL_RATE, ip,  60, 60.0)
+def _dm_poll_ok(key)       -> bool: return _rate_ok(_DM_POLL_RATE, key, 60, 60.0)
 
 
 def _uploads_dir_dm(org_db: str) -> str:
@@ -1326,12 +1435,11 @@ def api_dm_contacts(request: Request):
     if not user:
         return JSONResponse({"ok": False, "contacts": [], "unread_total": 0}, status_code=401)
 
-    ip = request.client.host if request.client else "unknown"
-    if not _dm_poll_ok(ip):
-        return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
-
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+
+    if not _dm_poll_ok(telegram_id):
+        return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
 
     try:
         min_plan = _get_chat_min_plan()
@@ -1363,12 +1471,11 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
     if not user:
         return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=401)
 
-    ip = request.client.host if request.client else "unknown"
-    if not _dm_poll_ok(ip):
-        return JSONResponse({"ok": True, "messages": [], "has_more": False})
-
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+
+    if not _dm_poll_ok(telegram_id):
+        return JSONResponse({"ok": True, "messages": [], "has_more": False})
 
     try:
         min_plan = _get_chat_min_plan()
@@ -1487,22 +1594,28 @@ async def dm_send(
         if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
             asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=to_user_id))
 
-        first_file = saved_files[0] if saved_files else {}
+        # Загружаем только что сохранённые файлы, чтобы получить реальные att_id
+        # (id вложения, НЕ id сообщения) — нужны и для WS-payload, и для ответа.
+        fresh_files = _load_dm_files_bulk(db, [new_id]).get(new_id, []) if saved_files else []
+
+        first_file = fresh_files[0] if fresh_files else {}
         file_name = first_file.get("file_name", "")
         file_type = first_file.get("file_type", "")
         file_size = first_file.get("file_size", 0)
 
-        # Список файлов для WS-payload
+        # Список файлов для WS-payload — с корректными att_id и file_url
         ws_files = [
             {
-                "id": 0,  # будет загружен при получении через poll
-                "file_name": f["file_name"], "file_type": f["file_type"],
-                "file_size": f["file_size"],
-                "is_image": f["file_type"].startswith("image/") if f["file_type"] else False,
-                "file_url": "",  # заполнится при рефреше
+                "id": f.get("id", 0),
+                "file_name": f.get("file_name", ""), "file_type": f.get("file_type", ""),
+                "file_size": f.get("file_size", 0),
+                "is_image": (f.get("file_type") or "").startswith("image/"),
+                "file_url": f"/chat/dm/file/attachment/{f.get('id', 0)}",
             }
-            for f in saved_files
+            for f in fresh_files
         ]
+        # file_url первого файла для превью (правильный att_id вложения)
+        first_url = ws_files[0]["file_url"] if ws_files else ""
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         payload = {
@@ -1514,9 +1627,9 @@ async def dm_send(
             "file_name": file_name,
             "file_type": file_type,
             "file_size": file_size,
-            "has_file": bool(saved_files),
+            "has_file": bool(fresh_files),
             "is_image": file_type.startswith("image/") if file_type else False,
-            "file_url": f"/chat/dm/file/attachment/{new_id}" if saved_files else "",
+            "file_url": first_url,
             "files": ws_files,
             "created_at": now_str,
             "is_read": False,
@@ -1544,8 +1657,7 @@ async def dm_send(
         except Exception:
             pass
 
-        # Загружаем только что сохранённые файлы чтобы вернуть корректные att_id
-        fresh_files = _load_dm_files_bulk(db, [new_id]).get(new_id, [])
+        # fresh_files уже загружены выше (att_id) — переиспользуем для ответа
         msg = _fmt_dm(
             (new_id, user_db_id, to_user_id, text, "", "",
              "", 0, now_str, 0,
@@ -1563,13 +1675,14 @@ async def dm_send(
 # ── Delete DM ─────────────────────────────────────────────────────────────────
 
 @router.post("/chat/dm/{msg_id}/delete")
-def dm_delete(
+async def dm_delete(
     request: Request,
     msg_id: int,
     csrf_token: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
+    from web.ws_manager import dm_manager
 
     user = get_session_user(request)
     if not user:
@@ -1605,6 +1718,15 @@ def dm_delete(
                         os.remove(real_fpath)
                     except OSError as e:
                         logger.warning(f"dm_delete new file: {e}")
+            # Live-удаление у обоих участников переписки (row: id,from,to,...)
+            if row:
+                payload = {"type": "delete", "id": msg_id}
+                for uid in {row[1], row[2]}:
+                    if uid:
+                        try:
+                            await dm_manager.send_to_user(org_db, uid, payload)
+                        except Exception:
+                            pass
         return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
         logger.error(f"dm_delete error: {exc}")
