@@ -163,6 +163,49 @@ def has_module(tg_id: int, module_key: str) -> bool:
         return False
 
 
+def get_modules_access(tg_id: int, keys) -> Dict[str, bool]:
+    """Bulk equivalent of ``{k: has_module(tg_id, k) for k in keys}``.
+
+    Computes the shared super_admin / trial / direct-grant / bundle data ONCE
+    (≈3 queries total) instead of re-querying inside has_module for every key
+    (≈4 queries × len(keys)). Semantically identical to per-key has_module:
+      access = super_admin OR trial OR (key is a direct active item_key)
+                OR (key is included in an active bundle); pos_retail always True.
+    """
+    keys = list(keys)
+    try:
+        if _env_mgr.is_super_admin(tg_id) or _is_trial(tg_id):
+            return {k: True for k in keys}
+        db = _conn()
+        rows = db.execute(
+            """SELECT item_key, item_type FROM billing_module_subs
+               WHERE user_telegram_id=? AND is_active=1
+                 AND (end_date IS NULL OR end_date > datetime('now'))""",
+            (tg_id,)
+        ).fetchall()
+        db.close()
+        direct: Set[str] = set()
+        bundle_keys = []
+        for r in rows:
+            direct.add(r[0])  # _has_direct_item matches any item_type
+            if r[1] == 'bundle':
+                bundle_keys.append(r[0])
+        bundle_mods: Set[str] = set()
+        for bk in bundle_keys:
+            bundle_mods |= _bundle_modules(bk)
+        result: Dict[str, bool] = {}
+        for k in keys:
+            if k == 'pos_retail':
+                result[k] = True
+            else:
+                result[k] = (k in direct) or (k in bundle_mods)
+        return result
+    except Exception as e:
+        logging.error(f"get_modules_access({tg_id}): {e}")
+        # Fail safe: fall back to the per-key path (preserves exact semantics).
+        return {k: has_module(tg_id, k) for k in keys}
+
+
 def is_extension_denied(tg_id: int, ext_key: str) -> bool:
     """Fail-open gate: returns True ONLY when there is an explicit is_active=0 record.
 

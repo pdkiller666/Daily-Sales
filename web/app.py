@@ -92,10 +92,10 @@ _CSP = (
     # evaluation, Alpine crashes silently, x-cloak is removed but x-show is
     # never applied, and all event handlers are dead.
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-    "https://unpkg.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com "
+    "https://unpkg.com https://cdn.jsdelivr.net "
     "https://telegram.org; "
     "style-src 'self' 'unsafe-inline' "
-    "https://cdn.tailwindcss.com https://cdn.jsdelivr.net "
+    "https://cdn.jsdelivr.net "
     "https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com data:; "
     "img-src 'self' data: blob: https:; "
@@ -397,19 +397,32 @@ def create_web_app() -> FastAPI:
 
     templates.env.globals['beta_mode'] = _is_beta_mode
 
-    def _is_chat_enabled() -> bool:
-        """Return True if chat is not disabled (chat_min_plan != 'Отключён')."""
+    def _is_chat_enabled(request=None) -> bool:
+        """Return True if chat is not disabled (chat_min_plan != 'Отключён').
+
+        Memoized on request.state — chat_enabled() is referenced several times in
+        base.html, so this collapses repeated payment_settings lookups to one per
+        render. Callable without request (backward compatible, just uncached).
+        """
+        state = getattr(request, "state", None) if request is not None else None
+        if state is not None and hasattr(state, "_chat_enabled"):
+            return state._chat_enabled
         try:
             conn = sqlite3.connect(_SHOP_BOT_DB)
             row = conn.execute(
                 "SELECT value FROM payment_settings WHERE key='chat_min_plan'"
             ).fetchone()
             conn.close()
-            if row is None:
-                return True  # key absent → chat enabled by default
-            return row[0] != "Отключён"
+            # key absent → chat enabled by default
+            val = True if row is None else (row[0] != "Отключён")
         except Exception:
-            return True
+            val = True
+        if state is not None:
+            try:
+                state._chat_enabled = val
+            except Exception:
+                pass
+        return val
 
     templates.env.globals['chat_enabled'] = _is_chat_enabled
 
@@ -480,33 +493,51 @@ def create_web_app() -> FastAPI:
         Per-user override (user_module_access): 'deny' прячет модуль у сотрудника,
         'allow' принудительно показывает; None — наследует биллинг (has_module).
         """
+        # Memoize per request — base.html calls nav_modules(request) twice
+        # (sidebar + mobile "more" sheet); compute the module map only once.
+        state = getattr(request, "state", None)
+        if state is not None and hasattr(state, "_nav_modules"):
+            return state._nav_modules
         try:
             from web.auth import get_session_user
-            from billing_utils import has_module
+            from billing_utils import get_modules_access
             from db_utils import get_user_module_access
             from tenant_manager import tenant_manager
             user = get_session_user(request)
             if not user:
-                return {k: False for k in _NAV_MODULE_KEYS}
-            tg_id = int(user["sub"])
-            owner_tg = None
-            result = {}
-            for k in _NAV_MODULE_KEYS:
-                override = get_user_module_access(tg_id, k)
-                if override == 'deny':
-                    # Явный запрет — модуль скрыт даже если оплачен
-                    result[k] = False
-                elif override == 'allow':
-                    # Явная выдача сотруднику — но только в пределах оплаченного
-                    # организацией (биллинг привязан к владельцу). НЕ обход оплаты.
-                    if owner_tg is None:
-                        owner_tg = tenant_manager.get_org_owner_tg(tg_id) or tg_id
-                    result[k] = has_module(owner_tg, k)
-                else:
-                    result[k] = has_module(tg_id, k)
-            return result
+                result = {k: False for k in _NAV_MODULE_KEYS}
+            else:
+                tg_id = int(user["sub"])
+                overrides = {k: get_user_module_access(tg_id, k)
+                             for k in _NAV_MODULE_KEYS}
+                # Bulk billing lookups (≈3 queries each) instead of per-key.
+                need_self = any(ov not in ('deny', 'allow')
+                                for ov in overrides.values())
+                need_owner = any(ov == 'allow' for ov in overrides.values())
+                self_access = (get_modules_access(tg_id, _NAV_MODULE_KEYS)
+                               if need_self else {})
+                owner_access = {}
+                if need_owner:
+                    # 'allow' override gates on the OWNER's billing (not a bypass).
+                    owner_tg = tenant_manager.get_org_owner_tg(tg_id) or tg_id
+                    owner_access = get_modules_access(owner_tg, _NAV_MODULE_KEYS)
+                result = {}
+                for k in _NAV_MODULE_KEYS:
+                    ov = overrides[k]
+                    if ov == 'deny':
+                        result[k] = False  # явный запрет — скрыт даже если оплачен
+                    elif ov == 'allow':
+                        result[k] = owner_access.get(k, False)
+                    else:
+                        result[k] = self_access.get(k, False)
         except Exception:
-            return {k: True for k in _NAV_MODULE_KEYS}
+            result = {k: True for k in _NAV_MODULE_KEYS}
+        if state is not None:
+            try:
+                state._nav_modules = result
+            except Exception:
+                pass
+        return result
 
     templates.env.globals['nav_modules'] = _nav_modules
 

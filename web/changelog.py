@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.6.0"
+CURRENT_VERSION = "1.7.0"
 
 ENTRIES = [
+    {
+        "version": "1.7.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Consolidate styling and animations, improving performance and consistency",
+        ],
+    },
     {
         "version": "1.6.0",
         "date": "16 июня 2026",

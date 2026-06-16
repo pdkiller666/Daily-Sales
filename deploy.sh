@@ -55,6 +55,24 @@ echo "0. Сборка changelog (фрагменты + git)..."
 ( cd "$SOURCE_DIR" && python3 scripts/build_changelog.py ) \
   || echo "   ⚠️  build_changelog.py завершился с ошибкой — продолжаю деплой"
 
+# ─── Сборка Tailwind CSS (статический app.css вместо CDN-рантайма) ────────────
+# Пересобирает web/static/app.css по актуальным классам в шаблонах и проставляет
+# контент-хэш в <link ...?v=> в base.html (cache-bust без бампа SW). Ошибка сборки
+# НЕ валит деплой — уедет уже закоммиченный app.css.
+echo "0b. Сборка Tailwind CSS (статический app.css)..."
+if ( cd "$SOURCE_DIR" && npx --yes tailwindcss@3.4.17 -c tailwind.config.js \
+       -i web/static/tailwind.input.css -o web/static/app.css --minify >/dev/null 2>&1 ); then
+  CSS_HASH=$(md5sum "$SOURCE_DIR/web/static/app.css" | cut -c1-10)
+  # Cache-bust во ВСЕХ шаблонах со ссылкой на app.css (base.html + standalone:
+  # landing/auth/errors). Иначе при immutable-кэше standalone-страницы зависнут
+  # на старом CSS, пока base-страницы обновятся → визуальное расхождение.
+  grep -rl "/static/app.css?v=" "$SOURCE_DIR/web/templates" \
+    | xargs sed -i -E "s#/static/app\.css\?v=[a-f0-9]+#/static/app.css?v=${CSS_HASH}#"
+  echo "   ✓ app.css собран, cache-bust v=${CSS_HASH} (все шаблоны)"
+else
+  echo "   ⚠️  Tailwind build не удался — деплой с уже закоммиченным app.css"
+fi
+
 # ─── Синхронизация файлов ───────────────────────────────────────────────────
 echo "1. Синхронизация файлов..."
 

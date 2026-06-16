@@ -6,7 +6,6 @@
     <meta name="x-csrf-token" content="{{ csrf_token_for(request) }}">
     <title>{% block title %}DailySales{% endblock %} — DailySales</title>
     <!-- Preconnect to CDNs — eliminates DNS+TCP handshake delay -->
-    <link rel="preconnect" href="https://cdn.tailwindcss.com">
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <!-- Icons -->
@@ -27,8 +26,8 @@
             document.documentElement.classList.add('dark');
         }
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>tailwind.config = { darkMode: 'class' }</script>
+    <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
+    <link rel="stylesheet" href="/static/app.css?v=be05460037">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -456,7 +455,7 @@ function toastMgr() {
             <span class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-indigo-500 text-white">{{ _tskcnt }}</span>
             {% endif %}
         </a>
-        {% if chat_enabled() %}
+        {% if chat_enabled(request) %}
         <a href="/chat"
            class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💬</span>
@@ -2010,7 +2009,7 @@ function mainApp() {
                     <span class="sht-icon">📋</span>
                     <span class="sht-label">Задачи</span>
                 </a>
-                {% if chat_enabled() %}
+                {% if chat_enabled(request) %}
                 <a href="/chat" @click="moreOpen=false"
                    class="sht-item {% if _p.startswith('/chat') %}sht-active{% endif %}">
                     <span class="sht-icon">💬</span>
@@ -2424,7 +2423,7 @@ function mainApp() {
     </div>
 </nav>
 
-{% if chat_enabled() %}
+{% if chat_enabled(request) %}
 <!-- ══ Chat FAB (mobile, draggable, edge-snap) ══ -->
 <div id="chat-fab-wrap" class="lg:hidden fixed z-40 select-none"
      style="bottom:84px;right:16px">

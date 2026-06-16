@@ -90,10 +90,19 @@ def decode_session_token(token: str) -> Optional[dict]:
 
 
 def get_session_user(request) -> Optional[dict]:
+    # Memoize per request: every Jinja nav/badge global calls this, and each call
+    # re-parses the JWT. Cache the result (including None) on request.state.
+    state = getattr(request, "state", None)
+    if state is not None and hasattr(state, "_session_user"):
+        return state._session_user
     token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        return None
-    return decode_session_token(token)
+    user = decode_session_token(token) if token else None
+    if state is not None:
+        try:
+            state._session_user = user
+        except Exception:
+            pass
+    return user
 
 
 def get_csrf_token(request) -> str:
