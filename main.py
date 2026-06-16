@@ -1099,28 +1099,80 @@ async def main():
 
         try:
             from database import Database
+            import datetime as _dt
+            _yesterday = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
             db_paths = _get_scheduler_db_paths()
             for db_path in db_paths:
                 try:
                     db = Database(db_path)
-                    # Дедлайн сегодня
+                    # Дедлайн сегодня — Telegram + колокольчик + Web Push
                     for t in db.get_tasks_with_deadline_today():
                         title = t.get('title', '—')
-                        if t.get('assigned_tg'):
+                        if t.get('assigned_tg') and t.get('assigned_to'):
                             _push(t['assigned_tg'],
                                   f"📋 <b>Срок задачи сегодня!</b>\n<b>{title}</b>\n\n"
                                   f"🌐 Откройте веб-кабинет для деталей.")
                             try:
-                                from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']), "📋 Срок задачи сегодня", title, "/tasks")
+                                db.add_notification_to_history(
+                                    t['assigned_to'], 'task_deadline',
+                                    f"📋 Срок задачи сегодня: {title}")
                             except Exception:
                                 pass
-                        if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg'):
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']),
+                                                        "📋 Срок задачи сегодня", title, "/tasks")
+                            except Exception:
+                                pass
+                        if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg') and t.get('created_by'):
                             _push(t['creator_tg'],
                                   f"📋 <b>Срок задачи сегодня</b>\n<b>{title}</b>")
                             try:
+                                db.add_notification_to_history(
+                                    t['created_by'], 'task_deadline',
+                                    f"📋 Срок задачи сегодня: {title}")
+                            except Exception:
+                                pass
+                            try:
                                 from web.push_utils import send_web_push
-                                await asyncio.to_thread(send_web_push, int(t['creator_tg']), "📋 Срок задачи сегодня", title, "/tasks")
+                                await asyncio.to_thread(send_web_push, int(t['creator_tg']),
+                                                        "📋 Срок задачи сегодня", title, "/tasks")
+                            except Exception:
+                                pass
+                    # Задачи, ставшие просроченными вчера — по 1 уведомлению на задачу
+                    for t in db.get_overdue_tasks():
+                        if t.get('deadline') != _yesterday:
+                            continue
+                        title = t.get('title', '—')
+                        if t.get('assigned_tg') and t.get('assigned_to'):
+                            _push(t['assigned_tg'],
+                                  f"⚠️ <b>Задача просрочена!</b>\n<b>{title}</b>\n\n"
+                                  f"🌐 Откройте веб-кабинет.")
+                            try:
+                                db.add_notification_to_history(
+                                    t['assigned_to'], 'task_overdue',
+                                    f"⚠️ Задача просрочена: {title}")
+                            except Exception:
+                                pass
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(send_web_push, int(t['assigned_tg']),
+                                                        "⚠️ Задача просрочена", title, "/tasks")
+                            except Exception:
+                                pass
+                        if t.get('creator_tg') and t.get('creator_tg') != t.get('assigned_tg') and t.get('created_by'):
+                            _push(t['creator_tg'],
+                                  f"⚠️ <b>Задача просрочена</b>\n<b>{title}</b>")
+                            try:
+                                db.add_notification_to_history(
+                                    t['created_by'], 'task_overdue',
+                                    f"⚠️ Задача просрочена: {title}")
+                            except Exception:
+                                pass
+                            try:
+                                from web.push_utils import send_web_push
+                                await asyncio.to_thread(send_web_push, int(t['creator_tg']),
+                                                        "⚠️ Задача просрочена", title, "/tasks")
                             except Exception:
                                 pass
                 except Exception as _de:

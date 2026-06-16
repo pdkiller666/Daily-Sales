@@ -462,14 +462,41 @@ async def tasks_new_post(
                         checklist=_items,
                         recurrence=recurrence if recurrence not in ('none', '') else None,
                     )
+                    _prio_label = PRIORITY_LABELS.get(priority, "")
+                    _dl_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
+                    _multi_tg_text = (
+                        f"📋 <b>Вам назначена задача</b>\n\n"
+                        f"<b>{title}</b>\n"
+                        f"{_prio_label}{_dl_str}\n\n"
+                        f"🌐 Откройте веб-кабинет для подробностей."
+                    )
+                    _multi_msg = f"📋 Назначена задача: {title}"
                     if _r_to and _rtid:
                         try:
-                            db.add_notification_to_history(
-                                _r_to, "task_assign",
-                                f"📋 Назначена задача: {title}"
-                            )
+                            db.add_notification_to_history(_r_to, "task_assigned", _multi_msg)
                         except Exception:
                             pass
+                        _r_tg = _get_user_tg_id(db, _r_to)
+                        if _r_tg:
+                            _send_tg_task_notify(_r_tg, _multi_tg_text)
+                            try:
+                                from web.push_utils import send_web_push
+                                send_web_push(_r_tg, "📋 Новая задача", title, "/tasks")
+                            except Exception:
+                                pass
+                    elif _r_shop and _rtid:
+                        for _sm_uid, _sm_tg in _get_shop_members_tg_ids(db, _r_shop):
+                            try:
+                                db.add_notification_to_history(_sm_uid, "task_assigned", _multi_msg)
+                            except Exception:
+                                pass
+                            if _sm_tg:
+                                _send_tg_task_notify(_sm_tg, _multi_tg_text)
+                                try:
+                                    from web.push_utils import send_web_push
+                                    send_web_push(_sm_tg, "📋 Новая задача", title, "/tasks")
+                                except Exception:
+                                    pass
                 return RedirectResponse(url="/tasks?msg=created", status_code=303)
 
         _linked_chat_topic_id = None
@@ -1231,21 +1258,32 @@ def task_add_comment(
 
         db.add_task_comment(task_id, my_db_id, text)
 
-        other_id = task.get("created_by") if task.get("assigned_to") == my_db_id else task.get("assigned_to")
-        if other_id and other_id != my_db_id:
-            tg_id = _get_user_tg_id(db, other_id)
-            if tg_id:
-                db.add_notification_to_history(
-                    other_id, "task_status",
-                    f"💬 Новый комментарий к задаче «{task['title']}»"
-                )
+        # Уведомить создателя И исполнителя (кроме комментатора) — все 3 канала
+        _c_notify: set = set()
+        _c_creator = task.get("created_by")
+        _c_assignee = task.get("assigned_to")
+        if _c_creator and _c_creator != my_db_id:
+            _c_notify.add(_c_creator)
+        if _c_assignee and _c_assignee != my_db_id:
+            _c_notify.add(_c_assignee)
+        for _nid in _c_notify:
+            _ntg = _get_user_tg_id(db, _nid)
+            if _ntg:
+                try:
+                    db.add_notification_to_history(
+                        _nid, "task_status",
+                        f"💬 Новый комментарий к задаче «{task['title']}»"
+                    )
+                except Exception:
+                    pass
                 _send_tg_task_notify(
-                    tg_id,
+                    _ntg,
                     f"💬 <b>Новый комментарий</b>\n\nЗадача: <b>{task['title']}</b>"
                 )
                 try:
                     from web.push_utils import send_web_push
-                    send_web_push(tg_id, "💬 Новый комментарий", f"Задача: {task['title']}", "/tasks")
+                    send_web_push(_ntg, "💬 Новый комментарий",
+                                  f"Задача: {task['title']}", f"/tasks/{task_id}")
                 except Exception:
                     pass
 
@@ -1421,29 +1459,71 @@ def task_edit_post(
                        assigned_shop=_assigned_shop_val, assign_all=_assign_all,
                        recurrence=recurrence if recurrence not in ('none', '') else None)
 
-        # Notify if new person assigned
-        if assign_mode == "person" and _assigned_to and _assigned_to != old_task.get("assigned_to"):
+        # Уведомить исполнителя об изменениях задачи
+        _deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
+        if assign_mode == "person" and _assigned_to:
             tg_id = _get_user_tg_id(db, _assigned_to)
             if tg_id:
-                deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
-                try:
-                    db.add_notification_to_history(
-                        _assigned_to, "task_assigned", f"📋 Назначена задача: {title}"
+                if _assigned_to != old_task.get("assigned_to"):
+                    # Новый исполнитель
+                    try:
+                        db.add_notification_to_history(
+                            _assigned_to, "task_assigned", f"📋 Назначена задача: {title}"
+                        )
+                    except Exception:
+                        pass
+                    _send_tg_task_notify(
+                        tg_id,
+                        f"📋 <b>Вам назначена задача</b>\n\n"
+                        f"<b>{title}</b>"
+                        f"{_deadline_str}\n\n"
+                        f"🌐 Откройте веб-кабинет для подробностей."
                     )
-                except Exception:
-                    pass
-                _send_tg_task_notify(
-                    tg_id,
-                    f"📋 <b>Вам назначена задача</b>\n\n"
-                    f"<b>{title}</b>"
-                    f"{deadline_str}\n\n"
-                    f"🌐 Откройте веб-кабинет для подробностей."
-                )
+                    try:
+                        from web.push_utils import send_web_push
+                        send_web_push(tg_id, "📋 Назначена задача", title, "/tasks")
+                    except Exception:
+                        pass
+                else:
+                    # Тот же исполнитель — задача обновлена
+                    try:
+                        db.add_notification_to_history(
+                            _assigned_to, "task_assigned", f"📋 Задача обновлена: {title}"
+                        )
+                    except Exception:
+                        pass
+                    _send_tg_task_notify(
+                        tg_id,
+                        f"📋 <b>Задача обновлена</b>\n\n"
+                        f"<b>{title}</b>"
+                        f"{_deadline_str}\n\n"
+                        f"🌐 Откройте веб-кабинет для деталей."
+                    )
+                    try:
+                        from web.push_utils import send_web_push
+                        send_web_push(tg_id, "📋 Задача обновлена", title, "/tasks")
+                    except Exception:
+                        pass
+        elif assign_mode == "shop" and _assigned_shop_val:
+            _is_new_shop = _assigned_shop_val != old_task.get("assigned_shop")
+            _sh_notif_msg = f"📋 Назначена задача: {title}" if _is_new_shop else f"📋 Задача обновлена: {title}"
+            _sh_tg_hdr = "Вам назначена задача" if _is_new_shop else "Задача обновлена"
+            for _sm_uid, _sm_tg in _get_shop_members_tg_ids(db, _assigned_shop_val):
                 try:
-                    from web.push_utils import send_web_push
-                    send_web_push(tg_id, "📋 Назначена задача", title, "/tasks")
+                    db.add_notification_to_history(_sm_uid, "task_assigned", _sh_notif_msg)
                 except Exception:
                     pass
+                if _sm_tg:
+                    _send_tg_task_notify(
+                        _sm_tg,
+                        f"📋 <b>{_sh_tg_hdr}</b>\n\n<b>{title}</b>{_deadline_str}\n\n"
+                        f"🌐 Откройте веб-кабинет."
+                    )
+                    try:
+                        from web.push_utils import send_web_push
+                        send_web_push(_sm_tg, f"📋 {_sh_tg_hdr}", title, "/tasks")
+                    except Exception:
+                        pass
     except Exception as e:
         logger.error("task_edit_post: %s", e)
         return RedirectResponse(url=f"/tasks/{task_id}/edit?msg=error", status_code=303)
@@ -1522,6 +1602,38 @@ def task_my_complete(
             return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
+
+        # Уведомить создателя задачи — все 3 канала
+        _creator_id = task.get("created_by")
+        if _creator_id and _creator_id != my_db_id:
+            _creator_tg = _get_user_tg_id(db, _creator_id)
+            if _creator_tg:
+                try:
+                    _nc = db.get_connection()
+                    _nr = _nc.execute(
+                        "SELECT first_name FROM users WHERE telegram_id = ?", (telegram_id,)
+                    ).fetchone()
+                    _nc.close()
+                    _uname = (_nr[0] or "Сотрудник") if _nr else "Сотрудник"
+                except Exception:
+                    _uname = "Сотрудник"
+                _cmsg = f"✅ «{task['title']}» — {_uname} выполнил(а)"
+                try:
+                    db.add_notification_to_history(_creator_id, "task_status", _cmsg)
+                except Exception:
+                    pass
+                _send_tg_task_notify(
+                    _creator_tg,
+                    f"✅ <b>Задача отмечена выполненной</b>\n\n"
+                    f"<b>{task['title']}</b>\n{_uname}"
+                )
+                try:
+                    from web.push_utils import send_web_push
+                    send_web_push(_creator_tg, "✅ Задача выполнена",
+                                  f"«{task['title']}»: {_uname}", f"/tasks/{task_id}")
+                except Exception:
+                    pass
+
     except Exception as e:
         logger.error("task_my_complete: %s", e)
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)

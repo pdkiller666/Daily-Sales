@@ -9,6 +9,7 @@ Admin видит все задачи организации.
   - Кнопка «↩️ Вернуть» для admin
   - Повторяющиеся задачи: auto-spawn при завершении
 """
+import asyncio
 import logging
 import os
 import uuid
@@ -632,6 +633,45 @@ async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
             return
 
         db.update_task_status(task_id, 'in_progress')
+
+        # Уведомить исполнителя — Telegram + колокольчик + Web Push
+        _assigned_to = task.get('assigned_to')
+        if _assigned_to:
+            try:
+                _conn2 = db.get_connection()
+                _ar = _conn2.execute(
+                    "SELECT telegram_id FROM users WHERE id = ?", (_assigned_to,)
+                ).fetchone()
+                _conn2.close()
+                _assignee_tg = _ar[0] if _ar else None
+                if _assignee_tg:
+                    try:
+                        db.add_notification_to_history(
+                            _assigned_to, 'task_assigned',
+                            f"↩️ Задача возвращена в работу: {task['title']}")
+                    except Exception:
+                        pass
+                    try:
+                        await callback.bot.send_message(
+                            _assignee_tg,
+                            f"↩️ <b>Задача возвращена в работу</b>\n\n"
+                            f"<b>{he(task['title'])}</b>\n\n"
+                            f"🌐 Откройте веб-кабинет для деталей.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        from web.push_utils import send_web_push
+                        await asyncio.to_thread(
+                            send_web_push, _assignee_tg,
+                            "↩️ Задача возвращена", task['title'], "/tasks"
+                        )
+                    except Exception:
+                        pass
+            except Exception as _ne:
+                logger.warning("task_reopen notify: %s", _ne)
+
         await callback.answer("↩️ Задача возвращена в работу")
         await _show_tasks_list(callback, state, page=0)
 

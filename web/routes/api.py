@@ -69,9 +69,10 @@ def sales_feed(request: Request, since: str = ""):
         return {"ok": False, "count": 0, "items": []}
 
 
-def _notif_url(notification_type: str, message: str = "") -> str:
+def _notif_url(notification_type: str, message: str = "", created_at: str = "") -> str:
     """Map notification_type to the most relevant web page URL.
-    For daily_report, parse date and shop from message text to build a deep link."""
+    For daily_report, parse date and shop from message text to build a deep link.
+    For shift_sale/sales, parse shop from message and date from created_at."""
     _MAP = {
         "shift_sale":        "/sales",
         "sales":             "/sales",
@@ -92,9 +93,9 @@ def _notif_url(notification_type: str, message: str = "") -> str:
         "admin":             "",
     }
     base = _MAP.get(notification_type or "", "")
+    import re as _re
+    from urllib.parse import urlencode as _ue
     if notification_type == "daily_report" and message:
-        import re as _re
-        from urllib.parse import urlencode as _ue
         dm = _re.search(r'\((\d{4}-\d{2}-\d{2})\)', message)
         if dm:
             date = dm.group(1)
@@ -109,6 +110,21 @@ def _notif_url(notification_type: str, message: str = "") -> str:
             if shop:
                 params["shop"] = shop
             return "/reports?" + _ue(params)
+    if notification_type in ("shift_sale", "sales") and message and created_at:
+        date = ""
+        raw_date = str(created_at)
+        dm = _re.search(r'(\d{4}-\d{2}-\d{2})', raw_date)
+        if dm:
+            date = dm.group(1)
+        if date:
+            shop = ""
+            sm = _re.search(r'Новая продажа в магазине ([^<\n]+)', _re.sub(r'<[^>]+>', '', message))
+            if sm:
+                shop = sm.group(1).strip()
+            params: dict = {"period": "custom", "date_from": date, "date_to": date}
+            if shop:
+                params["shop"] = shop
+            return "/sales?" + _ue(params)
     return base
 
 
@@ -166,7 +182,7 @@ def my_notifications(request: Request, limit: int = 20):
                 "message": r[2] or "",
                 "is_read": bool(r[3]),
                 "created_at": _fmt_dt(str(r[4]).replace("T", " "), _tz, "%d.%m.%Y %H:%M") if r[4] else "",
-                "url": _notif_url(r[1] or "admin", r[2] or ""),
+                "url": _notif_url(r[1] or "admin", r[2] or "", str(r[4] or "")),
             }
             for r in rows
         ]
