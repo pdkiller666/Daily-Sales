@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.37.0"
+CURRENT_VERSION = "1.38.0"
 
 ENTRIES = [
+    {
+        "version": "1.38.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Add AI session management and auto-archiving features to the chat",
+            "Let admins configure AI usage history retention period",
+            "Filter AI tool usage chart by individual tool or date range",
+            "Show AI tool usage broken down by organisation on the admin page",
+            "Remove duplicate 🤖 emoji from AI chat messages",
+        ],
+    },
     {
         "version": "1.37.0",
         "date": "16 июня 2026",

@@ -101,7 +101,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict
     files=[]    → новое сообщение без вложений
     files=[...] → список dicts из chat_message_files
     """
-    mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname = row
+    mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname, *_ = row
     if user_id == 0:
         display = "AI-ассистент"
         initial = "🤖"
@@ -195,7 +195,6 @@ def _rows_to_history(rows: list, uid_col: int, text_col: int,
         if not text:
             continue
         if uid == 0:
-            text = text.removeprefix("🤖 ").strip()
             role = "assistant"
         else:
             role = "user"
@@ -298,7 +297,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
             await _post_status(
-                f"🤖 Дневной лимит AI-запросов исчерпан "
+                f"Дневной лимит AI-запросов исчерпан "
                 f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
             )
             return
@@ -315,12 +314,11 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         except Exception:
             answer = None
         if not answer:
-            await _post_status("🤖 AI-ассистент временно недоступен, попробуйте позже.")
+            await _post_status("AI-ассистент временно недоступен, попробуйте позже.")
             return
 
-        ai_text = f"🤖 {answer}"
         await anyio.to_thread.run_sync(
-            lambda: db.add_chat_message(user_id=0, message=ai_text, topic_id=topic_id)
+            lambda: db.add_chat_message(user_id=0, message=answer, topic_id=topic_id)
         )
 
         # Авто-сжатие сессии (не блокирует ответ — запускаем задачей)
@@ -379,7 +377,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
             await _post_ai_dm(
-                f"🤖 Дневной лимит AI-запросов исчерпан "
+                f"Дневной лимит AI-запросов исчерпан "
                 f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
             )
             return
@@ -396,10 +394,10 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
         except Exception:
             answer = None
         if not answer:
-            await _post_ai_dm("🤖 AI-ассистент временно недоступен, попробуйте позже.")
+            await _post_ai_dm("AI-ассистент временно недоступен, попробуйте позже.")
             return
 
-        await _post_ai_dm(f"🤖 {answer}")
+        await _post_ai_dm(answer)
 
         # Авто-сжатие сессии (не блокирует ответ — запускаем задачей)
         asyncio.create_task(
@@ -1347,7 +1345,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
     """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
-     fn, ln, uname) = row
+     fn, ln, uname, *_) = row
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{from_id}"
     is_mine = (from_id == my_db_id)
 

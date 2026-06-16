@@ -80,12 +80,12 @@
     </div>
 </div>
 
-<!-- ── 30-Day Trend Chart ──────────────────────────────────────── -->
+<!-- ── Trend Chart ─────────────────────────────────────────────── -->
 <div class="card p-5 mb-5">
-    <div class="flex items-start justify-between gap-3 mb-4">
+    <div class="flex items-start justify-between gap-3 mb-3">
         <div>
-            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200">📈 Вызовы AI-инструментов — 30 дней</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Суммарное число вызовов всех инструментов по дням (UTC)</p>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200">📈 Вызовы AI-инструментов</h2>
+            <p id="aiChartSubtitle" class="text-xs text-slate-400 mt-0.5">Суммарное число вызовов всех инструментов по дням (UTC)</p>
         </div>
         <div class="shrink-0 text-right text-[11px] text-slate-400 space-y-0.5">
             <div>Сегодня: <span class="font-semibold text-indigo-600 dark:text-indigo-400">{{ tool_today_total }}</span></div>
@@ -94,8 +94,32 @@
             <div>Всего: <span class="font-semibold text-slate-600 dark:text-slate-300">{{ alltime_total }}</span></div>
         </div>
     </div>
+
     {% if alltime_total > 0 %}
-    <div class="relative h-40">
+    <!-- Filter controls -->
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+        <div class="flex items-center gap-1.5">
+            <label class="text-[11px] text-slate-500 dark:text-slate-400 font-medium shrink-0">Инструмент:</label>
+            <select id="aiToolFilter"
+                    class="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600
+                           bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200
+                           focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                <option value="all">Все инструменты</option>
+                {% for tool_name in all_tool_names %}
+                <option value="{{ tool_name }}">{{ tool_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex items-center gap-1 ml-auto">
+            <button onclick="setAiDays(7)"  id="aiDaysBtn7"
+                    class="ai-days-btn px-3 py-1.5 text-xs rounded-lg border transition-colors">7д</button>
+            <button onclick="setAiDays(30)" id="aiDaysBtn30"
+                    class="ai-days-btn px-3 py-1.5 text-xs rounded-lg border transition-colors">30д</button>
+            <button onclick="setAiDays(90)" id="aiDaysBtn90"
+                    class="ai-days-btn px-3 py-1.5 text-xs rounded-lg border transition-colors">90д</button>
+        </div>
+    </div>
+    <div class="relative h-44">
         <canvas id="aiToolTrendChart"></canvas>
     </div>
     {% else %}
@@ -128,6 +152,58 @@
     <p class="text-[11px] text-slate-400 mt-3">
         Данные сохраняются в <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">data/shop_bot.db</code> — история не сбрасывается при рестарте сервера.
     </p>
+</div>
+{% endif %}
+
+<!-- ── By Organisation ────────────────────────────────────────── -->
+{% if per_org_alltime %}
+<div class="card p-5 mb-5">
+    <details class="group">
+        <summary class="flex items-center justify-between gap-2 cursor-pointer list-none select-none">
+            <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-slate-700 dark:text-slate-200">🏢 По организациям — всё время</span>
+                <span class="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full">{{ per_org_alltime | length }}</span>
+            </div>
+            <svg class="w-4 h-4 text-slate-400 transition-transform duration-200 group-open:rotate-180"
+                 fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </summary>
+
+        <div class="mt-4 space-y-2">
+            {% for org_path, org_tools in per_org_alltime.items() %}
+            {% set org_total = org_tools.values() | sum %}
+            <details class="group/org rounded-lg border border-slate-100 dark:border-slate-700 overflow-hidden">
+                <summary class="flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer list-none select-none
+                                hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <svg class="w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-150 group-open/org:rotate-90"
+                             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                        <code class="font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate">{{ org_path }}</code>
+                    </div>
+                    <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{{ org_total }}</span>
+                </summary>
+
+                <div class="px-3 pb-3 pt-1 bg-slate-50/50 dark:bg-slate-800/20 space-y-1.5">
+                    {% set max_org = org_tools.values() | max %}
+                    {% set max_org = max_org if max_org > 0 else 1 %}
+                    {% for tool_name, tool_count in org_tools.items() %}
+                    <div class="flex items-center gap-2">
+                        <code class="font-mono text-[10px] text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded shrink-0 w-44 truncate">{{ tool_name }}</code>
+                        <div class="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                            <div class="h-1.5 rounded-full bg-indigo-400 dark:bg-indigo-500"
+                                 style="width: {{ [(tool_count / max_org * 100)|int, 100]|min }}%"></div>
+                        </div>
+                        <span class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 w-8 text-right shrink-0">{{ tool_count }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </details>
 </div>
 {% endif %}
 
@@ -239,44 +315,147 @@
 </div>
 
 {% if alltime_total > 0 %}
+<style>
+.ai-days-btn {
+    color: #64748b;
+    border-color: #e2e8f0;
+    background: #fff;
+}
+.ai-days-btn:hover {
+    background: #f1f5f9;
+}
+.ai-days-btn.active {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+    font-weight: 600;
+}
+html.dark .ai-days-btn {
+    color: #94a3b8;
+    border-color: #475569;
+    background: #1e293b;
+}
+html.dark .ai-days-btn:hover {
+    background: #334155;
+}
+html.dark .ai-days-btn.active {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+}
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
-    const chartData = {{ chart_data | tojson }};
-    const isDark = document.documentElement.classList.contains('dark');
-    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
-    const textColor = isDark ? '#94a3b8' : '#64748b';
-    const labels = chartData.map(function(d){ return d.date.slice(5); });
-    const values = chartData.map(function(d){ return d.total; });
-    new Chart(document.getElementById('aiToolTrendChart'), {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Вызовов',
-                data: values,
-                backgroundColor: 'rgba(99,102,241,0.7)',
-                borderRadius: 4,
-                borderSkipped: false,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: {
-                    grid: { color: gridColor },
-                    ticks: { color: textColor, font: { size: 10 }, maxRotation: 45, maxTicksLimit: 15 }
-                },
-                y: {
-                    grid: { color: gridColor },
-                    ticks: { color: textColor, font: { size: 11 }, stepSize: 1 },
-                    beginAtZero: true
+    var fullData = {{ chart_data | tojson }};
+    var activeDays = 30;
+    var activeTool = 'all';
+    var chartInst = null;
+
+    function getColors() {
+        var isDark = document.documentElement.classList.contains('dark');
+        return {
+            grid: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            text: isDark ? '#94a3b8' : '#64748b',
+        };
+    }
+
+    function sliceData() {
+        var slice = fullData.slice(fullData.length - activeDays);
+        var labels = slice.map(function(d){ return d.date.slice(5); });
+        var values = slice.map(function(d){
+            if (activeTool === 'all') return d.total;
+            return (d.by_tool && d.by_tool[activeTool]) ? d.by_tool[activeTool] : 0;
+        });
+        return { labels: labels, values: values };
+    }
+
+    function updateSubtitle() {
+        var el = document.getElementById('aiChartSubtitle');
+        if (!el) return;
+        var toolLabel = activeTool === 'all' ? 'всех инструментов' : activeTool;
+        el.textContent = 'Вызовы ' + toolLabel + ' за ' + activeDays + ' дней (UTC)';
+    }
+
+    function updateDayButtons() {
+        [7, 30, 90].forEach(function(d){
+            var btn = document.getElementById('aiDaysBtn' + d);
+            if (!btn) return;
+            if (d === activeDays) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    function renderChart() {
+        var sd = sliceData();
+        var c = getColors();
+        var maxTicks = activeDays <= 7 ? 7 : activeDays <= 30 ? 15 : 18;
+
+        if (chartInst) {
+            chartInst.data.labels = sd.labels;
+            chartInst.data.datasets[0].data = sd.values;
+            chartInst.options.scales.x.ticks.maxTicksLimit = maxTicks;
+            chartInst.options.scales.x.grid.color = c.grid;
+            chartInst.options.scales.x.ticks.color = c.text;
+            chartInst.options.scales.y.grid.color = c.grid;
+            chartInst.options.scales.y.ticks.color = c.text;
+            chartInst.update();
+            return;
+        }
+
+        chartInst = new Chart(document.getElementById('aiToolTrendChart'), {
+            type: 'bar',
+            data: {
+                labels: sd.labels,
+                datasets: [{
+                    label: 'Вызовов',
+                    data: sd.values,
+                    backgroundColor: 'rgba(99,102,241,0.7)',
+                    borderRadius: 4,
+                    borderSkipped: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: {
+                        grid: { color: c.grid },
+                        ticks: { color: c.text, font: { size: 10 }, maxRotation: 45, maxTicksLimit: maxTicks }
+                    },
+                    y: {
+                        grid: { color: c.grid },
+                        ticks: { color: c.text, font: { size: 11 }, stepSize: 1 },
+                        beginAtZero: true
+                    }
                 }
             }
-        }
-    });
+        });
+    }
+
+    window.setAiDays = function(d) {
+        activeDays = d;
+        updateDayButtons();
+        updateSubtitle();
+        renderChart();
+    };
+
+    var toolSel = document.getElementById('aiToolFilter');
+    if (toolSel) {
+        toolSel.addEventListener('change', function(){
+            activeTool = this.value;
+            updateSubtitle();
+            renderChart();
+        });
+    }
+
+    updateDayButtons();
+    updateSubtitle();
+    renderChart();
 })();
 </script>
 {% endif %}

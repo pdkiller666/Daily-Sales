@@ -1069,16 +1069,23 @@ async def main():
     )
 
     # Очистка старых записей ai_tool_stats — ежедневно в 03:15 UTC
-    AI_TOOL_STATS_RETENTION_DAYS = 90
+    _AI_TOOL_STATS_RETENTION_DAYS_DEFAULT = 90
 
     async def prune_ai_tool_stats_job():
         try:
             from database import Database as _Database
             _db = _Database('data/shop_bot.db')
-            deleted = _db.prune_ai_tool_stats(AI_TOOL_STATS_RETENTION_DAYS)
+            _settings = _db.get_payment_settings()
+            try:
+                _retention_days = int(_settings.get("ai_stats_retention_days", _AI_TOOL_STATS_RETENTION_DAYS_DEFAULT))
+                if _retention_days < 7:
+                    _retention_days = _AI_TOOL_STATS_RETENTION_DAYS_DEFAULT
+            except (ValueError, TypeError):
+                _retention_days = _AI_TOOL_STATS_RETENTION_DAYS_DEFAULT
+            deleted = _db.prune_ai_tool_stats(_retention_days)
             logging.info(
                 "prune_ai_tool_stats: удалено %d строк старше %d дней",
-                deleted, AI_TOOL_STATS_RETENTION_DAYS,
+                deleted, _retention_days,
             )
         except Exception as _e:
             logging.error("prune_ai_tool_stats_job error: %s", _e)

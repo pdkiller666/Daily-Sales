@@ -67,8 +67,6 @@ html.dark .msg-ai .msg-bubble {
     border-right-color:#134e4a;
     border-bottom-color:#134e4a;
 }
-.msg-ai .msg-meta::before { content:"🤖 "; }
-
 /* Delete button — visible on touch, hover on desktop */
 .msg-del-btn { opacity:0; transition:opacity .15s; }
 .msg-bubble:hover .msg-del-btn { opacity:.55; }
@@ -246,7 +244,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     <!-- ══ Header ══ -->
     <div id="chat-header" class="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
         <div id="chat-header-avatar" class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0"
-             x-text="dmMode ? '✉️' : '💬'"></div>
+             x-text="dmMode ? '👤' : '💬'"></div>
         <div class="flex-1 min-w-0">
             <h1 class="font-bold text-slate-800 dark:text-slate-100 text-base leading-none"
                 x-text="dmMode ? 'Личные сообщения' : 'Чат команды'"></h1>
@@ -264,7 +262,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                 <button @click="switchToDm()"
                         :class="dmMode ? 'chat-mode-active' : 'chat-mode-idle'"
                         class="chat-mode-btn" title="Личные сообщения">
-                    ✉️ <span class="hidden sm:inline">Личные</span>
+                    👤 <span class="hidden sm:inline">Личные</span>
                     <span x-show="dmTotalUnread > 0"
                           class="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold bg-red-500 text-white"
                           x-text="dmTotalUnread > 9 ? '9+' : dmTotalUnread"></span>
@@ -638,7 +636,10 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                 </svg>
             </button>
         </form>
-        <p class="text-[10px] text-slate-400 mt-1.5 px-1">Макс. 20 МБ · Изображения, PDF, Word, Excel, CSV, TXT · Shift+Enter — перенос</p>
+        <p class="text-[10px] text-slate-400 mt-1.5 px-1"
+           x-text="currentTopicIsAi
+               ? '🔄 Кнопка «Новый диалог» слева — сбросить контекст ИИ и начать с чистого листа · Shift+Enter — перенос'
+               : 'Макс. 20 МБ · Изображения, PDF, Word, Excel, CSV, TXT · Shift+Enter — перенос'"></p>
     </div>
 
     <!-- ══ DM Panel ══ -->
@@ -692,12 +693,34 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                       x-text="c.unread > 9 ? '9+' : c.unread"></span>
                             </div>
                         </template>
-                        <div x-show="!dmLoading && dmContacts.length === 0"
+                        <!-- Результаты поиска по тексту сообщений -->
+                        <template x-if="dmSearch.trim().length >= 2 && dmMsgResults.length > 0">
+                            <div>
+                                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1">Сообщения</p>
+                                <template x-for="r in dmMsgResults" :key="String(r.dm_peer_id) + '_' + String(r.id)">
+                                    <div class="dm-contact-row"
+                                         @click="openDmConversation({id: r.dm_peer_id, display_name: r.dm_peer_name, initial: (r.dm_peer_name||'?')[0].toUpperCase()})">
+                                        <div class="dm-avatar" x-text="(r.dm_peer_name||'?')[0].toUpperCase()"></div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex justify-between items-baseline gap-1">
+                                                <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate" x-text="r.dm_peer_name"></span>
+                                                <span class="text-[10px] text-slate-400 shrink-0" x-text="r.date"></span>
+                                            </div>
+                                            <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="r.text"></p>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <div x-show="!dmLoading && dmContacts.length === 0 && !dmSearch.trim()"
                              class="flex flex-col items-center justify-center py-10 text-slate-400 text-center px-4">
-                            <div class="text-3xl mb-2">✉️</div>
+                            <div class="text-3xl mb-2">💬</div>
                             <p class="text-sm">Нет диалогов</p>
                             <p class="text-xs mt-1">Нажмите «＋» чтобы написать</p>
                         </div>
+                        <div x-show="!dmLoading && dmSearch.trim() && !dmFilteredContacts.length && !dmMsgResults.length"
+                             class="text-center text-xs text-slate-400 py-8">Ничего не найдено</div>
                     </div>
                 </template>
 
@@ -984,15 +1007,24 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         dmTotalUnread:     {{ dm_unread_count(request) if dm_unread_count is defined else 0 }},
         _dmInitPeer:       0,
         _dmKeepalive:      null,
+        dmMsgResults:      [],   /* результаты поиска по тексту сообщений (дебаунс API) */
+        _dmSearchTimer:    null,
 
         /* ── DM computed ── */
         get dmFilteredContacts() {
-            const q = (this.dmSearch || '').toLowerCase();
-            return q ? this.dmContacts.filter(c => (c.display_name||'').toLowerCase().includes(q)) : this.dmContacts;
+            const q = (this.dmSearch || '').toLowerCase().trim();
+            if (!q) return this.dmContacts;
+            /* При активном поиске — объединяем контакты + участников орги */
+            const matchingContacts = this.dmContacts.filter(c => (c.display_name||'').toLowerCase().includes(q));
+            const contactIds = new Set(this.dmContacts.map(c => c.id));
+            const matchingMembers = this.dmMembers.filter(m =>
+                !contactIds.has(m.id) && (m.display_name||'').toLowerCase().includes(q)
+            );
+            return [...matchingContacts, ...matchingMembers];
         },
         get dmFilteredMembers() {
             const existIds = new Set(this.dmContacts.map(c => c.id));
-            const q = (this.dmSearch || '').toLowerCase();
+            const q = (this.dmSearch || '').toLowerCase().trim();
             const all = this.dmMembers.filter(m => !existIds.has(m.id));
             return q ? all.filter(m => (m.display_name||'').toLowerCase().includes(q)) : all;
         },
@@ -1041,6 +1073,23 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     }
                 } catch (e) {}
             });
+            /* Дебаунсный поиск по тексту сообщений при вводе в DM-поиске */
+            this.$watch('dmSearch', (q) => {
+                clearTimeout(this._dmSearchTimer);
+                this.dmMsgResults = [];
+                const trimmed = (q || '').trim();
+                if (trimmed.length < 2) return;
+                this._dmSearchTimer = setTimeout(async () => {
+                    try {
+                        const r = await fetch('/chat/search?q=' + encodeURIComponent(trimmed) + '&topic_id=0');
+                        const d = await r.json();
+                        if (d.ok) {
+                            this.dmMsgResults = (d.results || []).filter(x => x.result_type === 'dm');
+                        }
+                    } catch(e) {}
+                }, 350);
+            });
+
             /* Ctrl+F / Cmd+F → open search */
             document.addEventListener('keydown', e => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'f') {

@@ -125,16 +125,25 @@ def get_tool_stats_all_dates() -> dict[str, dict]:
     for key, count in snapshot.items():
         combined[key] = max(combined.get(key, 0), count)
 
-    per_date: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for (tool, _org, day), count in combined.items():
-        per_date[day][tool] += count
+    per_date_tool: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    per_date_org: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(int))
+    )
+    for (tool, org, day), count in combined.items():
+        per_date_tool[day][tool] += count
+        per_date_org[day][org][tool] += count
 
+    all_days = sorted(set(per_date_tool) | set(per_date_org), reverse=True)
     return {
         day: {
-            "by_tool": dict(sorted(tools.items(), key=lambda kv: kv[1], reverse=True)),
-            "total_calls": sum(tools.values()),
+            "by_tool": dict(sorted(per_date_tool[day].items(), key=lambda kv: kv[1], reverse=True)),
+            "by_org": {
+                org: dict(tools)
+                for org, tools in per_date_org[day].items()
+            },
+            "total_calls": sum(per_date_tool[day].values()),
         }
-        for day, tools in sorted(per_date.items(), reverse=True)
+        for day in all_days
     }
 
 

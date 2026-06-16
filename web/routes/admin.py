@@ -474,6 +474,7 @@ async def admin_pay_settings(request: Request):
     # (см. billing_utils._is_trial), поэтому отдельного «тарифа триала» больше нет.
     trial_days = settings.get("trial_days", "14")
     payment_instruction = settings.get("payment_instruction", "")
+    ai_stats_retention_days = settings.get("ai_stats_retention_days", "90")
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -484,6 +485,7 @@ async def admin_pay_settings(request: Request):
             "provider": provider,
             "trial_days": trial_days,
             "payment_instruction": payment_instruction,
+            "ai_stats_retention_days": ai_stats_retention_days,
             "csrf_token": get_csrf_token(request),
             "msg": _flash(request),
         }),
@@ -501,6 +503,7 @@ async def admin_pay_settings_save(
     web_url: str = Form(""),
     provider: str = Form("sbp"),
     trial_days: str = Form("14"),
+    ai_stats_retention_days: str = Form("90"),
 ):
     user = get_session_user(request)
     if _guard(user):
@@ -518,6 +521,12 @@ async def admin_pay_settings_save(
         db.update_payment_setting("payment_instruction", payment_instruction.strip())
     if trial_days.strip():
         db.update_payment_setting("trial_days", trial_days.strip())
+    try:
+        retention = int(ai_stats_retention_days.strip())
+        if retention >= 7:
+            db.update_payment_setting("ai_stats_retention_days", str(retention))
+    except (ValueError, AttributeError):
+        pass
     db.set_web_interface_url(web_url.strip() or None)
     if provider in ("sbp", "yookassa"):
         db.set_payment_provider(provider)
@@ -1113,18 +1122,40 @@ async def admin_ai_limits(request: Request):
     ]
     tool_rows.sort(key=lambda r: r["today"], reverse=True)
 
-    cutoff_30 = (_dt.date.today() - _dt.timedelta(days=29)).isoformat()
     chart_data = []
-    for i in range(30):
-        day = (_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat()
-        total = all_dates.get(day, {}).get("total_calls", 0)
-        chart_data.append({"date": day, "total": total})
+    for i in range(90):
+        day = (_dt.date.today() - _dt.timedelta(days=89 - i)).isoformat()
+        day_entry = all_dates.get(day, {})
+        chart_data.append({
+            "date": day,
+            "total": day_entry.get("total_calls", 0),
+            "by_tool": day_entry.get("by_tool", {}),
+        })
 
     alltime_by_tool: dict = {}
     for day_data in all_dates.values():
         for tool, count in day_data["by_tool"].items():
             alltime_by_tool[tool] = alltime_by_tool.get(tool, 0) + count
     alltime_by_tool = dict(sorted(alltime_by_tool.items(), key=lambda kv: kv[1], reverse=True))
+
+    per_org_alltime: dict = {}
+    for day_data in all_dates.values():
+        for org, tools in day_data.get("by_org", {}).items():
+            if org not in per_org_alltime:
+                per_org_alltime[org] = {}
+            for tool, count in tools.items():
+                per_org_alltime[org][tool] = per_org_alltime[org].get(tool, 0) + count
+    per_org_alltime = dict(
+        sorted(
+            per_org_alltime.items(),
+            key=lambda kv: sum(kv[1].values()),
+            reverse=True,
+        )
+    )
+    for org in per_org_alltime:
+        per_org_alltime[org] = dict(
+            sorted(per_org_alltime[org].items(), key=lambda kv: kv[1], reverse=True)
+        )
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -1144,6 +1175,8 @@ async def admin_ai_limits(request: Request):
             "chart_data": chart_data,
             "alltime_by_tool": alltime_by_tool,
             "alltime_total": sum(alltime_by_tool.values()),
+            "all_tool_names": list(alltime_by_tool.keys()),
+            "per_org_alltime": per_org_alltime,
         }),
     )
 

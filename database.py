@@ -11232,7 +11232,8 @@ class Database:
         cursor.execute(f'''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username
+                   u.first_name, u.last_name, u.username,
+                   m.is_session_break, m.is_ai_summary
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
@@ -11911,7 +11912,8 @@ class Database:
                 f'''SELECT d.id, d.from_user_id, d.to_user_id,
                            d.message, d.file_path, d.file_name, d.file_type, d.file_size,
                            d.created_at, d.is_read,
-                           uf.first_name, uf.last_name, uf.username
+                           uf.first_name, uf.last_name, uf.username,
+                           d.is_session_break, d.is_ai_summary
                     FROM direct_messages d
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = 0)
