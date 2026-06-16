@@ -670,7 +670,7 @@ async def chat_send(
 
 
 @router.get("/chat/poll")
-def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since: str = ""):
+def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since: str = "", mark_read: int = 1):
     from web.auth import get_session_user
     from web.deps import get_web_db
 
@@ -706,11 +706,13 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         # Удаления у всех в реальном времени (с момента прошлого опроса)
         deleted_ids = db.get_chat_deleted_ids_since(topic_id, del_since)
 
-        # Текущая тема прочитана до latest; бейджи остальных тем
-        try:
-            db.set_chat_read(user_db_id, topic_id, latest)
-        except Exception:
-            pass
+        # Текущая тема прочитана до latest; бейджи остальных тем.
+        # mark_read=0 → вкладка скрыта: НЕ помечаем прочитанным (непрочитанное копится)
+        if mark_read:
+            try:
+                db.set_chat_read(user_db_id, topic_id, latest)
+            except Exception:
+                pass
         topic_unread = {}
         try:
             topic_unread = {str(k): v for k, v in db.get_chat_unread_counts(user_db_id).items()}
@@ -1063,7 +1065,7 @@ def chat_search(request: Request, q: str = "", topic_id: int = 0):
     topic_id=0  → глобальный поиск по всем темам (до 30 результатов)
     topic_id>0  → поиск только в указанной теме (до 25 результатов)
     Минимальная длина запроса: 2 символа.
-    Rate limit: 30 req/min per IP.
+    Rate limit: 30 req/min на пользователя (telegram_id; за прокси IP общий).
     """
     from web.auth import get_session_user
     from web.deps import get_web_db
@@ -1733,6 +1735,52 @@ async def dm_delete(
         return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
 
+# ── Mark DM read (HTTP fallback) ────────────────────────────────────────────────
+
+@router.post("/chat/dm/{peer_id}/read")
+async def dm_mark_read(
+    request: Request,
+    peer_id: int,
+    csrf_token: str = Form(default=""),
+):
+    """Надёжная серверная отметка диалога прочитанным (фолбэк к WS).
+
+    Помечает все входящие от peer_id прочитанными и шлёт собеседнику
+    WS-квитанцию 'read', даже если у клиента WS в этот момент не открыт.
+    """
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from web.ws_manager import dm_manager
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _chat_access_ok(telegram_id):
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id or not peer_id:
+            return JSONResponse({"ok": False, "error": "Некорректный запрос"}, status_code=400)
+        db.mark_dm_read(user_db_id, peer_id)
+        try:
+            await dm_manager.send_to_user(org_db, peer_id, {
+                "type": "read",
+                "by_user_id": user_db_id,
+            })
+        except Exception:
+            pass
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        logger.error(f"dm_mark_read error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
 # ── File download ─────────────────────────────────────────────────────────────
 
 @router.get("/chat/dm/file/{msg_id}")
@@ -1820,6 +1868,7 @@ async def ws_dm(websocket: WebSocket):
                     await websocket.send_json({"type": "error", "message": "Ошибка сервера"})
                     continue
                 now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+                client_id = data.get("client_id")
                 payload = {
                     "type": "message",
                     "id": new_id,
@@ -1830,7 +1879,7 @@ async def ws_dm(websocket: WebSocket):
                     "created_at": now_str,
                     "is_read": False,
                 }
-                await websocket.send_json({**payload, "confirmed": True})
+                await websocket.send_json({**payload, "confirmed": True, "client_id": client_id})
                 await dm_manager.send_to_user(org_db, to_id, payload)
                 # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
                 if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):

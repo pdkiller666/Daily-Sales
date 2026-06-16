@@ -14,8 +14,11 @@ main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
 #chat-wrapper {
-    height: calc(100vh - 3.5rem);
-    height: calc(100dvh - 3.5rem);
+    /* Высота вычисляется в _fitHeight(): viewport − верх обёртки − нижнее меню.
+       Фолбэк на случай, если JS ещё не отработал. */
+    height: var(--chat-h, calc(100dvh - 3.5rem));
+    height: var(--chat-h, calc(100dvh - 3.5rem));
+    overflow: hidden;
 }
 
 /* ── Bubble styles ── */
@@ -908,9 +911,24 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         init() {
             /* pre-populate with server-side messages so they show immediately */
             this.msgs = Array.isArray(initMessages) ? initMessages : [];
+            /* Фиксируем высоту строго между шапкой и нижним меню */
+            this._fitHeight();
+            this.$nextTick(() => this._fitHeight());
+            this._fitHandler = () => this._fitHeight();
+            window.addEventListener('resize', this._fitHandler);
+            window.addEventListener('orientationchange', this._fitHandler);
+            if (window.visualViewport) window.visualViewport.addEventListener('resize', this._fitHandler);
             this.scrollBottom(true);
             this.startPolling();
+            /* Постоянное WS-соединение для ЛС — живёт в любом режиме */
+            this.dmWsConnect();
             this.markTopicRead(this.currentTopicId, this.latestId);
+            /* Возврат фокуса на вкладку → помечаем текущую тему прочитанной */
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && !this.dmMode) {
+                    this.markTopicRead(this.currentTopicId, this.latestId);
+                }
+            });
             /* Ctrl+F / Cmd+F → open search */
             document.addEventListener('keydown', e => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
@@ -922,6 +940,23 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             });
             /* Auto-switch to DM mode from URL */
             this.dmAutoModeFromUrl();
+        },
+
+        /* Высота обёртки = видимый viewport − верх обёртки (шапка+баннер) − нижнее меню (на мобильных).
+           Скроллится только внутренний список, сам чат не двигается. */
+        _fitHeight() {
+            const el = this.$el;
+            if (!el) return;
+            const top = el.getBoundingClientRect().top;
+            const vh  = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+            const isDesktop = window.matchMedia('(min-width:1024px)').matches;
+            let navH = 0;
+            if (!isDesktop) {
+                const nav = document.querySelector('nav.fixed.bottom-0');
+                navH = nav ? nav.getBoundingClientRect().height : 64;
+            }
+            const h = Math.max(240, Math.round(vh - top - navH));
+            el.style.setProperty('--chat-h', h + 'px');
         },
 
         scrollBottom(force = false) {
@@ -943,6 +978,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             try {
                 let url = `/chat/poll?since_id=${this.latestId}&topic_id=${topicId}`;
                 if (this._delSince) url += `&del_since=${encodeURIComponent(this._delSince)}`;
+                /* Вкладка скрыта → получаем сообщения/уведомления, но НЕ помечаем прочитанным */
+                if (document.hidden) url += '&mark_read=0';
                 const res = await fetch(url);
                 const data = await res.json();
                 if (!data.ok) return;
@@ -958,11 +995,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     this.msgs = this.msgs.filter(m => !delSet.has(m.id));
                 }
 
-                /* счётчики непрочитанного по темам */
+                /* счётчики непрочитанного по темам.
+                   Пока вкладка скрыта — текущая тема тоже копит непрочитанное. */
                 if (data.topic_unread && typeof data.topic_unread === 'object') {
                     for (const t of this.topicsList) {
                         const u = data.topic_unread[String(t.id)];
-                        t.unread = (t.id === this.currentTopicId) ? 0 : (u || 0);
+                        t.unread = (t.id === this.currentTopicId && !document.hidden) ? 0 : (u || 0);
                     }
                 }
 
@@ -972,7 +1010,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (newOnes.length) {
                     this.msgs.push(...newOnes);
                     this.latestId = data.latest_id;
-                    this.markTopicRead(this.currentTopicId, data.latest_id);
+                    if (!document.hidden) this.markTopicRead(this.currentTopicId, data.latest_id);
                     this.scrollBottom();
                     if (document.hidden) {
                         try {
@@ -1285,7 +1323,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         },
         switchToGroup() {
             this.dmMode = false;
-            this.dmWsDisconnect();
+            /* WS для ЛС НЕ закрываем — он живёт постоянно, чтобы получать
+               входящие сообщения/удаления и бейдж в любом режиме */
             this.startPolling();
             const suffix = this.currentTopicId !== 1 ? '?topic=' + this.currentTopicId : '';
             history.replaceState(null, '', '/chat' + suffix);
@@ -1336,7 +1375,18 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             history.replaceState(null, '', '/chat?dm=1&peer=' + contact.id);
             await this._dmFetchMessages(0);
             this._dmScrollBottom(true);
-            this._dmWsSend({type: 'read', peer_id: contact.id});
+            this._dmMarkRead(contact.id);
+        },
+        /* Отметка диалога прочитанным: WS (мгновенно собеседнику) + HTTP (надёжно
+           на сервере, даже если WS ещё не открыт) */
+        async _dmMarkRead(peerId) {
+            if (!peerId) return;
+            this._dmWsSend({type: 'read', peer_id: peerId});
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                await fetch('/chat/dm/' + peerId + '/read', { method: 'POST', body: fd });
+            } catch(e) {}
         },
         async _dmFetchMessages(beforeId) {
             try {
@@ -1377,14 +1427,15 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
             /* WS fast path — text only, no files */
             if (!this.dmAttachedFiles.length && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
-                this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt}));
+                const clientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt, client_id: clientId}));
                 const now = new Date();
                 const ts = String(now.getDate()).padStart(2,'0') + '.'
                          + String(now.getMonth()+1).padStart(2,'0') + '.'
                          + now.getFullYear() + ' '
                          + String(now.getHours()).padStart(2,'0') + ':'
                          + String(now.getMinutes()).padStart(2,'0');
-                this.dmMessages.push({id: 'tmp_' + Date.now(), message: txt, has_file: false,
+                this.dmMessages.push({id: clientId, message: txt, has_file: false,
                     files: [], is_image: false, file_url: '', file_name: '', is_mine: true,
                     can_delete: false, created_at: ts});
                 this.dmText = '';
@@ -1449,16 +1500,25 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (this.dmWs) return;
             const proto = location.protocol === 'https:' ? 'wss' : 'ws';
             const ws = new WebSocket(`${proto}://${location.host}/ws/dm`);
-            ws.onopen = () => { this.dmWsOnline = true; this.dmWsRetry = 1000; };
+            ws.onopen = () => {
+                this.dmWsOnline = true; this.dmWsRetry = 1000;
+                /* После переподключения подтягиваем пропущенное:
+                   обновляем список контактов (бейдж) и, если открыт диалог —
+                   перечитываем его (ловим пропущенные сообщения и удаления) */
+                this.dmLoadContacts();
+                if (this.dmMode && this.dmPeerId) {
+                    this._dmFetchMessages(0).then(() => this._dmScrollBottom(true));
+                }
+            };
             ws.onmessage = e => { try { this.handleDmWsMsg(JSON.parse(e.data)); } catch(_) {} };
             ws.onclose = () => {
                 this.dmWsOnline = false; this.dmWs = null;
-                if (this.dmMode) {
-                    this.dmWsRetryTimer = setTimeout(() => {
-                        this.dmWsRetry = Math.min(this.dmWsRetry * 1.5, 30000);
-                        this.dmWsConnect();
-                    }, this.dmWsRetry);
-                }
+                if (this._dmWsClosing) { this._dmWsClosing = false; return; }
+                /* WS постоянный — переподключаемся всегда, с нарастающей паузой */
+                this.dmWsRetryTimer = setTimeout(() => {
+                    this.dmWsRetry = Math.min(this.dmWsRetry * 1.5, 30000);
+                    this.dmWsConnect();
+                }, this.dmWsRetry);
             };
             ws.onerror = () => { this.dmWsOnline = false; };
             this.dmWs = ws;
@@ -1470,6 +1530,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             }
         },
         dmWsDisconnect() {
+            this._dmWsClosing = true;   /* осознанное закрытие — без переподключения */
             if (this.dmWs) { try { this.dmWs.close(); } catch(_) {} this.dmWs = null; }
             if (this.dmWsRetryTimer) { clearTimeout(this.dmWsRetryTimer); this.dmWsRetryTimer = null; }
             if (this._dmKeepalive)   { clearInterval(this._dmKeepalive); this._dmKeepalive = null; }
@@ -1483,15 +1544,20 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (data.type === 'message') {
                 const isMine = (data.from_user_id === this.myUserId);
                 if (isMine && data.confirmed) {
-                    /* Replace tmp message with confirmed id */
-                    const idx = this.dmMessages.findIndex(m => String(m.id).startsWith('tmp_'));
+                    /* Заменяем временное сообщение по client_id (надёжно при быстрой
+                       отправке нескольких сообщений подряд) */
+                    let idx = data.client_id
+                        ? this.dmMessages.findIndex(m => m.id === data.client_id)
+                        : -1;
+                    if (idx < 0) idx = this.dmMessages.findIndex(m => String(m.id).startsWith('tmp_'));
                     if (idx >= 0) { this.dmMessages[idx] = {...this.dmMessages[idx], id: data.id, can_delete: true}; }
                     return;
                 }
                 const isAi = (data.from_user_id === 0) || !!data.is_ai;
                 /* AI replies (from_user_id=0) always belong to the current user's
                    own conversation — accept them regardless of dmPeerId match. */
-                if (!isMine && (data.from_user_id === this.dmPeerId || isAi)) {
+                const viewingThisPeer = this.dmMode && (data.from_user_id === this.dmPeerId);
+                if (!isMine && (viewingThisPeer || isAi)) {
                     this.dmMessages.push({
                         id: data.id, message: data.message || '',
                         has_file: !!data.has_file, is_image: !!data.is_image,
@@ -1500,11 +1566,19 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         is_ai: isAi,
                     });
                     this._dmScrollBottom();
+                    /* WS заведомо открыт (только что получили) — HTTP-фолбэк не нужен */
                     this._dmWsSend({type: 'read', peer_id: this.dmPeerId});
-                }
-                if (!isMine && !isAi) {
-                    /* Refresh contacts to get updated last_msg + unread */
-                    this.dmLoadContacts();
+                } else if (!isMine && !isAi) {
+                    /* Сообщение в неоткрытый диалог (в т.ч. в режиме «Общий»):
+                       поднимаем общий бейдж и обновляем строку контакта */
+                    this.dmTotalUnread = (this.dmTotalUnread || 0) + 1;
+                    const c = this.dmContacts.find(x => x.id === data.from_user_id);
+                    if (c) {
+                        c.unread = (c.unread || 0) + 1;
+                        c.last_msg = data.message || (data.has_file ? '📎 Файл' : '');
+                    } else if (this.dmMode) {
+                        this.dmLoadContacts();
+                    }
                 }
             } else if (data.type === 'delete') {
                 /* live-удаление сообщения у обоих собеседников */
