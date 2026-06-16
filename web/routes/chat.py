@@ -166,6 +166,22 @@ def _load_msg_files_bulk(db, message_ids: list) -> dict:
 
 _AI_CHAT_DAILY_LIMIT = 50
 
+# Виртуальный собеседник «AI-ассистент» в личных сообщениях. Используется как
+# peer_id в маршрутах/фронтенде. Значение -1 (а не 0) — потому что во фронтенде
+# dmPeerId=0 означает «диалог не выбран». В хранилище AI-тред кодируется иначе:
+# запрос пользователя to_user_id=0, ответ AI from_user_id=0+ai_peer_id=0.
+AI_PEER_ID = -1
+
+
+def _ai_ext_ok(db, telegram_id: int) -> bool:
+    """Доступен ли AI-ассистент: оплачено ли расширение ai_chat_assistant у владельца."""
+    try:
+        from billing_utils import has_extension
+        owner_tg_id = db.get_org_owner_tg_id() or telegram_id
+        return bool(has_extension(owner_tg_id, 'ai_chat_assistant'))
+    except Exception:
+        return False
+
 
 async def _build_ai_org_context(db, user_db_id: int) -> tuple[str, str, list]:
     """Собирает обогащённый контекст организации для AI-ассистента.
@@ -1225,6 +1241,32 @@ def _fmt_contact(row, my_id: int) -> dict:
     }
 
 
+def _build_ai_contact(db, user_db_id: int, telegram_id: int):
+    """Закреплённый контакт «AI-ассистент» для списка ЛС.
+
+    Возвращает dict или None, если расширение ai_chat_assistant не оплачено.
+    """
+    if not _ai_ext_ok(db, telegram_id):
+        return None
+    try:
+        last_msg, last_from, last_at, unread = db.get_ai_dm_summary(user_db_id)
+    except Exception:
+        last_msg, last_from, last_at, unread = ('', 0, '', 0)
+    if last_msg:
+        preview = ("🤖 " if last_from == 0 else "Вы: ") + last_msg
+    else:
+        preview = "Спросите о продажах, планах, товарах"
+    return {
+        "id": AI_PEER_ID,
+        "display_name": "AI-ассистент",
+        "initial": "🤖",
+        "last_msg": preview[:80],
+        "last_at": _fmt_ts(last_at) if last_at else "",
+        "unread": int(unread or 0),
+        "is_ai": True,
+    }
+
+
 # ── Page: contacts list ───────────────────────────────────────────────────────
 
 @router.get("/chat/dm")
@@ -1455,6 +1497,10 @@ def api_dm_contacts(request: Request):
             return JSONResponse({"ok": True, "contacts": [], "unread_total": 0})
         raw = db.get_dm_contacts(user_db_id)
         contacts = [_fmt_contact(r, user_db_id) for r in raw]
+        # AI-ассистент — закреплённый контакт сверху (если расширение оплачено)
+        ai_contact = _build_ai_contact(db, user_db_id, telegram_id)
+        if ai_contact:
+            contacts.insert(0, ai_contact)
         unread_total = sum(c["unread"] for c in contacts)
         return JSONResponse({"ok": True, "contacts": contacts, "unread_total": unread_total})
     except Exception as exc:
@@ -1489,7 +1535,15 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         if not user_db_id:
             return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=400)
-        rows = db.get_dm_conversation(user_db_id, peer_id, limit=51, before_id=before_id)
+        if peer_id == AI_PEER_ID:
+            if not _ai_ext_ok(db, telegram_id):
+                return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=403)
+            rows = db.get_ai_dm_conversation(user_db_id, limit=51, before_id=before_id)
+        elif peer_id <= 0:
+            # peer_id=0 — технический «AI-маркер» в хранилище, не реальный диалог.
+            return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=400)
+        else:
+            rows = db.get_dm_conversation(user_db_id, peer_id, limit=51, before_id=before_id)
         has_more = len(rows) > 50
         page = rows[:50]
         dm_ids = [r[0] for r in page]
@@ -1578,6 +1632,32 @@ async def dm_send(
         if not user_db_id:
             return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
 
+        # ── AI-ассистент: выделенный личный тред (peer = AI_PEER_ID) ──────────
+        if to_user_id == AI_PEER_ID:
+            if not _ai_ext_ok(db, telegram_id):
+                return JSONResponse({"ok": False, "error": "AI-ассистент недоступен"}, status_code=403)
+            text = message.strip()[:2000]
+            if not text:
+                return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
+            # Запрос пользователя: from=user, to=0 (метка AI-треда)
+            new_id = db.add_dm(user_db_id, 0, text)
+            if not new_id:
+                return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+            # Ответ AI формируется асинхронно (from=0, to=user, ai_peer_id=0) и
+            # доставляется по WS — основной запрос не ждёт.
+            asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=0))
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            msg = _fmt_dm(
+                (new_id, user_db_id, 0, text, "", "", "", 0, now_str, 0,
+                 user.get("name", ""), "", ""),
+                my_db_id=user_db_id, files=[],
+            )
+            return JSONResponse({"ok": True, "message": msg})
+
+        # Прочие неположительные peer (например -2) — невалидны (0 отсечён выше).
+        if to_user_id < 0:
+            return JSONResponse({"ok": False, "error": "Некорректный получатель"}, status_code=400)
+
         text = message.strip()[:2000]
         saved_files = await _save_uploaded_files(files, _uploads_dir_dm(org_db))
 
@@ -1591,10 +1671,6 @@ async def dm_send(
 
         if saved_files:
             db.add_dm_files(new_id, saved_files)
-
-        # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
-        if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
-            asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=to_user_id))
 
         # Загружаем только что сохранённые файлы, чтобы получить реальные att_id
         # (id вложения, НЕ id сообщения) — нужны и для WS-payload, и для ответа.
@@ -1636,7 +1712,10 @@ async def dm_send(
             "created_at": now_str,
             "is_read": False,
         }
-        await dm_manager.send_to_user(org_db, to_user_id, payload)
+        try:
+            await dm_manager.send_to_user(org_db, to_user_id, payload)
+        except Exception:
+            pass
         try:
             first_name = user.get("name", "Кто-то")
             preview = text or (f"📎 {file_name}" if file_name else "")
@@ -1767,6 +1846,13 @@ async def dm_mark_read(
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         if not user_db_id or not peer_id:
             return JSONResponse({"ok": False, "error": "Некорректный запрос"}, status_code=400)
+        if peer_id == AI_PEER_ID:
+            if not _ai_ext_ok(db, telegram_id):
+                return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+            db.mark_ai_dm_read(user_db_id)
+            return JSONResponse({"ok": True})
+        if peer_id < 0:
+            return JSONResponse({"ok": False, "error": "Некорректный запрос"}, status_code=400)
         db.mark_dm_read(user_db_id, peer_id)
         try:
             await dm_manager.send_to_user(org_db, peer_id, {
@@ -1858,7 +1944,8 @@ async def ws_dm(websocket: WebSocket):
             if msg_type == "message":
                 to_id = int(data.get("to_user_id", 0))
                 text = str(data.get("message", "")).strip()[:2000]
-                if not to_id or not text:
+                # to_id <= 0 невалиден: 0 = «нет», -1 = AI (только по HTTP), прочие — мусор.
+                if to_id <= 0 or not text:
                     continue
                 if not _dm_send_ok(telegram_id):
                     await websocket.send_json({"type": "error", "message": "Слишком много сообщений"})
@@ -1881,9 +1968,6 @@ async def ws_dm(websocket: WebSocket):
                 }
                 await websocket.send_json({**payload, "confirmed": True, "client_id": client_id})
                 await dm_manager.send_to_user(org_db, to_id, payload)
-                # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
-                if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
-                    asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=to_id))
                 try:
                     first_name = user.get("name", "Кто-то")
                     _dm_msg = f"💬 {first_name}: {text[:80]}"

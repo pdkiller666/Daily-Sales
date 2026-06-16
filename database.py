@@ -11780,6 +11780,91 @@ class Database:
             logger.error("get_dm_unread_count: %s", e)
             return 0
 
+    # ── AI-ассистент: выделенный личный тред (peer = AI) ───────────────────────
+    # Хранение: запрос пользователя = (from_user_id=user, to_user_id=0);
+    #           ответ AI          = (from_user_id=0, to_user_id=user, ai_peer_id=0).
+    # Это отличает выделенный AI-тред от СТАРЫХ AI-ответов внутри реальных диалогов
+    # (там ai_peer_id = id реального собеседника, т.е. >= 1).
+
+    def get_ai_dm_conversation(self, user_id: int,
+                                limit: int = 50, before_id: int = 0) -> list:
+        """История личного треда пользователя с AI-ассистентом (ASC по id)."""
+        try:
+            conn = self.get_connection()
+            params: list = [user_id, user_id]
+            extra = ''
+            if before_id > 0:
+                extra = ' AND d.id < ?'
+                params.append(before_id)
+            params.append(limit)
+            rows = conn.execute(
+                f'''SELECT d.id, d.from_user_id, d.to_user_id,
+                           d.message, d.file_path, d.file_name, d.file_type, d.file_size,
+                           d.created_at, d.is_read,
+                           uf.first_name, uf.last_name, uf.username
+                    FROM direct_messages d
+                    LEFT JOIN users uf ON uf.id = d.from_user_id
+                    WHERE ((d.from_user_id = ? AND d.to_user_id = 0)
+                        OR (d.from_user_id = 0 AND d.to_user_id = ? AND d.ai_peer_id = 0))
+                      AND d.is_deleted = 0{extra}
+                    ORDER BY d.id DESC
+                    LIMIT ?''',
+                params
+            ).fetchall()
+            conn.close()
+            return list(reversed(rows))
+        except Exception as e:
+            logger.error("get_ai_dm_conversation: %s", e)
+            return []
+
+    def mark_ai_dm_read(self, user_id: int) -> None:
+        """Пометить личный AI-тред прочитанным (только ответы AI: from=0, ai_peer_id=0)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                '''UPDATE direct_messages
+                   SET is_read = 1
+                   WHERE to_user_id = ? AND from_user_id = 0 AND ai_peer_id = 0
+                     AND is_read = 0 AND is_deleted = 0''',
+                (user_id,)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error("mark_ai_dm_read: %s", e)
+
+    def get_ai_dm_summary(self, user_id: int) -> tuple:
+        """Сводка по AI-треду для строки контакта.
+
+        Возвращает (last_msg, last_from, last_at, unread).
+        """
+        try:
+            conn = self.get_connection()
+            last = conn.execute(
+                '''SELECT message, from_user_id, created_at
+                   FROM direct_messages
+                   WHERE ((from_user_id = ? AND to_user_id = 0)
+                       OR (from_user_id = 0 AND to_user_id = ? AND ai_peer_id = 0))
+                     AND is_deleted = 0
+                   ORDER BY id DESC LIMIT 1''',
+                (user_id, user_id)
+            ).fetchone()
+            unread_row = conn.execute(
+                '''SELECT COUNT(*) FROM direct_messages
+                   WHERE to_user_id = ? AND from_user_id = 0 AND ai_peer_id = 0
+                     AND is_read = 0 AND is_deleted = 0''',
+                (user_id,)
+            ).fetchone()
+            conn.close()
+            last_msg = last[0] if last else ''
+            last_from = last[1] if last else 0
+            last_at = last[2] if last else ''
+            unread = unread_row[0] if unread_row else 0
+            return (last_msg, last_from, last_at, unread)
+        except Exception as e:
+            logger.error("get_ai_dm_summary: %s", e)
+            return ('', 0, '', 0)
+
     def get_dm_message(self, msg_id: int) -> tuple | None:
         """Получить одно ЛС по id (для скачивания файлов)."""
         try:

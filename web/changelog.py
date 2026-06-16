@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.31.0"
+CURRENT_VERSION = "1.32.0"
 
 ENTRIES = [
+    {
+        "version": "1.32.0",
+        "date": "16 июня 2026",
+        "items": [
+            "- AI-ассистент теперь отдельный собеседник в личных сообщениях: у каждого сотрудника свой приватный чат с AI (значок 🤖 вверху списка диалогов).",
+            "- В обычных личных переписках с коллегами AI больше не вмешивается — хук «@ии» убран; общение с людьми остаётся только между людьми.",
+            "Fix unread message counter for AI assistant replies in direct messages",
+            "Add HTTP-level tests for POST /chat/send and POST /chat/dm/send (test #12)",
+            "Prevent chat messages from disappearing when push/WS fails",
+        ],
+    },
     {
         "version": "1.31.0",
         "date": "16 июня 2026",

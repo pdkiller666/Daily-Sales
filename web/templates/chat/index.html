@@ -633,7 +633,8 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             <div class="dm-contact-row"
                                  :class="c.id === dmPeerId ? 'active' : ''"
                                  @click="openDmConversation(c)">
-                                <div class="dm-avatar" x-text="c.initial"></div>
+                                <div class="dm-avatar" x-text="c.initial"
+                                     :style="c.is_ai ? 'background:#14b8a6' : ''"></div>
                                 <div class="flex-1 min-w-0">
                                     <div class="flex justify-between items-baseline gap-1">
                                         <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate" x-text="c.display_name"></span>
@@ -700,6 +701,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             </svg>
                         </button>
                         <div class="dm-avatar shrink-0" style="width:32px;height:32px;font-size:.8rem"
+                             :style="dmPeerId === -1 ? 'width:32px;height:32px;font-size:.8rem;background:#14b8a6' : 'width:32px;height:32px;font-size:.8rem'"
                              x-text="dmPeerInitial"></div>
                         <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate"
                               x-text="dmPeerName"></span>
@@ -726,6 +728,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 <template x-if="!m.is_mine">
                                     <div class="dm-avatar shrink-0"
                                          style="width:28px;height:28px;font-size:.75rem"
+                                         :style="(m.is_ai || dmPeerId === -1) ? 'width:28px;height:28px;font-size:.75rem;background:#14b8a6' : 'width:28px;height:28px;font-size:.75rem'"
                                          x-text="dmPeerInitial"></div>
                                 </template>
                                 <div :class="m.is_mine ? 'items-end' : 'items-start'"
@@ -800,7 +803,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 @keydown.enter.shift.exact="dmText += '\n'"
                                 @input="onDmTyping($event.target)"
                                 rows="1"
-                                :placeholder="'Написать ' + dmPeerName + '… (Enter — отправить){% if ai_chat_enabled %} · @ИИ — спросить AI{% endif %}'"
+                                :placeholder="'Написать ' + dmPeerName + '… (Enter — отправить)'"
                                 :disabled="dmSending"
                                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                                 style="min-height:42px;max-height:120px"
@@ -1415,7 +1418,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
            на сервере, даже если WS ещё не открыт) */
         async _dmMarkRead(peerId) {
             if (!peerId) return;
-            this._dmWsSend({type: 'read', peer_id: peerId});
+            /* AI-тред (peer < 0) серверный — некому слать WS read; только HTTP. */
+            if (peerId > 0) this._dmWsSend({type: 'read', peer_id: peerId});
             try {
                 const fd = new FormData();
                 fd.append('csrf_token', this.csrfToken);
@@ -1459,8 +1463,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (!txt && !this.dmAttachedFiles.length) return;
             this.dmSending = true;
 
-            /* WS fast path — text only, no files */
-            if (!this.dmAttachedFiles.length && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
+            /* WS fast path — text only, no files. AI-тред (-1) всегда по HTTP. */
+            if (this.dmPeerId !== -1 && !this.dmAttachedFiles.length && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
                 const clientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
                 this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt, client_id: clientId}));
                 const now = new Date();
@@ -1588,10 +1592,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     return;
                 }
                 const isAi = (data.from_user_id === 0) || !!data.is_ai;
-                /* AI replies (from_user_id=0) always belong to the current user's
-                   own conversation — accept them regardless of dmPeerId match. */
-                const viewingThisPeer = this.dmMode && (data.from_user_id === this.dmPeerId);
-                if (!isMine && (viewingThisPeer || isAi)) {
+                /* AI-ответы принадлежат выделенному AI-треду (peer = -1). Аппендим
+                   их только если открыт именно AI-тред; иначе — бейдж AI-контакта. */
+                const viewingThisPeer = this.dmMode && (
+                    isAi ? (this.dmPeerId === -1) : (data.from_user_id === this.dmPeerId)
+                );
+                if (!isMine && viewingThisPeer) {
                     this.dmMessages.push({
                         id: data.id, message: data.message || '',
                         has_file: !!data.has_file, is_image: !!data.is_image,
@@ -1601,12 +1607,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     });
                     this._dmScrollBottom();
                     /* WS заведомо открыт (только что получили) — HTTP-фолбэк не нужен */
-                    this._dmWsSend({type: 'read', peer_id: this.dmPeerId});
-                } else if (!isMine && !isAi) {
+                    this._dmMarkRead(this.dmPeerId);
+                } else if (!isMine) {
                     /* Сообщение в неоткрытый диалог (в т.ч. в режиме «Общий»):
-                       поднимаем общий бейдж и обновляем строку контакта */
+                       поднимаем общий бейдж и обновляем строку контакта.
+                       Для AI-ответа целевой контакт — закреплённый AI (id=-1). */
+                    const cid = isAi ? -1 : data.from_user_id;
                     this.dmTotalUnread = (this.dmTotalUnread || 0) + 1;
-                    const c = this.dmContacts.find(x => x.id === data.from_user_id);
+                    const c = this.dmContacts.find(x => x.id === cid);
                     if (c) {
                         c.unread = (c.unread || 0) + 1;
                         c.last_msg = data.message || (data.has_file ? '📎 Файл' : '');

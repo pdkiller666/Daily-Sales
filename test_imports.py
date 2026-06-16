@@ -332,6 +332,63 @@ try:
 except Exception as _e:
     _fn_fail("chat read-state badge reset", _e)
 
+# 10b. Выделенный AI-тред: отдельный собеседник AI изолирован от реальных ЛС
+#      и от старых in-dialog AI-ответов (ai_peer_id>=1).
+try:
+    import tempfile, os as _os10b
+    _tmp10b = tempfile.mktemp(suffix='.db')
+    _db10b = Database(_tmp10b)
+    _db10b.create_tables()
+    _db10b.add_user(telegram_id=20001, first_name="User", last_name="A")
+    _db10b.add_user(telegram_id=20002, first_name="Peer", last_name="B")
+    _u = _db10b.get_user(20001)[0]
+    _p = _db10b.get_user(20002)[0]
+
+    # AI-тред: запрос пользователя (from=u, to=0) + ответ AI (from=0, to=u, ai_peer_id=0)
+    _db10b.add_dm(_u, 0, "вопрос к AI")
+    _conn10b = _db10b.get_connection()
+    _conn10b.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message, ai_peer_id) VALUES (0, ?, ?, 0)",
+        (_u, "ответ AI")
+    )
+    # Старый in-dialog AI (ai_peer_id=_p>=1) — НЕ должен попадать в AI-тред
+    _conn10b.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message, ai_peer_id) VALUES (0, ?, ?, ?)",
+        (_u, "старый AI в диалоге", _p)
+    )
+    # Реальное ЛС от человека — тоже не в AI-треде
+    _conn10b.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message) VALUES (?, ?, ?)",
+        (_p, _u, "реальное ЛС")
+    )
+    _conn10b.commit(); _conn10b.close()
+
+    # get_ai_dm_conversation видит ровно 2 сообщения AI-треда (вопрос + ответ), ASC
+    _conv = _db10b.get_ai_dm_conversation(_u)
+    assert len(_conv) == 2, f"AI-тред должен содержать 2 сообщения, получено {len(_conv)}"
+    _texts = [r[3] for r in _conv]
+    assert _texts == ["вопрос к AI", "ответ AI"], f"состав/порядок AI-треда неверный: {_texts}"
+
+    # summary: последний — ответ AI, один непрочитанный
+    _last_msg, _last_from, _last_at, _unread = _db10b.get_ai_dm_summary(_u)
+    assert _last_from == 0 and _last_msg == "ответ AI", f"summary last неверный: {_last_msg}/{_last_from}"
+    assert _unread == 1, f"summary unread должно быть 1, получено {_unread}"
+
+    # mark_ai_dm_read обнуляет только AI-тред
+    _db10b.mark_ai_dm_read(_u)
+    assert _db10b.get_ai_dm_summary(_u)[3] == 0, "после mark_ai_dm_read unread AI-треда должно быть 0"
+    # Старый in-dialog AI и реальное ЛС остаются непрочитанными (изоляция)
+    assert _db10b.get_dm_unread_count(_u) == 2, \
+        f"вне AI-треда должно остаться 2 непрочитанных, получено {_db10b.get_dm_unread_count(_u)}"
+    # AI-тред не плодит фантом-контакт (peer 0): контакты содержат _p, но не 0
+    _ids = {c[0] for c in _db10b.get_dm_contacts(_u)}
+    assert _p in _ids and 0 not in _ids, f"контакты: ожидался _p без peer 0, получено {_ids}"
+
+    _os10b.unlink(_tmp10b)
+    _fn_ok("AI-тред: отдельный собеседник изолирован от ЛС и старого in-dialog AI")
+except Exception as _e:
+    _fn_fail("dedicated AI thread", _e)
+
 # 11. Chat HTTP end-to-end: POST /chat/read + POST /chat/dm/<peer>/read
 try:
     import tempfile, os as _os11
@@ -429,6 +486,140 @@ try:
     _fn_ok("chat HTTP end-to-end: /chat/read + /chat/dm/<peer>/read → ok + badges zeroed")
 except Exception as _e11:
     _fn_fail("chat HTTP end-to-end read routes", _e11)
+
+# 11b. DM API guards: невалидные peer (-2/0) и негейтированный AI (-1) → 4xx
+try:
+    import tempfile, os as _os11b
+    from unittest.mock import patch as _patch11b
+    from fastapi.testclient import TestClient as _TC11b
+    from web.app import create_web_app as _cwa11b
+    from web.auth import create_session_token as _cst11b, COOKIE_NAME as _CN11b, get_csrf_token as _gct11b
+
+    _tmp11b = tempfile.mktemp(suffix='_dm_neg.db')
+    _db11bn = Database(_tmp11b)
+    _db11bn.create_tables()
+    _db11bn.add_user(telegram_id=31001, first_name="NegA", last_name="A")
+
+    _jwt11b = _cst11b(31001, "NegA", _tmp11b, "user")
+    class _FakeReq11b:
+        cookies = {_CN11b: _jwt11b}
+    _csrf11b = _gct11b(_FakeReq11b())
+
+    _app11b = _cwa11b()
+    def _mock_db11b(*_a, **_kw):
+        return _db11bn
+
+    # AI-расширение НЕ оплачено → доступ к AI-треду должен отбиваться 403
+    with _patch11b("web.routes.chat._chat_access_ok", return_value=True), \
+         _patch11b("web.routes.chat._ai_ext_ok", return_value=False), \
+         _patch11b("web.deps.get_web_db", side_effect=_mock_db11b):
+        _cl11b = _TC11b(_app11b, raise_server_exceptions=True)
+        _ck = {_CN11b: _jwt11b}
+        # conversation к AI без оплаченного расширения → 403
+        _r1 = _cl11b.get("/api/dm/conversation/-1", cookies=_ck)
+        assert _r1.status_code == 403, f"conversation/-1 без extension: ожидался 403, получен {_r1.status_code}"
+        # conversation к техническому peer 0 → 400
+        _r2 = _cl11b.get("/api/dm/conversation/0", cookies=_ck)
+        assert _r2.status_code == 400, f"conversation/0: ожидался 400, получен {_r2.status_code}"
+        # отправка на невалидный отрицательный peer → 400
+        _r3 = _cl11b.post("/chat/dm/send",
+                          data={"to_user_id": -2, "message": "hi", "csrf_token": _csrf11b},
+                          cookies=_ck)
+        assert _r3.status_code == 400, f"dm/send to=-2: ожидался 400, получен {_r3.status_code}: {_r3.text}"
+        # mark-read AI без extension → 403
+        _r4 = _cl11b.post("/chat/dm/-1/read", data={"csrf_token": _csrf11b}, cookies=_ck)
+        assert _r4.status_code == 403, f"dm/-1/read без extension: ожидался 403, получен {_r4.status_code}"
+
+    _os11b.unlink(_tmp11b)
+    _fn_ok("DM API guards: невалидные peer (-2/0) и негейтированный AI (-1) → 4xx")
+except Exception as _e11b:
+    _fn_fail("DM API negative peer guards", _e11b)
+
+# 12. Chat HTTP end-to-end: POST /chat/send + POST /chat/dm/send
+try:
+    import tempfile, os as _os12
+    from unittest.mock import patch as _patch12, AsyncMock as _AsyncMock12
+    from fastapi.testclient import TestClient as _TC12
+    from web.app import create_web_app as _cwa12
+    from web.auth import create_session_token as _cst12, COOKIE_NAME as _CN12, get_csrf_token as _gct12
+
+    # ── Temp org DB: two users ─────────────────────────────────────────────────
+    _tmp12 = tempfile.mktemp(suffix='_chat_send_test.db')
+    _db12 = Database(_tmp12)
+    _db12.create_tables()
+
+    _db12.add_user(telegram_id=40001, first_name="Writer", last_name="A")
+    _db12.add_user(telegram_id=40002, first_name="Peer",   last_name="B")
+    _me12   = _db12.get_user(40001)[0]   # internal users.id for sender
+    _peer12 = _db12.get_user(40002)[0]   # internal users.id for DM recipient
+
+    # ── JWT cookie + CSRF ──────────────────────────────────────────────────────
+    _jwt12 = _cst12(40001, "Writer", _tmp12, "user")
+
+    class _FakeReq12:
+        cookies = {_CN12: _jwt12}
+    _csrf12 = _gct12(_FakeReq12())
+
+    # ── FastAPI test client with billing/DB/WS gates mocked ───────────────────
+    _app12 = _cwa12()
+
+    def _mock_get_web_db12(*_a, **_kw):
+        return _db12
+
+    _dm_send_mock12 = _AsyncMock12(return_value=None)
+
+    with _patch12("web.routes.chat._chat_access_ok", return_value=True), \
+         _patch12("web.routes.chat._send_rate_ok",   return_value=True), \
+         _patch12("web.routes.chat._dm_send_ok",     return_value=True), \
+         _patch12("web.ws_manager.dm_manager.send_to_user", _dm_send_mock12), \
+         _patch12("web.deps.get_web_db", side_effect=_mock_get_web_db12):
+
+        _client12 = _TC12(_app12, raise_server_exceptions=True)
+        _ck12 = {_CN12: _jwt12}
+
+        # ── Test A: POST /chat/send stores topic message and returns ok ────────
+        _resp_send = _client12.post(
+            "/chat/send",
+            data={"message": "hello topic", "topic_id": 1, "csrf_token": _csrf12},
+            cookies=_ck12,
+        )
+        assert _resp_send.status_code == 200, \
+            f"/chat/send HTTP {_resp_send.status_code}: {_resp_send.text}"
+        _sj = _resp_send.json()
+        assert _sj.get("ok") is True, f"/chat/send body not ok: {_sj}"
+        _new_id12 = _sj.get("latest_id")
+        assert _new_id12, f"/chat/send missing latest_id: {_sj}"
+
+        # Verify the message is persisted in the DB
+        _stored_msgs12 = _db12.get_chat_messages_since(0, topic_id=1)
+        _stored_texts12 = [r[2] for r in _stored_msgs12]   # column 2 = message text
+        assert "hello topic" in _stored_texts12, \
+            f"Sent message not found in DB; stored: {_stored_texts12}"
+
+        # ── Test B: POST /chat/dm/send stores DM and returns ok ───────────────
+        _resp_dm12 = _client12.post(
+            "/chat/dm/send",
+            data={"message": "hello dm", "to_user_id": _peer12, "csrf_token": _csrf12},
+            cookies=_ck12,
+        )
+        assert _resp_dm12.status_code == 200, \
+            f"/chat/dm/send HTTP {_resp_dm12.status_code}: {_resp_dm12.text}"
+        _dmj = _resp_dm12.json()
+        assert _dmj.get("ok") is True, f"/chat/dm/send body not ok: {_dmj}"
+
+        # Verify the DM is persisted — check conversation in both directions
+        _conv12 = _db12.get_dm_conversation(_me12, _peer12)
+        _conv_texts12 = [r[3] for r in _conv12]   # column 3 = message text
+        assert "hello dm" in _conv_texts12, \
+            f"DM not found in DB; conversation rows: {_conv_texts12}"
+
+        # Verify WS send_to_user was called once (to notify the DM recipient)
+        assert _dm_send_mock12.called, "dm_manager.send_to_user not called for DM send"
+
+    _os12.unlink(_tmp12)
+    _fn_ok("chat HTTP end-to-end: /chat/send + /chat/dm/send → ok + persisted in DB")
+except Exception as _e12:
+    _fn_fail("chat HTTP end-to-end write routes", _e12)
 
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
