@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.7.0"
+CURRENT_VERSION = "1.8.0"
 
 ENTRIES = [
+    {
+        "version": "1.8.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Оптимизация веб-кабинета: per-request кэш + bulk-биллинг (#1), Tailwind CDN → статический app.css (#3)",
+        ],
+    },
     {
         "version": "1.7.0",
         "date": "16 июня 2026",

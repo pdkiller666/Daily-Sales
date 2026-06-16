@@ -48,5 +48,7 @@
 - [Barcode scanner solution](barcode-scanner-solution.md) — opencv-python-headless (pip, без sysдепов): cv2.QRCodeDetector + cv2.barcode.BarcodeDetector; pyzbar/zxingcpp не работают на Amvera
 - [Changelog «Что нового» fragment-driven](changelog-whatsnew.md) — web/changelog.py собирается build_changelog.py из web/changelog.d/*.md (шаг 0 deploy.sh); пустая папка → no-op; агенты должны класть фрагменты
 - [Startup WAL corruption](startup-wal-corruption.md) — guarded ALTER «duplicate column» при старте = inconsistent WAL от SIGKILLнутого boot; чинить checkpoint(TRUNCATE), не править миграции/не удалять БД
+- [Tailwind static build](tailwind-static-build.md) — CDN→app.css; standalone-шаблоны (landing/auth/errors) несут свой <head>+CDN; landing имеет кастомный theme.extend; cache-bust ?v= править во ВСЕХ шаблонах
+- [hx-boost incompat with base.html](hx-boost-base-incompat.md) — full-body hx-boost ломает base.html (~30 top-level listeners/timers+SW): двойной bind, стек таймеров, мёртвые графики; нужен content-target #content, не body
 - [GS import + motivation configurator](gs-import-motiv-wizard.md) — мотивация rows=models/cols=chains; aliases keyed sheet→system; manual fallback when API down; saved motiv_config; бот кликабельный, веб дефолтный порядок
 - [Targeted motivation by org structure](targeted-motivation.md) — motivation rates targetable by org scope; resolve priority user>shop>city>trade_network>global; global-only = legacy behavior; earnings tuple is append-only

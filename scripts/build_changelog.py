@@ -207,7 +207,10 @@ def _read_commit_bullets():
 
     code, out = _run_git(["log", "--no-merges", "--format=%s", f"{last}..HEAD"])
     if code != 0:
-        return [], head
+        # git log упал (timeout/ошибка) — НЕ двигаем маркер (new_head=None),
+        # иначе диапазон коммитов будет навсегда пропущен. Повторим на след. деплое.
+        print("   ⚠️  git log не удался — маркер не двигаю, повтор на следующем деплое")
+        return [], None
 
     bullets: list[str] = []
     for line in out.splitlines():

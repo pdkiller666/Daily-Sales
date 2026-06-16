@@ -232,6 +232,38 @@ class TestGitUnavailable(_BaseTest):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 4b. git log падает (timeout/ошибка) при валидном marker..HEAD
+#     → НЕ двигаем маркер, иначе диапазон коммитов потеряется навсегда
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestGitLogFails(_BaseTest):
+    def test_marker_not_moved_when_git_log_fails(self):
+        OLD_SHA = "abcdef01" * 5
+        HEAD = "12345678" * 5
+        _write_marker(self._frags_dir, OLD_SHA)
+
+        def fake_git(args):
+            if args[0] == "rev-parse":
+                return 0, HEAD + "\n"
+            if args[0] == "cat-file":
+                return 0, ""          # маркерный коммит существует
+            if args[0] == "log":
+                return 1, ""          # git log упал
+            return 1, ""
+
+        with patch.object(bc, "_run_git", side_effect=fake_git):
+            rc = self._run_main(["--no-ai"])
+
+        self.assertEqual(rc, 0)
+        # Версия не изменилась — пунктов нет
+        version, entries = self._read_changelog()
+        self.assertEqual(version, "1.0.0")
+        self.assertEqual(len(entries), 1)
+        # КРИТИЧНО: маркер НЕ должен сдвинуться (повтор на следующем деплое)
+        self.assertEqual(_read_marker(self._frags_dir), OLD_SHA)
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # 5. Нормальный диапазон marker..HEAD
 #    - шум отфильтрован
 #    - префиксы срезаны
