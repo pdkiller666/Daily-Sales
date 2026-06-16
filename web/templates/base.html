@@ -30,7 +30,6 @@
     <link rel="stylesheet" href="/static/app.css?v=be05460037">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     {% block extra_head %}{% endblock %}
     <style>
@@ -236,13 +235,9 @@
 
         /* Sidebar section labels */
         aside nav p.text-slate-600{letter-spacing:.1em}
-
-        /* ── HTMX loading indicator (progress bar at top) ── */
-        #htmx-indicator{position:fixed;top:0;left:0;height:2px;width:0;background:#3b82f6;z-index:9999;pointer-events:none;opacity:0;transition:width .25s ease}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="mainApp()">
-<div id="htmx-indicator"></div>
 
 <!-- ── Toast notifications (reads ?success= / ?error= from URL) ── -->
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style="max-width:320px"
@@ -358,8 +353,7 @@ function toastMgr() {
     </div>
 
     <!-- Nav -->
-    <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5"
-         hx-boost="true" hx-target="#ds-page" hx-select="#ds-page" hx-push-url="true">
+    <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
         {% set _nm = nav_modules(request) %}
 
         <a href="/dashboard"
@@ -367,7 +361,7 @@ function toastMgr() {
             <span class="nav-icon mr-3 text-base">📊</span>Дашборд
         </a>
         {% if _nm.pos_retail %}
-        <a href="/pos" hx-boost="false"
+        <a href="/pos"
            class="nav-link {% if request.url.path.startswith('/pos') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">🖥️</span>Касса POS
         </a>
@@ -462,7 +456,7 @@ function toastMgr() {
             {% endif %}
         </a>
         {% if chat_enabled(request) %}
-        <a href="/chat" hx-boost="false"
+        <a href="/chat"
            class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💬</span>
             <span class="flex-1">Чат</span>
@@ -687,8 +681,7 @@ function toastMgr() {
         </div>
     </header>
 
-    <!-- Content + Footer wrapped for HTMX swap -->
-    <div id="ds-page" class="flex flex-col flex-1">
+    <!-- Content -->
     <main class="ds-main flex-1 px-4 sm:px-6 py-6 pb-24 lg:pb-6">
         {% block content %}{% endblock %}
     </main>
@@ -697,10 +690,9 @@ function toastMgr() {
     <footer class="shrink-0 py-3 px-6 pb-20 lg:pb-3 text-center text-xs text-slate-400 border-t border-slate-100">
         DailySales&nbsp;·&nbsp;{% block footer_info %}{% endblock %}
     </footer>
-
-    {% block extra_js %}{% endblock %}
-    </div>
 </div>
+
+{% block extra_js %}{% endblock %}
 
 <script>
 /* ══════════════════════════════════════════════════
@@ -2412,7 +2404,6 @@ function mainApp() {
 
 <!-- ═══ BOTTOM NAV BAR ═══ -->
 <nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200 lg:hidden"
-     hx-boost="true" hx-target="#ds-page" hx-select="#ds-page" hx-push-url="true"
      style="box-shadow:0 -2px 16px rgba(0,0,0,.07);padding-bottom:env(safe-area-inset-bottom,0)">
     <div class="flex items-stretch h-16">
         <template x-for="item in navItems" :key="item.key">
@@ -2651,104 +2642,6 @@ window.dsOnce = function(btn, label) {
         setTimeout(function() { b.disabled = true; b.innerHTML = l || '⏳ Сохранение…'; }, 0);
     }
 };
-</script>
-
-<script>
-/* ══════════════════════════════════════════════════
-   HTMX content-swap navigation handlers
-   Intercepts sidebar + bottom nav links and swaps
-   only #ds-page without reloading base.html shell.
-══════════════════════════════════════════════════ */
-(function () {
-    var _ind = null;
-    function _getInd() { return _ind || (_ind = document.getElementById('htmx-indicator')); }
-
-    /* Show loading bar */
-    function _indStart() {
-        var el = _getInd();
-        if (!el) return;
-        el.style.transition = 'width .25s ease';
-        el.style.opacity = '1';
-        el.style.width = '70%';
-    }
-
-    /* Complete and fade loading bar */
-    function _indDone() {
-        var el = _getInd();
-        if (!el) return;
-        el.style.width = '100%';
-        setTimeout(function () {
-            el.style.transition = 'opacity .3s ease';
-            el.style.opacity = '0';
-            setTimeout(function () {
-                el.style.width = '0';
-                el.style.opacity = '1';
-                el.style.transition = 'width .25s ease';
-            }, 320);
-        }, 80);
-    }
-
-    /* /pos and /chat need full page reload — prevent HTMX intercept */
-    document.addEventListener('htmx:beforeRequest', function (evt) {
-        var path = evt.detail && evt.detail.requestConfig && evt.detail.requestConfig.path;
-        if (!path) return;
-        if (path === '/pos' || path.startsWith('/chat')) {
-            evt.preventDefault();
-            window.location.href = path;
-            return;
-        }
-        _indStart();
-    });
-
-    /* Scroll to top on every content swap */
-    document.addEventListener('htmx:afterSwap', function () {
-        window.scrollTo({ top: 0, behavior: 'instant' });
-    });
-
-    /* After settle: complete indicator + update sidebar active state */
-    document.addEventListener('htmx:afterSettle', function (evt) {
-        _indDone();
-
-        /* Re-apply nav-active on sidebar links (sidebar is outside #ds-page) */
-        var path = window.location.pathname;
-        document.querySelectorAll('aside nav a.nav-link[href]').forEach(function (a) {
-            var href = a.getAttribute('href');
-            var active;
-            if (href === '/dashboard') {
-                active = (path === '/dashboard');
-            } else if (href === '/sales') {
-                /* /sales only, not /sales/123 detail pages */
-                active = path.startsWith('/sales') && !path.startsWith('/sales/');
-            } else {
-                active = path.startsWith(href);
-            }
-            a.classList.toggle('nav-active', active);
-        });
-
-        /* Re-init Alpine components inserted by HTMX swap */
-        if (window.Alpine && evt.detail && evt.detail.target) {
-            try { Alpine.initTree(evt.detail.target); } catch (_) {}
-        }
-
-        /* Re-run page hints for the new path */
-        if (typeof dsShowHintsForPath === 'function') {
-            try { dsShowHintsForPath(path); } catch (_) {}
-        }
-
-        /* Re-initialise onboarding hint for the new page (if not already shown) */
-        if (typeof window._dsHintCheck === 'function') {
-            try { window._dsHintCheck(path); } catch (_) {}
-        }
-    });
-
-    /* On HTMX errors fall back to full reload */
-    document.addEventListener('htmx:responseError', function (evt) {
-        _indDone();
-    });
-    document.addEventListener('htmx:sendError', function () {
-        _indDone();
-    });
-})();
 </script>
 </body>
 </html>

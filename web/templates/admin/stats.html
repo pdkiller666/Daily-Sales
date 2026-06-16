@@ -179,6 +179,7 @@
 </div>
 
 {% if chart %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 const chartData = {{ chart | tojson }};
 const isDark = document.documentElement.classList.contains('dark');
@@ -209,6 +210,7 @@ new Chart(document.getElementById('revenueChart'), {
 {% endif %}
 
 {% if apk_by_day %}
+{% if not chart %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endif %}
 <script>
 (function(){
     const apkData = {{ apk_by_day | tojson }};

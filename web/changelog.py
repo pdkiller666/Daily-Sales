@@ -5,8 +5,12 @@ ENTRIES = [
         "version": "1.11.0",
         "date": "16 июня 2026",
         "items": [
-            "⚡ Навигация по меню без перезагрузки страницы — переходы между разделами стали мгновенными (HTMX content-swap)",
             "HTMX content-swap navigation (no full page reloads on menu clicks)",
+            "Extend HTMX fast-nav to the 'More' sheet links on mobile",
+            "Update browser tab title on HTMX navigation",
+            "Cache HTMX page snapshots so back/forward feels instant",
+            "Skip HTMX history caching for sensitive/live pages",
+            "Stop dashboard from showing stale charts when navigating back",
         ],
     },
     {
