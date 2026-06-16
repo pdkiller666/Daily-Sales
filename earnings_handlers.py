@@ -28,6 +28,29 @@ _MOTIV_SOURCE_LABELS = {
     'schedule': 'Месячная',
 }
 
+def _build_source_breakdown(earnings):
+    """Сводка мотивации по источнику таргетинга (col [8] = motivation_source).
+
+    Возвращает пустую строку, если все продажи имеют общий ('global') источник,
+    чтобы не зашумлять вывод 🎯, когда таргетинг не используется.
+    """
+    source_totals = {}
+    for earning in earnings:
+        commission_amount = earning[0]
+        motiv_src = (earning[8] if len(earning) > 8 else 'global') or 'global'
+        source_totals[motiv_src] = source_totals.get(motiv_src, 0) + commission_amount
+
+    has_targeted = any(src not in ('global', '') for src in source_totals)
+    if not has_targeted:
+        return ""
+
+    ordered = sorted(source_totals.items(), key=lambda x: x[1], reverse=True)
+    line = "🎯 <b>По источнику мотивации:</b>\n"
+    for src, amount in ordered:
+        label = _MOTIV_SOURCE_LABELS.get(src, src)
+        line += f"  • {label}: {format_price(amount)}₽\n"
+    return line + "\n"
+
 class EarningsStates(StatesGroup):
     selecting_period = State()
 
@@ -119,6 +142,7 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
     if not earnings:
         text += "❌ В этом месяце продаж пока нет"
     else:
+        text += _build_source_breakdown(earnings)
         text += "📋 <b>Детали по продажам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
@@ -165,6 +189,7 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
     if not earnings:
         text += "❌ Продаж пока нет"
     else:
+        text += _build_source_breakdown(earnings)
         text += "📋 <b>Топ товаров по заработку:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
@@ -443,6 +468,7 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
     if not earnings:
         text += "❌ В этом месяце продаж не было"
     else:
+        text += _build_source_breakdown(earnings)
         text += "📋 <b>Продажи по товарам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
@@ -504,6 +530,7 @@ async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 continue
 
+        text += _build_source_breakdown(earnings)
         if monthly_earnings:
             text += "📊 <b>По месяцам:</b>\n\n"
             for month in range(1, 13):

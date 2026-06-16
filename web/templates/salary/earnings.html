@@ -96,6 +96,22 @@
 </div>
 {% endif %}
 
+<!-- Commission breakdown by targeting source -->
+{% if commission_by_source and commission_by_source|length > 1 %}
+<div class="card p-5 mb-5">
+    <h2 class="font-semibold text-slate-800 mb-1">🎯 Мотивация по уровням нацеливания</h2>
+    <p class="text-xs text-slate-400 mb-3">Из чего сложилась мотивация за период</p>
+    <div class="flex flex-wrap gap-2">
+        {% for s in commission_by_source %}
+        <div class="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+            <span class="text-xs font-medium text-slate-500">{{ s.source_label }}</span>
+            <span class="text-sm font-bold text-blue-600">{{ s.total|int|fmt_currency }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Earnings breakdown -->
 {% if earnings or total_earnings_count > 0 %}
 {% set base_pg_url = "/salary?year=" ~ year ~ "&month=" ~ month %}

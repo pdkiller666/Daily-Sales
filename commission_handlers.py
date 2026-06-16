@@ -97,6 +97,7 @@ async def admin_motivation_menu(callback: CallbackQuery, state: FSMContext):
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Установить мотивацию", callback_data="set_motivation")
     builder.button(text="📊 Просмотр всех мотиваций", callback_data="view_all_motivations")
+    builder.button(text="🎯 Таргетированные правила", callback_data="targeted_rules")
     builder.button(text="📅 По месяцам", callback_data="view_motivation_schedule")
     builder.button(text="🗑️ Удалить мотивацию", callback_data="remove_motivation")
     builder.button(text="📈 Топ продавцов", callback_data="top_sellers")
@@ -895,6 +896,168 @@ async def view_all_motivations_page(callback: CallbackQuery, state: FSMContext):
     text, markup = _build_motiv_view_text_markup(cat_comms, len(products_with_comm), page)
     await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Таргетированные правила мотивации (task #51): просмотр + удаление из бота
+# ─────────────────────────────────────────────────────────────────────────
+SCOPE_EMOJI = {
+    'global': '🌐',
+    'trade_network': '🕸️',
+    'city': '🏙️',
+    'shop': '🏬',
+    'user': '👤',
+}
+
+
+def _fmt_rule_rate(motivation_type, motivation_value):
+    return f"{motivation_value}%" if motivation_type == 'percentage' else format_price(motivation_value)
+
+
+def _build_targeted_rules_view(rules: list, page: int):
+    """Строит текст + разметку для страницы таргетированных правил с кнопками удаления."""
+    page_items, has_prev, has_next, total_pages, page = paginate(rules, page, 8)
+
+    text = f"🎯 <b>Таргетированные правила</b> · {len(rules)} шт."
+    if total_pages > 1:
+        text += f" · стр. {page + 1}/{total_pages}"
+    text += "\n\nПравила, привязанные к сети / городу / магазину / сотруднику.\n"
+    text += "Нажмите на правило, чтобы удалить.\n\n"
+
+    cur_prod = None
+    for r in page_items:
+        if r['product_name'] != cur_prod:
+            text += f"📦 <b>{he(r['product_name'])}</b>\n"
+            cur_prod = r['product_name']
+        emoji = SCOPE_EMOJI.get(r['scope_type'], '🎯')
+        scope_name = SCOPE_LABELS.get(r['scope_type'], r['scope_type'])
+        rate = _fmt_rule_rate(r['motivation_type'], r['motivation_value'])
+        text += f"  {emoji} {scope_name}: {he(str(r['scope_label']))} · 💰 {rate}\n"
+
+    builder = InlineKeyboardBuilder()
+    for r in page_items:
+        emoji = SCOPE_EMOJI.get(r['scope_type'], '🎯')
+        rate = _fmt_rule_rate(r['motivation_type'], r['motivation_value'])
+        label = f"🗑 {r['product_name']} · {emoji}{r['scope_label']}: {rate}"
+        builder.button(text=label[:62], callback_data=f"del_targ_rule_{r['id']}")
+    builder.adjust(1)
+    nav = page_nav_row("targ_rules_p", page, has_prev, has_next, total_pages)
+    if nav:
+        builder.row(*nav)
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_motivation"))
+    return text, builder.as_markup()
+
+
+@commission_router.callback_query(F.data == "targeted_rules")
+async def targeted_rules_list(callback: CallbackQuery, state: FSMContext):
+    """Список таргетированных правил мотивации (scope != global) с кнопками удаления."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+
+    if not rules:
+        await callback.message.edit_text(
+            "🎯 <b>Таргетированные правила</b>\n\n"
+            "❌ Таргетированных правил пока нет.\n\n"
+            "Они создаются на шаге «Для кого?» при установке мотивации "
+            "(сеть / город / магазин / сотрудник).",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="⬅️ Назад", callback_data="admin_motivation"
+            ).as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    text, markup = _build_targeted_rules_view(rules, 0)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("targ_rules_p"))
+async def targeted_rules_page(callback: CallbackQuery, state: FSMContext):
+    """Пагинация списка таргетированных правил."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        page = int(callback.data.replace("targ_rules_p", ""))
+    except ValueError:
+        page = 0
+
+    current_db = await get_db(callback.from_user.id, state)
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    if not rules:
+        await targeted_rules_list(callback, state)
+        return
+
+    text, markup = _build_targeted_rules_view(rules, page)
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    await callback.answer()
+
+
+@commission_router.callback_query(F.data.startswith("confirm_del_targ_rule_"))
+async def targeted_rule_delete_final(callback: CallbackQuery, state: FSMContext):
+    """Окончательное удаление таргетированного правила."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        rule_id = int(callback.data[len("confirm_del_targ_rule_"):])
+    except ValueError:
+        await callback.answer("❌ Некорректное правило", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    result = await asyncio.to_thread(current_db.remove_motivation_rule, rule_id)
+
+    if result is None:
+        await callback.answer("❌ Правило не найдено (возможно, уже удалено)", show_alert=True)
+    else:
+        await callback.answer("✅ Правило удалено", show_alert=False)
+    await targeted_rules_list(callback, state)
+
+
+@commission_router.callback_query(F.data.startswith("del_targ_rule_"))
+async def targeted_rule_delete_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение удаления таргетированного правила."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    try:
+        rule_id = int(callback.data[len("del_targ_rule_"):])
+    except ValueError:
+        await callback.answer("❌ Некорректное правило", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rule = next((r for r in rules if r['id'] == rule_id), None)
+    if not rule:
+        await callback.answer("❌ Правило не найдено", show_alert=True)
+        await targeted_rules_list(callback, state)
+        return
+
+    emoji = SCOPE_EMOJI.get(rule['scope_type'], '🎯')
+    scope_name = SCOPE_LABELS.get(rule['scope_type'], rule['scope_type'])
+    rate = _fmt_rule_rate(rule['motivation_type'], rule['motivation_value'])
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Да, удалить", callback_data=f"confirm_del_targ_rule_{rule_id}")
+    builder.button(text="❌ Отмена", callback_data="targeted_rules")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"🗑️ <b>Удаление таргетированного правила</b>\n\n"
+        f"📦 Товар: <b>{he(rule['product_name'])}</b>\n"
+        f"{emoji} {scope_name}: <b>{he(str(rule['scope_label']))}</b>\n"
+        f"💰 Мотивация: <b>{rate}</b>\n\n"
+        "⚠️ Это действие необратимо. Продолжить?",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
+    await callback.answer()
+
 
 @commission_router.callback_query(F.data == "remove_motivation")
 async def remove_motivation_start(callback: CallbackQuery, state: FSMContext):

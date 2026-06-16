@@ -41,6 +41,34 @@ def _source_label(src):
     return MOTIVATION_SOURCE_LABELS.get(src, src)
 
 
+# Порядок отображения источников мотивации в сводке (от частного к общему)
+_SOURCE_ORDER = ["user", "shop", "city", "trade_network", "schedule", "global"]
+
+
+def _commission_by_source(earnings):
+    """Группирует список начислений по источнику мотивации.
+
+    Принимает список dict-ов с ключами 'source' и 'commission'.
+    Возвращает список {'source', 'source_label', 'total'} только для источников
+    с ненулевой суммой, упорядоченный от частного (Сотрудник) к общему (Общая).
+    """
+    totals = {}
+    for e in earnings:
+        comm = float(e.get("commission") or 0)
+        if comm == 0:
+            continue
+        src = e.get("source") or "global"
+        totals[src] = totals.get(src, 0.0) + comm
+    ordered = sorted(
+        totals.items(),
+        key=lambda kv: (_SOURCE_ORDER.index(kv[0]) if kv[0] in _SOURCE_ORDER else len(_SOURCE_ORDER)),
+    )
+    return [
+        {"source": src, "source_label": _source_label(src), "total": round(total, 2)}
+        for src, total in ordered
+    ]
+
+
 def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
     """Personal earnings view for user role."""
     from web.auth import get_csrf_token
@@ -201,6 +229,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         ctx.update({
             "earnings": earnings_page,
             "total_earnings_count": total_earnings_count,
+            "commission_by_source": _commission_by_source(earnings),
             "total_commission": round(total_commission, 2),
             "commission_raw": round(commission_raw, 2),
             "joint_adj": round(joint_adj, 2),
@@ -443,6 +472,7 @@ def salary_page(
             ctx["detail_total_count"] = detail_total_count
             ctx["detail_page"] = detail_page
             ctx["detail_total_pages"] = detail_total_pages
+            ctx["detail_commission_by_source"] = _commission_by_source(detail_earnings)
             ctx["detail_raw_commission"] = round(detail_raw_commission, 2)
             ctx["detail_joint_adj"] = detail_joint_adj
             ctx["detail_motivation_total"] = round(detail_motivation_total, 2)
@@ -612,8 +642,8 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             ws_m["A1"].font = Font(bold=True, size=13)
             m_hdr_fill = PatternFill("solid", fgColor="166534")
             m_hdr_font = Font(bold=True, color="FFFFFF", size=10)
-            m_headers = ["Сотрудник", "Дата", "Товар", "Магазин", "Кол-во", "Цена (₽)", "Комиссия (₽)"]
-            m_widths = [28, 12, 30, 20, 8, 12, 16]
+            m_headers = ["Сотрудник", "Дата", "Товар", "Магазин", "Кол-во", "Цена (₽)", "Комиссия (₽)", "Источник мотивации"]
+            m_widths = [28, 12, 30, 20, 8, 12, 16, 18]
             for i, (h, w) in enumerate(zip(m_headers, m_widths), 1):
                 cell = ws_m.cell(row=3, column=i, value=h)
                 cell.font = m_hdr_font
@@ -624,16 +654,21 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             ws_m.freeze_panes = "A4"
             m_row = 4
             m_even = PatternFill("solid", fgColor="F0FFF4")
+            source_totals = {}
             for seller_name, detail_rows in sorted(motivation_details.items()):
                 for dr in detail_rows:
-                    # commission[0] type[1] value[2] product[3] qty[4] price[5] date[6] shop[7]
+                    # commission[0] type[1] value[2] product[3] qty[4] price[5] date[6] shop[7] source[8]
                     commission = float(dr[0] or 0)
                     if commission == 0:
                         continue
+                    src_key = (dr[8] if len(dr) > 8 else "global") or "global"
+                    source_totals[src_key] = source_totals.get(src_key, 0.0) + commission
+                    src_label = _source_label(src_key)
                     row_fill = m_even if m_row % 2 == 0 else None
                     for col_idx, val in enumerate(
                         [seller_name, str(dr[6] or "")[:10], dr[3] or "—",
-                         dr[7] or "—", int(dr[4] or 0), float(dr[5] or 0), commission], 1
+                         dr[7] or "—", int(dr[4] or 0), float(dr[5] or 0), commission,
+                         src_label], 1
                     ):
                         cell = ws_m.cell(row=m_row, column=col_idx, value=val)
                         cell.border = border
@@ -642,12 +677,12 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                         if col_idx in (6, 7):
                             cell.number_format = '#,##0.00 ₽'
                             cell.alignment = Alignment(horizontal="right")
-                        elif col_idx in (2, 5):
+                        elif col_idx in (2, 5, 8):
                             cell.alignment = Alignment(horizontal="center")
                     m_row += 1
             # Итого по мотивации
             if m_row > 4:
-                for col in range(1, 8):
+                for col in range(1, 9):
                     ws_m.cell(row=m_row, column=col).border = border
                     ws_m.cell(row=m_row, column=col).fill = PatternFill("solid", fgColor="DCFCE7")
                 ws_m.cell(row=m_row, column=1, value="ИТОГО").font = Font(bold=True)
@@ -656,6 +691,24 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                 tot_m.font = Font(bold=True)
                 tot_m.number_format = '#,##0.00 ₽'
                 tot_m.alignment = Alignment(horizontal="right")
+
+                # Свод по уровням нацеливания мотивации
+                if source_totals:
+                    m_row += 2
+                    ws_m.cell(row=m_row, column=1, value="Мотивация по уровням нацеливания").font = Font(bold=True, size=11)
+                    m_row += 1
+                    ordered_src = sorted(
+                        source_totals.items(),
+                        key=lambda kv: (_SOURCE_ORDER.index(kv[0]) if kv[0] in _SOURCE_ORDER else len(_SOURCE_ORDER)),
+                    )
+                    for src_key, src_total in ordered_src:
+                        lbl_cell = ws_m.cell(row=m_row, column=1, value=_source_label(src_key))
+                        lbl_cell.border = border
+                        val_cell = ws_m.cell(row=m_row, column=2, value=round(src_total, 2))
+                        val_cell.border = border
+                        val_cell.number_format = '#,##0.00 ₽'
+                        val_cell.alignment = Alignment(horizontal="right")
+                        m_row += 1
 
         buf = io.BytesIO()
         wb.save(buf)
