@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.33.0"
+CURRENT_VERSION = "1.34.0"
 
 ENTRIES = [
+    {
+        "version": "1.34.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Move AI assistant to a dedicated chat topic and improve validation",
+        ],
+    },
     {
         "version": "1.33.0",
         "date": "16 июня 2026",

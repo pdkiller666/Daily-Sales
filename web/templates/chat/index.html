@@ -25,6 +25,23 @@ footer { display:none !important; }
     #chat-wrapper { height: var(--chat-h, calc(100dvh - 3.5rem)); }
 }
 
+/* ── Блокируем внешний скролл страницы ────────────────────────────────
+   Проблема: обёртка #ds-wrap имеет min-h-screen (растёт выше viewport),
+   из-за чего body получает прокрутку и sticky-шапка уезжает при свайпе
+   за пределами #chat-scroll. Фиксим: body не скроллится, обёртка = 100dvh.
+   _fitHeight() продолжает работать (getBoundingClientRect стабилен).
+   Нижний nav (fixed) и внутренний #chat-scroll не затронуты. */
+html, body {
+    overflow: hidden !important;
+    height: 100dvh !important;
+    overscroll-behavior: none;
+}
+#ds-wrap {
+    height: 100dvh !important;
+    min-height: 0 !important;
+    overflow: hidden;
+}
+
 /* ── Bubble styles ── */
 .msg-bubble { max-width: 72%; word-break: break-word; }
 @media (max-width: 640px) { .msg-bubble { max-width: 88%; } }
