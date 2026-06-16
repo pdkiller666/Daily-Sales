@@ -156,10 +156,13 @@ class IntegrationManager:
         model_col: int,
         bonus_col_map: dict,
         rrp_col: int = None,
+        aliases: dict = None,
     ) -> dict:
         """
         Read bonus rates from a sheet (rows = models, columns = chains) and
         cache them in gs_bonus_cache.
+        `aliases` maps a sheet model name → the system model name; applied
+        (case-insensitively, trimmed) before writing to the cache.
         Returns {'synced': N, 'models': [list], 'sheet': sheet_name, 'chains': [list]}.
         """
         db = self._unwrap(db)
@@ -184,11 +187,21 @@ class IntegrationManager:
         # Replace cache for this connection so removed chains/models don't linger
         db.clear_bonus_cache(conn_id)
 
+        # Normalize aliases for case-insensitive, trimmed lookup
+        alias_lookup = {}
+        for k, v in (aliases or {}).items():
+            ks = str(k).strip().lower()
+            vs = str(v).strip()
+            if ks and vs:
+                alias_lookup[ks] = vs
+
         synced = 0
         models = []
         chains = set()
         for entry in rows:
             model_name = entry['model']
+            if alias_lookup:
+                model_name = alias_lookup.get(str(model_name).strip().lower(), model_name)
             rrp = entry.get('rrp', 0.0)
             bonuses = entry.get('bonuses', {})
             if not bonuses:
@@ -217,6 +230,7 @@ class IntegrationManager:
             model_col=int(cfg.get('model_col', 1)),
             bonus_col_map=cfg.get('bonus_col_map', {}),
             rrp_col=cfg.get('rrp_col'),
+            aliases=cfg.get('aliases'),
         )
 
 

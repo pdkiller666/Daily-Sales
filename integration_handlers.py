@@ -1362,17 +1362,101 @@ async def _mtv_show_rcol(target, state: FSMContext, page: int = 0):
     await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-async def _mtv_finalize(callback: CallbackQuery, state: FSMContext, rrp_col):
+_MTV_MANUAL_PROMPT = (
+    "✏️ <b>Ручная настройка мотивации</b>\n\n"
+    "Google API недоступен — задай параметры вручную. "
+    "Отправь сообщение в формате (по строке на параметр):\n\n"
+    "<code>Строка-шапка: 6\n"
+    "Колонка моделей: 2\n"
+    "Бонусы: 4=DNS, 5=МВМ\n"
+    "РРЦ: 3</code>\n\n"
+    "📌 Колонки нумеруются с <b>1</b> (A=1, B=2, C=3…).\n"
+    "📌 В «Бонусы» через запятую: <code>номер=Название_сети</code>. "
+    "Если название не указать — возьмётся буква колонки.\n"
+    "📌 «РРЦ» необязательно — поставь <code>-</code> или пропусти строку."
+)
+
+
+def _parse_motiv_manual(text: str) -> dict:
+    """Parse manual motiv params. Raises ValueError with a user-friendly message."""
+    header_row = model_col = rrp_col = None
+    bonus_map: dict = {}
+    for line in (text or "").split('\n'):
+        line = line.strip()
+        if not line or ':' not in line:
+            continue
+        key, _, val = line.partition(':')
+        k = key.strip().lower()
+        val = val.strip()
+        try:
+            if 'шапк' in k or 'заголов' in k or 'header' in k:
+                header_row = int(val)
+            elif 'модел' in k or 'model' in k:
+                model_col = int(val)
+            elif 'ррц' in k or 'rrp' in k or 'цен' in k:
+                if val and val not in ('-', '—', 'нет', 'no'):
+                    rrp_col = int(val)
+            elif 'бонус' in k or 'bonus' in k or 'сет' in k:
+                for part in val.split(','):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if '=' in part:
+                        cnum, _, cname = part.partition('=')
+                        ci = int(cnum.strip())
+                        bonus_map[ci] = cname.strip() or f"Кол.{_col_letter(ci)}"
+                    else:
+                        ci = int(part)
+                        bonus_map[ci] = f"Кол.{_col_letter(ci)}"
+        except ValueError:
+            raise ValueError(f"Не понял число в строке: «{he(line)}»")
+    if header_row is None or model_col is None or not bonus_map:
+        raise ValueError(
+            "Укажи как минимум: строку-шапку, колонку моделей и хотя бы одну колонку бонусов.")
+    return {'header_row': header_row, 'model_col': model_col,
+            'bonus_map': bonus_map, 'rrp_col': rrp_col}
+
+
+async def _mtv_show_aliases(target, state: FSMContext):
+    """Step 5/5: optional aliases (sheet model name → system model name)."""
+    data    = await state.get_data()
+    conn_id = data.get('gs_motiv_conn_id')
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⏩ Пропустить и сохранить", callback_data="gs_mtv_askip"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_rcol"))
+    text = (
+        "🎯 <b>Мотивация — шаг 5/5: псевдонимы</b> <i>(необязательно)</i>\n\n"
+        "Если название модели <b>в таблице отличается</b> от названия в системе — "
+        "задай соответствие.\n\n"
+        "Формат — <b>по одной паре в строке</b>:\n"
+        "<code>Название в листе → Название в системе</code>\n\n"
+        "<b>Например:</b>\n"
+        "<code>Pura 80 → Huawei Pura 80</code>\n"
+        "<code>Nova 14 → Nova 14i</code>\n\n"
+        "Разделители: <code>→</code> или <code>-&gt;</code> или <code>:</code>\n\n"
+        "Если названия совпадают — нажми «⏩ Пропустить и сохранить»."
+    )
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await state.set_state(IntegrationStates.waiting_motiv_aliases)
+
+
+async def _mtv_finalize(state: FSMContext, user_id: int, edit):
+    """Persist the motiv config and run the sync. `edit(text, reply_markup)` is
+    an async callable that renders into the anchor message."""
     data       = await state.get_data()
     conn_id    = data.get('gs_motiv_conn_id')
     sheet      = data.get('gs_motiv_sheet', 'w{week}')
     header_row = data.get('gs_mtv_header_row')
     model_col  = data.get('gs_mtv_model_col')
     bmap       = data.get('gs_mtv_bonus_map', {})
+    rrp_col    = data.get('gs_mtv_rrp_col')
+    aliases    = data.get('gs_mtv_aliases', {})
     back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_hub_motiv_{conn_id}")]])
 
-    if not bmap:
-        await callback.answer("⚠️ Не выбрана ни одна колонка бонусов", show_alert=True)
+    if header_row is None or model_col is None or not bmap:
+        await edit("⚠️ Настройка неполная (строка-шапка / колонка моделей / бонусы). "
+                   "Запустите мастер заново.", back_kb)
+        await clear_state_keep_org(state)
         return
 
     motiv_config = {
@@ -1381,11 +1465,11 @@ async def _mtv_finalize(callback: CallbackQuery, state: FSMContext, rrp_col):
         'model_col':     int(model_col),
         'bonus_col_map': {str(k): v for k, v in bmap.items()},
         'rrp_col':       int(rrp_col) if rrp_col else None,
+        'aliases':       aliases or {},
     }
 
-    await callback.message.edit_text("⏳ Сохраняю настройку и синхронизирую мотивацию…",
-                                     parse_mode="HTML")
-    current_db = await get_db(callback.from_user.id, state)
+    await edit("⏳ Сохраняю настройку и синхронизирую мотивацию…", None)
+    current_db = await get_db(user_id, state)
     try:
         integration_manager.save_motiv_config(current_db, conn_id, motiv_config)
         result = await integration_manager.run_motiv_sync_from_config(current_db, conn_id)
@@ -1397,20 +1481,20 @@ async def _mtv_finalize(callback: CallbackQuery, state: FSMContext, rrp_col):
         models_preview = ", ".join(models[:8])
         if len(models) > 8:
             models_preview += f" … ещё {len(models) - 8}"
+        alias_line = f"\n🔁 Псевдонимов: <b>{len(aliases)}</b>" if aliases else ""
 
-        await callback.message.edit_text(
+        await edit(
             f"✅ <b>Мотивация синхронизирована!</b>\n\n"
             f"📋 Лист: <code>{he(actual)}</code>\n"
             f"🔢 Моделей: <b>{synced}</b>\n"
-            f"🏷 Сети: {he(', '.join(chains)) or '—'}\n"
+            f"🏷 Сети: {he(', '.join(chains)) or '—'}{alias_line}\n"
             f"📦 {he(models_preview)}\n\n"
             f"Настройка сохранена — в следующий раз жми «⚡ Быстрая синхронизация».",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📊 Кэш мотивации",
                                       callback_data=f"gs_show_motiv_{conn_id}")],
                 [_back(f"gs_hub_motiv_{conn_id}")],
             ]),
-            parse_mode="HTML",
         )
     except Exception as e:
         _e_str = str(e)
@@ -1424,7 +1508,7 @@ async def _mtv_finalize(callback: CallbackQuery, state: FSMContext, rrp_col):
                 f"❌ <b>Ошибка синхронизации:</b>\n<code>{he(_e_str)}</code>\n\n"
                 "Проверьте название листа и выбранные колонки."
             )
-        await callback.message.edit_text(_err_text, reply_markup=back_kb, parse_mode="HTML")
+        await edit(_err_text, back_kb)
     finally:
         await clear_state_keep_org(state)
 
@@ -1488,10 +1572,13 @@ async def gs_motiv_sheet_input(message: Message, state: FSMContext):
         await _fsm_edit(
             message, state,
             f"⚠️ Не удалось прочитать лист <code>{he(sheet)}</code>.\n\n"
-            "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова:",
+            "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова — "
+            "или задайте номера строк/столбцов вручную:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔄 Попробовать снова",
                                       callback_data=f"gs_sync_motiv_{conn_id}")],
+                [InlineKeyboardButton(text="✏️ Ввести вручную",
+                                      callback_data=f"gs_mtv_manual_{conn_id}")],
                 [_back(f"gs_hub_motiv_{conn_id}")],
             ]),
         )
@@ -1628,10 +1715,32 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
         await _mtv_show_rcol(msg, state, page=int(raw[len("rcolpg_"):]))
         return
     if raw.startswith("rcol_"):
-        await _mtv_finalize(callback, state, rrp_col=int(raw[len("rcol_"):]))
+        await state.update_data(gs_mtv_rrp_col=int(raw[len("rcol_"):]))
+        await _mtv_show_aliases(msg, state)
         return
     if raw == "rskip":
-        await _mtv_finalize(callback, state, rrp_col=None)
+        await state.update_data(gs_mtv_rrp_col=None)
+        await _mtv_show_aliases(msg, state)
+        return
+
+    # ── aliases (step 5) skip → finalize ──────────────────────
+    if raw == "askip":
+        await state.update_data(gs_mtv_aliases={})
+        await _mtv_finalize(
+            state, callback.from_user.id,
+            lambda t, rm: msg.edit_text(t, reply_markup=rm, parse_mode="HTML"))
+        return
+
+    # ── manual fallback (GS API unavailable) ──────────────────
+    if raw.startswith("manual_"):
+        conn_id = int(raw[len("manual_"):])
+        await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id,
+                                anchor_msg_id=msg.message_id)
+        await msg.edit_text(_MTV_MANUAL_PROMPT,
+                            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                [_back(f"gs_hub_motiv_{conn_id}")]]),
+                            parse_mode="HTML")
+        await state.set_state(IntegrationStates.waiting_motiv_manual)
         return
 
     # ── back navigation ───────────────────────────────────────
@@ -1644,6 +1753,68 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
     if raw == "bk_bcol":
         await _mtv_show_bcol(msg, state)
         return
+    if raw == "bk_rcol":
+        await _mtv_show_rcol(msg, state)
+        return
+
+
+@integration_router.message(IntegrationStates.waiting_motiv_aliases)
+async def gs_motiv_aliases_input(message: Message, state: FSMContext):
+    aliases = _parse_aliases(message.text or "")
+    await state.update_data(gs_mtv_aliases=aliases)
+    data      = await state.get_data()
+    anchor_id = data.get('anchor_msg_id')
+    await delete_message_safe(message)
+
+    async def _edit(text, reply_markup):
+        target_id = anchor_id
+        if target_id:
+            await message.bot.edit_message_text(
+                text, chat_id=message.chat.id, message_id=target_id,
+                reply_markup=reply_markup, parse_mode="HTML")
+        else:
+            await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
+
+    await _mtv_finalize(state, message.from_user.id, _edit)
+
+
+@integration_router.message(IntegrationStates.waiting_motiv_manual)
+async def gs_motiv_manual_input(message: Message, state: FSMContext):
+    data      = await state.get_data()
+    conn_id   = data.get('gs_motiv_conn_id')
+    anchor_id = data.get('anchor_msg_id')
+    try:
+        parsed = _parse_motiv_manual(message.text or "")
+    except ValueError as e:
+        await _fsm_edit(
+            message, state,
+            f"❌ {he(str(e))}\n\n{_MTV_MANUAL_PROMPT}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [_back(f"gs_hub_motiv_{conn_id}")]]))
+        return
+
+    await state.update_data(
+        gs_mtv_header_row=parsed['header_row'],
+        gs_mtv_model_col=parsed['model_col'],
+        gs_mtv_bonus_map={str(k): v for k, v in parsed['bonus_map'].items()},
+        gs_mtv_rrp_col=parsed['rrp_col'],
+    )
+    await delete_message_safe(message)
+
+    class _AnchorProxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self.bot.edit_message_text(
+                text, chat_id=self.chat_id, message_id=self.msg_id,
+                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
+
+    if anchor_id:
+        await _mtv_show_aliases(_AnchorProxy(message.bot, message.chat.id, anchor_id), state)
+    else:
+        sent = await message.answer("…")
+        await state.update_data(anchor_msg_id=sent.message_id)
+        await _mtv_show_aliases(_AnchorProxy(message.bot, message.chat.id, sent.message_id), state)
 
 
 @integration_router.callback_query(F.data.startswith("gs_show_motiv_"))

@@ -98,6 +98,26 @@ def integration_page(
                 except Exception:
                     cfg = {}
                 has_token = bool(cfg.get("tokens", {}).get("access_token"))
+                motiv_cfg = cfg.get("motiv_config") or {}
+                motiv_preview = None
+                if motiv_cfg:
+                    try:
+                        cache = db.get_bonus_cache(cid) or []
+                        chains = sorted({r[1] for r in cache if r[1]})
+                        models = {r[0] for r in cache if r[0]}
+                        synced_ats = [r[4] for r in cache if r[4]]
+                        last_synced = (
+                            max(synced_ats)[:16].replace("T", " ") if synced_ats else ""
+                        )
+                        motiv_preview = {
+                            "sheet": motiv_cfg.get("sheet_name", ""),
+                            "chains": chains,
+                            "model_count": len(models),
+                            "last_synced": last_synced,
+                            "alias_count": len(motiv_cfg.get("aliases") or {}),
+                        }
+                    except Exception:
+                        motiv_preview = None
                 conns.append({
                     "id": cid,
                     "name": c[1] or "—",
@@ -107,8 +127,9 @@ def integration_page(
                     "spreadsheet_id": cfg.get("spreadsheet_id", ""),
                     "has_token": has_token,
                     "token_expiry": cfg.get("tokens", {}).get("expiry", 0),
-                    "has_motiv_config": bool(cfg.get("motiv_config")),
-                    "motiv_sheet": (cfg.get("motiv_config") or {}).get("sheet_name", ""),
+                    "has_motiv_config": bool(motiv_cfg),
+                    "motiv_sheet": motiv_cfg.get("sheet_name", ""),
+                    "motiv_preview": motiv_preview,
                 })
                 try:
                     exports_raw = db.get_integration_exports(cid) or []

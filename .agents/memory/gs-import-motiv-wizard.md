@@ -20,5 +20,13 @@ description: Google Sheets motivation table orientation, saved-config sync, clic
 # aiogram prefix gotcha
 - `gs_impc_` and `gs_imptyp_` do NOT collide with the `startswith("gs_import_")` handler: they differ at index 6 (`c`/`t` vs `o`). Keep new pickers registered before the broader menu handler anyway.
 
+# Aliases direction (sheet → system)
+- Alias map is keyed by the **sheet's** model name, value is the **system** model name (`{sheet: system}`). Manager applies it case-insensitively/trimmed to each row's model BEFORE upsert. The bot prompt must say "Название в листе → Название в системе" or the mapping inverts and matches nothing.
+- **Why:** targeted-motivation lookup keys on the system model name; if aliases were stored system→sheet the cache would store sheet names and bonus lookups would miss.
+
+# Manual fallback (GS API unreachable)
+- When the live sheet read fails, the wizard must still be completable by manual numeric entry (1-based rows/cols), mirroring export. Manual path feeds the SAME finalize as the clickable path, so it must set every state key the pickers set (`gs_mtv_header_row`, `gs_mtv_model_col`, `gs_mtv_bonus_map`, `gs_mtv_rrp_col`) before finalize.
+- **Why:** Amvera/Google outages otherwise hard-block setup with no recovery; finalize reads only from state, so a partial manual fill silently produced a broken config until a guard was added.
+
 # Web async safety
 - New web routes are `async def` and `await integration_manager....` directly. Safe because the provider wraps gspread network calls in `asyncio.to_thread`; only short SQLite upsert loops run on the request worker. For very large imports, consider a threadpool/background task.
