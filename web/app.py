@@ -196,6 +196,7 @@ Disallow: /chat/dm
 Disallow: /ws/dm
 Disallow: /tasks
 Disallow: /tasks/attachment/
+Disallow: /ai-insights
 Disallow: /api/
 Disallow: /login
 Disallow: /register
@@ -487,6 +488,33 @@ def create_web_app() -> FastAPI:
     _NAV_MODULE_KEYS = ('analytics', 'team', 'plans_motivation', 'chat',
                         'integrations', 'notifications', 'ai_assistant', 'pos_retail')
 
+    def _ai_insights_enabled(request=None) -> bool:
+        """Return True if the current user has the ai_network_insights extension.
+
+        Memoized on request.state for efficiency (base.html calls it twice).
+        """
+        state = getattr(request, "state", None) if request is not None else None
+        if state is not None and hasattr(state, "_ai_insights_enabled"):
+            return state._ai_insights_enabled
+        val = False
+        try:
+            from web.auth import get_session_user
+            from billing_utils import has_extension
+            user = get_session_user(request)
+            if user:
+                tg_id = int(user["sub"])
+                val = has_extension(tg_id, "ai_network_insights")
+        except Exception:
+            pass
+        if state is not None:
+            try:
+                state._ai_insights_enabled = val
+            except Exception:
+                pass
+        return val
+
+    templates.env.globals['ai_insights_enabled'] = _ai_insights_enabled
+
     def _nav_modules(request):
         """Returns dict {module_key: bool} for nav visibility gating. Fails open.
 
@@ -727,6 +755,7 @@ def create_web_app() -> FastAPI:
     from web.routes.tasks import router as tasks_router
     from web.routes.email_auth import router as email_auth_router
     from web.routes.ai_routes import router as ai_router
+    from web.routes.ai_insights import router as ai_insights_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -760,6 +789,7 @@ def create_web_app() -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(email_auth_router)
     app.include_router(ai_router)
+    app.include_router(ai_insights_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
     _APK_MIN_SIZE = 1_000_000  # 1 MB — минимальный размер валидного APK

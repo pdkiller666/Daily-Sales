@@ -525,7 +525,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                 @keydown.enter.exact.prevent="sendMessage()"
                 @keydown.enter.shift.exact="text += '\n'"
                 rows="1"
-                :placeholder="'Написать в #' + currentTopicName + '… (Enter — отправить)'"
+                :placeholder="'Написать в #' + currentTopicName + '… (Enter — отправить){% if ai_chat_enabled %} · @ИИ — спросить AI{% endif %}'"
                 :disabled="sending"
                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                 style="min-height:42px;max-height:120px"

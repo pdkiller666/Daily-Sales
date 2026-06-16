@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import mimetypes
 import os
@@ -88,8 +89,12 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict
     files=[...] → список dicts из chat_message_files
     """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname = row
-    display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{user_id}"
-    initial = (display[0] if display else "?").upper()
+    if user_id == 0:
+        display = "AI-ассистент"
+        initial = "🤖"
+    else:
+        display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{user_id}"
+        initial = (display[0] if display else "?").upper()
     raw = str(created_at or "")[:16].replace("T", " ")
     try:
         d, t = raw.split(" ")
@@ -143,6 +148,67 @@ def _load_msg_files_bulk(db, message_ids: list) -> dict:
         return db.get_chat_message_files_bulk(message_ids)
     except Exception:
         return {}
+
+
+_AI_CHAT_DAILY_LIMIT = 50
+
+
+async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text: str):
+    """Асинхронно формирует и сохраняет ответ AI-ассистента в топик чата.
+
+    Запускается через asyncio.create_task — основной /chat/send не ждёт.
+    Любой сбой глотается: AI-ошибка никогда не роняет основной чат.
+    """
+    try:
+        from billing_utils import has_extension
+        from web.ai_utils import ask_llm
+        from web.deps import get_web_db
+        from web.rate_store import check_and_increment_ai
+        import anyio
+
+        db = await anyio.to_thread.run_sync(lambda: get_web_db(0, org_db))
+
+        owner_tg_id = await anyio.to_thread.run_sync(db.get_org_owner_tg_id)
+        if not owner_tg_id:
+            return
+        if not has_extension(owner_tg_id, 'ai_chat_assistant'):
+            return
+        if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+            return
+
+        sales_today = await anyio.to_thread.run_sync(db.get_sales_summary_today)
+        sales_month = await anyio.to_thread.run_sync(db.get_sales_summary_month)
+        user_row    = await anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id))
+        org_name    = await anyio.to_thread.run_sync(db.get_org_name)
+
+        user_name = ""
+        if user_row:
+            fn = user_row[3] if len(user_row) > 3 else ""
+            ln = user_row[4] if len(user_row) > 4 else ""
+            user_name = f"{fn or ''} {ln or ''}".strip() or "сотрудник"
+
+        prompt = (
+            f"Ты AI-ассистент торговой организации «{org_name}».\n"
+            f"Отвечай коротко и по делу на русском языке.\n\n"
+            f"Текущие данные:\n"
+            f"- Продажи сегодня: {sales_today}\n"
+            f"- Продажи за месяц: {sales_month}\n"
+            f"- Спрашивает: {user_name}\n\n"
+            f"Вопрос: {user_text}\n\n"
+            f"Ответь в 2-4 предложениях. Если вопрос не связан с продажами/магазином — "
+            f"скажи что можешь помочь только с данными организации."
+        )
+
+        answer = await ask_llm(prompt, max_tokens=300)
+        if not answer:
+            return
+
+        ai_text = f"🤖 {answer}"
+        await anyio.to_thread.run_sync(
+            lambda: db.add_chat_message(user_id=0, message=ai_text, topic_id=topic_id)
+        )
+    except Exception:
+        pass
 
 
 def _load_dm_files_bulk(db, dm_ids: list) -> dict:
@@ -251,6 +317,7 @@ def chat_page(request: Request, topic: int = 1):
         "min_plan": min_plan,
         "my_db_id": 0,
         "error": None,
+        "ai_chat_enabled": False,
     }
 
     if min_plan == "Отключён":
@@ -287,6 +354,13 @@ def chat_page(request: Request, topic: int = 1):
             rows = db.get_chat_messages(limit=50, topic_id=topic)
             ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
+
+            try:
+                from billing_utils import has_extension
+                owner_tg_id = db.get_org_owner_tg_id() or telegram_id
+                ctx["ai_chat_enabled"] = has_extension(owner_tg_id, 'ai_chat_assistant')
+            except Exception:
+                pass
 
     except Exception as exc:
         logger.error(f"chat_page error: {exc}")
@@ -377,6 +451,10 @@ async def chat_send(
         new_id = db.add_chat_message(user_id=user_db_id, message=text, topic_id=topic_id)
         if saved_files:
             db.add_chat_message_files(new_id, saved_files)
+
+        # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
+        if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
+            asyncio.create_task(_ai_chat_reply(org_db, topic_id, user_db_id, text))
 
         # Web Push участникам организации (кроме отправителя) — общий чат
         try:

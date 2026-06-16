@@ -1530,6 +1530,13 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_task_comments_task     ON task_comments(task_id, created_at)')
 
         if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS ai_insights_cache (
+                    tg_id        INTEGER PRIMARY KEY,
+                    insights_text TEXT NOT NULL,
+                    generated_at  TEXT NOT NULL
+                )
+            ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
@@ -1809,6 +1816,14 @@ class Database:
              'Генерация, сканирование и импорт артикулов/штрихкодов', 149, 1),
             ('pos_retail', 'labels', '🏷️', 'Ценники и печать',
              'Дизайн ценников, PDF-печать, логотип организации', 99, 2),
+            ('ai_assistant', 'ai_chat_assistant', '💬', 'AI-ассистент в чате',
+             'Отвечает на вопросы участников прямо в org-чате по данным вашей организации', 249, 4),
+            ('ai_assistant', 'ai_plan_analysis', '🔍', 'AI-разбор планов',
+             'Анализирует причины невыполнения плана продаж — по дням, продавцам, категориям',
+             149, 5),
+            ('ai_assistant', 'ai_network_insights', '🌐', 'AI-инсайты сети',
+             'Сравнительный AI-анализ по всем магазинам сети — тренды, возможности, риски',
+             399, 6),
         ]
         for module_key, key, icon, name, description, price, sort in EXTRA_EXTENSIONS:
             cursor.execute(
@@ -4021,6 +4036,91 @@ class Database:
         user = cursor.fetchone()
         conn.close()
         return user
+
+    def get_org_owner_tg_id(self):
+        """Возвращает telegram_id владельца организации из user_org_mapping в main.db.
+
+        Ищет по db_path == self.db_file в таблице organizations, затем
+        находит пользователя с role='owner' в user_org_mapping для этого org_id.
+        """
+        try:
+            import sqlite3 as _sqlite3
+            main_conn = _sqlite3.connect('data/main.db')
+            cursor = main_conn.cursor()
+            cursor.execute(
+                "SELECT id FROM organizations WHERE db_path = ? LIMIT 1",
+                (self.db_file,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                main_conn.close()
+                return None
+            org_id = row[0]
+            cursor.execute(
+                "SELECT telegram_id FROM user_org_mapping "
+                "WHERE org_id = ? AND role = 'owner' AND is_active = 1 LIMIT 1",
+                (org_id,)
+            )
+            row = cursor.fetchone()
+            main_conn.close()
+            return row[0] if row else None
+        except Exception:
+            return None
+
+    def get_org_name(self):
+        """Возвращает название организации из таблицы organizations в main.db."""
+        try:
+            import sqlite3 as _sqlite3
+            main_conn = _sqlite3.connect('data/main.db')
+            cursor = main_conn.cursor()
+            cursor.execute(
+                "SELECT name FROM organizations WHERE db_path = ? LIMIT 1",
+                (self.db_file,)
+            )
+            row = cursor.fetchone()
+            main_conn.close()
+            return row[0] if row else "Организация"
+        except Exception:
+            return "Организация"
+
+    def get_sales_summary_today(self):
+        """Сводка по продажам за сегодня: (кол-во, сумма)."""
+        try:
+            from datetime import date
+            today = date.today().isoformat()
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*), COALESCE(SUM(quantity_sold * sale_price), 0) "
+                "FROM sales WHERE date(sale_date) = ?",
+                (today,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            cnt, total = (row[0] or 0), (row[1] or 0)
+            return f"{cnt} продаж на сумму {total:,.0f} руб."
+        except Exception:
+            return "нет данных"
+
+    def get_sales_summary_month(self):
+        """Сводка по продажам за текущий месяц: (кол-во, сумма)."""
+        try:
+            from datetime import date
+            today = date.today()
+            month_start = today.replace(day=1).isoformat()
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*), COALESCE(SUM(quantity_sold * sale_price), 0) "
+                "FROM sales WHERE date(sale_date) >= ?",
+                (month_start,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            cnt, total = (row[0] or 0), (row[1] or 0)
+            return f"{cnt} продаж на сумму {total:,.0f} руб."
+        except Exception:
+            return "нет данных"
 
     def get_notification_settings(self, user_id):
         conn = self.get_connection()
@@ -8357,6 +8457,230 @@ class Database:
             percent = round((actual / target * 100) if target > 0 else 0.0, 1)
             result.append((plan, actual, percent))
         return result
+
+    def get_sales_plan_by_id(self, plan_id):
+        """Получить один план продаж по id → dict или None."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT sp.id, sp.plan_type, sp.metric_type, sp.target_value,
+                          sp.target_type, sp.user_id, sp.shop_name,
+                          sp.filter_type, sp.filter_value, sp.is_active,
+                          sp.created_by, sp.created_at,
+                          u.first_name, u.last_name
+                   FROM sales_plans sp
+                   LEFT JOIN users u ON sp.user_id = u.id
+                   WHERE sp.id = ?''',
+                (plan_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                return None
+            fname = (row[12] or "").strip()
+            lname = (row[13] or "").strip()
+            who = f"{fname} {lname}".strip() or (row[6] or "")
+            return {
+                "id": row[0], "plan_type": row[1], "metric_type": row[2],
+                "target_value": float(row[3] or 0), "target_type": row[4],
+                "user_id": row[5], "shop_name": row[6],
+                "filter_type": row[7], "filter_value": row[8],
+                "is_active": bool(row[9]), "created_at": row[11] or "",
+                "target_who": who,
+            }
+        except Exception as e:
+            logger.error(f"get_sales_plan_by_id error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
+
+    def get_daily_sales_for_period(self, date_from: str, date_to: str,
+                                   shop_name: str = None, user_id: int = None,
+                                   metric_type: str = 'turnover',
+                                   filter_type: str = None, filter_value: str = None):
+        """Продажи по дням за период → [{date, amount, count}].
+        metric_type='turnover' → выручка (₽), 'quantity' → количество (шт).
+        filter_type/filter_value — фильтр по категории или товарам (как в sales_plans)."""
+        try:
+            import json as _json
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            metric_expr = (
+                'COALESCE(SUM(s.sale_price * s.quantity_sold), 0)'
+                if metric_type == 'turnover'
+                else 'COALESCE(SUM(s.quantity_sold), 0)'
+            )
+            conditions = ["date(s.sale_date) BETWEEN date(?) AND date(?)"]
+            params: list = [date_from, date_to]
+            join_clause = ""
+            if shop_name:
+                conditions.append("s.shop_name = ?")
+                params.append(shop_name)
+            if user_id:
+                conditions.append("s.user_id = ?")
+                params.append(user_id)
+            if filter_type == 'category' and filter_value:
+                join_clause = "JOIN products p ON s.product_id = p.id"
+                try:
+                    cats = _json.loads(filter_value)
+                    if isinstance(cats, list) and cats:
+                        conditions.append(f"p.category IN ({','.join('?'*len(cats))})")
+                        params.extend(cats)
+                    else:
+                        conditions.append("p.category = ?")
+                        params.append(filter_value)
+                except (ValueError, TypeError):
+                    conditions.append("p.category = ?")
+                    params.append(filter_value)
+            elif filter_type == 'product' and filter_value:
+                try:
+                    ids = _json.loads(filter_value)
+                    if ids:
+                        conditions.append(f"s.product_id IN ({','.join('?'*len(ids))})")
+                        params.extend(ids)
+                except Exception:
+                    pass
+            where = " AND ".join(conditions)
+            cursor.execute(
+                f'''SELECT date(s.sale_date) AS day,
+                           {metric_expr} AS amount,
+                           COUNT(*) AS cnt
+                    FROM sales s {join_clause}
+                    WHERE {where}
+                    GROUP BY day
+                    ORDER BY day''',
+                params
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"date": r[0], "amount": float(r[1]), "count": int(r[2])} for r in rows]
+        except Exception as e:
+            logger.error(f"get_daily_sales_for_period error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def get_sales_by_seller_for_period(self, date_from: str, date_to: str,
+                                       shop_name: str = None,
+                                       metric_type: str = 'turnover',
+                                       filter_type: str = None, filter_value: str = None):
+        """Продажи по продавцам за период → [{name, amount}] топ-10.
+        metric_type и filter_type/filter_value — аналогично get_daily_sales_for_period."""
+        try:
+            import json as _json
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            metric_expr = (
+                'COALESCE(SUM(s.sale_price * s.quantity_sold), 0)'
+                if metric_type == 'turnover'
+                else 'COALESCE(SUM(s.quantity_sold), 0)'
+            )
+            conditions = ["date(s.sale_date) BETWEEN date(?) AND date(?)"]
+            params: list = [date_from, date_to]
+            join_clause = "LEFT JOIN users u ON s.user_id = u.id"
+            if shop_name:
+                conditions.append("s.shop_name = ?")
+                params.append(shop_name)
+            if filter_type == 'category' and filter_value:
+                join_clause += " JOIN products p ON s.product_id = p.id"
+                try:
+                    cats = _json.loads(filter_value)
+                    if isinstance(cats, list) and cats:
+                        conditions.append(f"p.category IN ({','.join('?'*len(cats))})")
+                        params.extend(cats)
+                    else:
+                        conditions.append("p.category = ?")
+                        params.append(filter_value)
+                except (ValueError, TypeError):
+                    conditions.append("p.category = ?")
+                    params.append(filter_value)
+            elif filter_type == 'product' and filter_value:
+                try:
+                    ids = _json.loads(filter_value)
+                    if ids:
+                        conditions.append(f"s.product_id IN ({','.join('?'*len(ids))})")
+                        params.extend(ids)
+                except Exception:
+                    pass
+            where = " AND ".join(conditions)
+            cursor.execute(
+                f'''SELECT COALESCE(u.first_name || ' ' || COALESCE(u.last_name,''), 'user#' || s.user_id) AS name,
+                           {metric_expr} AS amount
+                    FROM sales s {join_clause}
+                    WHERE {where}
+                    GROUP BY s.user_id
+                    ORDER BY amount DESC
+                    LIMIT 10''',
+                params
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"name": (r[0] or "").strip(), "amount": float(r[1])} for r in rows]
+        except Exception as e:
+            logger.error(f"get_sales_by_seller_for_period error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def get_sales_by_category_for_period(self, date_from: str, date_to: str,
+                                         shop_name: str = None, user_id: int = None,
+                                         filter_type: str = None, filter_value: str = None):
+        """Продажи по категориям за период → [{category, revenue, quantity}].
+        Всегда возвращает и выручку и количество для контекста AI.
+        filter_type/filter_value ограничивают набор строк (category/product)."""
+        try:
+            import json as _json
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            conditions = ["date(s.sale_date) BETWEEN date(?) AND date(?)"]
+            params: list = [date_from, date_to]
+            join_clause = "LEFT JOIN products p ON s.product_id = p.id"
+            if shop_name:
+                conditions.append("s.shop_name = ?")
+                params.append(shop_name)
+            if user_id:
+                conditions.append("s.user_id = ?")
+                params.append(user_id)
+            if filter_type == 'category' and filter_value:
+                try:
+                    cats = _json.loads(filter_value)
+                    if isinstance(cats, list) and cats:
+                        conditions.append(f"p.category IN ({','.join('?'*len(cats))})")
+                        params.extend(cats)
+                    else:
+                        conditions.append("p.category = ?")
+                        params.append(filter_value)
+                except (ValueError, TypeError):
+                    conditions.append("p.category = ?")
+                    params.append(filter_value)
+            elif filter_type == 'product' and filter_value:
+                try:
+                    ids = _json.loads(filter_value)
+                    if ids:
+                        conditions.append(f"s.product_id IN ({','.join('?'*len(ids))})")
+                        params.extend(ids)
+                except Exception:
+                    pass
+            where = " AND ".join(conditions)
+            cursor.execute(
+                f'''SELECT COALESCE(p.category, 'Без категории') AS category,
+                           COALESCE(SUM(s.sale_price * s.quantity_sold), 0) AS revenue,
+                           COALESCE(SUM(s.quantity_sold), 0) AS quantity
+                    FROM sales s {join_clause}
+                    WHERE {where}
+                    GROUP BY category
+                    ORDER BY revenue DESC''',
+                params
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"category": r[0], "revenue": float(r[1]), "quantity": float(r[2])} for r in rows]
+        except Exception as e:
+            logger.error(f"get_sales_by_category_for_period error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
 
     def get_user_plans_progress(self, telegram_id, local_today=None):
         """Получить планы конкретного продавца по telegram_id с прогрессом"""

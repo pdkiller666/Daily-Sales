@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}AI-инсайты сети{% endblock %}
+
+{% block content %}
+<main class="flex-1 overflow-y-auto p-4 md:p-6 space-y-5" id="content">
+
+    <div class="flex items-center gap-3 mb-1">
+        <span class="text-2xl">🌐</span>
+        <div>
+            <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100">AI-инсайты сети</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Сравнительный анализ магазинов вашей сети</p>
+        </div>
+    </div>
+
+    {% if not has_module %}
+    {# ── Upsell: модуль не подключён ── #}
+    <div class="card p-6 text-center space-y-4">
+        <div class="text-4xl">🤖</div>
+        <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Модуль «ИИ-ассистент» не подключён</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            Для доступа к AI-инсайтам сначала подключите модуль «ИИ-ассистент» в разделе подписки.
+        </p>
+        <a href="/subscription" class="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
+            💳 Перейти к подписке
+        </a>
+    </div>
+
+    {% elif not has_extension %}
+    {# ── Upsell: расширение не подключено ── #}
+    <div class="card p-6 text-center space-y-4">
+        <div class="text-4xl">🌐</div>
+        <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Расширение «AI-инсайты сети» не подключено</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            Расширение доступно в рамках модуля «ИИ-ассистент». Стоимость: 399 ₽/мес.
+            Включает еженедельный дайджест и сравнительный анализ всех магазинов сети.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <a href="/subscription" class="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">
+                💳 Подключить расширение
+            </a>
+        </div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 text-left max-w-md mx-auto space-y-2">
+            <p class="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Что входит:</p>
+            <ul class="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+                <li>✅ Сравнение магазинов по выручке и динамике</li>
+                <li>✅ Лидеры и аутсайдеры месяца с объяснением</li>
+                <li>✅ Общие тренды и паттерны по сети</li>
+                <li>✅ Конкретные возможности роста и риски</li>
+                <li>✅ Еженедельный Telegram-дайджест по понедельникам</li>
+            </ul>
+        </div>
+    </div>
+
+    {% elif not is_network %}
+    {# ── Заглушка: менее 2 магазинов ── #}
+    <div class="card p-6 text-center space-y-4">
+        <div class="text-4xl">🏪</div>
+        <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Доступно при наличии 2+ магазинов</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            У вас {% if org_count == 1 %}только один магазин{% else %}нет магазинов{% endif %} в сети.
+            AI-инсайты сравнивают магазины между собой — добавьте второй магазин, чтобы разблокировать анализ.
+        </p>
+        <a href="/shops" class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl transition-colors">
+            🏬 Мои магазины
+        </a>
+    </div>
+
+    {% else %}
+    {# ── Основной контент: есть расширение + ≥2 орг ── #}
+
+    {% if last_report %}
+    {# ── Карточка последнего отчёта ── #}
+    <div class="card p-5 space-y-3" id="insights-card">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+                <span class="text-lg">📊</span>
+                <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Последний отчёт</span>
+            </div>
+            <span class="text-xs text-slate-400 dark:text-slate-500">сформирован {{ last_report.generated_at }}</span>
+        </div>
+        <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4 border border-slate-100 dark:border-slate-700">{{ last_report.insights_text }}</div>
+    </div>
+    {% endif %}
+
+    {# ── Кнопка генерации ── #}
+    <div class="card p-5" x-data="aiInsights()" x-init="init()">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {% if last_report %}Обновить анализ{% else %}Сформировать анализ{% endif %}
+                </p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    AI проанализирует {{ org_count }} магазина(-ов) и создаст сравнительный отчёт.
+                    Расходует 1 AI-запрос из дневного лимита.
+                </p>
+            </div>
+            <button @click="generate()"
+                    :disabled="loading"
+                    class="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors">
+                <span x-show="!loading">🌐 {% if last_report %}Обновить{% else %}Сгенерировать{% endif %}</span>
+                <span x-show="loading" x-cloak class="flex items-center gap-2">
+                    <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Анализирую...
+                </span>
+            </button>
+        </div>
+
+        <div x-show="error" x-cloak class="mt-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300" x-text="error"></div>
+
+        <div x-show="result" x-cloak class="mt-4 space-y-2" id="new-insights-card">
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">📊 Новый отчёт</span>
+                <span class="text-xs text-slate-400" x-text="generatedAt"></span>
+            </div>
+            <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4 border border-slate-100 dark:border-slate-700" x-text="result"></div>
+        </div>
+    </div>
+
+    {# ── Информационная карточка о дайджесте ── #}
+    <div class="card p-4 flex items-start gap-3">
+        <span class="text-xl shrink-0 mt-0.5">📬</span>
+        <div>
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Еженедельный дайджест</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Каждый понедельник в 09:00 UTC AI автоматически формирует недельный обзор сети
+                и отправляет его в Telegram.
+            </p>
+        </div>
+    </div>
+
+    {% endif %}
+
+</main>
+
+<script>
+function aiInsights() {
+    return {
+        loading: false,
+        result: '',
+        error: '',
+        generatedAt: '',
+        csrfToken: '',
+
+        init() {
+            const meta = document.querySelector('meta[name="x-csrf-token"]');
+            this.csrfToken = meta ? meta.content : '';
+        },
+
+        async generate() {
+            this.loading = true;
+            this.error = '';
+            this.result = '';
+            this.generatedAt = '';
+
+            try {
+                const resp = await fetch('/api/ai/network-insights', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.csrfToken,
+                    },
+                    body: JSON.stringify({}),
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    this.result = data.insights;
+                    this.generatedAt = data.generated_at || '';
+                    const old = document.getElementById('insights-card');
+                    if (old) old.style.display = 'none';
+                } else {
+                    const errMap = {
+                        'no_module': 'Модуль AI-ассистент не подключён.',
+                        'no_extension': 'Расширение AI-инсайты сети не подключено.',
+                        'quota': data.message || 'Превышен дневной лимит AI-запросов. Сброс в полночь UTC.',
+                        'single_org': 'Доступно при наличии 2+ магазинов в сети.',
+                    };
+                    this.error = errMap[data.error] || data.message || data.error || 'Ошибка генерации';
+                }
+            } catch (e) {
+                this.error = 'Ошибка соединения. Попробуйте ещё раз.';
+            } finally {
+                this.loading = false;
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

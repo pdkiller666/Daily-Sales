@@ -1,6 +1,7 @@
-"""AI/LLM API endpoints — explain report, product description, sales forecast, quota."""
+"""AI/LLM API endpoints — explain report, product description, sales forecast, plan analysis, quota."""
 import logging
-from fastapi import APIRouter, Request
+import datetime as _dt
+from fastapi import APIRouter, Request, Form
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -304,4 +305,168 @@ async def ai_sales_forecast(request: Request):
         return JSONResponse({"ok": True, "text": result})
     except Exception as exc:
         logger.error("ai_sales_forecast error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── 4. Разбор невыполнения плана ────────────────────────────────────────────
+
+def _format_daily(daily: list, is_revenue: bool = True) -> str:
+    if not daily:
+        return "  (нет данных)"
+    unit = "₽" if is_revenue else "шт"
+    lines = []
+    DOW_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    for d in daily:
+        try:
+            dow = DOW_RU[_dt.date.fromisoformat(d["date"]).weekday()]
+        except Exception:
+            dow = "  "
+        val = f"{d['amount']:,.0f} {unit}"
+        lines.append(f"  {d['date']} ({dow}): {val}  [{d['count']} прод.]")
+    return "\n".join(lines)
+
+
+def _format_by_seller(sellers: list, is_revenue: bool = True) -> str:
+    if not sellers:
+        return "  (нет данных)"
+    unit = "₽" if is_revenue else "шт"
+    return "\n".join(
+        f"  {i+1}. {s['name']}: {s['amount']:,.0f} {unit}"
+        for i, s in enumerate(sellers[:8])
+    )
+
+
+def _format_by_category(cats: list, is_revenue: bool = True) -> str:
+    if not cats:
+        return "  (нет данных)"
+    lines = []
+    for c in cats[:10]:
+        rev = f"{c['revenue']:,.0f} ₽"
+        qty = f"{int(c['quantity'])} шт"
+        if is_revenue:
+            lines.append(f"  {c['category']}: {rev} ({qty})")
+        else:
+            lines.append(f"  {c['category']}: {qty} ({rev})")
+    return "\n".join(lines)
+
+
+@router.post("/analyze-plan")
+async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, is_configured
+    from web.rate_store import check_and_increment_ai
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+
+    from billing_utils import has_module, has_extension
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not has_extension(tg_id, "ai_plan_analysis"):
+        return JSONResponse({"ok": False, "error": "Расширение «AI-разбор планов» не подключено. Перейдите в Подписка → Расширения."}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
+
+    try:
+        org_db = user.get("org_db")
+        db = get_web_db(tg_id, org_db)
+
+        plan = db.get_sales_plan_by_id(plan_id)
+        if not plan:
+            return JSONResponse({"ok": False, "error": "План не найден"}, status_code=404)
+
+        today = _dt.date.today()
+        if plan["plan_type"] == "weekly":
+            date_from = (today - _dt.timedelta(days=today.weekday())).isoformat()
+            period_label = "текущая неделя"
+        else:
+            date_from = today.replace(day=1).isoformat()
+            period_label = "текущий месяц"
+        date_to = today.isoformat()
+
+        is_revenue = plan["metric_type"] == "turnover"
+        metric_label = "выручка (₽)" if is_revenue else "количество продаж (шт)"
+        unit = "₽" if is_revenue else "шт"
+
+        # Scope filter (seller or shop)
+        scope_kwargs: dict = {}
+        if plan["target_type"] == "shop" and plan["shop_name"]:
+            scope_kwargs["shop_name"] = plan["shop_name"]
+        elif plan["target_type"] == "seller" and plan["user_id"]:
+            scope_kwargs["user_id"] = plan["user_id"]
+
+        # Plan data filter (category / product) — must match calculate_plan_actual logic
+        filter_kwargs: dict = {}
+        if plan.get("filter_type") and plan.get("filter_value"):
+            filter_kwargs["filter_type"] = plan["filter_type"]
+            filter_kwargs["filter_value"] = plan["filter_value"]
+
+        daily_sales = db.get_daily_sales_for_period(
+            date_from, date_to,
+            metric_type=plan["metric_type"],
+            **scope_kwargs, **filter_kwargs
+        )
+        by_seller = db.get_sales_by_seller_for_period(
+            date_from, date_to,
+            shop_name=scope_kwargs.get("shop_name"),
+            metric_type=plan["metric_type"],
+            **filter_kwargs
+        )
+        by_category = db.get_sales_by_category_for_period(
+            date_from, date_to,
+            **scope_kwargs, **filter_kwargs
+        )
+
+        actual_total = sum(d["amount"] for d in daily_sales)
+        plan_target = plan["target_value"]
+        gap = plan_target - actual_total
+        achievement = round(actual_total / plan_target * 100, 1) if plan_target else 0
+
+        scope_note = ""
+        if plan["target_type"] == "shop" and plan["shop_name"]:
+            scope_note = f"Магазин: {plan['shop_name']}"
+        elif plan["target_type"] == "seller" and plan["target_who"]:
+            scope_note = f"Продавец: {plan['target_who']}"
+        if plan.get("filter_type") == "category" and plan.get("filter_value"):
+            scope_note += f" | Фильтр по категории"
+        elif plan.get("filter_type") == "product" and plan.get("filter_value"):
+            scope_note += f" | Фильтр по товарам"
+
+        prompt = (
+            f"Ты бизнес-аналитик розничного магазина. Проанализируй невыполнение плана продаж.\n\n"
+            f"Метрика: {metric_label}\n"
+            f"План: {plan_target:,.0f} {unit} | Факт: {actual_total:,.0f} {unit} | "
+            f"Выполнение: {achievement}% | Разрыв: {gap:,.0f} {unit}\n"
+            f"Период: {period_label} ({date_from} — {date_to})\n"
+            + (f"{scope_note}\n" if scope_note else "")
+            + f"\nПродажи по дням:\n{_format_daily(daily_sales, is_revenue)}\n"
+            f"\nПо продавцам (топ):\n{_format_by_seller(by_seller, is_revenue)}\n"
+            f"\nПо категориям:\n{_format_by_category(by_category, is_revenue)}\n\n"
+            f"Напиши разбор в формате:\n"
+            f"1. Главная причина невыполнения (1-2 предложения)\n"
+            f"2. Проблемные зоны (дни / продавцы / категории)\n"
+            f"3. Конкретные рекомендации (2-3 пункта)\n\n"
+            f"Отвечай по-русски, конкретно, без воды."
+        )
+
+        answer = await ask_llm(prompt, max_tokens=600)
+        if not answer:
+            return JSONResponse({"ok": False, "error": "AI не смог построить анализ. Попробуйте позже."})
+
+        return JSONResponse({"ok": True, "text": answer})
+
+    except Exception as exc:
+        logger.error("ai_analyze_plan error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

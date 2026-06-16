@@ -1189,6 +1189,159 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # AI инсайты сети — каждый понедельник в 09:00 UTC
+    async def send_weekly_network_insights():
+        """Для каждого владельца сети с ai_network_insights — отправить недельный дайджест."""
+        import os as _os, json as _json, sqlite3 as _sq, datetime as _dt, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+        try:
+            from web.ai_utils import ask_llm, is_configured
+            from billing_utils import has_extension as _has_ext, has_module as _has_mod
+        except Exception as _imp_err:
+            logging.warning(f"send_weekly_network_insights: import error: {_imp_err}")
+            return
+
+        if not is_configured():
+            return
+
+        def _send_tg(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                import threading as _th
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            conn = _sq.connect("data/main.db")
+            owner_rows = conn.execute(
+                """SELECT DISTINCT m.telegram_id
+                   FROM user_org_mapping m
+                   JOIN organizations o ON o.id = m.org_id
+                   WHERE m.role = 'owner' AND o.is_active = 1"""
+            ).fetchall()
+            all_orgs_rows = conn.execute(
+                """SELECT o.db_path, o.name, o.id, m.telegram_id
+                   FROM organizations o
+                   JOIN user_org_mapping m ON m.org_id = o.id
+                   WHERE m.role = 'owner' AND o.is_active = 1"""
+            ).fetchall()
+            conn.close()
+        except Exception as _db_err:
+            logging.error(f"send_weekly_network_insights main.db: {_db_err}")
+            return
+
+        import os as _os2
+        owner_orgs: dict[int, list[dict]] = {}
+        for db_path, org_name, org_id, tg_id in all_orgs_rows:
+            if db_path and _os2.path.exists(db_path) and db_path != "data/shop_bot.db":
+                owner_orgs.setdefault(tg_id, []).append({"org_db": db_path, "name": org_name or f"org#{org_id}"})
+
+        for tg_id, in owner_rows:
+            try:
+                if not tg_id or tg_id <= 0:
+                    continue
+                if not _has_mod(tg_id, "ai_assistant"):
+                    continue
+                if not _has_ext(tg_id, "ai_network_insights"):
+                    continue
+                orgs = owner_orgs.get(tg_id, [])
+                if len(orgs) < 2:
+                    continue
+
+                from database import Database
+                today = _dt.date.today()
+                week_start = (today - _dt.timedelta(days=7)).isoformat()
+                today_str = today.isoformat()
+
+                org_summaries = []
+                for org in orgs:
+                    try:
+                        db = Database(org["org_db"])
+                        cur = db.get_sales_summary(start_date=week_start, end_date=today_str) or (0, 0, 0, 0)
+                        prev_end = (today - _dt.timedelta(days=8))
+                        prev_start = (today - _dt.timedelta(days=14)).isoformat()
+                        prev = db.get_sales_summary(start_date=prev_start, end_date=prev_end.isoformat()) or (0, 0, 0, 0)
+                        org_summaries.append({
+                            "name": org["name"],
+                            "revenue_month": float(cur[2] or 0),
+                            "revenue_prev": float(prev[2] or 0),
+                            "top_category": "—",
+                            "plan_pct": 0,
+                            "seller_count": 0,
+                        })
+                    except Exception:
+                        pass
+
+                if len(org_summaries) < 2:
+                    continue
+
+                lines = []
+                for o in org_summaries:
+                    delta_pct = round((o["revenue_month"] - o["revenue_prev"]) / o["revenue_prev"] * 100, 1) if o["revenue_prev"] else 0
+                    lines.append(f"• {o['name']}: {o['revenue_month']:,.0f} ₽ ({delta_pct:+.1f}% к пред. неделе)")
+
+                prompt = (
+                    "Ты — бизнес-аналитик розничной сети. Проанализируй недельные данные:\n\n"
+                    + "\n".join(lines)
+                    + "\n\nСоставь краткий недельный дайджест (3-4 предложения): лидеры, аутсайдеры, главный вывод."
+                )
+                system = "Пиши по-русски, кратко, без markdown. Ссылайся на названия магазинов."
+                ai_text = await ask_llm(prompt, system=system, max_tokens=400)
+                if not ai_text:
+                    continue
+
+                msg = f"🌐 <b>AI-дайджест сети — {today.strftime('%d.%m.%Y')}</b>\n\n{ai_text}"
+                _send_tg(tg_id, msg)
+
+                try:
+                    from web.push_utils import send_web_push
+                    push_body = ai_text[:120] + "…" if len(ai_text) > 120 else ai_text
+                    await asyncio.to_thread(
+                        send_web_push, int(tg_id),
+                        f"🌐 AI-дайджест сети — {today.strftime('%d.%m.%Y')}",
+                        push_body, "/ai-insights"
+                    )
+                except Exception as _push_err:
+                    logging.warning(f"send_weekly_network_insights push={tg_id}: {_push_err}")
+
+                try:
+                    conn2 = _sq.connect("data/shop_bot.db")
+                    conn2.execute(
+                        """INSERT INTO ai_insights_cache (tg_id, insights_text, generated_at)
+                           VALUES (?, ?, datetime('now'))
+                           ON CONFLICT(tg_id) DO UPDATE SET
+                             insights_text = excluded.insights_text,
+                             generated_at  = excluded.generated_at""",
+                        (tg_id, ai_text)
+                    )
+                    conn2.commit()
+                    conn2.close()
+                except Exception:
+                    pass
+
+            except Exception as _owner_err:
+                logging.warning(f"send_weekly_network_insights owner={tg_id}: {_owner_err}")
+
+        logging.info("send_weekly_network_insights: done")
+
+    scheduler.add_job(
+        send_weekly_network_insights,
+        CronTrigger(day_of_week='mon', hour=9, minute=0),
+        id='ai_network_insights',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=7200,
+    )
+
     # AI умные алерты — каждый час в :05, час отправки настраивается per-org (МСК)
     async def ai_smart_alerts():
         """Анализирует падения выручки по каждой орг и отправляет алерты через LLM."""

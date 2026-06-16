@@ -179,6 +179,32 @@
     {% endfor %}
     </div><!-- /space-y-4 plans -->
 
+    {% if has_ai_plan_analysis %}
+    {# AI analyze button — shown if any plan in this group has progress < 95% #}
+    {% set analyzable = group.plans | selectattr('pct_raw', 'lt', 95) | list %}
+    {% if analyzable %}
+    <div class="mt-4 pt-3 border-t border-slate-100 space-y-3">
+        {% for p in analyzable %}
+        <div class="flex flex-col gap-2">
+            <button type="button"
+                    onclick="aiAnalyzePlan({{ p.id }}, this)"
+                    class="inline-flex items-center gap-1.5 self-start px-3 py-1.5 text-xs font-medium
+                           bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200
+                           rounded-lg transition-colors">
+                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                🔍 Разобрать с AI
+                <span class="text-violet-400 text-xs">({{ p.pct_raw|int }}%)</span>
+            </button>
+            <div id="ai-analysis-{{ p.id }}" class="hidden"></div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
 </div><!-- /card -->
 {% endfor %}
 </div><!-- /pln-list -->
@@ -244,5 +270,61 @@
     window.plnPaginate = function (d) { cur = Math.max(0, Math.min(total - 1, cur + d)); render(); };
     render();
 })();
+
+async function aiAnalyzePlan(planId, btn) {
+    const box = document.getElementById('ai-analysis-' + planId);
+    if (!box) return;
+
+    btn.disabled = true;
+    const origHtml = btn.innerHTML;
+    btn.innerHTML = '<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">' +
+        '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>' +
+        '<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>' +
+        ' Анализирую…';
+
+    box.className = 'hidden';
+    box.innerHTML = '';
+
+    try {
+        const fd = new FormData();
+        fd.append('plan_id', planId);
+        const resp = await fetch('/api/ai/analyze-plan', { method: 'POST', body: fd });
+        const data = await resp.json();
+
+        if (data.ok && data.text) {
+            box.innerHTML =
+                '<div class="mt-1 p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-slate-700" ' +
+                '     style="white-space:pre-wrap;line-height:1.6;">' +
+                '<div class="flex items-center gap-1.5 mb-2 text-violet-600 font-medium text-xs">' +
+                '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +
+                'd="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.346A3.285 3.285 0 0019 16.586V17a2 2 0 01-2 2H7a2 2 0 01-2-2v-.414a3.285 3.285 0 00-.964-2.33l-.347-.346z"/>' +
+                '</svg> AI-разбор плана</div>' +
+                escHtml(data.text) + '</div>';
+            box.classList.remove('hidden');
+            btn.innerHTML = '🔄 Обновить анализ';
+        } else {
+            box.innerHTML =
+                '<div class="mt-1 p-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600">' +
+                escHtml(data.error || 'Неизвестная ошибка') + '</div>';
+            box.classList.remove('hidden');
+            btn.innerHTML = origHtml;
+        }
+    } catch (e) {
+        box.innerHTML =
+            '<div class="mt-1 p-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600">' +
+            'Ошибка сети. Попробуйте позже.</div>';
+        box.classList.remove('hidden');
+        btn.innerHTML = origHtml;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 </script>
 {% endblock %}

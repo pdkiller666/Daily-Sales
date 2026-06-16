@@ -261,10 +261,14 @@ def plans_page(request: Request, active_only: str = "1", status: str = ""):
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_module
+    from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
     org_db = user.get("org_db")
+    has_ai_plan_analysis = (
+        has_module(telegram_id, "ai_assistant")
+        and has_extension(telegram_id, "ai_plan_analysis")
+    )
 
     ctx: dict = {
         "request": request, "user": user,
@@ -274,6 +278,7 @@ def plans_page(request: Request, active_only: str = "1", status: str = ""):
         "plan_type_labels": PLAN_TYPE_LABELS,
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
+        "has_ai_plan_analysis": has_ai_plan_analysis,
         "error": None,
     }
 
@@ -705,10 +710,14 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
         return RedirectResponse(url="/login", status_code=302)
 
     telegram_id = int(user["sub"])
-    from billing_utils import has_module
+    from billing_utils import has_module, has_extension
     if not has_module(telegram_id, "plans_motivation"):
         return RedirectResponse(url="/dashboard?msg=module_plans_required", status_code=302)
     org_db = user.get("org_db")
+    has_ai_plan_analysis = (
+        has_module(telegram_id, "ai_assistant")
+        and has_extension(telegram_id, "ai_plan_analysis")
+    )
 
     error_msg = ""
     if error == "delete":
@@ -724,6 +733,7 @@ def plan_detail(request: Request, plan_id: int, error: str = ""):
         "metric_labels": METRIC_LABELS,
         "target_labels": TARGET_LABELS,
         "csrf_token": "",
+        "has_ai_plan_analysis": has_ai_plan_analysis,
     }
 
     try:
