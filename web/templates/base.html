@@ -27,7 +27,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=7e5329d0b2">
+    <link rel="stylesheet" href="/static/app.css?v=7acdd1ebeb">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -2621,9 +2621,13 @@ function mainApp() {
        На остальных страницах опрашиваем сервер — read-state уже обновлён,
        поэтому прочитанный диалог покажет 0. */
     if (!onChatPage) {
-        window.addEventListener('focus', refreshUnread);
-        setInterval(fetchTopicUnread, 10000);
-        setInterval(fetchDmUnread,    60000);
+        /* visibilitychange надёжнее window.focus на мобайле при навигации между
+           страницами; pageshow ловит возврат из bfcache (back на мобильном). */
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) refreshUnread();
+        });
+        window.addEventListener('pageshow', refreshUnread);
+        setInterval(refreshUnread, 10000);
         refreshUnread();   /* immediately on load */
     }
 })();

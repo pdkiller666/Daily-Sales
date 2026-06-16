@@ -688,6 +688,17 @@ function fitDmHeight() {
     // Connect WS
     if (PEER_ID) wsConnect();
 
+    // Перед уходом со страницы — гарантированная серверная отметка прочитанного
+    // (WS может не успеть отправить), иначе FAB-бейдж покажет устаревший счётчик.
+    window.addEventListener('pagehide', () => {
+        if (!PEER_ID) return;
+        try {
+            const fd = new FormData();
+            fd.append('csrf_token', CSRF_TOKEN);
+            navigator.sendBeacon('/chat/dm/' + PEER_ID + '/read', fd);
+        } catch (e) {}
+    });
+
     // Keepalive ping every 25s
     setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {

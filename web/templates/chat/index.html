@@ -774,7 +774,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                     </div>
 
                     <!-- Input -->
-                    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 pb-[3.875rem] lg:pb-3 bg-white dark:bg-slate-900">
+                    <div class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 pb-4 lg:pb-3 bg-white dark:bg-slate-900">
                         <!-- File previews (multi-file) -->
                         <div x-show="dmAttachedFiles.length > 0" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
                             <template x-for="(f, idx) in dmAttachedFiles" :key="idx">
@@ -938,6 +938,22 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (!document.hidden && !this.dmMode) {
                     this.markTopicRead(this.currentTopicId, this.latestId);
                 }
+            });
+            /* Перед уходом со страницы — гарантированная серверная отметка
+               прочитанного через sendBeacon (fetch может не успеть при навигации),
+               иначе FAB-бейдж на дашборде покажет устаревший счётчик. */
+            window.addEventListener('pagehide', () => {
+                try {
+                    const fd = new FormData();
+                    fd.append('csrf_token', this.csrfToken);
+                    if (this.dmMode && this.dmPeerId) {
+                        navigator.sendBeacon('/chat/dm/' + this.dmPeerId + '/read', fd);
+                    } else if (this.currentTopicId) {
+                        fd.append('topic_id', this.currentTopicId);
+                        fd.append('last_id', this.latestId || 0);
+                        navigator.sendBeacon('/chat/read', fd);
+                    }
+                } catch (e) {}
             });
             /* Ctrl+F / Cmd+F → open search */
             document.addEventListener('keydown', e => {

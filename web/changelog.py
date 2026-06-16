@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.28.0"
+CURRENT_VERSION = "1.29.0"
 
 ENTRIES = [
+    {
+        "version": "1.29.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Improve notification system by adding missing emojis and fixing history tracking",
+            "Чат — FAB-бейдж не обнулялся + поле ввода DM плыло",
+        ],
+    },
     {
         "version": "1.28.0",
         "date": "16 июня 2026",
