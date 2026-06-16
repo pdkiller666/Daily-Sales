@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _notif_url(notification_type: str) -> str:
-    """Map notification_type to the most relevant web page URL."""
+def _notif_url(notification_type: str, message: str = "") -> str:
+    """Map notification_type to the most relevant web page URL.
+    For daily_report, parse date and shop from message text to build a deep link."""
     _MAP = {
         "shift_sale":        "/sales",
         "sales":             "/sales",
@@ -32,7 +33,24 @@ def _notif_url(notification_type: str) -> str:
         "dm":                "/chat/dm",
         "admin":             "",
     }
-    return _MAP.get(notification_type or "", "")
+    base = _MAP.get(notification_type or "", "")
+    if notification_type == "daily_report" and message:
+        import re as _re
+        from urllib.parse import urlencode as _ue
+        dm = _re.search(r'\((\d{4}-\d{2}-\d{2})\)', message)
+        if dm:
+            date = dm.group(1)
+            shop = ""
+            sm = _re.search(r'🏪\s+(?:Магазин:\s*)?([^\n•<]+)', message)
+            if sm:
+                raw = _re.sub(r'<[^>]+>', '', sm.group(1)).strip()
+                if raw and ',' not in raw:
+                    shop = raw
+            params: dict = {"period": "custom", "date_from": date, "date_to": date}
+            if shop:
+                params["shop"] = shop
+            return "/reports?" + _ue(params)
+    return base
 
 ROLE_LABELS = {
     "owner": "Директор",
@@ -167,7 +185,7 @@ def notifications_page(
                     "message": h[3] or "",
                     "is_read": bool(h[4]),
                     "created_at": _fmt_scheduled_dt(h[5], tz_name) if h[5] else "",
-                    "url": _notif_url(h[2] or "admin"),
+                    "url": _notif_url(h[2] or "admin", h[3] or ""),
                 }
                 for h in hist_raw
             ]

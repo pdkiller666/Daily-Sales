@@ -571,8 +571,10 @@ async def send_daily_reports(bot: Bot):
                         await current_db.add_notification_to_history(user_id, 'daily_report', message)
                         try:
                             from web.push_utils import send_web_push
+                            from web.routes.api import _notif_url as _nu
                             _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
-                            await asyncio.to_thread(send_web_push, telegram_id, "📊 Ежедневный отчёт", _pb, "/reports")
+                            _push_url = _nu("daily_report", message)
+                            await asyncio.to_thread(send_web_push, telegram_id, "📊 Ежедневный отчёт", _pb, _push_url)
                         except Exception:
                             pass
                     except Exception as _send_err:
