@@ -115,6 +115,7 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 22. **Money-grant идемпотентность** — любой путь «оплата подтверждена → выдача» (подписка/модуль/аддон) обязан быть идемпотентным по `payment_request_id` и покрыт тестом; внешний `except` в `confirm_payment_request` глотает ошибки выдачи → сверять имена колонок с живой схемой (`create_subscription_addon` пишет в `price`, не `amount_paid`)
 23. **Restore бэкапа — только SQLite Backup API** (`src.backup(dest)` + retry), НЕ `shutil.copy2` поверх открытых соединений (иначе порча работающей БД)
 24. **Веб event loop** — тяжёлые/блокирующие пути не держат loop: либо роут `def` (FastAPI → threadpool), либо `anyio.to_thread.run_sync`; соединения thread-safe (`check_same_thread=False` + threading.local pool)
+25. **Changelog «Что нового» собирается автоматически при деплое** (`scripts/build_changelog.py`, шаг 0 в `deploy.sh`). Два источника: (а) git — заголовки коммитов после маркера `web/changelog.d/.last_commit` (шум фильтруется `_NOISE_RE`, префиксы `Task #NN:`/`feat:` срезаются), (б) ручные фрагменты `web/changelog.d/*.md` (приоритетны). Маркер двигается на `HEAD` после каждой сборки; первый запуск только фиксирует baseline (историю не вываливает). Git-история берётся из РАБОЧЕГО репо (богатые per-task заголовки), НЕ из сквошнутого `/tmp/github-deploy`. Без LLM-ключа заголовки попадают как есть (часто англ.) — ключ полирует в рус. owner-facing. **Не редактировать `web/changelog.py` руками.**
 
 ## Pointers
 

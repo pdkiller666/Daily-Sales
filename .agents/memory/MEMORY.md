@@ -46,6 +46,7 @@
 - [TWA camera permission](twa-camera-permission.md) — TWA APK needs CAMERA in manifest (else getUserMedia instant NotAllowedError); async scanner open needs run-token re-entry guard; logic duplicated in pos+sales templates
 - [TWA APK build gotcha](twa-apk-build.md) — bubblewrap в GitHub Actions НЕ работает (25+ попыток, "androidSdk isn't correct"); прямой Gradle build в android/ + gradle.properties(useAndroidX=true) + gradle/actions/setup-gradle@v3
 - [Barcode scanner solution](barcode-scanner-solution.md) — opencv-python-headless (pip, без sysдепов): cv2.QRCodeDetector + cv2.barcode.BarcodeDetector; pyzbar/zxingcpp не работают на Amvera
+- [Changelog «Что нового» fragment-driven](changelog-whatsnew.md) — web/changelog.py собирается build_changelog.py из web/changelog.d/*.md (шаг 0 deploy.sh); пустая папка → no-op; агенты должны класть фрагменты
 - [Startup WAL corruption](startup-wal-corruption.md) — guarded ALTER «duplicate column» при старте = inconsistent WAL от SIGKILLнутого boot; чинить checkpoint(TRUNCATE), не править миграции/не удалять БД
 - [GS import + motivation configurator](gs-import-motiv-wizard.md) — мотивация rows=models/cols=chains; aliases keyed sheet→system; manual fallback when API down; saved motiv_config; бот кликабельный, веб дефолтный порядок
 - [Targeted motivation by org structure](targeted-motivation.md) — motivation rates targetable by org scope; resolve priority user>shop>city>trade_network>global; global-only = legacy behavior; earnings tuple is append-only

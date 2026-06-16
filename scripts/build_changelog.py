@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
-"""Сборка раздела «Что нового» из фрагментов.
+"""Сборка раздела «Что нового» из фрагментов И из истории git.
 
-Читает фрагменты из web/changelog.d/*.md, формирует новую запись версии в
-web/changelog.py, поднимает CURRENT_VERSION, (опционально) полирует формулировки
-через web.ai_utils.ask_llm и удаляет использованные фрагменты.
+Два источника новостей объединяются в одну новую запись версии в web/changelog.py:
+
+1. Ручные фрагменты web/changelog.d/*.md — точные формулировки «от владельца»
+   (одна значимая строка = один пункт). Имеют приоритет (идут первыми).
+2. Авто-вывод из git: заголовки коммитов, смерженных ПОСЛЕ прошлой сборки changelog
+   (маркер web/changelog.d/.last_commit). Служебные/шумные коммиты отфильтровываются,
+   префиксы вида «Task #NN:», «feat:», «fix:» срезаются. Так каждый деплой сам
+   публикует смерженные фичи — без действий со стороны агентов.
+
+После сборки версия поднимается, формулировки (опционально) полируются через
+web.ai_utils.ask_llm, фрагменты удаляются, маркер сдвигается на текущий HEAD.
 
 Гарантии:
-- пустая папка фрагментов → no-op (деплой не падает);
+- нет ни фрагментов, ни новых пользовательских коммитов → no-op (деплой не падает);
+- первый запуск без маркера → только фиксируем baseline=HEAD, историю не вываливаем;
 - AI-полировка опциональна и НИКОГДА не блокирует сборку (нет ключа / ошибка /
-  пустой ответ → берём исходные строки фрагментов);
-- идемпотентность: после сборки фрагменты удалены, повторный запуск = no-op.
+  пустой ответ → берём исходные строки);
+- идемпотентность: коммит учитывается один раз (маркер), фрагменты удаляются.
 
 CLI:
     python3 scripts/build_changelog.py            # minor-бамп (по умолчанию)
     python3 scripts/build_changelog.py --major
     python3 scripts/build_changelog.py --patch
     python3 scripts/build_changelog.py --no-ai    # без LLM-полировки
+    python3 scripts/build_changelog.py --no-git   # только ручные фрагменты
     python3 scripts/build_changelog.py --dry-run  # показать, не записывать
 """
 import argparse
@@ -24,12 +34,14 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHANGELOG_PATH = os.path.join(ROOT, "web", "changelog.py")
 FRAGMENTS_DIR = os.path.join(ROOT, "web", "changelog.d")
+MARKER_PATH = os.path.join(FRAGMENTS_DIR, ".last_commit")
 
 _RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -96,6 +108,130 @@ def _read_fragments():
             # Пустой/только-комментарии фрагмент — всё равно убираем, чтобы не копился
             used_files.append(path)
     return bullets, used_files
+
+
+# ─── Авто-вывод новостей из git-истории ─────────────────────────────────────
+
+# Коммиты-«шум»: служебные, инфраструктурные, сам changelog/деплой, чекпоинты.
+_NOISE_RE = re.compile(
+    r"("
+    r"^auto:|"
+    r"^merge\b|"
+    r"^(?:chore|docs|doc|test|tests|refactor|style|ci|build)\b|"
+    r"agent_handoff|"
+    r"changelog|"
+    r"что нового|what'?s new|whats new|"
+    r"^transition|"            # чекпоинты Plan↔Build «Transitioned ...»
+    r"^обновление \d{4}-|"     # дефолтный коммит deploy.sh «Обновление 2026-..»
+    r"update deployment information|"
+    r"\bdeploy\b|деплой"
+    r")",
+    re.IGNORECASE,
+)
+
+# Срезаемые ведущие префиксы: «Task #49:», «#49 -», conventional commits.
+_TASK_PREFIX_RE = re.compile(r"^\s*(?:task\s*)?#\d+\s*[:\-–—.)]*\s*", re.IGNORECASE)
+_CC_PREFIX_RE = re.compile(
+    r"^\s*(?:feat|fix|perf|refactor|chore|docs|style|test|build|ci)(?:\([^)]*\))?!?:\s*",
+    re.IGNORECASE,
+)
+
+
+def _run_git(args):
+    """(returncode, stdout). Любая ошибка/таймаут → (1, "")."""
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", "-C", ROOT] + args,
+            capture_output=True, text=True, timeout=20,
+        )
+        return r.returncode, r.stdout
+    except Exception:  # noqa: BLE001
+        return 1, ""
+
+
+def _git_head():
+    code, out = _run_git(["rev-parse", "HEAD"])
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def _commit_exists(sha: str) -> bool:
+    code, _ = _run_git(["cat-file", "-e", f"{sha}^{{commit}}"])
+    return code == 0
+
+
+def _read_marker():
+    try:
+        with open(MARKER_PATH, encoding="utf-8") as fh:
+            v = fh.read().strip()
+            return v or None
+    except OSError:
+        return None
+
+
+def _write_marker(sha: str) -> None:
+    try:
+        os.makedirs(FRAGMENTS_DIR, exist_ok=True)
+        with open(MARKER_PATH, "w", encoding="utf-8") as fh:
+            fh.write(sha + "\n")
+    except OSError:
+        pass
+
+
+def _clean_subject(subj: str) -> str:
+    s = subj.strip()
+    s = _TASK_PREFIX_RE.sub("", s)
+    s = _CC_PREFIX_RE.sub("", s)
+    return s.strip()
+
+
+def _read_commit_bullets():
+    """(bullets, new_head). Выводит пункты из коммитов после маркера.
+
+    Возвращает new_head=None, если git недоступен (тогда маркер не двигаем).
+    На первом запуске (нет валидного маркера) пунктов не вываливаем — только
+    фиксируем baseline=HEAD, чтобы вся история не попала в одну запись.
+    """
+    head = _git_head()
+    if not head:
+        return [], None
+
+    last = _read_marker()
+    if last and not _commit_exists(last):
+        print(f"   git: маркер {last[:9]} недостижим — сбрасываю baseline на HEAD")
+        last = None
+    if not last:
+        # baseline: историю не вываливаем, только зафиксируем точку отсчёта
+        return [], head
+    if last == head:
+        return [], head
+
+    code, out = _run_git(["log", "--no-merges", "--format=%s", f"{last}..HEAD"])
+    if code != 0:
+        return [], head
+
+    bullets: list[str] = []
+    for line in out.splitlines():
+        subj = line.strip()
+        if not subj or _NOISE_RE.search(subj):
+            continue
+        cleaned = _clean_subject(subj)
+        if cleaned:
+            bullets.append(cleaned)
+    # git log идёт новые→старые; в новостях логичнее старые→новые
+    bullets.reverse()
+    return bullets, head
+
+
+def _dedupe(bullets):
+    seen = set()
+    out = []
+    for b in bullets:
+        key = re.sub(r"\s+", " ", b).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(b)
+    return out
 
 
 def _polish_with_ai(bullets: list[str]) -> list[str]:
@@ -173,25 +309,45 @@ def _serialize(version: str, entries: list) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Собрать changelog из фрагментов")
+    parser = argparse.ArgumentParser(description="Собрать changelog из фрагментов и git")
     level = parser.add_mutually_exclusive_group()
     level.add_argument("--major", action="store_true", help="major-бамп версии")
     level.add_argument("--minor", action="store_true", help="minor-бамп версии (по умолчанию)")
     level.add_argument("--patch", action="store_true", help="patch-бамп версии")
     parser.add_argument("--no-ai", action="store_true", help="не полировать через LLM")
+    parser.add_argument("--no-git", action="store_true", help="не выводить новости из git")
     parser.add_argument("--dry-run", action="store_true", help="показать результат без записи")
     args = parser.parse_args()
 
-    bullets, used_files = _read_fragments()
+    frag_bullets, used_files = _read_fragments()
+
+    if args.no_git:
+        commit_bullets, new_head = [], _git_head()
+    else:
+        commit_bullets, new_head = _read_commit_bullets()
+        if commit_bullets:
+            print(f"   git: найдено пользовательских коммитов: {len(commit_bullets)}")
+
+    # Ручные фрагменты приоритетны (идут первыми), затем авто из коммитов; дедуп.
+    bullets = _dedupe(list(frag_bullets) + list(commit_bullets))
+
+    def _cleanup_fragments():
+        if args.dry_run:
+            return
+        for path in used_files:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def _advance_marker():
+        if not args.dry_run and new_head:
+            _write_marker(new_head)
+
     if not bullets:
-        print("changelog: фрагментов нет — нечего собирать (no-op).")
-        # Подчистим возможные пустые фрагменты, если не dry-run
-        if not args.dry_run:
-            for path in used_files:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        print("changelog: ни фрагментов, ни новых коммитов — нечего собирать (no-op).")
+        _cleanup_fragments()
+        _advance_marker()  # фиксируем baseline/сдвигаем точку отсчёта
         return 0
 
     current_version, entries = _load_changelog()
@@ -220,16 +376,13 @@ def main() -> int:
         print(f"   • {b}")
 
     if args.dry_run:
-        print("(--dry-run: файл не изменён, фрагменты не удалены)")
+        print("(--dry-run: файл не изменён, фрагменты и маркер не тронуты)")
         return 0
 
     with open(CHANGELOG_PATH, "w", encoding="utf-8") as fh:
         fh.write(content)
-    for path in used_files:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+    _cleanup_fragments()
+    _advance_marker()
     print(f"changelog: записано в {os.path.relpath(CHANGELOG_PATH, ROOT)}, "
           f"удалено фрагментов: {len(used_files)}")
     return 0
