@@ -125,6 +125,25 @@ html.dark .dm-file-chip { background:#1e3a5f; border-color:#3b82f6; color:#93c5f
 
 /* ── No peer selected ── */
 #dm-no-peer { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#94a3b8; }
+
+/* ── AI bubble ── */
+.contact-avatar.ai-avatar { background:#0d9488; }
+.dm-row.ai .dm-bubble {
+    background:#f0fdfa; color:#134e4a;
+    border-left: 3px solid #14b8a6;
+    border-radius: .25rem 1rem 1rem 1rem;
+    border-top: 1px solid #99f6e4;
+    border-right: 1px solid #99f6e4;
+    border-bottom: 1px solid #99f6e4;
+}
+html.dark .dm-row.ai .dm-bubble {
+    background:#042f2e; color:#99f6e4;
+    border-left-color:#14b8a6;
+    border-top-color:#134e4a;
+    border-right-color:#134e4a;
+    border-bottom-color:#134e4a;
+}
+.dm-row.ai .dm-meta::before { content:"🤖 "; }
 </style>
 {% endblock %}
 
@@ -192,9 +211,9 @@ html.dark .dm-file-chip { background:#1e3a5f; border-color:#3b82f6; color:#93c5f
       </div>
 
       {% for m in messages %}
-      <div class="dm-row {% if m.is_mine %}mine{% else %}other{% endif %}" data-id="{{ m.id }}">
+      <div class="dm-row {% if m.is_mine %}mine{% elif m.is_ai %}other ai{% else %}other{% endif %}" data-id="{{ m.id }}">
         {% if not m.is_mine %}
-        <div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{{ peer.initial }}</div>
+        <div class="contact-avatar {% if m.is_ai %}ai-avatar{% endif %}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{% if m.is_ai %}🤖{% else %}{{ peer.initial }}{% endif %}</div>
         {% endif %}
         <div>
           <div class="dm-bubble">
@@ -232,7 +251,7 @@ html.dark .dm-file-chip { background:#1e3a5f; border-color:#3b82f6; color:#93c5f
                  accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.64 16.34a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
         </label>
-        <textarea id="dm-input" rows="1" placeholder="Написать…"
+        <textarea id="dm-input" rows="1" placeholder="Написать… (Enter — отправить){% if ai_chat_enabled %} · @ИИ — спросить AI{% endif %}"
                   class="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 px-3 py-2 text-sm outline-none focus:border-blue-400 max-h-28 overflow-y-auto"
                   style="line-height:1.4"></textarea>
         <button id="dm-send-btn"
@@ -350,6 +369,7 @@ function handleWsMessage(data) {
                 is_image: data.is_image || false,
                 created_at: data.created_at || '',
                 is_mine: false,
+                is_ai: data.is_ai || (data.from_user_id === 0),
                 can_delete: false,
             });
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -372,12 +392,14 @@ function appendMessage(m) {
     const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
     const typing = document.getElementById('dm-typing');
     const row = document.createElement('div');
-    row.className = 'dm-row ' + (m.is_mine ? 'mine' : 'other');
+    row.className = 'dm-row ' + (m.is_mine ? 'mine' : (m.is_ai ? 'other ai' : 'other'));
     row.dataset.id = m.id;
 
     let avatarHtml = '';
     if (!m.is_mine) {
-        avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${PEER_INITIAL}</div>`;
+        const aiCls = m.is_ai ? ' ai-avatar' : '';
+        const aiContent = m.is_ai ? '🤖' : PEER_INITIAL;
+        avatarHtml = `<div class="contact-avatar${aiCls}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${aiContent}</div>`;
     }
 
     let bodyHtml = '';
@@ -514,9 +536,14 @@ async function dmLoadMore() {
             const typing = document.getElementById('dm-typing');
             data.messages.forEach(m => {
                 const row = document.createElement('div');
-                row.className = 'dm-row ' + (m.is_mine ? 'mine' : 'other');
+                row.className = 'dm-row ' + (m.is_mine ? 'mine' : (m.is_ai ? 'other ai' : 'other'));
                 row.dataset.id = m.id;
-                let avatarHtml = !m.is_mine ? `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${PEER_INITIAL}</div>` : '';
+                let avatarHtml = '';
+                if (!m.is_mine) {
+                    const aiCls = m.is_ai ? ' ai-avatar' : '';
+                    const aiContent = m.is_ai ? '🤖' : PEER_INITIAL;
+                    avatarHtml = `<div class="contact-avatar${aiCls}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${aiContent}</div>`;
+                }
                 let bodyHtml = m.has_file && m.is_image ? `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" class="dm-img-preview"></a>`
                              : m.has_file ? `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>` : '';
                 if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;

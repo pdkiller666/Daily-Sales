@@ -665,6 +665,9 @@ async def settings_ai_alerts(
     metric_revenue: str = Form(default=""),
     metric_avg_check: str = Form(default=""),
     metric_transactions: str = Form(default=""),
+    context_products: str = Form(default=""),
+    context_sellers: str = Form(default=""),
+    context_plans: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -688,6 +691,16 @@ async def settings_ai_alerts(
     if not metrics:
         metrics = ["revenue"]
 
+    digest_context = []
+    if context_products:
+        digest_context.append("products")
+    if context_sellers:
+        digest_context.append("sellers")
+    if context_plans:
+        digest_context.append("plans")
+    if not digest_context:
+        digest_context = ["products", "sellers", "plans"]
+
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         db.save_ai_alert_settings(
@@ -695,6 +708,7 @@ async def settings_ai_alerts(
             threshold_pct=threshold_pct,
             alert_hour_msk=alert_hour_msk,
             metrics=metrics,
+            digest_context=digest_context,
         )
     except Exception:
         pass

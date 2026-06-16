@@ -603,6 +603,14 @@ class Database:
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # Миграция: контекстные блоки AI-дайджеста
+        try:
+            cursor.execute(
+                "ALTER TABLE ai_alert_settings ADD COLUMN digest_context TEXT DEFAULT '[\"products\",\"sellers\",\"plans\"]'"
+            )
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
+
         # Расписание мотивации по месяцам
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS motivation_schedule (
@@ -12656,11 +12664,12 @@ class Database:
             "threshold_pct": 35,
             "alert_hour_msk": 10,
             "metrics": ["revenue"],
+            "digest_context": ["products", "sellers", "plans"],
         }
         try:
             conn = self.get_connection()
             row = conn.execute(
-                "SELECT enabled, threshold_pct, alert_hour_msk, metrics FROM ai_alert_settings WHERE id = 1"
+                "SELECT enabled, threshold_pct, alert_hour_msk, metrics, digest_context FROM ai_alert_settings WHERE id = 1"
             ).fetchone()
             conn.close()
             if row:
@@ -12669,6 +12678,7 @@ class Database:
                     "threshold_pct": int(row[1] or 35),
                     "alert_hour_msk": int(row[2] or 10),
                     "metrics": _json.loads(row[3] or '["revenue"]'),
+                    "digest_context": _json.loads(row[4] or '["products","sellers","plans"]'),
                 }
             return defaults
         except Exception as exc:
@@ -12681,20 +12691,24 @@ class Database:
         threshold_pct: int,
         alert_hour_msk: int,
         metrics: list,
+        digest_context: list | None = None,
     ) -> bool:
         import json as _json
+        if digest_context is None:
+            digest_context = ["products", "sellers", "plans"]
         try:
             conn = self.get_connection()
             conn.execute(
-                """INSERT INTO ai_alert_settings (id, enabled, threshold_pct, alert_hour_msk, metrics, updated_at)
-                   VALUES (1, ?, ?, ?, ?, datetime('now'))
+                """INSERT INTO ai_alert_settings (id, enabled, threshold_pct, alert_hour_msk, metrics, digest_context, updated_at)
+                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'))
                    ON CONFLICT(id) DO UPDATE SET
                        enabled        = excluded.enabled,
                        threshold_pct  = excluded.threshold_pct,
                        alert_hour_msk = excluded.alert_hour_msk,
                        metrics        = excluded.metrics,
+                       digest_context = excluded.digest_context,
                        updated_at     = excluded.updated_at""",
-                (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics)),
+                (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics), _json.dumps(digest_context)),
             )
             conn.commit()
             return True

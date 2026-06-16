@@ -909,6 +909,30 @@
                     </div>
                 </div>
 
+                <!-- Digest context blocks -->
+                <div>
+                    <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-2">Контекст в AI-дайджесте</label>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Какие блоки включать в AI-комментарий к алерту</p>
+                    <div class="space-y-2">
+                        {% set dctx = ai_alert_settings.digest_context if ai_alert_settings.digest_context is defined else ["products", "sellers", "plans"] %}
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="context_products" value="1" class="rounded"
+                                   {% if 'products' in dctx %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🏆 Топ товары месяца</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="context_sellers" value="1" class="rounded"
+                                   {% if 'sellers' in dctx %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">👤 Топ продавцы месяца</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" name="context_plans" value="1" class="rounded"
+                                   {% if 'plans' in dctx %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🎯 Выполнение планов</span>
+                        </label>
+                    </div>
+                </div>
+
                 <button type="submit"
                         class="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
                     Сохранить настройки AI-алертов

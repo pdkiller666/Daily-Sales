@@ -1084,6 +1084,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
         "created_at": _fmt_ts(created_at),
         "is_read": bool(is_read),
         "is_mine": is_mine,
+        "is_ai": (from_id == 0),
         "display_name": display,
         "can_delete": is_mine,
     }
@@ -1094,7 +1095,9 @@ def _fmt_contact(row, my_id: int) -> dict:
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{peer_id}"
     initial = (display[0] if display else "?").upper()
     preview = last_msg or (f"📎 {last_file_name}" if last_file_name else "")
-    if last_from == my_id and preview:
+    if last_from == 0 and preview:
+        preview = "🤖 " + preview
+    elif last_from == my_id and preview:
         preview = "Вы: " + preview
     return {
         "id": peer_id,
@@ -1136,6 +1139,7 @@ def dm_contacts_page_legacy(request: Request):
         "min_plan": min_plan,
         "my_db_id": 0,
         "error": None,
+        "ai_chat_enabled": False,
     }
 
     if min_plan == "Отключён":
@@ -1164,6 +1168,12 @@ def dm_contacts_page_legacy(request: Request):
                     }
                     for r in raw_members if r[0] not in existing_ids
                 ]
+            try:
+                from billing_utils import has_extension
+                owner_tg_id = db.get_org_owner_tg_id() or telegram_id
+                ctx["ai_chat_enabled"] = has_extension(owner_tg_id, 'ai_chat_assistant')
+            except Exception:
+                pass
     except Exception as exc:
         logger.error(f"dm_contacts_page error: {exc}")
         ctx["error"] = "Внутренняя ошибка. Попробуйте позже."
@@ -1204,6 +1214,7 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
         "my_db_id": 0,
         "peer_id": peer_id,
         "error": None,
+        "ai_chat_enabled": False,
     }
 
     if min_plan == "Отключён":
@@ -1246,6 +1257,12 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)
                     ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0])) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
+            try:
+                from billing_utils import has_extension
+                owner_tg_id = db.get_org_owner_tg_id() or telegram_id
+                ctx["ai_chat_enabled"] = has_extension(owner_tg_id, 'ai_chat_assistant')
+            except Exception:
+                pass
     except Exception as exc:
         logger.error(f"dm_conversation_page error: {exc}")
         ctx["error"] = "Внутренняя ошибка. Попробуйте позже."

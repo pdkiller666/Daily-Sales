@@ -1,6 +1,18 @@
-CURRENT_VERSION = "1.14.0"
+CURRENT_VERSION = "1.15.0"
 
 ENTRIES = [
+    {
+        "version": "1.15.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update AI features and deployment information for the application",
+            "Let owners configure which metrics appear in their AI digest",
+            "Include category breakdown and sales trend in weekly digest",
+            "Show AI replies with a distinct bot style in DM conversations",
+            "Skip fetching context data the owner has disabled in ai_smart_alerts",
+            "Show AI hint in DM input placeholder",
+        ],
+    },
     {
         "version": "1.14.0",
         "date": "16 июня 2026",

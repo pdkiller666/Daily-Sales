@@ -1477,18 +1477,29 @@ async def main():
                         txn_drop = (avg_7d_cnt - y_cnt) / avg_7d_cnt * 100 if avg_7d_cnt > 0 else 0
                         extra_lines.append(f"Транзакций упало на {int(txn_drop)}%: {y_cnt} вчера vs {avg_7d_cnt:.1f} среднее 7д.")
 
-                    # Fetch rich context: top products, top sellers, plan progress
-                    try:
-                        _top_products = db.get_top_products_month(3)
-                    except Exception:
+                    _digest_context = alert_cfg.get("digest_context", ["products", "sellers", "plans"])
+
+                    # Fetch rich context only for blocks the owner has enabled
+                    if "products" in _digest_context:
+                        try:
+                            _top_products = db.get_top_products_month(3)
+                        except Exception:
+                            _top_products = []
+                    else:
                         _top_products = []
-                    try:
-                        _top_sellers = db.get_active_sellers_month(3)
-                    except Exception:
+                    if "sellers" in _digest_context:
+                        try:
+                            _top_sellers = db.get_active_sellers_month(3)
+                        except Exception:
+                            _top_sellers = []
+                    else:
                         _top_sellers = []
-                    try:
-                        _plans = db.get_plans_with_progress()
-                    except Exception:
+                    if "plans" in _digest_context:
+                        try:
+                            _plans = db.get_plans_with_progress()
+                        except Exception:
+                            _plans = []
+                    else:
                         _plans = []
 
                     ai_text: str | None = None
@@ -1503,6 +1514,7 @@ async def main():
                                 top_products=_top_products,
                                 top_sellers=_top_sellers,
                                 plans=_plans,
+                                digest_context=_digest_context,
                             )
                             if extra_lines:
                                 prompt += "\nДополнительно: " + " ".join(extra_lines)
@@ -1621,6 +1633,22 @@ async def main():
                     except Exception:
                         _plans = []
 
+                    # Категорийный разбор и дневной тренд за прошедшую неделю
+                    try:
+                        _category_breakdown = db.get_sales_by_category_for_period(week_start, week_end)
+                    except Exception:
+                        _category_breakdown = []
+                    try:
+                        _daily_data = db.get_daily_sales_for_period(week_start, week_end)
+                        import datetime as _dt2
+                        _daily_map: dict[int, float] = {}
+                        for _d in _daily_data:
+                            _wday = _dt2.date.fromisoformat(_d["date"]).weekday()
+                            _daily_map[_wday] = _d["amount"]
+                        _daily_revenues = [_daily_map.get(i, 0.0) for i in range(7)]
+                    except Exception:
+                        _daily_revenues = []
+
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
 
                     ai_text: str | None = None
@@ -1633,8 +1661,10 @@ async def main():
                                 top_products=_top_products,
                                 top_sellers=_top_sellers,
                                 plans=_plans,
+                                category_breakdown=_category_breakdown or None,
+                                daily_revenues=_daily_revenues or None,
                             )
-                            ai_text = await ask_llm(prompt, max_tokens=350)
+                            ai_text = await ask_llm(prompt, max_tokens=400)
                         except Exception as _ai_err:
                             logging.warning(f"ai_weekly_digest LLM error: {_ai_err}")
 
@@ -1642,6 +1672,7 @@ async def main():
                         msg = f"📊 <b>AI-дайджест недели</b>\n\n{ai_text}"
                     else:
                         # Fallback без LLM: структурированный текст
+                        _DOW_RU = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
                         lines = [f"📊 <b>Итоги недели</b>: {int(week_rev):,} ₽"]
                         if prev_week_rev > 0:
                             diff = (week_rev - prev_week_rev) / prev_week_rev * 100
@@ -1654,6 +1685,12 @@ async def main():
                             fn, ln = _top_sellers[0][0] or "", _top_sellers[0][1] or ""
                             seller = f"{fn} {ln}".strip() or _top_sellers[0][2] or "—"
                             lines.append(f"⭐ Лидер продаж: {seller} — {int(_top_sellers[0][3]):,} ₽")
+                        if _category_breakdown:
+                            top_cat = _category_breakdown[0]
+                            lines.append(f"📦 Топ категория: {top_cat['category']} — {int(top_cat['revenue']):,} ₽")
+                        if _daily_revenues and len(_daily_revenues) == 7 and max(_daily_revenues) > 0:
+                            _best = _daily_revenues.index(max(_daily_revenues))
+                            lines.append(f"📅 Лучший день: {_DOW_RU[_best]} ({int(max(_daily_revenues)):,} ₽)")
                         msg = "\n".join(lines)
 
                     for tg_id in admin_ids[:3]:

@@ -388,12 +388,21 @@ def build_weekly_digest_prompt(
     top_products: list | None = None,
     top_sellers: list | None = None,
     plans: list | None = None,
+    category_breakdown: list | None = None,
+    daily_revenues: list | None = None,
 ) -> str:
     """Промпт для еженедельного позитивного дайджеста (понедельник 09:00 МСК).
 
     Отправляется всегда при наличии данных за неделю — не только при падениях.
     Акцент: что продавалось хорошо, кто лидировал, выполнение планов.
+
+    Args:
+        category_breakdown: list of dicts {"category", "revenue"} or (category, revenue) tuples,
+            sorted by revenue desc.
+        daily_revenues: list of 7 floats (Mon=0 … Sun=6), 0.0 for days with no sales.
     """
+    _DOW_RU = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+
     growth_str = ""
     if prev_week_revenue > 0:
         diff_pct = (week_revenue - prev_week_revenue) / prev_week_revenue * 100
@@ -427,12 +436,33 @@ def build_weekly_digest_prompt(
             plan_parts.append(f"{label} — {pct}%")
         lines.append("Выполнение планов: " + "; ".join(plan_parts) + ".")
 
+    if category_breakdown:
+        cat_parts = []
+        for item in category_breakdown[:3]:
+            if isinstance(item, dict):
+                cat_name, cat_rev = item.get("category", "—"), item.get("revenue", 0)
+            else:
+                cat_name, cat_rev = item[0], item[1]
+            cat_parts.append(f"{cat_name} — {int(cat_rev):,} ₽")
+        lines.append("По категориям: " + "; ".join(cat_parts) + ".")
+
+    if daily_revenues and len(daily_revenues) == 7 and max(daily_revenues) > 0:
+        best_idx = daily_revenues.index(max(daily_revenues))
+        worst_idx = daily_revenues.index(min(daily_revenues))
+        trend_str = (
+            f"Лучший день недели — {_DOW_RU[best_idx]} ({int(max(daily_revenues)):,} ₽)"
+        )
+        if best_idx != worst_idx:
+            trend_str += f", слабый — {_DOW_RU[worst_idx]} ({int(min(daily_revenues)):,} ₽)"
+        lines.append(trend_str + ".")
+
     data_block = " ".join(lines)
 
     return (
         f"{data_block}\n\n"
         "Напиши короткий позитивный дайджест для владельца магазина (3–4 предложения): "
-        "отметь, что продавалось хорошо, кто из продавцов отличился, "
+        "отметь, что продавалось хорошо и какая категория лидировала, "
+        "кто из продавцов отличился, в какой день была лучшая динамика, "
         "и дай 1 конкретный совет по развитию на следующую неделю. "
         "Тон — дружелюбный, поддерживающий, без паники даже если есть небольшое снижение."
     )
@@ -447,18 +477,24 @@ def build_smart_alert_prompt(
     top_products: list | None = None,
     top_sellers: list | None = None,
     plans: list | None = None,
+    digest_context: list | None = None,
 ) -> str:
+    # digest_context controls which supplementary blocks to include;
+    # None means all blocks are enabled (backward-compatible default)
+    if digest_context is None:
+        digest_context = ["products", "sellers", "plans"]
+
     # Build rich context block from optional supplementary data
     ctx_lines: list[str] = []
 
-    if top_products:
+    if top_products and "products" in digest_context:
         parts = []
         for row in top_products[:3]:
             name, qty, rev = row[0], row[1], row[2]
             parts.append(f"{name} — {int(qty)} шт., {int(rev):,} ₽")
         ctx_lines.append("Топ товары (месяц): " + "; ".join(parts) + ".")
 
-    if top_sellers:
+    if top_sellers and "sellers" in digest_context:
         parts = []
         for row in top_sellers[:3]:
             fn, ln, shop, rev = row[0] or "", row[1] or "", row[2] or "", row[3]
@@ -466,7 +502,7 @@ def build_smart_alert_prompt(
             parts.append(f"{seller} {int(rev):,} ₽")
         ctx_lines.append("Топ продавцы (месяц): " + "; ".join(parts) + ".")
 
-    if plans:
+    if plans and "plans" in digest_context:
         plan_parts = []
         for p in plans[:3]:
             pct = p.get("pct", 0)
