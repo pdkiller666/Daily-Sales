@@ -243,6 +243,7 @@ class IntegrationManager:
         synced = 0
         models = []
         chains = set()
+        rules_written = 0
         for entry in rows:
             model_name = entry['model']
             if alias_lookup:
@@ -251,16 +252,35 @@ class IntegrationManager:
             bonuses = entry.get('bonuses', {})
             if not bonuses:
                 continue
+            # Find matching product once per model for targeted (trade_network) rules
+            product = None
+            try:
+                product = db.get_product_by_name(model_name)
+            except Exception:
+                product = None
             for chain, bonus in bonuses.items():
                 db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
                 chains.add(chain)
+                # Write a trade_network targeted motivation rule (task #49)
+                if product and chain and bonus is not None:
+                    try:
+                        ok = db.set_product_motivation(
+                            product[0], 'fixed', float(bonus), None,
+                            scope_type='trade_network', scope_value=str(chain),
+                            recalculate=False,
+                        )
+                        if ok:
+                            rules_written += 1
+                    except Exception:
+                        pass
             synced += 1
             models.append(model_name)
 
         db.add_integration_log(conn_id, None, 'success',
-                               f'motivation sync: {synced} моделей из "{rendered}"')
+                               f'motivation sync: {synced} моделей из "{rendered}" '
+                               f'({rules_written} таргет-правил)')
         return {'synced': synced, 'models': models, 'sheet': rendered,
-                'chains': sorted(chains)}
+                'chains': sorted(chains), 'rules_written': rules_written}
 
     async def run_motiv_sync_from_config(self, db, conn_id: int) -> dict:
         """Re-run a motivation sync using the saved config for this connection."""

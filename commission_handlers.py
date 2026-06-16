@@ -56,6 +56,17 @@ class MotivationStates(StatesGroup):
     waiting_for_motivation_type = State()
     searching_product = State()
     waiting_for_cell_value = State()
+    selecting_scope_type = State()
+    selecting_scope_values = State()
+
+# Человекочитаемые названия областей таргетинга мотивации (task #49)
+SCOPE_LABELS = {
+    'global': 'Все продавцы',
+    'trade_network': 'Сеть',
+    'city': 'Город',
+    'shop': 'Магазин',
+    'user': 'Сотрудник',
+}
 
 class ExtraConditionStates(StatesGroup):
     entering_min_sellers = State()
@@ -402,12 +413,7 @@ async def process_motivation_value(message: Message, state: FSMContext):
             motivation_pending_value=value,
             motivation_pending_type=data['motivation_type']
         )
-        await state.set_state(MotivationScheduleStates.selecting_month)
-
-        today = _date.today()
-        nxt_year, nxt_month = _next_month(today.year, today.month)
-        cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
-        nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+        await state.set_state(MotivationStates.selecting_scope_type)
 
         if data['motivation_type'] == 'percentage':
             commission_text = f"{value}% от продажи"
@@ -415,17 +421,21 @@ async def process_motivation_value(message: Message, state: FSMContext):
             commission_text = f"{format_price(value)} за единицу"
 
         builder = InlineKeyboardBuilder()
-        builder.button(text=f"📅 Текущий ({cur_label})", callback_data="motiv_month_cur")
-        builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="motiv_month_next")
-        builder.button(text="📆 Выбрать месяц", callback_data="motiv_month_pick")
+        builder.button(text="👥 Все продавцы", callback_data="motiv_scope_global")
+        builder.button(text="🏢 Сеть", callback_data="motiv_scope_trade_network")
+        builder.button(text="🏙 Город", callback_data="motiv_scope_city")
+        builder.button(text="🏬 Магазин", callback_data="motiv_scope_shop")
+        builder.button(text="🙋 Сотрудник", callback_data="motiv_scope_user")
         builder.button(text="❌ Отмена", callback_data="set_motivation")
         builder.adjust(1)
 
         await fsm_edit(
             state, message,
-            f"📅 <b>На какой месяц применить?</b>\n\n"
+            f"🎯 <b>Для кого эта мотивация?</b>\n\n"
             f"📦 Товар: <b>{he(data['motivation_product_name'])}</b>\n"
-            f"💰 Мотивация: <b>{commission_text}</b>",
+            f"💰 Мотивация: <b>{commission_text}</b>\n\n"
+            f"«Все продавцы» — общая ставка (можно задать на конкретный месяц).\n"
+            f"Остальные — таргетированная ставка по оргструктуре.",
             reply_markup=builder.as_markup(), parse_mode="HTML"
         )
 
@@ -433,6 +443,235 @@ async def process_motivation_value(message: Message, state: FSMContext):
         await fsm_edit(state, message,
                        "❌ <b>Неверный формат</b>\n\nВведите число. Используйте точку или запятую для разделения дробной части.",
                        reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="set_motivation").as_markup())
+
+
+async def _load_scope_options(current_db, scope_type):
+    """Список (value, label) для выбранной области таргетинга.
+    value сохраняется в product_motivation_rules.scope_value; для user value=str(user_id)."""
+    if scope_type == 'trade_network':
+        vals = await current_db.get_all_trade_networks()
+        return [(v, v) for v in (vals or [])]
+    if scope_type == 'city':
+        vals = await current_db.get_all_cities()
+        return [(v, v) for v in (vals or [])]
+    if scope_type == 'shop':
+        vals = await current_db.get_all_shops(include_system=False)
+        return [(v, v) for v in (vals or [])]
+    if scope_type == 'user':
+        users = await current_db.get_all_users()
+        opts = []
+        for u in (users or []):
+            uid = u[0]
+            name = f"{u[2] or ''} {u[3] or ''}".strip() or f"ID {uid}"
+            extra = u[8] or u[9] or ''
+            label = f"{name}" + (f" · {extra}" if extra else "")
+            opts.append((str(uid), label))
+        return opts
+    return []
+
+
+async def _render_scope_multiselect(callback, state):
+    """Отрисовать экран мультивыбора областей таргетинга с галочками."""
+    data = await state.get_data()
+    scope_type = data['motiv_scope_type']
+    options = data.get('motiv_scope_options', [])
+    selected = set(data.get('motiv_scope_selected', []))
+    mtype = data['motivation_pending_type']
+    mvalue = data['motivation_pending_value']
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+
+    builder = InlineKeyboardBuilder()
+    if not options:
+        builder.button(text="⬅️ Назад", callback_data="motiv_scope_back")
+        builder.adjust(1)
+        await callback.message.edit_text(
+            f"🎯 <b>{SCOPE_LABELS.get(scope_type, scope_type)}</b>\n\n"
+            f"Список пуст — нет данных для этой области. "
+            f"Заполните оргструктуру сотрудников и повторите.",
+            reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+
+    for idx, (val, label) in enumerate(options):
+        mark = "✅ " if idx in selected else "▫️ "
+        builder.button(text=f"{mark}{label}"[:60], callback_data=f"motiv_sv_{idx}")
+    builder.button(text="💾 Готово", callback_data="motiv_sv_done")
+    builder.button(text="⬅️ Назад", callback_data="motiv_scope_back")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"🎯 <b>{SCOPE_LABELS.get(scope_type, scope_type)} — выберите</b>\n\n"
+        f"📦 Товар: <b>{he(data['motivation_product_name'])}</b>\n"
+        f"💰 Мотивация: <b>{commission_text}</b>\n\n"
+        f"Отметьте один или несколько вариантов и нажмите «Готово».",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationStates.selecting_scope_type, F.data == "motiv_scope_global")
+async def motiv_scope_global(callback: CallbackQuery, state: FSMContext):
+    """Глобальная ставка — переходим к выбору месяца (старый поток)."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    from datetime import date as _date
+    data = await state.get_data()
+    await state.set_state(MotivationScheduleStates.selecting_month)
+
+    today = _date.today()
+    nxt_year, nxt_month = _next_month(today.year, today.month)
+    cur_label = f"{MONTH_NAMES_RU[today.month]} {today.year}"
+    nxt_label = f"{MONTH_NAMES_RU[nxt_month]} {nxt_year}"
+
+    mtype = data['motivation_pending_type']
+    mvalue = data['motivation_pending_value']
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📅 Текущий ({cur_label})", callback_data="motiv_month_cur")
+    builder.button(text=f"⏭ Следующий ({nxt_label})", callback_data="motiv_month_next")
+    builder.button(text="📆 Выбрать месяц", callback_data="motiv_month_pick")
+    builder.button(text="❌ Отмена", callback_data="set_motivation")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"📅 <b>На какой месяц применить?</b>\n\n"
+        f"📦 Товар: <b>{he(data['motivation_product_name'])}</b>\n"
+        f"💰 Мотивация: <b>{commission_text}</b>",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationStates.selecting_scope_values, F.data == "motiv_scope_back")
+@commission_router.callback_query(MotivationStates.selecting_scope_type, F.data == "motiv_scope_back")
+async def motiv_scope_back(callback: CallbackQuery, state: FSMContext):
+    """Назад к выбору области таргетинга."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    await state.set_state(MotivationStates.selecting_scope_type)
+    data = await state.get_data()
+    mtype = data['motivation_pending_type']
+    mvalue = data['motivation_pending_value']
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👥 Все продавцы", callback_data="motiv_scope_global")
+    builder.button(text="🏢 Сеть", callback_data="motiv_scope_trade_network")
+    builder.button(text="🏙 Город", callback_data="motiv_scope_city")
+    builder.button(text="🏬 Магазин", callback_data="motiv_scope_shop")
+    builder.button(text="🙋 Сотрудник", callback_data="motiv_scope_user")
+    builder.button(text="❌ Отмена", callback_data="set_motivation")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        f"🎯 <b>Для кого эта мотивация?</b>\n\n"
+        f"📦 Товар: <b>{he(data['motivation_product_name'])}</b>\n"
+        f"💰 Мотивация: <b>{commission_text}</b>\n\n"
+        f"«Все продавцы» — общая ставка (можно задать на конкретный месяц).\n"
+        f"Остальные — таргетированная ставка по оргструктуре.",
+        reply_markup=builder.as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@commission_router.callback_query(MotivationStates.selecting_scope_type, F.data.startswith("motiv_scope_"))
+async def motiv_scope_pick_type(callback: CallbackQuery, state: FSMContext):
+    """Выбор конкретной области (сеть/город/магазин/сотрудник) → мультивыбор значений."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    scope_type = callback.data[len("motiv_scope_"):]
+    if scope_type not in ('trade_network', 'city', 'shop', 'user'):
+        await callback.answer()
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    options = await _load_scope_options(current_db, scope_type)
+    await state.update_data(
+        motiv_scope_type=scope_type,
+        motiv_scope_options=options,
+        motiv_scope_selected=[],
+    )
+    await state.set_state(MotivationStates.selecting_scope_values)
+    await _render_scope_multiselect(callback, state)
+
+
+@commission_router.callback_query(MotivationStates.selecting_scope_values, F.data.startswith("motiv_sv_"))
+async def motiv_scope_toggle(callback: CallbackQuery, state: FSMContext):
+    """Переключение галочки или завершение мультивыбора."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+    suffix = callback.data[len("motiv_sv_"):]
+    data = await state.get_data()
+
+    if suffix == "done":
+        await _save_scope_rules(callback, state)
+        return
+
+    try:
+        idx = int(suffix)
+    except ValueError:
+        await callback.answer()
+        return
+    selected = set(data.get('motiv_scope_selected', []))
+    if idx in selected:
+        selected.discard(idx)
+    else:
+        selected.add(idx)
+    await state.update_data(motiv_scope_selected=list(selected))
+    await _render_scope_multiselect(callback, state)
+
+
+async def _save_scope_rules(callback, state):
+    """Сохранить таргетированные правила мотивации для всех выбранных значений."""
+    data = await state.get_data()
+    options = data.get('motiv_scope_options', [])
+    selected = sorted(set(data.get('motiv_scope_selected', [])))
+    if not selected:
+        await callback.answer("Выберите хотя бы один вариант", show_alert=True)
+        return
+
+    scope_type = data['motiv_scope_type']
+    product_id = data['motivation_product_id']
+    product_name = data['motivation_product_name']
+    mtype = data['motivation_pending_type']
+    mvalue = data['motivation_pending_value']
+
+    current_db = await get_db(callback.from_user.id, state)
+    chosen_labels = []
+    for i, idx in enumerate(selected):
+        if idx >= len(options):
+            continue
+        scope_value, label = options[idx]
+        is_last = (i == len(selected) - 1)
+        await current_db.set_product_motivation(
+            product_id, mtype, mvalue, callback.from_user.id,
+            scope_type=scope_type, scope_value=scope_value,
+            recalculate=is_last,
+        )
+        chosen_labels.append(label)
+
+    await clear_state_keep_org(state)
+
+    commission_text = f"{mvalue}% от продажи" if mtype == 'percentage' else f"{format_price(mvalue)} за единицу"
+    targets = "\n".join(f"  • {he(l)}" for l in chosen_labels)
+    await callback.message.edit_text(
+        f"✅ <b>Таргетированная мотивация установлена!</b>\n\n"
+        f"📦 Товар: {he(product_name)}\n"
+        f"🎯 Область: {SCOPE_LABELS.get(scope_type, scope_type)}\n"
+        f"💰 Мотивация: {commission_text}\n\n"
+        f"Применено к:\n{targets}",
+        reply_markup=InlineKeyboardBuilder().button(
+            text="📝 Установить ещё", callback_data="set_motivation"
+        ).button(
+            text="⬅️ В меню", callback_data="admin_motivation"
+        ).adjust(1).as_markup(), parse_mode="HTML"
+    )
+    await callback.answer()
 
 
 async def _apply_product_motivation_month(callback, state, year, month, is_current=False):

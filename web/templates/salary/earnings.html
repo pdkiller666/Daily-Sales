@@ -137,6 +137,9 @@
                             {% if e.mtype == 'percentage' %}bg-blue-50 text-blue-600{% else %}bg-emerald-50 text-emerald-600{% endif %}">
                             {{ e.rate_display }}
                         </span>
+                        {% if e.source and e.source != 'global' %}
+                        <span class="block mt-0.5 text-[10px] text-slate-400">🎯 {{ e.source_label }}</span>
+                        {% endif %}
                     </td>
                     <td class="px-5 py-3 text-right">
                         <span class="font-semibold {% if e.commission > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">

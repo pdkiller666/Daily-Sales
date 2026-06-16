@@ -25,6 +25,21 @@ def _adjacent_month(year: int, month: int, delta: int):
 
 EARNINGS_PAGE_SIZE = 20
 
+# Метки источника мотивации (task #49 — таргетинг по оргструктуре)
+MOTIVATION_SOURCE_LABELS = {
+    "global": "Общая",
+    "trade_network": "Сеть",
+    "city": "Город",
+    "shop": "Магазин",
+    "user": "Сотрудник",
+    "schedule": "Месячная",
+}
+
+
+def _source_label(src):
+    src = (src or "global")
+    return MOTIVATION_SOURCE_LABELS.get(src, src)
+
 
 def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
     """Personal earnings view for user role."""
@@ -129,6 +144,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
                 "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
                 "commission": comm,
                 "shop": row[7] or "—",
+                "source": (row[8] if len(row) > 8 else "global") or "global",
+                "source_label": _source_label(row[8] if len(row) > 8 else "global"),
             })
 
         # Учитываем joint-бонус (совместный режим мотивации, если настроен)
@@ -375,6 +392,8 @@ def salary_page(
                     "rate_display": f"{mval:g}%" if mtype == "percentage" else f"{int(mval):,}".replace(",", "\u00a0") + "\u00a0₽/ед.",
                     "commission": comm,
                     "shop": erow[7] or "—",
+                    "source": (erow[8] if len(erow) > 8 else "global") or "global",
+                    "source_label": _source_label(erow[8] if len(erow) > 8 else "global"),
                 })
 
             # Adjusted motivation total (with joint_bonus + plan_coeff) for summary line

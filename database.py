@@ -478,6 +478,38 @@ class Database:
             )
         ''')
 
+        # Таргетированная мотивация по оргструктуре (task #49)
+        # scope_type: global / trade_network / city / shop / user
+        # scope_value: '' для global; имя сети/города/магазина; str(user_id) для user
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS product_motivation_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                scope_type TEXT NOT NULL DEFAULT 'global'
+                    CHECK (scope_type IN ('global','trade_network','city','shop','user')),
+                scope_value TEXT NOT NULL DEFAULT '',
+                motivation_type TEXT NOT NULL CHECK (motivation_type IN ('percentage', 'fixed')),
+                motivation_value REAL NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER,
+                FOREIGN KEY (product_id) REFERENCES products (id),
+                FOREIGN KEY (created_by) REFERENCES users (id),
+                UNIQUE(product_id, scope_type, scope_value)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pmr_product ON product_motivation_rules(product_id)')
+        # Автомиграция: старые глобальные мотивации → product_motivation_rules (scope=global)
+        # INSERT OR IGNORE идемпотентен: повторный запуск при старте не перезапишет уже изменённые ставки
+        try:
+            cursor.execute('''
+                INSERT OR IGNORE INTO product_motivation_rules
+                    (product_id, scope_type, scope_value, motivation_type, motivation_value, created_at, created_by)
+                SELECT product_id, 'global', '', motivation_type, motivation_value, created_at, created_by
+                FROM product_motivations
+            ''')
+        except Exception as _exc:
+            logger.debug("create_tables: миграция product_motivations подавлена: %s", _exc)
+
         # Оклады: дневные ставки сотрудников
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS salary_settings (
@@ -743,6 +775,15 @@ class Database:
                 cursor.execute('ALTER TABLE seller_earnings ADD COLUMN motivation_type TEXT NOT NULL DEFAULT "percentage"')
             if 'motivation_value' not in earnings_columns:
                 cursor.execute('ALTER TABLE seller_earnings ADD COLUMN motivation_value REAL NOT NULL DEFAULT 0.0')
+
+        # Источник ставки мотивации (task #49): global/trade_network/city/shop/user/schedule
+        cursor.execute("PRAGMA table_info(seller_earnings)")
+        _se_cols = [c[1] for c in cursor.fetchall()]
+        if 'motivation_source' not in _se_cols:
+            try:
+                cursor.execute("ALTER TABLE seller_earnings ADD COLUMN motivation_source TEXT DEFAULT 'global'")
+            except Exception as _exc:
+                logger.debug("create_tables: ALTER seller_earnings motivation_source подавлено: %s", _exc)
 
         conn.commit()
 
@@ -4716,18 +4757,22 @@ class Database:
 
                 # Рассчитываем и добавляем комиссию продавца
                 try:
-                    commission_info = self.get_motivation_for_month(product_id, _sale_year, _sale_month)
+                    _seller_attrs = self._get_seller_attrs(user_id, shop_name)
+                    commission_info = self.get_motivation_for_month(product_id, _sale_year, _sale_month,
+                                                                    seller_attrs=_seller_attrs)
                     
                     if commission_info:
                         commission_amount = self.calculate_seller_commission(
                             sale_id, product_id, sale_price, quantity_sold,
                             user_id=user_id, shop_name=shop_name,
-                            sale_year=_sale_year, sale_month=_sale_month
+                            sale_year=_sale_year, sale_month=_sale_month,
+                            seller_attrs=_seller_attrs
                         )
                         if commission_amount > 0:
                             self.add_seller_earning(
                                 sale_id, user_id, product_id, commission_amount,
-                                commission_info['motivation_type'], commission_info['motivation_value']
+                                commission_info['motivation_type'], commission_info['motivation_value'],
+                                commission_info.get('motivation_source', 'global')
                             )
                     else:
                         # Добавляем запись с нулевой комиссией для отслеживания
@@ -5254,24 +5299,29 @@ class Database:
                     _sdt = _dt2.now()
                 _upd_year, _upd_month = _sdt.year, _sdt.month
                 try:
-                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month)
+                    _seller_attrs = self._get_seller_attrs(sale_user_id, shop_name)
+                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month,
+                                                                    seller_attrs=_seller_attrs)
                     if commission_info:
                         new_commission = self.calculate_seller_commission(
                             sale_id, product_id, final_price, quantity_sold,
                             user_id=sale_user_id, shop_name=shop_name,
-                            sale_year=_upd_year, sale_month=_upd_month
+                            sale_year=_upd_year, sale_month=_upd_month,
+                            seller_attrs=_seller_attrs
                         )
                         conn2 = self.get_connection()
                         conn2.execute('''
                             INSERT INTO seller_earnings
-                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
-                            VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?)
+                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value, motivation_source)
+                            VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?, ?)
                             ON CONFLICT(sale_id) DO UPDATE SET
                                 commission_amount = excluded.commission_amount,
                                 motivation_type   = excluded.motivation_type,
-                                motivation_value  = excluded.motivation_value
+                                motivation_value  = excluded.motivation_value,
+                                motivation_source = excluded.motivation_source
                         ''', (sale_id, sale_id, product_id, new_commission,
-                              commission_info['motivation_type'], commission_info['motivation_value']))
+                              commission_info['motivation_type'], commission_info['motivation_value'],
+                              commission_info.get('motivation_source', 'global')))
                         conn2.commit()
                         conn2.close()
                 except Exception as _exc:
@@ -5372,24 +5422,29 @@ class Database:
                     _sdt = _dt2.now()
                 _upd_year, _upd_month = _sdt.year, _sdt.month
                 try:
-                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month)
+                    _seller_attrs = self._get_seller_attrs(sale_user_id, shop_name)
+                    commission_info = self.get_motivation_for_month(product_id, _upd_year, _upd_month,
+                                                                    seller_attrs=_seller_attrs)
                     if commission_info:
                         new_commission = self.calculate_seller_commission(
                             sale_id, product_id, sale_price, quantity_sold,
                             user_id=sale_user_id, shop_name=shop_name,
-                            sale_year=_upd_year, sale_month=_upd_month
+                            sale_year=_upd_year, sale_month=_upd_month,
+                            seller_attrs=_seller_attrs
                         )
                         conn2 = self.get_connection()
                         conn2.execute('''
                             INSERT INTO seller_earnings
-                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
-                            VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?)
+                                (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value, motivation_source)
+                            VALUES (?, (SELECT user_id FROM sales WHERE id = ?), ?, ?, ?, ?, ?)
                             ON CONFLICT(sale_id) DO UPDATE SET
                                 commission_amount = excluded.commission_amount,
                                 motivation_type   = excluded.motivation_type,
-                                motivation_value  = excluded.motivation_value
+                                motivation_value  = excluded.motivation_value,
+                                motivation_source = excluded.motivation_source
                         ''', (sale_id, sale_id, product_id, new_commission,
-                              commission_info['motivation_type'], commission_info['motivation_value']))
+                              commission_info['motivation_type'], commission_info['motivation_value'],
+                              commission_info.get('motivation_source', 'global')))
                         conn2.commit()
                         conn2.close()
                 except Exception as _exc:
@@ -6323,47 +6378,221 @@ class Database:
 
     # ============ СИСТЕМА МОТИВАЦИИ ============
 
-    def set_product_motivation(self, product_id, motivation_type, motivation_value, admin_telegram_id):
-        """Установка мотивации для товара с использованием telegram_id администратора.
-        Старая мотивация сохраняется в motivation_history перед перезаписью."""
+    def set_product_motivation(self, product_id, motivation_type, motivation_value,
+                               admin_telegram_id, scope_type='global', scope_value='',
+                               recalculate=True):
+        """Установка мотивации для товара (таргетированная по оргструктуре, task #49).
+
+        scope_type: global / trade_network / city / shop / user
+        scope_value: '' для global; имя сети/города/магазина; str(user_id) для user.
+        Для global старая ставка сохраняется в motivation_history.
+        Пишет в product_motivation_rules (UNIQUE(product_id, scope_type, scope_value))."""
         try:
+            scope_type = scope_type or 'global'
+            scope_value = '' if scope_type == 'global' else (str(scope_value).strip() if scope_value is not None else '')
+
             conn = self.get_connection()
             cursor = conn.cursor()
 
             # Получаем внутренний ID пользователя по его telegram_id
-            cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
-            res = cursor.fetchone()
-            admin_id = res[0] if res else None
+            admin_id = None
+            if admin_telegram_id:
+                cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (admin_telegram_id,))
+                res = cursor.fetchone()
+                admin_id = res[0] if res else None
 
-            # Сохраняем старую мотивацию в историю
-            cursor.execute('SELECT motivation_type, motivation_value FROM product_motivations WHERE product_id = ?', (product_id,))
-            old = cursor.fetchone()
-            if old:
+            # Сохраняем старую глобальную ставку в историю
+            if scope_type == 'global':
                 cursor.execute('''
-                    INSERT INTO motivation_history (product_id, motivation_type, motivation_value, changed_by)
-                    VALUES (?, ?, ?, ?)
-                ''', (product_id, old[0], old[1], admin_id))
+                    SELECT motivation_type, motivation_value FROM product_motivation_rules
+                    WHERE product_id = ? AND scope_type = 'global' AND scope_value = ''
+                ''', (product_id,))
+                old = cursor.fetchone()
+                if old:
+                    cursor.execute('''
+                        INSERT INTO motivation_history (product_id, motivation_type, motivation_value, changed_by)
+                        VALUES (?, ?, ?, ?)
+                    ''', (product_id, old[0], old[1], admin_id))
 
-            # Удаляем существующую мотивацию, если есть
-            cursor.execute('DELETE FROM product_motivations WHERE product_id = ?', (product_id,))
-
-            # Добавляем новую мотивацию
             cursor.execute('''
-                INSERT INTO product_motivations (product_id, motivation_type, motivation_value, created_by)
-                VALUES (?, ?, ?, ?)
-            ''', (product_id, motivation_type, motivation_value, admin_id))
+                INSERT INTO product_motivation_rules
+                    (product_id, scope_type, scope_value, motivation_type, motivation_value, created_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(product_id, scope_type, scope_value) DO UPDATE SET
+                    motivation_type  = excluded.motivation_type,
+                    motivation_value = excluded.motivation_value,
+                    created_by       = excluded.created_by,
+                    created_at       = CURRENT_TIMESTAMP
+            ''', (product_id, scope_type, scope_value, motivation_type, motivation_value, admin_id))
 
             conn.commit()
             conn.close()
 
             # Пересчитываем заработки за текущий месяц
-            self.recalculate_month_earnings(product_id)
+            if recalculate:
+                self.recalculate_month_earnings(product_id)
             return True
         except Exception as e:
             logger.error(f"Ошибка при установке мотивации: {e}")
             if 'conn' in locals():
                 conn.close()
             return False
+
+    def get_motivation_rules(self, product_id):
+        """Все правила мотивации для товара (для бот/веб просмотра и удаления).
+        Возвращает список dict: id, scope_type, scope_value, motivation_type, motivation_value, created_at."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, scope_type, scope_value, motivation_type, motivation_value, created_at
+                FROM product_motivation_rules
+                WHERE product_id = ?
+                ORDER BY CASE scope_type
+                    WHEN 'user' THEN 1 WHEN 'shop' THEN 2 WHEN 'city' THEN 3
+                    WHEN 'trade_network' THEN 4 ELSE 5 END, scope_value
+            ''', (product_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            return [{'id': r[0], 'scope_type': r[1], 'scope_value': r[2],
+                     'motivation_type': r[3], 'motivation_value': r[4], 'created_at': r[5]}
+                    for r in rows]
+        except Exception as e:
+            logger.error(f"Ошибка get_motivation_rules: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def get_all_motivation_rules(self, include_global=False):
+        """Все таргетированные правила (по умолчанию без global) с именами товаров и сотрудников.
+        Возвращает список dict для веб-таблицы правил."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            where = "" if include_global else "WHERE pmr.scope_type != 'global'"
+            cursor.execute(f'''
+                SELECT pmr.id, pmr.product_id, p.name, pmr.scope_type, pmr.scope_value,
+                       pmr.motivation_type, pmr.motivation_value, pmr.created_at,
+                       u.first_name, u.last_name
+                FROM product_motivation_rules pmr
+                JOIN products p ON pmr.product_id = p.id
+                LEFT JOIN users u ON pmr.scope_type = 'user'
+                                 AND CAST(pmr.scope_value AS INTEGER) = u.id
+                {where}
+                ORDER BY p.name,
+                    CASE pmr.scope_type
+                        WHEN 'user' THEN 1 WHEN 'shop' THEN 2 WHEN 'city' THEN 3
+                        WHEN 'trade_network' THEN 4 ELSE 5 END,
+                    pmr.scope_value
+            ''')
+            rows = cursor.fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                label = r[4]
+                if r[3] == 'user':
+                    nm = f"{r[8] or ''} {r[9] or ''}".strip()
+                    label = nm or r[4]
+                result.append({
+                    'id': r[0], 'product_id': r[1], 'product_name': r[2],
+                    'scope_type': r[3], 'scope_value': r[4], 'scope_label': label,
+                    'motivation_type': r[5], 'motivation_value': r[6], 'created_at': r[7],
+                })
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка get_all_motivation_rules: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+
+    def remove_motivation_rule(self, rule_id):
+        """Удалить одно правило мотивации по id. Возвращает product_id или None."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT product_id FROM product_motivation_rules WHERE id = ?', (rule_id,))
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return None
+            pid = row[0]
+            cursor.execute('DELETE FROM product_motivation_rules WHERE id = ?', (rule_id,))
+            conn.commit()
+            conn.close()
+            try:
+                self.recalculate_month_earnings(pid)
+            except Exception as _exc:
+                logger.debug("remove_motivation_rule recalc подавлено: %s", _exc)
+            return pid
+        except Exception as e:
+            logger.error(f"Ошибка remove_motivation_rule: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
+
+    def _get_seller_attrs(self, user_id, shop_name=None):
+        """Атрибуты продавца для таргетинга мотивации: user_id, shop_name, city, trade_network.
+        city/trade_network берутся из карточки сотрудника (users); shop_name — из продажи, если задан."""
+        attrs = {'user_id': user_id, 'shop_name': shop_name, 'city': None, 'trade_network': None}
+        if user_id is None:
+            return attrs
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT trade_network, shop_name, city FROM users WHERE id = ?', (user_id,))
+            r = cursor.fetchone()
+            conn.close()
+            if r:
+                attrs['trade_network'] = r[0]
+                if not shop_name:
+                    attrs['shop_name'] = r[1]
+                attrs['city'] = r[2]
+        except Exception as e:
+            logger.debug("_get_seller_attrs подавлено: %s", e)
+            if 'conn' in locals():
+                conn.close()
+        return attrs
+
+    def resolve_motivation(self, product_id, seller_attrs=None):
+        """Выбрать наиболее специфичное правило мотивации для товара и продавца.
+        Приоритет: user > shop > city > trade_network > global.
+        Возвращает dict {motivation_type, motivation_value, motivation_source} или None."""
+        seller_attrs = seller_attrs or {}
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT scope_type, scope_value, motivation_type, motivation_value
+                FROM product_motivation_rules WHERE product_id = ?
+            ''', (product_id,))
+            rows = cursor.fetchall()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Ошибка resolve_motivation: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
+        if not rows:
+            return None
+        by_scope = {}
+        for st, sv, mt, mv in rows:
+            by_scope[(st, (sv or '').strip().lower())] = (mt, mv)
+        uid = seller_attrs.get('user_id')
+        priority = [
+            ('user', str(uid) if uid is not None else None),
+            ('shop', seller_attrs.get('shop_name')),
+            ('city', seller_attrs.get('city')),
+            ('trade_network', seller_attrs.get('trade_network')),
+            ('global', ''),
+        ]
+        for st, val in priority:
+            if val is None:
+                continue
+            key = (st, str(val).strip().lower())
+            if key in by_scope:
+                mt, mv = by_scope[key]
+                return {'motivation_type': mt, 'motivation_value': mv, 'motivation_source': st}
+        return None
 
     def get_motivation_history(self, product_id, limit=10):
         """История изменений мотивации для товара"""
@@ -6432,14 +6661,18 @@ class Database:
 
             # Пересчитываем каждую продажу
             for sale_id, prod_id, sale_price, qty, user_id, shop_name, tg_id in sales:
+                _seller_attrs = self._get_seller_attrs(user_id, shop_name)
                 new_commission = self.calculate_seller_commission(
                     sale_id, prod_id, sale_price, qty,
                     user_id=user_id, shop_name=shop_name,
-                    sale_year=year, sale_month=month
+                    sale_year=year, sale_month=month,
+                    seller_attrs=_seller_attrs
                 )
-                motivation_info = self.get_motivation_for_month(prod_id, year, month)
+                motivation_info = self.get_motivation_for_month(prod_id, year, month,
+                                                                seller_attrs=_seller_attrs)
                 m_type = motivation_info['motivation_type'] if motivation_info else 'percentage'
                 m_val  = motivation_info['motivation_value'] if motivation_info else 0.0
+                m_src  = motivation_info.get('motivation_source', 'global') if motivation_info else 'global'
 
                 conn2 = self.get_connection()
                 cur2 = conn2.cursor()
@@ -6450,15 +6683,15 @@ class Database:
                 if existing:
                     cur2.execute('''
                         UPDATE seller_earnings
-                        SET commission_amount=?, motivation_type=?, motivation_value=?
+                        SET commission_amount=?, motivation_type=?, motivation_value=?, motivation_source=?
                         WHERE sale_id=? AND user_id=?
-                    ''', (new_commission, m_type, m_val, sale_id, user_id))
+                    ''', (new_commission, m_type, m_val, m_src, sale_id, user_id))
                 else:
                     cur2.execute('''
                         INSERT INTO seller_earnings
-                        (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (sale_id, user_id, prod_id, new_commission, m_type, m_val))
+                        (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value, motivation_source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (sale_id, user_id, prod_id, new_commission, m_type, m_val, m_src))
                 conn2.commit()
                 conn2.close()
 
@@ -6500,9 +6733,10 @@ class Database:
                 conn.close()
             return False
 
-    def get_motivation_for_month(self, product_id, year, month):
+    def get_motivation_for_month(self, product_id, year, month, seller_attrs=None):
         """Получить мотивацию для товара на конкретный месяц.
-        Сначала проверяет motivation_schedule, при отсутствии — fallback на product_motivations."""
+        Приоритет: motivation_schedule (месячная ставка) → таргетированное правило
+        (user>shop>city>network>global). Если seller_attrs не задан — fallback на глобальную ставку."""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
@@ -6512,19 +6746,15 @@ class Database:
                 WHERE product_id = ? AND year = ? AND month = ?
             ''', (product_id, year, month))
             row = cursor.fetchone()
-            if row:
-                conn.close()
-                return {'motivation_type': row[0], 'motivation_value': row[1], 'is_scheduled': True}
-            # Fallback на глобальную мотивацию
-            cursor.execute('''
-                SELECT motivation_type, motivation_value
-                FROM product_motivations
-                WHERE product_id = ?
-            ''', (product_id,))
-            row2 = cursor.fetchone()
             conn.close()
-            if row2:
-                return {'motivation_type': row2[0], 'motivation_value': row2[1], 'is_scheduled': False}
+            if row:
+                return {'motivation_type': row[0], 'motivation_value': row[1],
+                        'is_scheduled': True, 'motivation_source': 'schedule'}
+            # Fallback на таргетированное/глобальное правило
+            info = self.resolve_motivation(product_id, seller_attrs or {})
+            if info:
+                info['is_scheduled'] = False
+                return info
             return None
         except Exception as e:
             logger.error(f"Ошибка get_motivation_for_month: {e}")
@@ -6721,16 +6951,20 @@ class Database:
                 conn.close()
             return False
 
-    def get_product_motivation(self, product_id):
-        """Получение мотивации для товара"""
+    def get_product_motivation(self, product_id, seller_attrs=None):
+        """Получение мотивации для товара.
+        Если seller_attrs задан — выбирает наиболее специфичное правило (user>shop>city>network>global)
+        и возвращает dict с motivation_source. Иначе — глобальную ставку (обратная совместимость)."""
+        if seller_attrs is not None:
+            return self.resolve_motivation(product_id, seller_attrs)
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
 
             cursor.execute('''
                 SELECT motivation_type, motivation_value
-                FROM product_motivations
-                WHERE product_id = ?
+                FROM product_motivation_rules
+                WHERE product_id = ? AND scope_type = 'global' AND scope_value = ''
             ''', (product_id,))
 
             result = cursor.fetchone()
@@ -6758,7 +6992,8 @@ class Database:
                 SELECT p.id, p.name, pc.motivation_type, pc.motivation_value, 
                        u.first_name, u.last_name, pc.created_at
                 FROM products p
-                LEFT JOIN product_motivations pc ON p.id = pc.product_id
+                LEFT JOIN product_motivation_rules pc
+                       ON p.id = pc.product_id AND pc.scope_type = 'global' AND pc.scope_value = ''
                 LEFT JOIN users u ON pc.created_by = u.id
                 ORDER BY p.name
             ''')
@@ -6789,8 +7024,9 @@ class Database:
             # Все глобальные мотивации
             cursor.execute('''
                 SELECT p.id, p.name, pm.motivation_type, pm.motivation_value
-                FROM product_motivations pm
+                FROM product_motivation_rules pm
                 JOIN products p ON pm.product_id = p.id
+                WHERE pm.scope_type = 'global' AND pm.scope_value = ''
                 ORDER BY p.name
             ''')
             globals_rows = cursor.fetchall()
@@ -6850,12 +7086,12 @@ class Database:
             return [], {}, {}
 
     def remove_product_motivation(self, product_id):
-        """Удаление мотивации с товара"""
+        """Удаление ВСЕХ правил мотивации с товара (глобальной и таргетированных)."""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('DELETE FROM product_motivations WHERE product_id = ?', (product_id,))
+            cursor.execute('DELETE FROM product_motivation_rules WHERE product_id = ?', (product_id,))
 
             conn.commit()
             conn.close()
@@ -8210,13 +8446,17 @@ class Database:
 
     def calculate_seller_commission(self, sale_id, product_id, sale_price, quantity_sold,
                                     user_id=None, shop_name=None,
-                                    sale_year=None, sale_month=None):
+                                    sale_year=None, sale_month=None, seller_attrs=None):
         """Расчет мотивации продавца за продажу.
-        Если sale_year/sale_month переданы — берёт ставку из motivation_schedule (с fallback на глобальную)."""
+        Выбирает наиболее специфичное правило (user>shop>city>network>global) через seller_attrs.
+        Если sale_year/sale_month переданы — учитывает месячное расписание (с fallback на правила)."""
+        if seller_attrs is None and user_id is not None:
+            seller_attrs = self._get_seller_attrs(user_id, shop_name)
         if sale_year is not None and sale_month is not None:
-            commission_info = self.get_motivation_for_month(product_id, sale_year, sale_month)
+            commission_info = self.get_motivation_for_month(product_id, sale_year, sale_month,
+                                                            seller_attrs=seller_attrs)
         else:
-            commission_info = self.get_product_motivation(product_id)
+            commission_info = self.get_product_motivation(product_id, seller_attrs=seller_attrs)
 
         if not commission_info:
             return 0.0
@@ -8238,7 +8478,8 @@ class Database:
 
         return round(commission_amount, 2)
 
-    def add_seller_earning(self, sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value):
+    def add_seller_earning(self, sale_id, user_id, product_id, commission_amount, motivation_type,
+                           motivation_value, motivation_source='global'):
         """Добавление заработка продавца"""
         import time
 
@@ -8254,13 +8495,14 @@ class Database:
                 motivation_type = motivation_type if motivation_type is not None else 'percentage'
                 motivation_value = motivation_value if motivation_value is not None else 0.0
                 commission_amount = commission_amount if commission_amount is not None else 0.0
+                motivation_source = motivation_source if motivation_source is not None else 'global'
 
 
                 cursor.execute('''
                     INSERT INTO seller_earnings 
-                    (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value))
+                    (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value, motivation_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (sale_id, user_id, product_id, commission_amount, motivation_type, motivation_value, motivation_source))
 
                 conn.commit()
                 conn.close()
@@ -8311,7 +8553,8 @@ class Database:
                            COALESCE(se.motivation_type, 'percentage') as motivation_type,
                            COALESCE(se.motivation_value, 0) as motivation_value,
                            p.name as product_name, s.quantity_sold, s.sale_price,
-                           s.sale_date, s.shop_name
+                           s.sale_date, s.shop_name,
+                           COALESCE(se.motivation_source, 'global') as motivation_source
                     FROM seller_earnings se
                     JOIN sales s ON se.sale_id = s.id
                     JOIN products p ON se.product_id = p.id
@@ -8338,7 +8581,8 @@ class Database:
                            'percentage' as motivation_type,
                            0.0 as motivation_value,
                            p.name as product_name, s.quantity_sold, s.sale_price,
-                           s.sale_date, s.shop_name
+                           s.sale_date, s.shop_name,
+                           'global' as motivation_source
                     FROM sales s
                     JOIN products p ON s.product_id = p.id
                     WHERE s.user_id = ?

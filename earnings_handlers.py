@@ -18,6 +18,16 @@ earnings_router = Router()
 _MONTHS_RU = ['', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
               'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
 
+# Метки источника мотивации (таргетинг по оргструктуре)
+_MOTIV_SOURCE_LABELS = {
+    'global': 'Общая',
+    'trade_network': 'Сеть',
+    'city': 'Город',
+    'shop': 'Магазин',
+    'user': 'Сотрудник',
+    'schedule': 'Месячная',
+}
+
 class EarningsStates(StatesGroup):
     selecting_period = State()
 
@@ -112,7 +122,7 @@ async def earnings_current_month(callback: CallbackQuery, state: FSMContext):
         text += "📋 <b>Детали по продажам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
-            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
             if product_name not in products_earnings:
                 products_earnings[product_name] = {'total_commission': 0, 'total_quantity': 0, 'sales_count': 0}
             products_earnings[product_name]['total_commission'] += commission_amount
@@ -158,7 +168,7 @@ async def earnings_all_time(callback: CallbackQuery, state: FSMContext):
         text += "📋 <b>Топ товаров по заработку:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
-            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
             if product_name not in products_earnings:
                 products_earnings[product_name] = {'total_commission': 0, 'total_quantity': 0, 'sales_count': 0}
             products_earnings[product_name]['total_commission'] += commission_amount
@@ -217,7 +227,7 @@ async def earnings_detailed(callback: CallbackQuery, state: FSMContext):
 
     sales_by_date = {}
     for earning in earnings:
-        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
         try:
             sale_datetime = datetime.fromisoformat(sale_date.replace('Z', '+00:00'))
             date_key = sale_datetime.strftime("%Y-%m-%d")
@@ -293,7 +303,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
 
     day_sales = []
     for earning in earnings:
-        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
         try:
             sale_datetime = datetime.fromisoformat(sale_date.replace('Z', '+00:00'))
             sale_date_key = sale_datetime.strftime("%Y-%m-%d")
@@ -324,7 +334,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
     user_tz = await current_db.get_user_timezone(callback.from_user.id)
 
     for i, earning in enumerate(day_sales, 1):
-        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+        commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
 
         try:
             time_str = format_user_datetime(sale_date, user_tz, '%H:%M')
@@ -338,6 +348,10 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
         else:
             comm_info = f"{format_price(motivation_value)}₽/шт"
 
+        _src = (_motiv_src[0] if _motiv_src else 'global') or 'global'
+        src_label = _MOTIV_SOURCE_LABELS.get(_src, _src)
+        src_suffix = f" · 🎯 {src_label}" if _src not in ('global', '') else ""
+
         sale_total = quantity_sold * sale_price
         day_total += sale_total
         day_earning += commission_amount
@@ -346,7 +360,7 @@ async def earnings_day_details(callback: CallbackQuery, state: FSMContext):
             f"<b>{i}.</b> {he(product_name)}\n"
             f"🕐 {time_str} | 🏪 {he(shop_name)}\n"
             f"📦 {quantity_sold} шт × {format_price(sale_price)}₽ = {format_price(sale_total)}₽\n"
-            f"💰 Мотивация: {format_price(commission_amount)}₽ ({comm_info})\n\n"
+            f"💰 Мотивация: {format_price(commission_amount)}₽ ({comm_info}){src_suffix}\n\n"
         )
 
     text += "📊 <b>Итого за день:</b>\n"
@@ -432,7 +446,7 @@ async def earnings_specific_month(callback: CallbackQuery, state: FSMContext):
         text += "📋 <b>Продажи по товарам:</b>\n\n"
         products_earnings = {}
         for earning in earnings:
-            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
             if product_name not in products_earnings:
                 products_earnings[product_name] = {'total_commission': 0, 'total_quantity': 0, 'sales_count': 0}
             products_earnings[product_name]['total_commission'] += commission_amount
@@ -480,7 +494,7 @@ async def earnings_last_year(callback: CallbackQuery, state: FSMContext):
     else:
         monthly_earnings = {}
         for earning in earnings:
-            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name = earning
+            commission_amount, motivation_type, motivation_value, product_name, quantity_sold, sale_price, sale_date, shop_name, *_motiv_src = earning
             try:
                 sale_datetime = datetime.fromisoformat(sale_date.replace('Z', '+00:00'))
                 month_key = sale_datetime.month

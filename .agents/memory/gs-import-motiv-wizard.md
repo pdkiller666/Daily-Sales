@@ -28,5 +28,10 @@ description: Google Sheets motivation table orientation, saved-config sync, clic
 - When the live sheet read fails, the wizard must still be completable by manual numeric entry (1-based rows/cols), mirroring export. Manual path feeds the SAME finalize as the clickable path, so it must set every state key the pickers set (`gs_mtv_header_row`, `gs_mtv_model_col`, `gs_mtv_bonus_map`, `gs_mtv_rrp_col`) before finalize.
 - **Why:** Amvera/Google outages otherwise hard-block setup with no recovery; finalize reads only from state, so a partial manual fill silently produced a broken config until a guard was added.
 
+# Saved import configs (quick re-run)
+- Import mappings persist per `import_type` under the connection config `config['import_configs'][type]` = `{sheet_name, header_row, col_mapping}`. The wizard saves on successful finalize; the import menu offers one-tap "quick import" re-runs.
+- **Invariant:** the stored `col_mapping` is ALREADY 0-based (the wizard's 1-based picks were converted with `v-1` before saving). The quick-run path passes it straight to `run_import` — it must NOT subtract again, or every column shifts left by one.
+- Quick-run handler must clear FSM state in a `finally` (like the wizard finalize); skipping it leaves a stale `waiting_*` state that hijacks the user's next text message.
+
 # Web async safety
 - New web routes are `async def` and `await integration_manager....` directly. Safe because the provider wraps gspread network calls in `asyncio.to_thread`; only short SQLite upsert loops run on the request worker. For very large imports, consider a threadpool/background task.

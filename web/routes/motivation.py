@@ -12,6 +12,38 @@ MONTH_NAMES = [
     "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек",
 ]
 
+# Области таргетинга мотивации по оргструктуре (task #49)
+SCOPE_LABELS = {
+    "global": "Все продавцы",
+    "trade_network": "Сеть",
+    "city": "Город",
+    "shop": "Магазин",
+    "user": "Сотрудник",
+}
+
+
+def _load_scope_options(db, scope_type):
+    """Список dict {value, label} для области таргетинга (для веб-формы)."""
+    try:
+        if scope_type == "trade_network":
+            return [{"value": v, "label": v} for v in (db.get_all_trade_networks() or [])]
+        if scope_type == "city":
+            return [{"value": v, "label": v} for v in (db.get_all_cities() or [])]
+        if scope_type == "shop":
+            return [{"value": v, "label": v} for v in (db.get_all_shops(include_system=False) or [])]
+        if scope_type == "user":
+            opts = []
+            for u in (db.get_all_users() or []):
+                uid = u[0]
+                name = f"{u[2] or ''} {u[3] or ''}".strip() or f"ID {uid}"
+                extra = u[8] or u[9] or ""
+                label = name + (f" · {extra}" if extra else "")
+                opts.append({"value": str(uid), "label": label})
+            return opts
+    except Exception as exc:
+        logger.error(f"_load_scope_options error: {exc}")
+    return []
+
 
 def _fmt_rate(mtype, mval) -> str:
     if mtype == "percentage":
@@ -125,6 +157,29 @@ def motivation_page(request: Request, category: str = ""):
             })
         ctx["motivations"] = motivations
 
+        # Таргетированные правила мотивации по оргструктуре (task #49)
+        try:
+            rules_raw = db.get_all_motivation_rules() or []
+            rules = []
+            for r in rules_raw:
+                if category and r.get("product_id"):
+                    prod_cat = next((p[2] for p in all_products if p[0] == r["product_id"]), "")
+                    if prod_cat != category:
+                        continue
+                rules.append({
+                    "id": r["id"],
+                    "product_id": r["product_id"],
+                    "product_name": r["product_name"],
+                    "scope_type": r["scope_type"],
+                    "scope_type_label": SCOPE_LABELS.get(r["scope_type"], r["scope_type"]),
+                    "scope_label": r["scope_label"],
+                    "rate_display": _fmt_rate(r["motivation_type"], r["motivation_value"]),
+                })
+            ctx["motivation_rules"] = rules
+        except Exception as _exc:
+            logger.error(f"motivation rules load error: {_exc}")
+            ctx["motivation_rules"] = []
+
         try:
             raw_extra = db.get_extra_conditions_for_month(today.year, today.month) or []
             ctx["extra_conditions"] = raw_extra
@@ -208,6 +263,40 @@ def motivation_plan_coeff(
     return RedirectResponse(url="/motivation?coeff_saved=1", status_code=303)
 
 
+@router.get("/motivation/scope_values")
+def motivation_scope_values(request: Request, scope_type: str = ""):
+    """HTMX: вернуть <option>-ы значений для выбранной области таргетинга."""
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return Response(content="", status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return Response(content="", status_code=403)
+
+    if scope_type not in ("trade_network", "city", "shop", "user"):
+        return Response(content="", media_type="text/html")
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        opts = _load_scope_options(db, scope_type)
+    except Exception as exc:
+        logger.error(f"motivation_scope_values error: {exc}")
+        opts = []
+
+    from markupsafe import escape
+    html = "".join(
+        f'<option value="{escape(o["value"])}">{escape(o["label"])}</option>'
+        for o in opts
+    )
+    if not html:
+        html = '<option value="" disabled>Нет данных — заполните оргструктуру</option>'
+    return Response(content=html, media_type="text/html")
+
+
 @router.post("/motivation/set")
 def motivation_set(
     request: Request,
@@ -216,6 +305,8 @@ def motivation_set(
     motivation_type: str = Form(default="percentage"),
     motivation_value: str = Form(default=""),
     month_offset: int = Form(default=0),
+    scope_type: str = Form(default="global"),
+    scope_value: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -238,12 +329,24 @@ def motivation_set(
         from urllib.parse import quote as _q
         return RedirectResponse(url=f"/motivation?error={_q(str(exc))}", status_code=303)
 
+    if scope_type not in ("global", "trade_network", "city", "shop", "user"):
+        scope_type = "global"
+    if scope_type != "global" and not scope_value.strip():
+        return RedirectResponse(
+            url="/motivation?error=Выберите+значение+для+таргетинга.", status_code=303)
+
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
     try:
         db = get_web_db(telegram_id, org_db)
-        if month_offset == 0:
+        if scope_type != "global":
+            # Таргетированная ставка по оргструктуре (без месячного расписания)
+            db.set_product_motivation(
+                product_id, motivation_type, val, telegram_id,
+                scope_type=scope_type, scope_value=scope_value.strip(),
+            )
+        elif month_offset == 0:
             db.set_product_motivation(product_id, motivation_type, val, telegram_id)
         else:
             ty, tm = _offset_month(month_offset)
@@ -252,7 +355,7 @@ def motivation_set(
                 db.recalculate_month_earnings(product_id, ty, tm)
             except Exception:
                 pass
-        logger.info(f"Motivation set: product={product_id} type={motivation_type} val={val} offset={month_offset} by={telegram_id}")
+        logger.info(f"Motivation set: product={product_id} type={motivation_type} val={val} offset={month_offset} scope={scope_type}:{scope_value} by={telegram_id}")
     except Exception as exc:
         logger.error(f"motivation_set error: {exc}")
         return RedirectResponse(url="/motivation?error=Ошибка+сохранения.+Попробуйте+позже.", status_code=303)
@@ -390,4 +493,36 @@ def motivation_remove(
         return JSONResponse({"ok": False, "error": "Мотивация не найдена"}, status_code=404)
     except Exception as exc:
         logger.error(f"motivation_remove error: {exc}")
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
+
+
+@router.post("/motivation/rule/remove/{rule_id}")
+def motivation_rule_remove(
+    request: Request,
+    rule_id: int,
+    csrf_token: str = Form(default=""),
+):
+    """Удалить одно таргетированное правило мотивации (task #49)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "auth"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "csrf"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        removed = db.remove_motivation_rule(rule_id)
+        if removed:
+            return JSONResponse({"ok": True})
+        return JSONResponse({"ok": False, "error": "Правило не найдено"}, status_code=404)
+    except Exception as exc:
+        logger.error(f"motivation_rule_remove error: {exc}")
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)

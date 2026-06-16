@@ -433,6 +433,74 @@ top_sellers = fdb.get_top_sellers_by_earnings()
 check("get_top_sellers_by_earnings: список", isinstance(top_sellers, list))
 
 # ─────────────────────────────────────────────────────────
+# Таргетированная мотивация по оргструктуре (task #49)
+# ─────────────────────────────────────────────────────────
+section("Таргетированная мотивация (scope-targeting)")
+
+fpid_t = fdb.add_product("Товар Таргет", "Категория", 1000.0)
+fdb.add_inventory("Топ Магазин", fpid_t, 100)
+
+# Глобальная + магазинная ставки на один товар
+fdb.set_product_motivation(fpid_t, "percentage", 5.0, admin_telegram_id=500001,
+                           scope_type="global", scope_value="", recalculate=False)
+fdb.set_product_motivation(fpid_t, "fixed", 100.0, admin_telegram_id=500001,
+                           scope_type="shop", scope_value="Топ Магазин", recalculate=False)
+
+# seller_attrs продавца (shop = "Топ Магазин")
+attrs = fdb._get_seller_attrs(fuid, "Топ Магазин")
+check("_get_seller_attrs: shop_name", attrs.get("shop_name") == "Топ Магазин")
+
+# resolve_motivation: продавец магазина → shop-правило важнее global
+res_shop = fdb.resolve_motivation(fpid_t, attrs)
+check("resolve_motivation: shop приоритет над global",
+      res_shop and res_shop.get("motivation_source") == "shop"
+      and res_shop.get("motivation_type") == "fixed")
+
+# resolve_motivation: пустые атрибуты → global
+res_glob = fdb.resolve_motivation(fpid_t, {})
+check("resolve_motivation: fallback на global",
+      res_glob and res_glob.get("motivation_source") == "global"
+      and res_glob.get("motivation_value") == 5.0)
+
+# get_all_motivation_rules: вернёт shop-правило (без global)
+all_rules = fdb.get_all_motivation_rules()
+shop_rule = next((r for r in all_rules if r["product_id"] == fpid_t and r["scope_type"] == "shop"), None)
+check("get_all_motivation_rules: shop-правило присутствует", shop_rule is not None)
+check("get_all_motivation_rules: global исключён по умолчанию",
+      all(r["scope_type"] != "global" for r in all_rules))
+
+# calculate_seller_commission с user_id → берёт shop-правило (fixed 100 * 2)
+sale_t = fdb.add_sale(fpid_t, "Топ Магазин", 2, fuid, sale_price=1000.0)
+comm_t = fdb.calculate_seller_commission(sale_t, fpid_t, 1000.0, 2,
+                                         user_id=fuid, shop_name="Топ Магазин")
+check("calculate_seller_commission (shop fixed 100*2): 200", abs(comm_t - 200.0) < 0.01)
+
+# remove_motivation_rule: удаляем shop-правило → resolve падает на global
+removed_pid = fdb.remove_motivation_rule(shop_rule["id"])
+check("remove_motivation_rule: вернул product_id", removed_pid == fpid_t)
+res_after = fdb.resolve_motivation(fpid_t, attrs)
+check("remove_motivation_rule: после удаления → global",
+      res_after and res_after.get("motivation_source") == "global")
+
+# motivation_source колонка в get_seller_earnings ([8])
+fdb.add_seller_earning(sale_t, fuid, fpid_t, comm_t, "fixed", 100.0,
+                       motivation_source="shop")
+earns = fdb.get_seller_earnings(fuid)
+check("get_seller_earnings: motivation_source col [8]",
+      earns and len(earns[0]) >= 9)
+shop_earn = next((e for e in earns if len(e) > 8 and e[8] == "shop"), None)
+check("get_seller_earnings: motivation_source='shop' сохранён", shop_earn is not None)
+
+# Метки источника для зарплатных отчётов (web + бот)
+from web.routes.salary import _source_label as _web_src_label
+from earnings_handlers import _MOTIV_SOURCE_LABELS as _bot_src_labels
+check("web _source_label: shop → Магазин", _web_src_label("shop") == "Магазин")
+check("web _source_label: global → Общая", _web_src_label("global") == "Общая")
+check("web _source_label: None → Общая (fallback)", _web_src_label(None) == "Общая")
+check("bot source labels: trade_network → Сеть", _bot_src_labels.get("trade_network") == "Сеть")
+check("bot source labels: schedule → Месячная", _bot_src_labels.get("schedule") == "Месячная")
+
+# ─────────────────────────────────────────────────────────
 # СЦЕНАРИЙ 8: Рейтинги и отчёты
 # ─────────────────────────────────────────────────────────
 section("Сценарий 8: Рейтинги и отчёты")

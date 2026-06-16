@@ -48,3 +48,4 @@
 - [Barcode scanner solution](barcode-scanner-solution.md) — opencv-python-headless (pip, без sysдепов): cv2.QRCodeDetector + cv2.barcode.BarcodeDetector; pyzbar/zxingcpp не работают на Amvera
 - [Startup WAL corruption](startup-wal-corruption.md) — guarded ALTER «duplicate column» при старте = inconsistent WAL от SIGKILLнутого boot; чинить checkpoint(TRUNCATE), не править миграции/не удалять БД
 - [GS import + motivation configurator](gs-import-motiv-wizard.md) — мотивация rows=models/cols=chains; aliases keyed sheet→system; manual fallback when API down; saved motiv_config; бот кликабельный, веб дефолтный порядок
+- [Targeted motivation by org structure](targeted-motivation.md) — motivation rates targetable by org scope; resolve priority user>shop>city>trade_network>global; global-only = legacy behavior; earnings tuple is append-only

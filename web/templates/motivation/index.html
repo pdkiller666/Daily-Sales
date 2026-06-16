@@ -172,9 +172,35 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="product_id" :value="editProductId || ''">
                 <input type="hidden" name="month_offset" :value="monthOffset">
+                <input type="hidden" name="scope_type" :value="scopeType">
+                <input type="hidden" name="scope_value" :value="scopeValue">
 
-                <!-- Month selector -->
+                <!-- Scope selector (target by org structure, task #49) -->
                 <div class="mb-4">
+                    <label class="block text-xs font-medium text-slate-600 mb-1.5">🎯 Для кого ставка</label>
+                    <select x-model="scopeType" @change="onScopeTypeChange()"
+                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        <option value="global">Все продавцы (общая)</option>
+                        <option value="trade_network">Сеть</option>
+                        <option value="city">Город</option>
+                        <option value="shop">Магазин</option>
+                        <option value="user">Сотрудник</option>
+                    </select>
+                    <div class="mt-2" x-show="scopeType !== 'global'" x-transition>
+                        <select x-model="scopeValue"
+                            class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <option value="" x-show="scopeLoading">Загрузка…</option>
+                            <option value="" x-show="!scopeLoading">— выберите —</option>
+                            <template x-for="o in scopeOptions" :key="o.value">
+                                <option :value="o.value" x-text="o.label"></option>
+                            </template>
+                        </select>
+                        <p class="text-[10px] text-slate-400 mt-1">Таргетированная ставка важнее общей при расчёте комиссии.</p>
+                    </div>
+                </div>
+
+                <!-- Month selector (only for global scope) -->
+                <div class="mb-4" x-show="scopeType === 'global'" x-transition>
                     <label class="block text-xs font-medium text-slate-600 mb-1.5">Месяц применения</label>
                     <div class="grid grid-cols-3 gap-1.5">
                         {% for off, lbl in month_labels.items() %}
@@ -495,6 +521,51 @@
     </div>
 </div>
 
+<!-- Targeted motivation rules by org structure (task #49) -->
+<div class="card p-5 mt-4">
+    <div class="flex items-center justify-between mb-3">
+        <div>
+            <h2 class="font-semibold text-slate-800">🎯 Таргетированные ставки</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Особые ставки по сети / городу / магазину / сотруднику. Важнее общей при расчёте.</p>
+        </div>
+    </div>
+    {% if motivation_rules %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-slate-400 border-b border-slate-100">
+                    <th class="py-2 pr-3 font-medium">Товар</th>
+                    <th class="py-2 pr-3 font-medium">Область</th>
+                    <th class="py-2 pr-3 font-medium">Кому</th>
+                    <th class="py-2 pr-3 font-medium">Ставка</th>
+                    <th class="py-2 font-medium"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in motivation_rules %}
+                <tr id="rule-row-{{ r.id }}" class="border-b border-slate-50 hover:bg-slate-50">
+                    <td class="py-2 pr-3 font-medium text-slate-700">{{ r.product_name }}</td>
+                    <td class="py-2 pr-3"><span class="inline-block bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[11px]">{{ r.scope_type_label }}</span></td>
+                    <td class="py-2 pr-3 text-slate-600">{{ r.scope_label }}</td>
+                    <td class="py-2 pr-3 font-semibold text-blue-600">{{ r.rate_display }}</td>
+                    <td class="py-2 text-right">
+                        <button type="button"
+                            data-rid="{{ r.id }}"
+                            data-label="{{ r.product_name }} · {{ r.scope_label }}"
+                            data-csrf="{{ csrf_token }}"
+                            onclick="removeRuleBtn(this)"
+                            class="text-rose-500 hover:text-rose-700 text-xs font-medium">✕ Удалить</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-400 py-4 text-center">Таргетированных ставок пока нет. Добавьте через форму выше, выбрав область «Сеть / Город / Магазин / Сотрудник».</p>
+    {% endif %}
+</div>
+
 <script>
 // Карта установленных мотиваций: product_id → {type, value}
 const _motivMap = {
@@ -513,6 +584,10 @@ function motivForm() {
         selectedProductId: '',
         filterCategory: '{{ selected_category }}',
         monthOffset: 0,
+        scopeType: 'global',
+        scopeValue: '',
+        scopeOptions: [],
+        scopeLoading: false,
         onProductSelect(productId) {
             if (!productId) return;
             const existing = _motivMap[parseInt(productId)];
@@ -523,7 +598,47 @@ function motivForm() {
                 this.mval = '';
             }
         },
+        async onScopeTypeChange() {
+            this.scopeValue = '';
+            this.scopeOptions = [];
+            if (this.scopeType === 'global') return;
+            this.scopeLoading = true;
+            try {
+                const res = await fetch(`/motivation/scope_values?scope_type=${encodeURIComponent(this.scopeType)}&format=json`, { headers: { 'Accept': 'application/json' } });
+                const html = await res.text();
+                const tmp = document.createElement('select');
+                tmp.innerHTML = html;
+                this.scopeOptions = Array.from(tmp.querySelectorAll('option'))
+                    .filter(o => o.value)
+                    .map(o => ({ value: o.value, label: o.textContent }));
+            } catch (e) {
+                this.scopeOptions = [];
+            } finally {
+                this.scopeLoading = false;
+            }
+        },
     };
+}
+
+async function removeRule(ruleId, label, csrfToken) {
+    if (!confirm(`Удалить правило «${label}»?`)) return;
+    try {
+        const fd = new FormData();
+        fd.append('csrf_token', csrfToken);
+        const res = await fetch(`/motivation/rule/remove/${ruleId}`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            const row = document.getElementById(`rule-row-${ruleId}`);
+            if (row) row.remove();
+        } else {
+            alert('Ошибка: ' + (data.error || 'неизвестно'));
+        }
+    } catch (e) {
+        alert('Ошибка при удалении правила');
+    }
+}
+function removeRuleBtn(el) {
+    removeRule(parseInt(el.dataset.rid), el.dataset.label, el.dataset.csrf);
 }
 
 function openEditBtn(el) {
