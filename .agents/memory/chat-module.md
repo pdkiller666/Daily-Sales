@@ -128,3 +128,18 @@ Two independent counters combined: `topicNew` (from `/chat/poll`) + `dmUnread` (
 - CSRF on all POST routes (topic and DM)
 - Auth check on all routes
 - `/chat` and `/chat/dm` in robots.txt Disallow
+
+## AI DM reply anchoring (ai_peer_id)
+
+AI assistant DM replies are saved as the AI sender (from_user_id=0) and must be
+**anchored to the asker's conversation** so they survive refresh/polling, not
+just the live WS push. The anchor is the human peer the asker was chatting with.
+
+**Why:** DM history is fetched strictly between two human peers; an AI reply
+addressed to the asker (not from the peer) otherwise vanishes on reload.
+
+**How to apply / guardrail:** an AI reply is private to the asker — surface it
+ONLY in the asker's view of that conversation, never the peer's (a symmetric
+"both directions" filter leaks one user's AI answer to the other). Also note AI
+rows are not cleared by the per-peer "mark read" path, so they can inflate the
+unread badge — handle that explicitly if touching unread counts.

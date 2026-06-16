@@ -586,7 +586,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     </div>
 
     <!-- ══ DM Panel ══ -->
-    <div x-show="dmMode" x-cloak class="flex flex-1 min-h-0 overflow-hidden">
+    <div id="dm-panel" x-show="dmMode" x-cloak class="flex flex-1 min-h-0 overflow-hidden">
 
         <!-- Left: Contacts list -->
         <div id="dm-contacts-col"
@@ -1212,6 +1212,23 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.dmLoadContacts();
             this.dmWsConnect();
             history.replaceState(null, '', '/chat?dm=1');
+            this._nudgeDmPanel();
+        },
+
+        /* Force a reflow/repaint of the freshly-shown DM panel.
+           On mobile the x-show display:none→flex switch doesn't always lay out
+           the flex subtree until a forced reflow — that's why toggling the dark
+           theme (a class change on <html>) "revealed" the panel. We replicate
+           that reflow here so the panel renders immediately on first switch. */
+        _nudgeDmPanel() {
+            this.$nextTick(() => {
+                const el = document.getElementById('dm-panel');
+                if (!el) return;
+                el.style.display = 'none';
+                void el.offsetHeight;
+                el.style.display = '';
+                requestAnimationFrame(() => { void el.offsetHeight; });
+            });
         },
         switchToGroup() {
             this.dmMode = false;

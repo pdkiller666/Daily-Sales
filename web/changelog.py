@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.20.0"
+CURRENT_VERSION = "1.21.0"
 
 ENTRIES = [
+    {
+        "version": "1.21.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update deployment details and version for recent fixes",
+            "Keep AI DM replies visible after page refresh",
+        ],
+    },
     {
         "version": "1.20.0",
         "date": "16 июня 2026",

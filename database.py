@@ -1182,6 +1182,12 @@ class Database:
             )
         ''')
 
+        # Миграция: ai_peer_id — к какой переписке привязан ответ AI (from_user_id=0)
+        cursor.execute("PRAGMA table_info(direct_messages)")
+        _dm_cols = [col[1] for col in cursor.fetchall()]
+        if 'ai_peer_id' not in _dm_cols:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN ai_peer_id INTEGER DEFAULT 0")
+
         # ── Chat message files (multi-file support, до 10 файлов на сообщение) ──
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_message_files (
@@ -11511,15 +11517,19 @@ class Database:
     def add_dm(self, from_user_id: int, to_user_id: int,
                message: str = '', file_path: str = '',
                file_name: str = '', file_type: str = '',
-               file_size: int = 0) -> int:
-        """Сохранить личное сообщение. Возвращает id записи."""
+               file_size: int = 0, ai_peer_id: int = 0) -> int:
+        """Сохранить личное сообщение. Возвращает id записи.
+
+        ai_peer_id — для ответов AI (from_user_id=0): id собеседника, в переписке
+        с которым пользователь задал вопрос, чтобы история подтянула ответ.
+        """
         try:
             conn = self.get_connection()
             cur = conn.execute(
                 '''INSERT INTO direct_messages
-                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size)
+                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id)
             )
             conn.commit()
             new_id = cur.lastrowid
@@ -11538,7 +11548,12 @@ class Database:
         """
         try:
             conn = self.get_connection()
-            params: list = [user_a, user_b, user_b, user_a]
+            # Peer-to-peer сообщения + ответы AI (from_user_id=0). AI-ответ виден
+            # ТОЛЬКО задавшему вопрос (user_a) в переписке с собеседником (user_b):
+            # to_user_id=user_a AND ai_peer_id=user_b. Обратное направление НЕ
+            # добавляем — иначе собеседник увидит чужой AI-ответ (утечка).
+            params: list = [user_a, user_b, user_b, user_a,
+                            user_a, user_b]
             extra = ''
             if before_id > 0:
                 extra = ' AND d.id < ?'
@@ -11552,7 +11567,8 @@ class Database:
                     FROM direct_messages d
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = ?)
-                        OR (d.from_user_id = ? AND d.to_user_id = ?))
+                        OR (d.from_user_id = ? AND d.to_user_id = ?)
+                        OR (d.from_user_id = 0 AND d.to_user_id = ? AND d.ai_peer_id = ?))
                       AND d.is_deleted = 0{extra}
                     ORDER BY d.id DESC
                     LIMIT ?''',

@@ -272,12 +272,14 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         pass
 
 
-async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str):
+async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: int = 0):
     """Асинхронно формирует и сохраняет ответ AI-ассистента в личных сообщениях.
 
     Запускается через asyncio.create_task — основной dm_send не ждёт.
     Любой сбой глотается: AI-ошибка никогда не роняет основной чат.
     Ответ сохраняется как DM от user_id=0 (AI) отправителю и доставляется по WS.
+    peer_id — собеседник, в переписке с которым задан вопрос; записывается в
+    ai_peer_id, чтобы ответ AI был виден в истории после рефреша/поллинга.
     """
     try:
         from billing_utils import has_extension
@@ -316,7 +318,8 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str):
 
         ai_text = f"🤖 {answer}"
         new_id = await anyio.to_thread.run_sync(
-            lambda: db.add_dm(from_user_id=0, to_user_id=sender_db_id, message=ai_text)
+            lambda: db.add_dm(from_user_id=0, to_user_id=sender_db_id,
+                              message=ai_text, ai_peer_id=peer_id)
         )
         if not new_id:
             return
@@ -327,6 +330,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str):
             "id": new_id,
             "from_user_id": 0,
             "to_user_id": sender_db_id,
+            "ai_peer_id": peer_id,
             "message": ai_text,
             "has_file": False,
             "created_at": now_str,
@@ -1481,7 +1485,7 @@ async def dm_send(
 
         # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
         if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
-            asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text))
+            asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=to_user_id))
 
         first_file = saved_files[0] if saved_files else {}
         file_name = first_file.get("file_name", "")
@@ -1708,7 +1712,7 @@ async def ws_dm(websocket: WebSocket):
                 await dm_manager.send_to_user(org_db, to_id, payload)
                 # AI hook: если сообщение адресовано AI — запустить ответ асинхронно
                 if text and text.lower().lstrip().startswith(('@ии', '/ai', '@ai')):
-                    asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text))
+                    asyncio.create_task(_ai_dm_reply(org_db, user_db_id, text, peer_id=to_id))
                 try:
                     first_name = user.get("name", "Кто-то")
                     _dm_msg = f"💬 {first_name}: {text[:80]}"
