@@ -671,6 +671,7 @@ async def settings_ai_alerts(
     digest_enabled: str = Form(default=""),
     digest_day_of_week: int = Form(default=0),
     digest_hour_msk: int = Form(default=9),
+    digest_push_enabled: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -717,6 +718,7 @@ async def settings_ai_alerts(
             digest_enabled=bool(digest_enabled),
             digest_day_of_week=digest_day_of_week,
             digest_hour_msk=digest_hour_msk,
+            digest_push_enabled=bool(digest_push_enabled),
         )
     except Exception:
         pass

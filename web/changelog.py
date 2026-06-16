@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.17.0"
+CURRENT_VERSION = "1.18.0"
 
 ENTRIES = [
+    {
+        "version": "1.18.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Add live product search and backdated sales filter functionality",
+            "Let owners control whether the weekly AI digest sends a push notification",
+        ],
+    },
     {
         "version": "1.17.0",
         "date": "16 июня 2026",

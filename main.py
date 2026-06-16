@@ -1722,14 +1722,16 @@ async def main():
                     _plain_body = _re.sub(r"<[^>]+>", "", msg).strip()
                     _push_body = _plain_body[:120] + ("…" if len(_plain_body) > 120 else "")
 
+                    _push_ok = _digest_cfg.get("digest_push_enabled", True)
                     for tg_id in admin_ids[:3]:
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
-                            try:
-                                from web.push_utils import apush as _apush
-                                await _apush(tg_id, "📊 AI-дайджест недели", _push_body, "/dashboard")
-                            except Exception as _push_err:
-                                logging.debug(f"ai_weekly_digest push: {_push_err}")
+                            if _push_ok:
+                                try:
+                                    from web.push_utils import apush as _apush
+                                    await _apush(tg_id, "📊 AI-дайджест недели", _push_body, "/dashboard")
+                                except Exception as _push_err:
+                                    logging.debug(f"ai_weekly_digest push: {_push_err}")
 
                     # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
                     try:
