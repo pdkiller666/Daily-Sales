@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.16.0"
+CURRENT_VERSION = "1.17.0"
 
 ENTRIES = [
+    {
+        "version": "1.17.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update application with new AI features and deployment information",
+            "Show AI alert settings button in subscription/profile screen",
+            "Let owners toggle AI alerts and adjust threshold/hour from the bot (Task #117)",
+            "Live \"next digest\" preview on settings page",
+        ],
+    },
     {
         "version": "1.16.0",
         "date": "16 июня 2026",

@@ -14,7 +14,7 @@ from db_utils import clear_state_keep_org, is_any_admin, maybe_refresh_username,
 from database import Database
 from keyboards import back_button, home_button, generate_calendar, safe_cb, resolve_cb_name
 from pagination_utils import page_nav_row
-from states import NotificationStates
+from states import NotificationStates, AiAlertStates
 from message_utils import fsm_edit
 from env_manager import env_manager
 from utils import he
@@ -1342,7 +1342,32 @@ def _build_ai_alert_settings_text(cfg: dict) -> str:
 
 def _build_ai_alert_settings_kb(cfg: dict) -> InlineKeyboardMarkup:
     ctx = cfg.get("digest_context", ["products", "sellers", "plans"])
+    enabled = cfg.get("enabled", True)
+    threshold = cfg.get("threshold_pct", 35)
+    hour = cfg.get("alert_hour_msk", 10)
     buttons = []
+
+    # Toggle enabled/disabled
+    toggle_mark = "✅" if enabled else "❌"
+    toggle_label = "Алерты включены" if enabled else "Алерты отключены"
+    buttons.append([InlineKeyboardButton(
+        text=f"{toggle_mark} {toggle_label}",
+        callback_data="toggle_ai_alerts"
+    )])
+
+    # Threshold and hour on the same row
+    buttons.append([
+        InlineKeyboardButton(
+            text=f"📉 Порог: {threshold}%",
+            callback_data="set_ai_threshold"
+        ),
+        InlineKeyboardButton(
+            text=f"🕐 {hour}:00 МСК",
+            callback_data="set_ai_alert_hour"
+        ),
+    ])
+
+    # Context block toggles
     for key, label in _AI_CTX_LABELS.items():
         mark = "✅" if key in ctx else "❌"
         buttons.append([InlineKeyboardButton(
@@ -1439,3 +1464,179 @@ async def toggle_ai_context_block(callback: CallbackQuery, state: FSMContext):
         reply_markup=_build_ai_alert_settings_kb(cfg),
         parse_mode="HTML",
     )
+
+
+async def _check_ai_alert_access(callback: CallbackQuery) -> bool:
+    """Возвращает True если пользователь прошёл все проверки доступа."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Только для администраторов", show_alert=True)
+        return False
+    try:
+        from billing_utils import has_extension as _hex_ai
+        if not _hex_ai(callback.from_user.id, 'ai_smart_alerts'):
+            await callback.answer("❌ Требуется расширение «Умные алерты AI»", show_alert=True)
+            return False
+    except Exception:
+        pass
+    return True
+
+
+async def _load_ai_cfg(current_db) -> dict:
+    try:
+        return await current_db.get_ai_alert_settings()
+    except Exception:
+        return {"enabled": True, "threshold_pct": 35, "alert_hour_msk": 10,
+                "metrics": ["revenue"], "digest_context": ["products", "sellers", "plans"]}
+
+
+@notifications_router.callback_query(F.data == "toggle_ai_alerts")
+async def toggle_ai_alerts_enabled(callback: CallbackQuery, state: FSMContext):
+    """Переключает флаг enabled AI-алертов."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+
+    new_enabled = not cfg.get("enabled", True)
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=new_enabled,
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+        )
+        cfg["enabled"] = new_enabled
+        status = "включены ✅" if new_enabled else "отключены ❌"
+        await callback.answer(f"AI-алерты {status}")
+    except Exception as _err:
+        logging.error("toggle_ai_alerts_enabled: %s", _err)
+        await callback.answer("❌ Ошибка сохранения", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
+
+
+@notifications_router.callback_query(F.data == "set_ai_threshold")
+async def set_ai_threshold_start(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает новый порог срабатывания AI-алертов."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    current = int(cfg.get("threshold_pct", 35))
+
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("ai_alert_settings")]])
+    await callback.message.edit_text(
+        f"📉 <b>Порог срабатывания AI-алерта</b>\n\n"
+        f"Текущее значение: <b>{current}%</b>\n\n"
+        "Введите новый порог от 1 до 99 (например, <b>20</b> — алерт при падении выручки на 20%):",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await state.set_state(AiAlertStates.waiting_threshold)
+
+
+@notifications_router.message(AiAlertStates.waiting_threshold)
+async def process_ai_threshold(message: Message, state: FSMContext):
+    """Сохраняет новый порог AI-алертов."""
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("ai_alert_settings")]])
+    try:
+        value = int(message.text.strip())
+        if not (1 <= value <= 99):
+            raise ValueError
+    except ValueError:
+        await fsm_edit(state, message, "❌ Введите целое число от 1 до 99", reply_markup=_back_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=value,
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+        )
+        cfg["threshold_pct"] = value
+    except Exception as _err:
+        logging.error("process_ai_threshold: %s", _err)
+        await fsm_edit(state, message, "❌ Ошибка сохранения", reply_markup=_back_kb)
+        return
+
+    await fsm_edit(
+        state, message,
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
+    await clear_state_keep_org(state)
+
+
+@notifications_router.callback_query(F.data == "set_ai_alert_hour")
+async def set_ai_alert_hour_start(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает новое время отправки AI-алертов."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    current = int(cfg.get("alert_hour_msk", 10))
+
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("ai_alert_settings")]])
+    await callback.message.edit_text(
+        f"🕐 <b>Время отправки AI-алертов</b>\n\n"
+        f"Текущее значение: <b>{current}:00 МСК</b>\n\n"
+        "Введите час отправки (0–23), например <b>9</b> — алерты в 09:00 МСК:",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await state.set_state(AiAlertStates.waiting_hour)
+
+
+@notifications_router.message(AiAlertStates.waiting_hour)
+async def process_ai_alert_hour(message: Message, state: FSMContext):
+    """Сохраняет новое время отправки AI-алертов."""
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("ai_alert_settings")]])
+    try:
+        value = int(message.text.strip())
+        if not (0 <= value <= 23):
+            raise ValueError
+    except ValueError:
+        await fsm_edit(state, message, "❌ Введите целое число от 0 до 23", reply_markup=_back_kb)
+        return
+
+    current_db = await get_db(message.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=value,
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+        )
+        cfg["alert_hour_msk"] = value
+    except Exception as _err:
+        logging.error("process_ai_alert_hour: %s", _err)
+        await fsm_edit(state, message, "❌ Ошибка сохранения", reply_markup=_back_kb)
+        return
+
+    await fsm_edit(
+        state, message,
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
+    await clear_state_keep_org(state)

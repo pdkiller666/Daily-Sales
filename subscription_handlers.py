@@ -189,6 +189,14 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
             text += ("\n💎 <b>Нужен больший объём</b> — повысьте тариф."
                      "\n🧩 <b>Нужны функции</b> — подключите модули (в любом тарифе).")
 
+        # Check ai_smart_alerts extension for shortcut button
+        _has_ai_alerts = False
+        try:
+            from billing_utils import has_extension as _hex_ai
+            _has_ai_alerts = _hex_ai(telegram_id, 'ai_smart_alerts')
+        except Exception:
+            pass
+
         if is_org_user:
             org_role = get_user_org_role(telegram_id)
             is_org_admin = org_role in ('owner', 'admin')
@@ -197,18 +205,23 @@ async def subscription_menu(callback: CallbackQuery, state: FSMContext):
                 org_buttons.append([InlineKeyboardButton(text="💳 Купить подписку для организации", callback_data="subscription_plans")])
                 org_buttons.append([InlineKeyboardButton(text="🧩 Подключить модули", callback_data="buy_modules")])
                 org_buttons.append([InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")])
+            if _has_ai_alerts and is_org_admin:
+                org_buttons.append([InlineKeyboardButton(text="🤖 Настройки AI-алертов", callback_data="ai_alert_settings")])
             org_buttons.append([InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")])
             org_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")])
             keyboard = InlineKeyboardMarkup(inline_keyboard=org_buttons)
         else:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            personal_buttons = [
                 [InlineKeyboardButton(text="💳 Купить подписку", callback_data="subscription_plans")],
                 [InlineKeyboardButton(text="🧩 Подключить модули", callback_data="buy_modules")],
                 [InlineKeyboardButton(text="📊 Мои лимиты", callback_data="subscription_limits")],
                 [InlineKeyboardButton(text="➕ Надстройки", callback_data="subscription_addons")],
-                [InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
-            ])
+            ]
+            if _has_ai_alerts:
+                personal_buttons.append([InlineKeyboardButton(text="🤖 Настройки AI-алертов", callback_data="ai_alert_settings")])
+            personal_buttons.append([InlineKeyboardButton(text="🔗 Реферальная программа", callback_data="subscription_referral")])
+            personal_buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=personal_buttons)
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 

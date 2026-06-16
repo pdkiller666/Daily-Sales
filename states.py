@@ -116,6 +116,10 @@ class NotificationStates(StatesGroup):
     nfcal_choosing_start = State()
     nfcal_choosing_end = State()
 
+class AiAlertStates(StatesGroup):
+    waiting_threshold = State()
+    waiting_hour = State()
+
 class AdminNotificationStates(StatesGroup):
     choosing_recipients = State()
     selecting_users = State()
