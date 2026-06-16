@@ -460,6 +460,9 @@ function toastMgr() {
            class="nav-link {% if request.url.path.startswith('/chat') %}nav-active{% endif %}">
             <span class="nav-icon mr-3 text-base">💬</span>
             <span class="flex-1">Чат</span>
+            <span id="chat-nav-badge"
+                  class="ml-auto hidden items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold bg-red-500 text-white">
+            </span>
         </a>
         {% endif %}
         {% if user and user.role in ('owner', 'admin', 'super_admin') %}
@@ -2456,6 +2459,7 @@ function mainApp() {
     const wrap = document.getElementById('chat-fab-wrap');
     const fab = document.getElementById('chat-fab');
     const badge = document.getElementById('chat-fab-badge');
+    const navBadge = document.getElementById('chat-nav-badge');
     const iconEl = document.getElementById('chat-fab-icon');
     if (!wrap || !fab) return;
 
@@ -2568,12 +2572,22 @@ function mainApp() {
     function updateBadge() {
         const total = topicUnread + dmUnread;
         if (total > 0) {
-            badge.textContent = total > 9 ? '9+' : total;
+            const label = total > 9 ? '9+' : total;
+            badge.textContent = label;
             badge.classList.remove('hidden');
             badge.classList.add('flex');
+            if (navBadge) {
+                navBadge.textContent = label;
+                navBadge.classList.remove('hidden');
+                navBadge.classList.add('inline-flex');
+            }
         } else {
             badge.classList.add('hidden');
             badge.classList.remove('flex');
+            if (navBadge) {
+                navBadge.classList.add('hidden');
+                navBadge.classList.remove('inline-flex');
+            }
         }
     }
 

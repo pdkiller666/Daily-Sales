@@ -42,6 +42,7 @@
 - [Super-admin page header](admin-page-header.md) — все /admin/* подстраницы используют page_header macro (admin/_macros.html); импорт ВНУТРИ {% block content %}, не на верхнем уровне (extends-child)
 - [SQLite Cyrillic search](sqlite-cyrillic-search.md) — SQL LOWER()/LIKE fold ASCII only; Cyrillic search returns nothing → register Python lower_u() on the connection
 - [Bot module self-purchase](bot-module-purchase.md) — бот покупка модулей/пакетов опирается на confirm_payment_request: plan_type module_<key>/bundle_<key> уже грантит через grant_billing_item(30d); UI только создаёт payment_request
+- [Bot super-admin billing card](bot-billing-admin-card.md) — карточка клиента: billing items по telegram_id (grant/revoke/subs), базовая подписка по users.id (get_user_id); invalidate_plan_cache(tg) после; skip tg<0
 - [tojson in HTML attributes](tojson-attr-escape.md) — `tojson | e` is a no-op (Markup); double-quoted Alpine attrs need `| forceescape` or quotes break the handler
 - [Clickable row patterns](clickable-row-patterns.md) — web rows navigate via BOTH `<a href>` AND `onclick="window.location"`; href-only greps undercount; dashboard recent-sales & rankings cities are the real unlinked gaps
 - [TWA camera permission](twa-camera-permission.md) — TWA APK needs CAMERA in manifest (else getUserMedia instant NotAllowedError); async scanner open needs run-token re-entry guard; logic duplicated in pos+sales templates

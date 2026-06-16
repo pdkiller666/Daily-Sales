@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.26.0"
+CURRENT_VERSION = "1.27.0"
 
 ENTRIES = [
+    {
+        "version": "1.27.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Модернизация бот-панели «💰 Платёжная система» под модульный биллинг веб /admin/billing",
+            "show unread chat badge on desktop sidebar Чат nav item",
+        ],
+    },
     {
         "version": "1.26.0",
         "date": "16 июня 2026",
