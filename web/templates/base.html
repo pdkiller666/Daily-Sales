@@ -779,7 +779,9 @@ window.dsRefreshBadge = function() {
     function _inScrollable(el) {
         while (el && el !== document.body) {
             const s = getComputedStyle(el);
-            if (s.overflowX === 'auto' || s.overflowX === 'scroll') return true;
+            /* Проверяем не просто стиль, но и реальное переполнение —
+               overflow-x:auto без фактического overflow не должен блокировать свайп навигации */
+            if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 4) return true;
             el = el.parentElement;
         }
         return false;
