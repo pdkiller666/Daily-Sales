@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.38.0"
+CURRENT_VERSION = "1.39.0"
 
 ENTRIES = [
+    {
+        "version": "1.39.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update chat interface with improved AI hints and dynamic search functionality",
+            "Make AI error messages visually distinct from normal AI replies in chat",
+        ],
+    },
     {
         "version": "1.38.0",
         "date": "16 июня 2026",

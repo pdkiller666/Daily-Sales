@@ -18,6 +18,8 @@ router = APIRouter()
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 МБ на файл
 MAX_FILES_PER_MSG = 10            # до 10 файлов в одном сообщении
 
+_AI_ERROR_PREFIX = "[AI_ERROR]"  # stripped at display time; triggers error bubble CSS
+
 
 def _get_chat_min_plan() -> str:
     """Stub: chat access is now controlled by has_module('chat').
@@ -137,11 +139,16 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict
         files_list = []
 
     first = files_list[0] if files_list else {}
+    raw_message = message or ""
+    is_ai_error = raw_message.startswith(_AI_ERROR_PREFIX)
+    if is_ai_error:
+        raw_message = raw_message[len(_AI_ERROR_PREFIX):]
     return {
         "id": mid,
         "user_id": user_id,
         "is_ai": user_id == 0,
-        "message": message or "",
+        "is_ai_error": is_ai_error,
+        "message": raw_message,
         "file_name": first.get("file_name", ""),
         "file_type": first.get("file_type", ""),
         "file_size": first.get("file_size", 0),
@@ -297,7 +304,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
             await _post_status(
-                f"Дневной лимит AI-запросов исчерпан "
+                f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
                 f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
             )
             return
@@ -314,7 +321,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         except Exception:
             answer = None
         if not answer:
-            await _post_status("AI-ассистент временно недоступен, попробуйте позже.")
+            await _post_status(f"{_AI_ERROR_PREFIX}AI-ассистент временно недоступен, попробуйте позже.")
             return
 
         await anyio.to_thread.run_sync(
@@ -357,17 +364,20 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             if not new_id:
                 return
             now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            _is_err = text.startswith(_AI_ERROR_PREFIX)
+            _display_text = text[len(_AI_ERROR_PREFIX):] if _is_err else text
             await dm_manager.send_to_user(org_db, sender_db_id, {
                 "type": "message",
                 "id": new_id,
                 "from_user_id": 0,
                 "to_user_id": sender_db_id,
                 "ai_peer_id": peer_id,
-                "message": text,
+                "message": _display_text,
                 "has_file": False,
                 "created_at": now_str,
                 "is_read": False,
                 "is_ai": True,
+                "is_ai_error": _is_err,
             })
 
         owner_tg_id = await anyio.to_thread.run_sync(db.get_org_owner_tg_id)
@@ -377,7 +387,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             return
         if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
             await _post_ai_dm(
-                f"Дневной лимит AI-запросов исчерпан "
+                f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
                 f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
             )
             return
@@ -394,7 +404,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
         except Exception:
             answer = None
         if not answer:
-            await _post_ai_dm("AI-ассистент временно недоступен, попробуйте позже.")
+            await _post_ai_dm(f"{_AI_ERROR_PREFIX}AI-ассистент временно недоступен, попробуйте позже.")
             return
 
         await _post_ai_dm(answer)
@@ -1370,11 +1380,16 @@ def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
         files_list = []
 
     first = files_list[0] if files_list else {}
+    raw_message = message or ""
+    is_ai_error = raw_message.startswith(_AI_ERROR_PREFIX)
+    if is_ai_error:
+        raw_message = raw_message[len(_AI_ERROR_PREFIX):]
     return {
         "id": mid,
         "from_user_id": from_id,
         "to_user_id": to_id,
-        "message": message or "",
+        "message": raw_message,
+        "is_ai_error": is_ai_error,
         "file_name": first.get("file_name", ""),
         "file_type": first.get("file_type", ""),
         "file_size": first.get("file_size", 0),

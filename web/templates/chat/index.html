@@ -67,6 +67,34 @@ html.dark .msg-ai .msg-bubble {
     border-right-color:#134e4a;
     border-bottom-color:#134e4a;
 }
+/* ── AI error bubble (topic chat) ── */
+.msg-ai-error .msg-bubble {
+    background:#fffbeb;color:#78350f;
+    border-left:3px solid #f59e0b;
+    border-radius:.25rem 1rem 1rem 1rem;
+    border-top:1px solid #fde68a;
+    border-right:1px solid #fde68a;
+    border-bottom:1px solid #fde68a;
+}
+html.dark .msg-ai-error .msg-bubble {
+    background:#1c1200;color:#fde68a;
+    border-left-color:#f59e0b;
+    border-top-color:#451a03;
+    border-right-color:#451a03;
+    border-bottom-color:#451a03;
+}
+/* ── AI error bubble (DM) ── */
+.dm-bubble-ai-error {
+    background:#fffbeb;color:#78350f;
+    border-radius:1rem 1rem 1rem 0.25rem;
+    border:1px solid #fde68a;
+    border-left:3px solid #f59e0b;
+}
+html.dark .dm-bubble-ai-error {
+    background:#1c1200;color:#fde68a;
+    border-color:#451a03;
+    border-left-color:#f59e0b;
+}
 /* Delete button — visible on touch, hover on desktop */
 .msg-del-btn { opacity:0; transition:opacity .15s; }
 .msg-bubble:hover .msg-del-btn { opacity:.55; }
@@ -487,19 +515,19 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
         <!-- All messages — single unified Alpine template -->
         <template x-for="msg in msgs" :key="msg.id">
             <div class="flex gap-2.5 mb-3"
-                 :class="msg.user_id === myUserId ? 'msg-mine flex-row-reverse' : (msg.is_ai ? 'msg-other msg-ai' : 'msg-other')"
+                 :class="msg.user_id === myUserId ? 'msg-mine flex-row-reverse' : (msg.is_ai_error ? 'msg-other msg-ai msg-ai-error' : (msg.is_ai ? 'msg-other msg-ai' : 'msg-other'))"
                  :id="'msg-' + msg.id">
                 <!-- Avatar (only for other people's messages) -->
                 <template x-if="msg.user_id !== myUserId">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto"
                          :class="msg.is_ai ? 'msg-ai-avatar' : 'bg-gradient-to-br from-slate-400 to-slate-600'"
-                         x-text="msg.initial"></div>
+                         x-text="msg.is_ai_error ? '⚠️' : msg.initial"></div>
                 </template>
                 <!-- Bubble -->
                 <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
                     <p class="text-[10px] font-semibold mb-1"
-                       :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600')"
-                       x-text="msg.display_name"></p>
+                       :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai_error ? 'text-amber-600 dark:text-amber-400' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600'))"
+                       x-text="msg.is_ai_error ? 'AI-ассистент · Ошибка' : msg.display_name"></p>
                     <!-- Text -->
                     <template x-if="msg.message">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
@@ -802,7 +830,11 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 <div :class="m.is_mine ? 'items-end' : 'items-start'"
                                      class="flex flex-col max-w-[72%]">
                                     <div class="px-3 py-2 text-sm leading-relaxed shadow-sm"
-                                         :class="m.is_mine ? 'dm-bubble-mine' : 'dm-bubble-other'">
+                                         :class="m.is_mine ? 'dm-bubble-mine' : (m.is_ai_error ? 'dm-bubble-ai-error' : 'dm-bubble-other')">
+                                        <!-- AI error label -->
+                                        <template x-if="m.is_ai_error">
+                                            <p class="text-[10px] font-semibold mb-1 text-amber-600 dark:text-amber-400">⚠️ AI-ассистент · Ошибка</p>
+                                        </template>
                                         <!-- Image -->
                                         <template x-if="m.has_file && m.is_image">
                                             <a :href="m.file_url" target="_blank">
@@ -1794,7 +1826,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         has_file: !!data.has_file, is_image: !!data.is_image,
                         file_url: data.file_url || '', file_name: data.file_name || '',
                         created_at: data.created_at || '', is_mine: false, can_delete: false,
-                        is_ai: isAi,
+                        is_ai: isAi, is_ai_error: !!data.is_ai_error,
                     });
                     this._dmScrollBottom();
                     /* WS заведомо открыт (только что получили) — HTTP-фолбэк не нужен */
