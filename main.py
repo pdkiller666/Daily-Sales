@@ -1535,12 +1535,14 @@ async def main():
                         continue
 
                     # Gate: ai_smart_alerts extension required (check org owner)
+                    # fail-closed: при любом сбое биллинга — пропускаем орг, не шлём алерт
                     try:
                         from billing_utils import has_extension as _hex_ext
                         if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
                             continue
-                    except Exception:
-                        pass
+                    except Exception as _gate_err:
+                        logging.warning(f"ai_smart_alerts billing gate error, skipping org: {_gate_err}")
+                        continue
 
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
 
@@ -1636,7 +1638,7 @@ async def main():
 
     scheduler.add_job(
         ai_smart_alerts,
-        CronTrigger(hour='*', minute=5),
+        CronTrigger(hour='7,19', minute=5),   # 2 раза в день: 07:05 и 19:05 UTC (10:05 и 22:05 МСК)
         id='ai_smart_alerts',
         max_instances=1,
         coalesce=True,

@@ -110,10 +110,10 @@ def check_and_increment_ai(tg_id: int, limit: int) -> bool:
         except Exception as e:
             try:
                 import logging
-                logging.error(f"check_and_increment_ai({tg_id}): {e} — fail-open")
+                logging.error(f"check_and_increment_ai({tg_id}): {e} — fail-closed")
             except Exception:
                 pass
-            return True
+            return False  # fail-closed: при сбое БД лимит держим, не открываем
 
 
 def get_ai_usage_stats_today(top_n: int = 30) -> list:

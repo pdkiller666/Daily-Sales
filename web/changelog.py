@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.39.0"
+CURRENT_VERSION = "1.40.0"
 
 ENTRIES = [
+    {
+        "version": "1.40.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Improve swipe gesture responsiveness on sales module",
+            "Add screenshots to document AI feature limitations and usage",
+        ],
+    },
     {
         "version": "1.39.0",
         "date": "16 июня 2026",
