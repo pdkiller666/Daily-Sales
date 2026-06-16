@@ -107,6 +107,8 @@ def integration_page(
                     "spreadsheet_id": cfg.get("spreadsheet_id", ""),
                     "has_token": has_token,
                     "token_expiry": cfg.get("tokens", {}).get("expiry", 0),
+                    "has_motiv_config": bool(cfg.get("motiv_config")),
+                    "motiv_sheet": (cfg.get("motiv_config") or {}).get("sheet_name", ""),
                 })
                 try:
                     exports_raw = db.get_integration_exports(cid) or []
@@ -371,3 +373,106 @@ def integration_delete(request: Request, cid: int, csrf_token: str = Form(defaul
         logging.error(f"integration_delete: {e}")
 
     return RedirectResponse(url="/integration?msg=Подключение+удалено", status_code=302)
+
+
+@router.post("/integration/{cid}/sync-motiv")
+async def integration_sync_motiv(request: Request, cid: int, csrf_token: str = Form(default="")):
+    """Re-run motivation sync from the saved config for this connection."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        from integration.manager import integration_manager
+        result = await integration_manager.run_motiv_sync_from_config(db, cid)
+        synced = result.get("synced", 0)
+        chains = result.get("chains", [])
+        msg = f"Мотивация синхронизирована: {synced} моделей"
+        if chains:
+            msg += f", сети: {', '.join(str(c) for c in chains[:5])}"
+        return RedirectResponse(url=f"/integration?msg={quote(msg)}", status_code=302)
+    except ValueError as e:
+        return RedirectResponse(url=f"/integration?error={quote(str(e))}", status_code=302)
+    except Exception as e:
+        logging.error(f"integration_sync_motiv: {e}")
+        return RedirectResponse(
+            url="/integration?error=" + quote("Ошибка синхронизации. Попробуйте позже."),
+            status_code=302,
+        )
+
+
+@router.post("/integration/{cid}/import")
+async def integration_import(
+    request: Request,
+    cid: int,
+    import_type: Annotated[str, Form()],
+    sheet_name: Annotated[str, Form()],
+    header_row: Annotated[int, Form()] = 1,
+    csrf_token: str = Form(default=""),
+):
+    """Run a data import from a Google Sheet using default column order."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    if import_type not in ("products", "inventory", "sales", "staff", "plans"):
+        return RedirectResponse(
+            url="/integration?error=" + quote("Неизвестный тип импорта"),
+            status_code=302,
+        )
+    if not sheet_name.strip():
+        return RedirectResponse(
+            url="/integration?error=" + quote("Укажите имя листа"),
+            status_code=302,
+        )
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        from integration.manager import integration_manager
+        result = await integration_manager.run_import(
+            db, cid, import_type,
+            sheet_name=sheet_name.strip(),
+            header_row=int(header_row) if header_row else 1,
+            col_mapping=None,
+        )
+        imported = result.get("imported", 0)
+        skipped = result.get("skipped", 0)
+        msg = f"Импорт «{import_type}»: добавлено {imported}, пропущено {skipped}"
+        return RedirectResponse(url=f"/integration?msg={quote(msg)}", status_code=302)
+    except ValueError as e:
+        return RedirectResponse(url=f"/integration?error={quote(str(e))}", status_code=302)
+    except Exception as e:
+        logging.error(f"integration_import: {e}")
+        return RedirectResponse(
+            url="/integration?error=" + quote("Ошибка импорта. Попробуйте позже."),
+            status_code=302,
+        )

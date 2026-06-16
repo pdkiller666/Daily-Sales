@@ -1016,14 +1016,24 @@ async def gs_hub_motiv(callback: CallbackQuery, state: FSMContext):
     """Hub: Мотивация — синхронизация и просмотр кэша."""
     conn_id = int(callback.data.split("_")[3])
     await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    has_cfg = bool(integration_manager.get_motiv_config(current_db, conn_id))
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔄 Синхронизировать мотивацию",
-                                callback_data=f"gs_sync_motiv_{conn_id}"))
+    if has_cfg:
+        kb.row(InlineKeyboardButton(text="⚡ Быстрая синхронизация",
+                                    callback_data=f"gs_mtv_resync_{conn_id}"))
+    kb.row(InlineKeyboardButton(
+        text="🔄 Перенастроить мотивацию" if has_cfg else "🔄 Настроить мотивацию",
+        callback_data=f"gs_sync_motiv_{conn_id}"))
     kb.row(InlineKeyboardButton(text="📊 Кэш мотивации",
                                 callback_data=f"gs_show_motiv_{conn_id}"))
     kb.row(_back(f"gs_conn_{conn_id}"))
+    cfg_line = ("\n✅ Настройка сохранена — доступна быстрая синхронизация."
+                if has_cfg else
+                "\n⚙️ Запустите мастер: бот покажет реальные строки и колонки листа.")
     await callback.message.edit_text(
-        "🎯 <b>Мотивация</b>\n\nСинхронизация бонусных данных из Google Sheets и просмотр кэша.",
+        "🎯 <b>Мотивация</b>\n\nСинхронизация бонусных данных из Google Sheets "
+        f"и просмотр кэша.{cfg_line}",
         reply_markup=kb.as_markup(), parse_mode="HTML"
     )
 
@@ -1231,6 +1241,194 @@ async def gs_log(callback: CallbackQuery, state: FSMContext):
 #  MOTIVATION SYNC
 # ═══════════════════════════════════════════════════════════
 
+# ─────────────────────────────────────────────────────────────
+#  Motivation import wizard (clickable, mirrors the matrix-export wizard)
+#  Real sheet layout: rows = models, columns = chains (DNS / МВМ / …)
+# ─────────────────────────────────────────────────────────────
+
+_MTV_HROW_PAGE = 5
+
+
+def _mtv_hrow_kb(rows_sorted: list, page: int, back_cb: str):
+    """Paginated header-row picker. rows_sorted = [(rn, values), ...]."""
+    total       = len(rows_sorted)
+    total_pages = max(1, -(-total // _MTV_HROW_PAGE))
+    page        = max(0, min(page, total_pages - 1))
+    start       = page * _MTV_HROW_PAGE
+    chunk       = rows_sorted[start: start + _MTV_HROW_PAGE]
+    kb = InlineKeyboardBuilder()
+    for rn, vals in chunk:
+        kb.row(InlineKeyboardButton(text=_row_btn_label(rn, vals),
+                                    callback_data=f"gs_mtv_hrow_{rn}"))
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_mtv_hrowpg_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_mtv_hrowpg_{page+1}"))
+    if nav:
+        kb.row(*nav)
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
+    return kb.as_markup(), total_pages, page
+
+
+def _mtv_col_builder(cols: list, page: int, action: str, selected_ids=None):
+    """Return (InlineKeyboardBuilder, total_pages, page) for a column picker.
+    cols = [(i, header, sample), ...]; action in {'mcol','bcol','rcol'}."""
+    from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+    page_items, has_prev, has_next, total_pages, page = paginate(cols, page, PAGE_SIZE_BTN)
+    selected_ids = selected_ids or set()
+    kb = InlineKeyboardBuilder()
+    for i, hval, fval in page_items:
+        label = _col_btn_label(i, hval, fval)
+        if action == 'bcol' and i in selected_ids:
+            label = ("✅ " + label)[:40]
+        kb.row(InlineKeyboardButton(text=label, callback_data=f"gs_mtv_{action}_{i}"))
+    nav = page_nav_row(f"gs_mtv_{action}pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        kb.row(*nav)
+    return kb, total_pages, page
+
+
+def _mtv_row_vals(rows_sorted: list, rn: int) -> list:
+    for r, vals in rows_sorted:
+        if r == rn:
+            return vals
+    return []
+
+
+def _mtv_chain_for_col(cols: list, col_idx: int) -> str:
+    """Chain name = header cell text; fall back to column letter."""
+    for i, hval, _fval in cols:
+        if i == col_idx:
+            h = str(hval).strip()
+            return h if h else f"Кол.{_col_letter(col_idx)}"
+    return f"Кол.{_col_letter(col_idx)}"
+
+
+async def _mtv_show_hrow(target, state: FSMContext, page: int = 0):
+    data        = await state.get_data()
+    rows_sorted = data.get('gs_mtv_rows', [])
+    conn_id     = data.get('gs_motiv_conn_id')
+    markup, total_pages, page = _mtv_hrow_kb(rows_sorted, page, f"gs_hub_motiv_{conn_id}")
+    text = (
+        "🎯 <b>Мотивация — шаг 1/4: строка-шапка</b>\n"
+        f"<i>Стр. {page+1}/{total_pages} · всего строк: {len(rows_sorted)}</i>\n\n"
+        "Выбери строку, где написаны <b>названия колонок</b> "
+        "(сети: DNS, МВМ и т.п.).\n"
+        "Данные о моделях читаются <b>ниже</b> этой строки."
+    )
+    await target.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+async def _mtv_show_mcol(target, state: FSMContext, page: int = 0):
+    data = await state.get_data()
+    cols = data.get('gs_mtv_cols', [])
+    kb, total_pages, page = _mtv_col_builder(cols, page, 'mcol')
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_hrow"))
+    pg = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(cols)}</i>" if total_pages > 1 else ""
+    text = (f"🎯 <b>Мотивация — шаг 2/4: колонка моделей</b>{pg}\n\n"
+            "Выбери колонку, в которой записаны <b>названия моделей</b> товаров:")
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+async def _mtv_show_bcol(target, state: FSMContext, page: int = 0):
+    data = await state.get_data()
+    cols     = data.get('gs_mtv_cols', [])
+    bmap     = data.get('gs_mtv_bonus_map', {})
+    selected = {int(k) for k in bmap}
+    kb, total_pages, page = _mtv_col_builder(cols, page, 'bcol', selected_ids=selected)
+    kb.row(InlineKeyboardButton(text=f"✅ Готово ({len(selected)})",
+                                callback_data="gs_mtv_bdone"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_mcol"))
+    chosen = ", ".join(bmap.values()) if bmap else "—"
+    pg = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(cols)}</i>" if total_pages > 1 else ""
+    text = (f"🎯 <b>Мотивация — шаг 3/4: колонки бонусов</b>{pg}\n\n"
+            "Отметь колонки с <b>бонусами по сетям</b> (можно несколько). "
+            "Название сети возьмётся из строки-шапки.\n\n"
+            f"Выбрано: <b>{he(chosen)}</b>")
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+async def _mtv_show_rcol(target, state: FSMContext, page: int = 0):
+    data = await state.get_data()
+    cols = data.get('gs_mtv_cols', [])
+    kb, total_pages, page = _mtv_col_builder(cols, page, 'rcol')
+    kb.row(InlineKeyboardButton(text="➖ Без РРЦ", callback_data="gs_mtv_rskip"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_bcol"))
+    pg = f"\n<i>Стр. {page+1}/{total_pages} · всего: {len(cols)}</i>" if total_pages > 1 else ""
+    text = (f"🎯 <b>Мотивация — шаг 4/4: колонка РРЦ</b>{pg}\n\n"
+            "Выбери колонку с <b>РРЦ (ценой)</b>, если она есть, "
+            "или нажми «➖ Без РРЦ»:")
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+async def _mtv_finalize(callback: CallbackQuery, state: FSMContext, rrp_col):
+    data       = await state.get_data()
+    conn_id    = data.get('gs_motiv_conn_id')
+    sheet      = data.get('gs_motiv_sheet', 'w{week}')
+    header_row = data.get('gs_mtv_header_row')
+    model_col  = data.get('gs_mtv_model_col')
+    bmap       = data.get('gs_mtv_bonus_map', {})
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_hub_motiv_{conn_id}")]])
+
+    if not bmap:
+        await callback.answer("⚠️ Не выбрана ни одна колонка бонусов", show_alert=True)
+        return
+
+    motiv_config = {
+        'sheet_name':    sheet,
+        'header_row':    int(header_row),
+        'model_col':     int(model_col),
+        'bonus_col_map': {str(k): v for k, v in bmap.items()},
+        'rrp_col':       int(rrp_col) if rrp_col else None,
+    }
+
+    await callback.message.edit_text("⏳ Сохраняю настройку и синхронизирую мотивацию…",
+                                     parse_mode="HTML")
+    current_db = await get_db(callback.from_user.id, state)
+    try:
+        integration_manager.save_motiv_config(current_db, conn_id, motiv_config)
+        result = await integration_manager.run_motiv_sync_from_config(current_db, conn_id)
+        synced  = result['synced']
+        models  = result['models']
+        chains  = result.get('chains', [])
+        actual  = result['sheet']
+
+        models_preview = ", ".join(models[:8])
+        if len(models) > 8:
+            models_preview += f" … ещё {len(models) - 8}"
+
+        await callback.message.edit_text(
+            f"✅ <b>Мотивация синхронизирована!</b>\n\n"
+            f"📋 Лист: <code>{he(actual)}</code>\n"
+            f"🔢 Моделей: <b>{synced}</b>\n"
+            f"🏷 Сети: {he(', '.join(chains)) or '—'}\n"
+            f"📦 {he(models_preview)}\n\n"
+            f"Настройка сохранена — в следующий раз жми «⚡ Быстрая синхронизация».",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Кэш мотивации",
+                                      callback_data=f"gs_show_motiv_{conn_id}")],
+                [_back(f"gs_hub_motiv_{conn_id}")],
+            ]),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        _e_str = str(e)
+        if 'invalid_grant' in _e_str.lower() or 'отозвана' in _e_str or 'Переподключите' in _e_str:
+            _err_text = (
+                "🔑 <b>Авторизация Google отозвана или истекла</b>\n\n"
+                "Переподключите аккаунт в разделе «🔧 Диагностика»."
+            )
+        else:
+            _err_text = (
+                f"❌ <b>Ошибка синхронизации:</b>\n<code>{he(_e_str)}</code>\n\n"
+                "Проверьте название листа и выбранные колонки."
+            )
+        await callback.message.edit_text(_err_text, reply_markup=back_kb, parse_mode="HTML")
+    finally:
+        await clear_state_keep_org(state)
+
+
 @integration_router.callback_query(F.data.startswith("gs_sync_motiv_"))
 async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
     conn_id = int(callback.data.split("_")[3])
@@ -1241,17 +1439,18 @@ async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
 
-    await state.update_data(gs_motiv_conn_id=conn_id,
+    await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id,
                             anchor_msg_id=callback.message.message_id)
     now_week = __import__('datetime').datetime.now().isocalendar()[1]
 
     await callback.message.edit_text(
-        f"🔄 <b>Синхронизация мотивации</b>\n\n"
-        f"Укажите <b>название листа</b>, где менеджер прописывает бонусы.\n\n"
+        f"🎯 <b>Синхронизация мотивации</b>\n\n"
+        f"Укажите <b>название листа</b>, где прописаны бонусы по моделям.\n\n"
         f"Поддерживаются макросы:\n"
         f"• <code>w{{week}}</code> → текущая неделя (сейчас: <code>w{now_week}</code>)\n"
         f"• <code>{{year}}</code>, <code>{{month}}</code>\n\n"
-        f"Пример: <code>w{{week}}</code>\n\n"
+        f"После ввода листа бот покажет реальные строки и колонки — "
+        f"всё настроишь кнопками.\n\n"
         f"Введите название листа:",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[_back(f"gs_hub_motiv_{conn_id}")]]
@@ -1263,103 +1462,188 @@ async def gs_sync_motiv_start(callback: CallbackQuery, state: FSMContext):
 
 @integration_router.message(IntegrationStates.waiting_motiv_sheet)
 async def gs_motiv_sheet_input(message: Message, state: FSMContext):
-    sheet = message.text.strip()
+    sheet = (message.text or "").strip()
     data = await state.get_data()
     conn_id = data.get('gs_motiv_conn_id')
     if not sheet:
         await _fsm_edit(message, state, "❌ Введите название листа.",
                         reply_markup=InlineKeyboardMarkup(
-                            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]]))
+                            inline_keyboard=[[_back(f"gs_hub_motiv_{conn_id}")]]))
         return
     await state.update_data(gs_motiv_sheet=sheet)
-    await _fsm_edit(
-        message, state,
-        f"✅ Лист: <code>{sheet}</code>\n\n"
-        f"<b>Параметры структуры листа</b>\n\n"
-        f"Введите через пробел 4 числа:\n"
-        f"<code>строка_заголовков  строка_DNS  строка_MVM  первый_столбец_моделей</code>\n\n"
-        f"Для вашего листа w{{week}} стандартные значения:\n"
-        f"<code>6 2 3 14</code>\n\n"
-        f"Отправьте <code>6 2 3 14</code> или введите свои значения:",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
-    )
-    await state.set_state(IntegrationStates.waiting_motiv_rows)
+    await _fsm_edit(message, state, "⏳ Читаю лист…")
 
-
-@integration_router.message(IntegrationStates.waiting_motiv_rows)
-async def gs_motiv_rows_input(message: Message, state: FSMContext):
-    data = await state.get_data()
-    conn_id = data.get('gs_motiv_conn_id')
-    back_kb = InlineKeyboardMarkup(inline_keyboard=[[_back(f"gs_conn_{conn_id}")]])
-
-    parts = message.text.strip().split()
-    if len(parts) != 4:
-        await _fsm_edit(message, state, "❌ Введите ровно 4 числа через пробел.",
-                        reply_markup=back_kb)
-        return
+    rows_data = {}
     try:
-        header_row, dns_row, mvm_row, model_start_col = [int(p) for p in parts]
-    except ValueError:
-        await _fsm_edit(message, state, "❌ Все значения должны быть целыми числами.",
-                        reply_markup=back_kb)
-        return
+        provider, cfg = await _fetch_gs_config(message.from_user.id, state)
+        if provider:
+            rendered  = _render_sheet_macro(sheet)
+            rows_data = await asyncio.wait_for(
+                provider.get_first_rows(cfg, rendered, max_rows=50), timeout=12.0)
+    except Exception as e:
+        logger.warning(f"gs_motiv_sheet_input read: {e}")
+        rows_data = {}
 
-    sheet = data.get('gs_motiv_sheet', 'w{week}')
-    bot = message.bot
-    chat_id = message.chat.id
-    anchor_id = data.get('anchor_msg_id')
-
-    await _fsm_edit(message, state, "⏳ Читаю лист и синхронизирую мотивацию…")
-
-    current_db = await get_db(message.from_user.id, state)
-    try:
-        result = await integration_manager.sync_motivation_from_sheet(
-            current_db, conn_id, sheet,
-            header_row=header_row,
-            dns_row=dns_row,
-            mvm_row=mvm_row,
-            rrp_row=dns_row - 0 + 2 if dns_row == 2 else 4,
-            model_start_col=model_start_col,
-        )
-        synced = result['synced']
-        actual_sheet = result['sheet']
-        models = result['models']
-
-        models_preview = ", ".join(models[:8])
-        if len(models) > 8:
-            models_preview += f" … ещё {len(models) - 8}"
-
-        await _edit_anchor(
-            bot, chat_id, anchor_id,
-            f"✅ <b>Мотивация синхронизирована!</b>\n\n"
-            f"📋 Лист: <code>{actual_sheet}</code>\n"
-            f"🔢 Моделей: <b>{synced}</b>\n"
-            f"📦 {models_preview}\n\n"
-            f"Просмотреть кэш: кнопка «📊 Кэш мотивации» в подключении.",
+    if not rows_data:
+        await _fsm_edit(
+            message, state,
+            f"⚠️ Не удалось прочитать лист <code>{he(sheet)}</code>.\n\n"
+            "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📊 Кэш мотивации",
-                                      callback_data=f"gs_show_motiv_{conn_id}")],
-                [InlineKeyboardButton(text="⬅️ К подключению",
-                                      callback_data=f"gs_conn_{conn_id}")],
+                [InlineKeyboardButton(text="🔄 Попробовать снова",
+                                      callback_data=f"gs_sync_motiv_{conn_id}")],
+                [_back(f"gs_hub_motiv_{conn_id}")],
             ]),
         )
-    except Exception as e:
-        _e_str = str(e)
-        if 'invalid_grant' in _e_str.lower() or 'отозвана' in _e_str or 'Переподключите' in _e_str:
-            _err_text = (
-                "🔑 <b>Авторизация Google отозвана или истекла</b>\n\n"
-                "Переподключите аккаунт: нажмите «⬅️ К интеграциям» → выберите подключение → "
-                "«🔄 Переподключить OAuth»."
-            )
+        await state.set_state(None)
+        return
+
+    rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
+    await state.update_data(gs_mtv_rows=rows_sorted, gs_mtv_bonus_map={})
+    await state.set_state(None)
+
+    anchor_id = data.get('anchor_msg_id')
+    await delete_message_safe(message)
+
+    class _AnchorProxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self.bot.edit_message_text(
+                text, chat_id=self.chat_id, message_id=self.msg_id,
+                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
+
+    target = _AnchorProxy(message.bot, message.chat.id, anchor_id) if anchor_id else None
+    if target:
+        await _mtv_show_hrow(target, state)
+    else:
+        sent = await message.answer("…")
+        await state.update_data(anchor_msg_id=sent.message_id)
+        await _mtv_show_hrow(_AnchorProxy(message.bot, message.chat.id, sent.message_id), state)
+
+
+@integration_router.callback_query(F.data.startswith("gs_mtv_"))
+async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data[len("gs_mtv_"):]
+    await callback.answer()
+    msg = callback.message
+
+    # ── quick re-sync from saved config ───────────────────────
+    if raw.startswith("resync_"):
+        conn_id = int(raw[len("resync_"):])
+        await state.update_data(gs_motiv_conn_id=conn_id, gs_conn_id=conn_id)
+        current_db = await get_db(callback.from_user.id, state)
+        if not integration_manager.get_motiv_config(current_db, conn_id):
+            await msg.edit_text(
+                "⚙️ Настройка мотивации ещё не создана. Запустите мастер.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Настроить",
+                                          callback_data=f"gs_sync_motiv_{conn_id}")],
+                    [_back(f"gs_hub_motiv_{conn_id}")],
+                ]), parse_mode="HTML")
+            return
+        await msg.edit_text("⏳ Синхронизирую мотивацию…", parse_mode="HTML")
+        try:
+            result = await integration_manager.run_motiv_sync_from_config(current_db, conn_id)
+            models_preview = ", ".join(result['models'][:8])
+            if len(result['models']) > 8:
+                models_preview += f" … ещё {len(result['models']) - 8}"
+            await msg.edit_text(
+                f"✅ <b>Мотивация обновлена!</b>\n\n"
+                f"📋 Лист: <code>{he(result['sheet'])}</code>\n"
+                f"🔢 Моделей: <b>{result['synced']}</b>\n"
+                f"🏷 Сети: {he(', '.join(result.get('chains', []))) or '—'}\n"
+                f"📦 {he(models_preview)}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Кэш мотивации",
+                                          callback_data=f"gs_show_motiv_{conn_id}")],
+                    [_back(f"gs_hub_motiv_{conn_id}")],
+                ]), parse_mode="HTML")
+        except Exception as e:
+            await msg.edit_text(
+                f"❌ <b>Ошибка:</b>\n<code>{he(str(e))}</code>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Перенастроить",
+                                          callback_data=f"gs_sync_motiv_{conn_id}")],
+                    [_back(f"gs_hub_motiv_{conn_id}")],
+                ]), parse_mode="HTML")
+        return
+
+    # ── header-row picker (step 1) ────────────────────────────
+    if raw.startswith("hrowpg_"):
+        await _mtv_show_hrow(msg, state, page=int(raw[len("hrowpg_"):]))
+        return
+    if raw.startswith("hrow_"):
+        rn = int(raw[len("hrow_"):])
+        data = await state.get_data()
+        rows_sorted = data.get('gs_mtv_rows', [])
+        header_vals = _mtv_row_vals(rows_sorted, rn)
+        first_drow  = _mtv_row_vals(rows_sorted, rn + 1)
+        ncols = max(len(header_vals), len(first_drow))
+        cols = [(i,
+                 str(header_vals[i-1]) if i-1 < len(header_vals) else "",
+                 str(first_drow[i-1]) if i-1 < len(first_drow) else "")
+                for i in range(1, ncols + 1)]
+        await state.update_data(gs_mtv_header_row=rn, gs_mtv_cols=cols,
+                                gs_mtv_bonus_map={})
+        await _mtv_show_mcol(msg, state)
+        return
+
+    # ── model-column picker (step 2) ──────────────────────────
+    if raw.startswith("mcolpg_"):
+        await _mtv_show_mcol(msg, state, page=int(raw[len("mcolpg_"):]))
+        return
+    if raw.startswith("mcol_"):
+        await state.update_data(gs_mtv_model_col=int(raw[len("mcol_"):]))
+        await _mtv_show_bcol(msg, state)
+        return
+
+    # ── bonus-columns multi-select (step 3) ───────────────────
+    if raw.startswith("bcolpg_"):
+        await _mtv_show_bcol(msg, state, page=int(raw[len("bcolpg_"):]))
+        return
+    if raw.startswith("bcol_"):
+        col_idx = int(raw[len("bcol_"):])
+        data = await state.get_data()
+        cols = data.get('gs_mtv_cols', [])
+        bmap = dict(data.get('gs_mtv_bonus_map', {}))
+        key = str(col_idx)
+        if key in bmap:
+            bmap.pop(key)
         else:
-            _err_text = (
-                f"❌ <b>Ошибка синхронизации:</b>\n<code>{_e_str}</code>\n\n"
-                "Проверьте название листа и параметры структуры."
-            )
-        await _edit_anchor(bot, chat_id, anchor_id, _err_text, reply_markup=back_kb)
-    finally:
-        await clear_state_keep_org(state)
+            bmap[key] = _mtv_chain_for_col(cols, col_idx)
+        await state.update_data(gs_mtv_bonus_map=bmap)
+        await _mtv_show_bcol(msg, state)
+        return
+    if raw == "bdone":
+        data = await state.get_data()
+        if not data.get('gs_mtv_bonus_map'):
+            await callback.answer("⚠️ Отметь хотя бы одну колонку бонусов", show_alert=True)
+            return
+        await _mtv_show_rcol(msg, state)
+        return
+
+    # ── RRP-column picker (step 4) ────────────────────────────
+    if raw.startswith("rcolpg_"):
+        await _mtv_show_rcol(msg, state, page=int(raw[len("rcolpg_"):]))
+        return
+    if raw.startswith("rcol_"):
+        await _mtv_finalize(callback, state, rrp_col=int(raw[len("rcol_"):]))
+        return
+    if raw == "rskip":
+        await _mtv_finalize(callback, state, rrp_col=None)
+        return
+
+    # ── back navigation ───────────────────────────────────────
+    if raw == "bk_hrow":
+        await _mtv_show_hrow(msg, state)
+        return
+    if raw == "bk_mcol":
+        await _mtv_show_mcol(msg, state)
+        return
+    if raw == "bk_bcol":
+        await _mtv_show_bcol(msg, state)
+        return
 
 
 @integration_router.callback_query(F.data.startswith("gs_show_motiv_"))
@@ -1383,28 +1667,43 @@ async def gs_show_motiv(callback: CallbackQuery, state: FSMContext):
         return
 
     by_model = {}
+    chains_set = set()
     synced_at = cache[0][4] if cache else "—"
     for row in cache:
         model, chain, bonus, rrp, sat = row
         if model not in by_model:
             by_model[model] = {}
         by_model[model][chain] = bonus
-        by_model[model]['rrp'] = rrp
+        by_model[model]['__rrp__'] = rrp
+        chains_set.add(chain)
         synced_at = sat
 
+    # Dynamic chain columns (sorted, capped so the table stays readable on mobile)
+    chains = sorted(chains_set)
+    shown_chains = chains[:3]
+    col_w = max(5, 9 - len(shown_chains))  # narrower cells when more chains
+
+    header = f"{'Модель':<16}" + "".join(f" {c[:col_w]:>{col_w}}" for c in shown_chains)
     lines = [f"📊 <b>Кэш мотивации</b> (обновлено: {synced_at[:16]})\n"]
-    lines.append(f"{'Модель':<20} {'DNS':>6} {'МВМ':>6}")
-    lines.append("─" * 35)
+    lines.append("<pre>")
+    lines.append(header)
+    lines.append("─" * len(header))
     for model, rates in sorted(by_model.items()):
-        dns = rates.get('dns', 0)
-        mvm = rates.get('mvm', 0)
-        dns_str = f"{int(dns):,}" if dns else "—"
-        mvm_str = f"{int(mvm):,}" if mvm else "—"
-        lines.append(f"{model:<20} {dns_str:>6} {mvm_str:>6}")
+        cells = ""
+        for c in shown_chains:
+            v = rates.get(c, 0)
+            cells += f" {(f'{int(v):,}' if v else '—'):>{col_w}}"
+        lines.append(f"{model[:16]:<16}{cells}")
+    lines.append("</pre>")
+    if len(chains) > len(shown_chains):
+        lines.append(f"<i>+ ещё сети: {he(', '.join(chains[len(shown_chains):]))}</i>")
 
     kb = InlineKeyboardBuilder()
-    kb.row(InlineKeyboardButton(text="🔄 Обновить",
-                                callback_data=f"gs_sync_motiv_{conn_id}"))
+    has_cfg = bool(integration_manager.get_motiv_config(current_db, conn_id))
+    kb.row(InlineKeyboardButton(
+        text="🔄 Обновить",
+        callback_data=(f"gs_mtv_resync_{conn_id}" if has_cfg
+                       else f"gs_sync_motiv_{conn_id}")))
     kb.row(_back(f"gs_hub_motiv_{conn_id}"))
 
     await callback.message.edit_text(
@@ -2872,6 +3171,193 @@ IMPORT_COL_HINTS = {
     ),
 }
 
+# Per-type field schema for the clickable column-mapping wizard.
+# Each entry: (col_mapping key, human label, required?)
+IMPORT_FIELD_SCHEMA = {
+    'products':  [('name', 'Название', True), ('category', 'Категория', False),
+                  ('price', 'Цена', False)],
+    'inventory': [('shop', 'Магазин', True), ('product', 'Товар', True),
+                  ('quantity', 'Количество', True)],
+    'sales':     [('date', 'Дата', False), ('product', 'Товар', True),
+                  ('shop', 'Магазин', True), ('quantity', 'Количество', False),
+                  ('price', 'Цена', False)],
+    'staff':     [('name', 'Имя Фамилия', True), ('shop', 'Магазин', False),
+                  ('phone', 'Телефон', False)],
+    'plans':     [('type', 'Тип (продавец/магазин)', True),
+                  ('metric', 'Метрика (оборот/кол-во)', True),
+                  ('target', 'Цель', True), ('period', 'Период (неделя/месяц)', True),
+                  ('shop', 'Магазин', False), ('seller', 'Продавец', False)],
+}
+
+# Sentinel (1-based) meaning "no column" — run_import sees an out-of-range index → empty value.
+_IMP_SKIP_COL = 10 ** 9
+
+
+def _imp_col_kb(cols: list, page: int):
+    """Column picker for import field mapping. cols = [(i, header, sample), ...]."""
+    from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
+    items, has_prev, has_next, total_pages, page = paginate(cols, page, PAGE_SIZE_BTN)
+    kb = InlineKeyboardBuilder()
+    for i, hval, fval in items:
+        kb.row(InlineKeyboardButton(text=_col_btn_label(i, hval, fval),
+                                    callback_data=f"gs_impc_pick_{i}"))
+    nav = page_nav_row("gs_impc_pg_", page, has_prev, has_next, total_pages)
+    if nav:
+        kb.row(*nav)
+    return kb, total_pages, page
+
+
+async def _imp_show_field(target, state: FSMContext, page: int = 0):
+    data     = await state.get_data()
+    cols     = data.get('gs_imp_cols', [])
+    fields   = data.get('gs_imp_fields', [])
+    idx      = data.get('gs_imp_field_idx', 0)
+    mapping  = data.get('gs_imp_mapping', {})
+    imp_type = data.get('gs_import_type', 'products')
+    conn_id  = data.get('gs_import_conn_id')
+
+    field_key, field_label, required = fields[idx]
+    kb, total_pages, page = _imp_col_kb(cols, page)
+    if not required:
+        kb.row(InlineKeyboardButton(text="➖ Пропустить (нет колонки)",
+                                    callback_data="gs_impc_skip"))
+    if idx > 0:
+        kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_impc_back"))
+    kb.row(InlineKeyboardButton(text="✖️ Отмена", callback_data=f"gs_import_{conn_id}"))
+
+    done = []
+    for k, lbl, _req in fields:
+        if k in mapping:
+            ci = mapping[k]
+            done.append(f"✅ {lbl}: {'—' if ci == _IMP_SKIP_COL else _col_letter(ci)}")
+    prog = ("\n" + "\n".join(done)) if done else ""
+    req_mark = "обязательно" if required else "можно пропустить"
+    pg = (f"\n<i>Стр. {page+1}/{total_pages} · всего колонок: {len(cols)}</i>"
+          if total_pages > 1 else "")
+    text = (
+        f"📥 <b>{IMPORT_TYPE_LABELS.get(imp_type, imp_type)}</b>\n"
+        f"<i>Поле {idx+1}/{len(fields)}</i>{pg}\n\n"
+        f"Выбери колонку для: <b>{he(field_label)}</b> ({req_mark}){prog}"
+    )
+    await target.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+async def _imp_finalize(callback: CallbackQuery, state: FSMContext):
+    data     = await state.get_data()
+    conn_id  = data.get('gs_import_conn_id', 0)
+    imp_type = data.get('gs_import_type', 'products')
+    sheet    = data.get('gs_import_sheet', 'Sheet1')
+    header_row = data.get('gs_import_header_row', 1)
+    mapping  = data.get('gs_imp_mapping', {})
+
+    # Convert stored 1-based picks → 0-based indices for run_import.
+    col_mapping = {k: (v - 1) for k, v in mapping.items()}
+
+    await callback.message.edit_text(
+        f"⏳ <b>Импорт из Google Sheets…</b>\n\n"
+        f"📋 Лист: <code>{he(sheet)}</code>\n"
+        f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n\n"
+        f"Пожалуйста, подождите.",
+        parse_mode="HTML"
+    )
+    current_db = await get_db(callback.from_user.id, state)
+    try:
+        result = await integration_manager.run_import(
+            db=current_db, conn_id=conn_id, import_type=imp_type,
+            sheet_name=sheet, header_row=header_row, col_mapping=col_mapping)
+        imported = result['imported']
+        skipped  = result['skipped']
+        total    = result.get('total', imported + skipped)
+        errors   = result.get('errors', [])
+        summary = (
+            f"✅ <b>Импорт завершён</b>\n\n"
+            f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n"
+            f"📋 Лист: <code>{he(sheet)}</code>\n"
+            f"📥 Строк в таблице: {total}\n"
+            f"✅ Импортировано: {imported}\n"
+            f"⏭ Пропущено (дубли/не найдено): {skipped}\n"
+        )
+        if errors:
+            summary += f"\n⚠️ Ошибки ({len(errors)}):\n"
+            for err in errors[:5]:
+                summary += f"  • {he(str(err))}\n"
+    except Exception as e:
+        logger.error(f"gs_import error: {e}")
+        summary = f"❌ <b>Ошибка импорта:</b>\n{he(str(e))}"
+    finally:
+        await clear_state_keep_org(state)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Ещё импорт", callback_data=f"gs_import_{conn_id}")],
+        [_back(f"gs_conn_{conn_id}")],
+    ])
+    await callback.message.edit_text(summary, reply_markup=kb, parse_mode="HTML")
+
+
+@integration_router.callback_query(F.data.startswith("gs_impc_"))
+async def gs_impc_router(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data[len("gs_impc_"):]
+    await callback.answer()
+    msg = callback.message
+
+    if raw == "run":
+        await _imp_finalize(callback, state)
+        return
+    if raw.startswith("pg_"):
+        await _imp_show_field(msg, state, page=int(raw[len("pg_"):]))
+        return
+    if raw == "back":
+        data = await state.get_data()
+        idx = data.get('gs_imp_field_idx', 0)
+        fields = data.get('gs_imp_fields', [])
+        mapping = dict(data.get('gs_imp_mapping', {}))
+        if idx > 0:
+            idx -= 1
+            mapping.pop(fields[idx][0], None)
+            await state.update_data(gs_imp_field_idx=idx, gs_imp_mapping=mapping)
+        await _imp_show_field(msg, state)
+        return
+
+    # pick / skip — record current field then advance
+    data = await state.get_data()
+    idx      = data.get('gs_imp_field_idx', 0)
+    fields   = data.get('gs_imp_fields', [])
+    mapping  = dict(data.get('gs_imp_mapping', {}))
+    if idx >= len(fields):
+        await _imp_finalize(callback, state)
+        return
+    field_key = fields[idx][0]
+
+    if raw == "skip":
+        mapping[field_key] = _IMP_SKIP_COL
+    elif raw.startswith("pick_"):
+        mapping[field_key] = int(raw[len("pick_"):])  # 1-based
+    else:
+        return
+
+    idx += 1
+    await state.update_data(gs_imp_mapping=mapping, gs_imp_field_idx=idx)
+
+    if idx < len(fields):
+        await _imp_show_field(msg, state)
+        return
+
+    # all fields mapped → confirmation
+    conn_id = data.get('gs_import_conn_id')
+    lines = []
+    for k, lbl, _req in fields:
+        ci = mapping.get(k)
+        lines.append(f"• {lbl}: <b>{'—' if ci == _IMP_SKIP_COL else _col_letter(ci)}</b>")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Импортировать", callback_data="gs_impc_run")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_impc_back")],
+        [_back(f"gs_import_{conn_id}")],
+    ])
+    await msg.edit_text(
+        f"📥 <b>Проверьте сопоставление</b>\n\n" + "\n".join(lines) +
+        "\n\nНажмите «🚀 Импортировать», чтобы начать.",
+        reply_markup=kb, parse_mode="HTML")
+
 
 @integration_router.callback_query(F.data.startswith("gs_import_"))
 async def gs_import_menu(callback: CallbackQuery, state: FSMContext):
@@ -2969,8 +3455,8 @@ async def gs_import_sheet_name(message: Message, state: FSMContext):
 
 @integration_router.message(GSImportStates.waiting_header_row)
 async def gs_import_header_row(message: Message, state: FSMContext):
-    """Получен номер строки заголовков — запускаем импорт"""
-    raw = message.text.strip()
+    """Получен номер строки заголовков — читаем лист и запускаем мастер сопоставления колонок."""
+    raw = (message.text or "").strip()
     data = await state.get_data()
     conn_id = data.get('gs_import_conn_id', 0)
     imp_type = data.get('gs_import_type', 'products')
@@ -2988,60 +3474,60 @@ async def gs_import_header_row(message: Message, state: FSMContext):
                        reply_markup=_kb, parse_mode="HTML")
         return
 
-    await fsm_edit(
-        state, message,
-        f"⏳ <b>Импорт из Google Sheets...</b>\n\n"
-        f"📋 Лист: <code>{he(sheet_name)}</code>\n"
-        f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n\n"
-        f"Пожалуйста, подождите.",
-        parse_mode="HTML"
-    )
-    await clear_state_keep_org(state)
+    await state.update_data(gs_import_header_row=header_row, gs_conn_id=conn_id)
+    await fsm_edit(state, message, "⏳ Читаю лист…", parse_mode="HTML")
 
-    current_db = await get_db(message.from_user.id, state)
+    # Read the sheet so the user can map fields by clicking on real columns.
+    rows_data = {}
     try:
-        result = await integration_manager.run_import(
-            db=current_db,
-            conn_id=conn_id,
-            import_type=imp_type,
-            sheet_name=sheet_name,
-            header_row=header_row,
-        )
-        imported = result['imported']
-        skipped = result['skipped']
-        total = result.get('total', imported + skipped)
-        errors = result.get('errors', [])
-        headers = result.get('headers', [])
-
-        summary = (
-            f"✅ <b>Импорт завершён</b>\n\n"
-            f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n"
-            f"📋 Лист: <code>{he(sheet_name)}</code>\n"
-            f"📥 Строк в таблице: {total}\n"
-            f"✅ Импортировано: {imported}\n"
-            f"⏭ Пропущено (дубли/не найдено): {skipped}\n"
-        )
-        if headers:
-            summary += f"\n<b>Заголовки листа:</b> {he(', '.join(str(h) for h in headers[:8]))}\n"
-        if errors:
-            summary += f"\n⚠️ Ошибки ({len(errors)}):\n"
-            for err in errors[:5]:
-                summary += f"  • {he(str(err))}\n"
+        provider, cfg = await _fetch_gs_config(message.from_user.id, state)
+        if provider:
+            rows_data = await asyncio.wait_for(
+                provider.get_first_rows(cfg, _render_sheet_macro(sheet_name), max_rows=50),
+                timeout=12.0)
     except Exception as e:
-        logger.error(f"gs_import error: {e}")
-        summary = f"❌ <b>Ошибка импорта:</b>\n{he(str(e))}"
+        logger.warning(f"gs_import_header_row read: {e}")
+        rows_data = {}
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Ещё импорт",
-                              callback_data=f"gs_import_{conn_id}")],
-        [_back(f"gs_conn_{conn_id}")],
-    ])
-    try:
-        anchor_id = data.get('anchor_msg_id')
-        if anchor_id:
-            await _edit_anchor(message.bot, message.chat.id, anchor_id,
-                               summary, reply_markup=kb)
-        else:
-            await message.answer(summary, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        await message.answer(summary, reply_markup=kb, parse_mode="HTML")
+    if not rows_data:
+        await fsm_edit(
+            state, message,
+            f"⚠️ Не удалось прочитать лист <code>{he(sheet_name)}</code>.\n\n"
+            "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Попробовать снова",
+                                      callback_data=f"gs_imptyp_{imp_type}_{conn_id}")],
+                [_back(f"gs_import_{conn_id}")],
+            ]), parse_mode="HTML")
+        await state.set_state(None)
+        return
+
+    rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
+    header_vals = next((v for r, v in rows_sorted if r == header_row), [])
+    first_drow  = next((v for r, v in rows_sorted if r == header_row + 1), [])
+    ncols = max(len(header_vals), len(first_drow), 1)
+    cols = [(i,
+             str(header_vals[i-1]) if i-1 < len(header_vals) else "",
+             str(first_drow[i-1]) if i-1 < len(first_drow) else "")
+            for i in range(1, ncols + 1)]
+
+    fields = IMPORT_FIELD_SCHEMA.get(imp_type, [])
+    await state.update_data(gs_imp_cols=cols, gs_imp_fields=fields,
+                            gs_imp_field_idx=0, gs_imp_mapping={})
+    await state.set_state(None)
+
+    anchor_id = (await state.get_data()).get('anchor_msg_id')
+
+    class _AnchorProxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self.bot.edit_message_text(
+                text, chat_id=self.chat_id, message_id=self.msg_id,
+                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
+
+    if not anchor_id:
+        sent = await message.answer("…")
+        anchor_id = sent.message_id
+        await state.update_data(anchor_msg_id=anchor_id)
+    await _imp_show_field(_AnchorProxy(message.bot, message.chat.id, anchor_id), state)

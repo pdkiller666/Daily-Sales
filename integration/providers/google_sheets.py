@@ -344,11 +344,68 @@ class GoogleSheetsProvider(BaseProvider):
         )
         return True
 
+    async def read_motivation_table(self, config: dict, sheet_name: str,
+                                    header_row: int, model_col: int,
+                                    bonus_col_map: dict, rrp_col: int = None) -> list:
+        """
+        Read motivation bonus rates. REAL sheet structure: rows = models, columns = chains.
+
+        - header_row    : 1-based row index where column labels (chains) live; data starts below it.
+        - model_col     : 1-based column with model names.
+        - bonus_col_map : {col_idx (1-based int): chain_name (str)} — which columns hold bonuses.
+        - rrp_col       : optional 1-based column with RRP price.
+
+        Returns list[dict(model=str, rrp=float, bonuses={chain: float})].
+        """
+        try:
+            ws = await _get_ws(config, sheet_name)
+            all_vals = await asyncio.to_thread(ws.get_all_values)
+
+            def _safe_float(row: list, idx_1based) -> float:
+                if not idx_1based:
+                    return 0.0
+                i = int(idx_1based) - 1
+                if i < 0 or i >= len(row):
+                    return 0.0
+                s = (str(row[i]).replace('\xa0', '').replace(' ', '')
+                     .replace(',', '.').strip())
+                if s in ("", "-", "—"):
+                    return 0.0
+                try:
+                    return float(s)
+                except (ValueError, TypeError):
+                    return 0.0
+
+            # Normalize bonus_col_map keys to int (JSON keys arrive as str)
+            norm_map = {}
+            for k, v in (bonus_col_map or {}).items():
+                try:
+                    norm_map[int(k)] = str(v)
+                except (ValueError, TypeError):
+                    continue
+
+            mi = int(model_col) - 1
+            result = []
+            for row in all_vals[header_row:]:  # data rows start AFTER the header row
+                model = str(row[mi]).strip() if 0 <= mi < len(row) else ""
+                if not model:
+                    continue
+                bonuses = {chain: _safe_float(row, col_idx)
+                           for col_idx, chain in norm_map.items()}
+                rrp = _safe_float(row, rrp_col) if rrp_col else 0.0
+                result.append({"model": model, "rrp": rrp, "bonuses": bonuses})
+            return result
+        except Exception as e:
+            logger.error(f"read_motivation_table error: {e}")
+            raise
+
     async def read_motivation_rows(self, config: dict, sheet_name: str,
                                    header_row: int, dns_row: int, mvm_row: int,
                                    rrp_row: int, model_start_col: int) -> dict:
         """
-        Read motivation bonus rates from a weekly sheet.
+        DEPRECATED — assumed inverted layout (columns = models, rows = chains).
+        Use read_motivation_table() instead (rows = models, columns = chains).
+        Kept for backward compatibility.
         Returns {model_name: {dns: X, mvm: Y, rrp: Z}}.
         """
         try:

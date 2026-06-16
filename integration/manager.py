@@ -121,21 +121,46 @@ class IntegrationManager:
         db.update_integration_connection(conn_id, config=json.dumps(existing))
 
     # ───────────────────────────────────────────────────────
-    #  Motivation sync
+    #  Motivation sync + config (config in connection config['motiv_config'])
     # ───────────────────────────────────────────────────────
+
+    def get_motiv_config(self, db, conn_id: int) -> dict | None:
+        """Return the saved motivation-import config for a connection, or None."""
+        db = self._unwrap(db)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            return None
+        try:
+            cfg = json.loads(conn[3] or '{}')
+        except Exception:
+            return None
+        return cfg.get('motiv_config')
+
+    def save_motiv_config(self, db, conn_id: int, motiv_config: dict) -> None:
+        """Persist the motivation-import config inside the connection config JSON."""
+        db = self._unwrap(db)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            raise ValueError("Подключение не найдено")
+        try:
+            cfg = json.loads(conn[3] or '{}')
+        except Exception:
+            cfg = {}
+        cfg['motiv_config'] = motiv_config
+        db.update_integration_connection(conn_id, config=json.dumps(cfg, ensure_ascii=False))
 
     async def sync_motivation_from_sheet(
         self, db, conn_id: int,
         sheet_name: str,
-        header_row: int = 6,
-        dns_row: int = 2,
-        mvm_row: int = 3,
-        rrp_row: int = 4,
-        model_start_col: int = 14,
+        header_row: int,
+        model_col: int,
+        bonus_col_map: dict,
+        rrp_col: int = None,
     ) -> dict:
         """
-        Read bonus rates from a weekly sheet and cache them in gs_bonus_cache.
-        Returns {'synced': N, 'models': [list], 'sheet': sheet_name}.
+        Read bonus rates from a sheet (rows = models, columns = chains) and
+        cache them in gs_bonus_cache.
+        Returns {'synced': N, 'models': [list], 'sheet': sheet_name, 'chains': [list]}.
         """
         db = self._unwrap(db)
         conn = db.get_integration_connection(conn_id)
@@ -146,30 +171,53 @@ class IntegrationManager:
         conn_config = await self._ensure_valid_token(db, conn_id, conn_config)
 
         provider = self.providers.get("google_sheets")
-        sheet_name = self._render_sheet_name(sheet_name, {})
+        rendered = self._render_sheet_name(sheet_name, {})
 
-        bonuses = await provider.read_motivation_rows(
-            conn_config, sheet_name,
+        rows = await provider.read_motivation_table(
+            conn_config, rendered,
             header_row=header_row,
-            dns_row=dns_row,
-            mvm_row=mvm_row,
-            rrp_row=rrp_row,
-            model_start_col=model_start_col,
+            model_col=model_col,
+            bonus_col_map=bonus_col_map,
+            rrp_col=rrp_col,
         )
+
+        # Replace cache for this connection so removed chains/models don't linger
+        db.clear_bonus_cache(conn_id)
 
         synced = 0
         models = []
-        for model_name, rates in bonuses.items():
-            for chain in ("dns", "mvm"):
-                bonus = rates.get(chain, 0.0)
-                rrp = rates.get("rrp", 0.0)
+        chains = set()
+        for entry in rows:
+            model_name = entry['model']
+            rrp = entry.get('rrp', 0.0)
+            bonuses = entry.get('bonuses', {})
+            if not bonuses:
+                continue
+            for chain, bonus in bonuses.items():
                 db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
+                chains.add(chain)
             synced += 1
             models.append(model_name)
 
         db.add_integration_log(conn_id, None, 'success',
-                               f'motivation sync: {synced} моделей из "{sheet_name}"')
-        return {'synced': synced, 'models': models, 'sheet': sheet_name}
+                               f'motivation sync: {synced} моделей из "{rendered}"')
+        return {'synced': synced, 'models': models, 'sheet': rendered,
+                'chains': sorted(chains)}
+
+    async def run_motiv_sync_from_config(self, db, conn_id: int) -> dict:
+        """Re-run a motivation sync using the saved config for this connection."""
+        cfg = self.get_motiv_config(db, conn_id)
+        if not cfg:
+            raise ValueError("Конфигурация мотивации не настроена. "
+                             "Запустите мастер «Синхронизировать мотивацию».")
+        return await self.sync_motivation_from_sheet(
+            db, conn_id,
+            sheet_name=cfg.get('sheet_name', 'w{week}'),
+            header_row=int(cfg.get('header_row', 1)),
+            model_col=int(cfg.get('model_col', 1)),
+            bonus_col_map=cfg.get('bonus_col_map', {}),
+            rrp_col=cfg.get('rrp_col'),
+        )
 
 
     # ───────────────────────────────────────────────────────

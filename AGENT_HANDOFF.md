@@ -1476,3 +1476,22 @@ bash deploy.sh "commit message" --no-amvera
 
 **Стратегия:** schema-per-org в PostgreSQL + asyncpg + dual-write фаза + рефакторинг 279 методов.
 Оценка: ~12–18 недель full-time. Полный план: `.agents/memory/postgres-migration.md`
+
+---
+
+## Сессия: универсальный конфигуратор импорта GS + фикс инверсии мотивации (2026-06-16)
+
+**Мотивация — инверсия строк/столбцов.** Реальная структура листа: **строки=модели, столбцы=сети (chains)**. Раньше читалось транспонированно → пустые/неверные бонусы.
+- `google_sheets.py`: новый `read_motivation_table(config, sheet, header_row, model_col, bonus_col_map: dict[int,str], rrp_col=None)` → `list[dict(model, rrp, bonuses={chain: float})]`. Старый `read_motivation_rows` — DEPRECATED.
+- `manager.py`: `sync_motivation_from_sheet` (новая сигнатура; `clear_bonus_cache`+upsert; возвращает `{synced, models, sheet, chains}`); `get_motiv_config`/`save_motiv_config` (в `conn config['motiv_config']`); `run_motiv_sync_from_config`.
+
+**Бот-визарды (кликабельные по реальным данным, по образцу экспортного «update_cell матрица»).**
+- Мотивация (`gs_mtv_*`): строка-шапка → колонка модели → колонки-бонусы (мульти) → колонка РРЦ (опц.) → синхронизация+сохранение. «⚡ Быстрая синхронизация» при наличии config. `gs_show_motiv` динамичен по chains.
+- Импорт (`gs_impc_*`): кликабельная привязка полей к реальным колонкам → 1-based → 0-based `col_mapping` → `run_import`. Префиксы `gs_impc_`/`gs_imptyp_` не конфликтуют с `gs_import_` (различие на idx 6).
+
+**Веб-кабинет** (`web/routes/integration.py` + `templates/integration/index.html`):
+- POST `/integration/{cid}/sync-motiv` (по сохранённому config) и POST `/integration/{cid}/import` (типы: products/inventory/sales/staff/plans; колонки — дефолтный порядок слева направо).
+- Два аккордеона в карточке подключения; кнопка импорта disabled без токена.
+- Async-роуты `await integration_manager...` — безопасно (gspread в `asyncio.to_thread`).
+
+**Проверки:** `test_imports.py` 9/9 ОК (280 роутов), restart workflow чисто, architect review = PASS (без блокеров).
