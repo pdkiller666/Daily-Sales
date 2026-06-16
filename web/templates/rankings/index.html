@@ -161,7 +161,7 @@
     {% if tab == 'shops' and selected_city %}
     <div class="px-5 py-2.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2 text-sm text-slate-600">
         <span>Город: <span class="font-semibold text-slate-800">{{ selected_city }}</span></span>
-        <a href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}" class="text-blue-600 hover:underline">✕ Сбросить</a>
+        <a href="/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}" class="text-blue-600 hover:underline" onclick="try{localStorage.removeItem('ds_rnk_city');}catch(e){}">✕ Сбросить</a>
     </div>
     {% endif %}
 
@@ -283,6 +283,26 @@
 {% block extra_head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>{% endblock %}
 {% block extra_js %}
 <script>
+/* ── City filter persistence for shops tab ── */
+(function () {
+    var tab  = {{ tab|tojson }};
+    var city = {{ (selected_city or '')|tojson }};
+    var LS_KEY = 'ds_rnk_city';
+    if (tab === 'shops') {
+        if (city) {
+            try { localStorage.setItem(LS_KEY, city); } catch (e) {}
+        } else {
+            var saved = null;
+            try { saved = localStorage.getItem(LS_KEY); } catch (e) {}
+            if (saved) {
+                var url = new URL(window.location.href);
+                url.searchParams.set('city', saved);
+                window.location.replace(url.toString());
+            }
+        }
+    }
+})();
+
 /* ── Persist active tab + period in localStorage (per user) ── */
 (function () {
     /* Keys namespaced by user so shared-device users don't see each other's prefs */

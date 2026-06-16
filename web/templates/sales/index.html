@@ -426,6 +426,12 @@
             </select>
         </div>
         {% endif %}
+        <!-- Backdated checkbox -->
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" name="only_backdated" value="1" {% if only_backdated %}checked{% endif %}
+                   class="w-4 h-4 rounded border-slate-300 accent-amber-500">
+            <span class="text-sm text-slate-600 dark:text-slate-300">Только задним числом</span>
+        </label>
         <!-- Actions row -->
         <div class="flex items-center gap-3">
             <button type="submit"
@@ -484,7 +490,7 @@
                     <svg class="w-3 h-3 shrink-0 opacity-25 group-hover:opacity-60 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
                     {% endif %}
                 {% endmacro %}
-                {% macro sort_href(col) %}/sales?date_from={{ date_from }}&date_to={{ date_to }}&shop={{ selected_shop|urlencode }}&seller_id={{ selected_seller_id }}&sort_col={{ col }}&sort_order={{ "asc" if (sort_col == col and sort_order == "desc") else "desc" }}&page=1{% endmacro %}
+                {% macro sort_href(col) %}/sales?date_from={{ date_from }}&date_to={{ date_to }}&shop={{ selected_shop|urlencode }}&seller_id={{ selected_seller_id }}&sort_col={{ col }}&sort_order={{ "asc" if (sort_col == col and sort_order == "desc") else "desc" }}&page=1{{ '&only_backdated=1' if only_backdated else '' }}{% endmacro %}
                 {% macro sort_cls(col) %}{% if sort_col == col %}text-blue-600 dark:text-blue-400{% else %}text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400{% endif %}{% endmacro %}
                 <tr class="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-100 dark:border-slate-700">
                     <th class="text-left px-3 sm:px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase hidden sm:table-cell">#</th>
@@ -576,6 +582,10 @@
                         {% endif %}
                     </td>
                     <td class="px-3 sm:px-5 py-2.5 text-right text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap hidden sm:table-cell">
+                        {% set _bd_d = s[6]|is_backdated(user_tz) %}
+                        {% if _bd_d %}
+                        <span class="inline-block mb-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 leading-none">задним</span>
+                        {% endif %}
                         <span class="block">{{ s[6]|fmt_sale_dt(user_tz, '%d.%m.%Y') if s[6] else '—' }}</span>
                         <span class="block text-slate-300 dark:text-slate-600">{{ s[6]|fmt_sale_time(user_tz) if s[6] else '' }}</span>
                     </td>
@@ -605,7 +615,7 @@
     </div>
 
     <!-- Pagination -->
-    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ (selected_shop | urlencode) ~ "&seller_id=" ~ selected_seller_id ~ "&sort_order=" ~ sort_order ~ "&sort_col=" ~ sort_col %}
+    {% set base_url = "/sales?date_from=" ~ date_from ~ "&date_to=" ~ date_to ~ "&shop=" ~ (selected_shop | urlencode) ~ "&seller_id=" ~ selected_seller_id ~ "&sort_order=" ~ sort_order ~ "&sort_col=" ~ sort_col ~ ('&only_backdated=1' if only_backdated else '') %}
     {% set page_start = (page - 1) * 50 + 1 %}
     {% set page_end   = [page * 50, total_count] | min %}
     <div class="px-5 py-3 border-t border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-3">

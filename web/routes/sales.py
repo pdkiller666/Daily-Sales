@@ -153,6 +153,7 @@ def sales_page(
     page: int = 1,
     sort_order: str = "desc",
     sort_col: str = "date",
+    only_backdated: int = 0,
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
@@ -181,6 +182,7 @@ def sales_page(
         "user_tz": "Europe/Moscow",
         "sort_order": sort_order,
         "sort_col": sort_col,
+        "only_backdated": bool(only_backdated),
     }
 
     try:
@@ -256,6 +258,25 @@ def sales_page(
         # Filter by seller if requested
         if seller_id:
             all_sales = [s for s in all_sales if s[5] == seller_id]
+
+        # Backdated filter: keep only sales whose date != today in user's timezone
+        if only_backdated:
+            import zoneinfo as _zi
+            from datetime import datetime as _dt
+            _tz_obj = _zi.ZoneInfo(tz or "Europe/Moscow")
+            _today = _dt.now(_tz_obj).date()
+
+            def _sale_is_backdated(sd):
+                if not sd:
+                    return False
+                try:
+                    parsed = _dt.strptime(str(sd)[:19], "%Y-%m-%d %H:%M:%S")
+                    local = parsed.replace(tzinfo=_zi.ZoneInfo("UTC")).astimezone(_tz_obj)
+                    return local.date() != _today
+                except Exception:
+                    return False
+
+            all_sales = [s for s in all_sales if _sale_is_backdated(s[6])]
 
         # Filter by product if requested (sales report for a single product)
         # sales row: id[0] product_id[1] shop[2] qty[3] price[4] user_id[5] date[6] product_name[7]

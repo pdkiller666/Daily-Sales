@@ -27,7 +27,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=a05d3050d9">
+    <link rel="stylesheet" href="/static/app.css?v=7e5329d0b2">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -1340,6 +1340,7 @@ _dsApplyDark(document.documentElement.classList.contains('dark'));
     }
     document.addEventListener('ds-open-more',     () => { const d = _getAlpineData(); if (d) d.moreOpen = true; });
     document.addEventListener('ds-close-more',     () => { const d = _getAlpineData(); if (d) d.moreOpen = false; });
+    window.addEventListener('popstate', () => { const d = _getAlpineData(); if (d && d.moreOpen) d.moreOpen = false; });
     document.addEventListener('ds-close-nav',      () => { const d = _getAlpineData(); if (d) d.editNavOpen = false; });
     document.addEventListener('ds-close-notif',    () => { const d = _getAlpineData(); if (d) d.notifOpen = false; });
     document.addEventListener('ds-open-changelog', () => { const d = _getAlpineData(); if (d) d.openChangelog(); });

@@ -180,11 +180,13 @@ function resetAll() {
     });
 }
 
-/* Search/filter */
+/* Search/filter + localStorage persistence */
 (function () {
     var inp = document.getElementById('stock-search');
     var noResults = document.getElementById('stock-no-results');
     if (!inp) return;
+
+    var LS_KEY = 'ds_stock_search';
 
     function applyFilter() {
         var q = inp.value.trim().toLowerCase();
@@ -200,7 +202,15 @@ function resetAll() {
         if (noResults) noResults.classList.toggle('hidden', visible > 0);
     }
 
-    inp.addEventListener('input', applyFilter);
+    inp.addEventListener('input', function () {
+        applyFilter();
+        try { localStorage.setItem(LS_KEY, inp.value); } catch (e) {}
+    });
+
+    try {
+        var saved = localStorage.getItem(LS_KEY);
+        if (saved) { inp.value = saved; applyFilter(); }
+    } catch (e) {}
 })();
 
 /* Sort persistence */
