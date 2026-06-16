@@ -149,6 +149,51 @@ class IntegrationManager:
         cfg['motiv_config'] = motiv_config
         db.update_integration_connection(conn_id, config=json.dumps(cfg, ensure_ascii=False))
 
+    def get_import_config(self, db, conn_id: int, import_type: str = None):
+        """Return saved import config(s) for a connection.
+        With import_type → the config dict for that type (or None);
+        without → the whole {import_type: cfg} map ({} if none)."""
+        db = self._unwrap(db)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            return None if import_type else {}
+        try:
+            cfg = json.loads(conn[3] or '{}')
+        except Exception:
+            return None if import_type else {}
+        configs = cfg.get('import_configs', {}) or {}
+        if import_type:
+            return configs.get(import_type)
+        return configs
+
+    def save_import_config(self, db, conn_id: int, import_type: str,
+                           import_cfg: dict) -> None:
+        """Persist an import mapping (per import_type) inside the connection config."""
+        db = self._unwrap(db)
+        conn = db.get_integration_connection(conn_id)
+        if not conn:
+            raise ValueError("Подключение не найдено")
+        try:
+            cfg = json.loads(conn[3] or '{}')
+        except Exception:
+            cfg = {}
+        configs = cfg.setdefault('import_configs', {})
+        configs[import_type] = import_cfg
+        db.update_integration_connection(conn_id, config=json.dumps(cfg, ensure_ascii=False))
+
+    async def run_import_from_config(self, db, conn_id: int, import_type: str) -> dict:
+        """Re-run an import using the saved config for this connection/type."""
+        cfg = self.get_import_config(db, conn_id, import_type)
+        if not cfg:
+            raise ValueError("Конфигурация импорта не настроена. "
+                             "Запустите мастер импорта.")
+        return await self.run_import(
+            db, conn_id, import_type,
+            sheet_name=cfg.get('sheet_name', 'Sheet1'),
+            header_row=int(cfg.get('header_row', 1)),
+            col_mapping=cfg.get('col_mapping') or {},
+        )
+
     async def sync_motivation_from_sheet(
         self, db, conn_id: int,
         sheet_name: str,

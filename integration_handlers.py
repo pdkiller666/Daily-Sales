@@ -3364,6 +3364,68 @@ IMPORT_FIELD_SCHEMA = {
 _IMP_SKIP_COL = 10 ** 9
 
 
+def _imp_hrow_kb(rows_sorted: list, page: int, back_cb: str):
+    """Paginated header-row picker for import. rows_sorted = [(rn, values), ...]."""
+    total       = len(rows_sorted)
+    total_pages = max(1, -(-total // _MTV_HROW_PAGE))
+    page        = max(0, min(page, total_pages - 1))
+    start       = page * _MTV_HROW_PAGE
+    chunk       = rows_sorted[start: start + _MTV_HROW_PAGE]
+    kb = InlineKeyboardBuilder()
+    for rn, vals in chunk:
+        kb.row(InlineKeyboardButton(text=_row_btn_label(rn, vals),
+                                    callback_data=f"gs_imphr_row_{rn}"))
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_imphr_pg_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_imphr_pg_{page+1}"))
+    if nav:
+        kb.row(*nav)
+    kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную", callback_data="gs_imphr_manual"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
+    return kb.as_markup(), total_pages, page
+
+
+async def _imp_show_hrow(target, state: FSMContext, page: int = 0):
+    data        = await state.get_data()
+    rows_sorted = data.get('gs_imp_rows', [])
+    conn_id     = data.get('gs_import_conn_id')
+    imp_type    = data.get('gs_import_type', 'products')
+    markup, total_pages, page = _imp_hrow_kb(rows_sorted, page, f"gs_import_{conn_id}")
+    text = (
+        f"📥 <b>{IMPORT_TYPE_LABELS.get(imp_type, imp_type)} — строка-шапка</b>\n"
+        f"<i>Стр. {page+1}/{total_pages} · всего строк: {len(rows_sorted)}</i>\n\n"
+        "Выбери строку, где написаны <b>названия колонок</b>.\n"
+        "Данные импортируются <b>ниже</b> выбранной строки."
+    )
+    await target.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+def _imp_cols_from_rows(rows_sorted: list, header_row: int, imp_type: str):
+    """Build the (col_idx, header, sample) list + field schema from cached rows."""
+    header_vals = next((v for r, v in rows_sorted if r == header_row), [])
+    first_drow  = next((v for r, v in rows_sorted if r == header_row + 1), [])
+    ncols = max(len(header_vals), len(first_drow), 1)
+    cols = [(i,
+             str(header_vals[i-1]) if i-1 < len(header_vals) else "",
+             str(first_drow[i-1]) if i-1 < len(first_drow) else "")
+            for i in range(1, ncols + 1)]
+    fields = IMPORT_FIELD_SCHEMA.get(imp_type, [])
+    return cols, fields
+
+
+def _imp_anchor_proxy(message, anchor_id):
+    class _AnchorProxy:
+        def __init__(self, bot, chat_id, msg_id):
+            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
+        async def edit_text(self, text, reply_markup=None, parse_mode=None):
+            await self.bot.edit_message_text(
+                text, chat_id=self.chat_id, message_id=self.msg_id,
+                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
+    return _AnchorProxy(message.bot, message.chat.id, anchor_id)
+
+
 def _imp_col_kb(cols: list, page: int):
     """Column picker for import field mapping. cols = [(i, header, sample), ...]."""
     from pagination_utils import paginate, page_nav_row, PAGE_SIZE_BTN
@@ -3440,6 +3502,14 @@ async def _imp_finalize(callback: CallbackQuery, state: FSMContext):
         skipped  = result['skipped']
         total    = result.get('total', imported + skipped)
         errors   = result.get('errors', [])
+        # Persist the mapping so it can be re-run with one tap later.
+        try:
+            integration_manager.save_import_config(
+                current_db, conn_id, imp_type,
+                {'sheet_name': sheet, 'header_row': header_row,
+                 'col_mapping': col_mapping})
+        except Exception as e:
+            logger.warning(f"save_import_config failed: {e}")
         summary = (
             f"✅ <b>Импорт завершён</b>\n\n"
             f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n"
@@ -3447,6 +3517,7 @@ async def _imp_finalize(callback: CallbackQuery, state: FSMContext):
             f"📥 Строк в таблице: {total}\n"
             f"✅ Импортировано: {imported}\n"
             f"⏭ Пропущено (дубли/не найдено): {skipped}\n"
+            f"\n💾 Настройки сохранены — повторный импорт доступен в один тап."
         )
         if errors:
             summary += f"\n⚠️ Ошибки ({len(errors)}):\n"
@@ -3553,13 +3624,29 @@ async def gs_import_menu(callback: CallbackQuery, state: FSMContext):
         return
     await callback.answer()
     await state.update_data(gs_import_conn_id=conn_id)
+    try:
+        saved = integration_manager.get_import_config(current_db, conn_id) or {}
+    except Exception as e:
+        logger.warning(f"get_import_config failed: {e}")
+        saved = {}
     kb = InlineKeyboardBuilder()
+    for imp_type, cfg in saved.items():
+        if not cfg:
+            continue
+        label = IMPORT_TYPE_LABELS.get(imp_type, imp_type)
+        sheet = cfg.get('sheet_name', '')
+        kb.row(InlineKeyboardButton(
+            text=f"⚡ {label} · {sheet}"[:60],
+            callback_data=f"gs_impq_{imp_type}_{conn_id}"
+        ))
     for imp_type, label in IMPORT_TYPE_LABELS.items():
         kb.row(InlineKeyboardButton(
             text=label,
             callback_data=f"gs_imptyp_{imp_type}_{conn_id}"
         ))
     kb.row(_back(f"gs_conn_{conn_id}"))
+    quick_hint = ("\n\n⚡ <b>Быстрый импорт</b> — повтор сохранённой настройки одним тапом."
+                  if saved else "")
     await callback.message.edit_text(
         "📥 <b>Импорт из Google Sheets</b>\n\n"
         "Выберите тип данных для импорта:\n\n"
@@ -3568,10 +3655,67 @@ async def gs_import_menu(callback: CallbackQuery, state: FSMContext):
         "• <b>Продажи</b> — импортирует историческую запись продаж\n"
         "• <b>Сотрудники</b> — обновит магазин/телефон существующих\n"
         "• <b>Планы</b> — создаст планы продаж из таблицы\n\n"
-        "⚠️ Первая строка считается заголовком (можно изменить).",
+        "⚠️ Первая строка считается заголовком (можно изменить)." + quick_hint,
         reply_markup=kb.as_markup(),
         parse_mode="HTML"
     )
+
+
+@integration_router.callback_query(F.data.startswith("gs_impq_"))
+async def gs_import_quick(callback: CallbackQuery, state: FSMContext):
+    """Быстрый импорт — повтор сохранённой настройки одним тапом."""
+    parts = callback.data.split("_")
+    imp_type = parts[2]
+    conn_id = int(parts[3])
+    if not check_integrations_permission(callback.from_user.id):
+        await callback.answer("🔒 Модуль «Интеграции» не подключён. Активируйте в веб-кабинете: Подписка → Модули.", show_alert=True)
+        return
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = integration_manager.get_import_config(current_db, conn_id, imp_type)
+    if not cfg:
+        await callback.message.edit_text(
+            "⚠️ Сохранённая настройка не найдена. Запустите мастер импорта.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [_back(f"gs_import_{conn_id}")]]), parse_mode="HTML")
+        return
+    sheet = cfg.get('sheet_name', 'Sheet1')
+    await callback.message.edit_text(
+        f"⏳ <b>Быстрый импорт…</b>\n\n"
+        f"📋 Лист: <code>{he(sheet)}</code>\n"
+        f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n\n"
+        f"Пожалуйста, подождите.",
+        parse_mode="HTML"
+    )
+    try:
+        result = await integration_manager.run_import_from_config(
+            current_db, conn_id, imp_type)
+        imported = result['imported']
+        skipped  = result['skipped']
+        total    = result.get('total', imported + skipped)
+        errors   = result.get('errors', [])
+        summary = (
+            f"✅ <b>Импорт завершён</b>\n\n"
+            f"📊 Тип: {IMPORT_TYPE_LABELS.get(imp_type, imp_type)}\n"
+            f"📋 Лист: <code>{he(sheet)}</code>\n"
+            f"📥 Строк в таблице: {total}\n"
+            f"✅ Импортировано: {imported}\n"
+            f"⏭ Пропущено (дубли/не найдено): {skipped}\n"
+        )
+        if errors:
+            summary += f"\n⚠️ Ошибки ({len(errors)}):\n"
+            for err in errors[:5]:
+                summary += f"  • {he(str(err))}\n"
+    except Exception as e:
+        logger.error(f"gs_import_quick error: {e}")
+        summary = f"❌ <b>Ошибка импорта:</b>\n{he(str(e))}"
+    finally:
+        await clear_state_keep_org(state)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Ещё импорт", callback_data=f"gs_import_{conn_id}")],
+        [_back(f"gs_conn_{conn_id}")],
+    ])
+    await callback.message.edit_text(summary, reply_markup=kb, parse_mode="HTML")
 
 
 @integration_router.callback_query(F.data.startswith("gs_imptyp_"))
@@ -3599,12 +3743,36 @@ async def gs_import_type_selected(callback: CallbackQuery, state: FSMContext):
     await state.set_state(GSImportStates.waiting_sheet_name)
 
 
+async def _imp_get_anchor(message, state: FSMContext):
+    """Return an anchor proxy editing the bot's anchor message (create if missing)."""
+    anchor_id = (await state.get_data()).get('anchor_msg_id')
+    if not anchor_id:
+        sent = await message.answer("…")
+        anchor_id = sent.message_id
+        await state.update_data(anchor_msg_id=anchor_id)
+    return _imp_anchor_proxy(message, anchor_id)
+
+
+async def _imp_start_field_mapping(target, state: FSMContext, header_row: int):
+    """Build the column list for header_row from cached rows and launch field mapping."""
+    data        = await state.get_data()
+    rows_sorted = data.get('gs_imp_rows', [])
+    imp_type    = data.get('gs_import_type', 'products')
+    cols, fields = _imp_cols_from_rows(rows_sorted, header_row, imp_type)
+    await state.update_data(gs_import_header_row=header_row,
+                            gs_imp_cols=cols, gs_imp_fields=fields,
+                            gs_imp_field_idx=0, gs_imp_mapping={})
+    await state.set_state(None)
+    await _imp_show_field(target, state)
+
+
 @integration_router.message(GSImportStates.waiting_sheet_name)
 async def gs_import_sheet_name(message: Message, state: FSMContext):
-    """Получено имя листа — запрашиваем номер строки заголовков"""
+    """Получено имя листа — читаем лист и показываем кликабельный выбор строки-шапки."""
     sheet_name = message.text.strip()
     data = await state.get_data()
     conn_id = data.get('gs_import_conn_id', 0)
+    imp_type = data.get('gs_import_type', 'products')
     _kb = InlineKeyboardMarkup(
         inline_keyboard=[[_back(f"gs_import_{conn_id}")]]
     )
@@ -3612,21 +3780,68 @@ async def gs_import_sheet_name(message: Message, state: FSMContext):
         await fsm_edit(state, message, "⚠️ Имя листа не может быть пустым. Введите снова:",
                        reply_markup=_kb, parse_mode="HTML")
         return
-    await state.update_data(gs_import_sheet=sheet_name)
-    await fsm_edit(
-        state, message,
-        f"📥 Лист: <code>{he(sheet_name)}</code>\n\n"
-        f"Введите <b>номер строки с заголовками</b> (обычно <b>1</b>).\n"
-        f"Данные будут импортированы начиная со следующей строки:",
-        reply_markup=_kb,
-        parse_mode="HTML"
-    )
-    await state.set_state(GSImportStates.waiting_header_row)
+    await state.update_data(gs_import_sheet=sheet_name, gs_conn_id=conn_id)
+    await fsm_edit(state, message, "⏳ Читаю лист…", parse_mode="HTML")
+
+    # Read the sheet so the user can click on a real row as the header.
+    rows_data = {}
+    try:
+        provider, cfg = await _fetch_gs_config(message.from_user.id, state)
+        if provider:
+            rows_data = await asyncio.wait_for(
+                provider.get_first_rows(cfg, _render_sheet_macro(sheet_name), max_rows=50),
+                timeout=12.0)
+    except Exception as e:
+        logger.warning(f"gs_import_sheet_name read: {e}")
+        rows_data = {}
+
+    if not rows_data:
+        # Fallback: couldn't preview — let the user type the header-row number manually.
+        await fsm_edit(
+            state, message,
+            f"⚠️ Не удалось прочитать лист <code>{he(sheet_name)}</code> для предпросмотра.\n\n"
+            f"Введите <b>номер строки с заголовками</b> (обычно <b>1</b>) вручную.\n"
+            f"Данные будут импортированы начиная со следующей строки:",
+            reply_markup=_kb, parse_mode="HTML")
+        await state.set_state(GSImportStates.waiting_header_row)
+        return
+
+    rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
+    await state.update_data(gs_imp_rows=rows_sorted)
+    await state.set_state(None)
+    await _imp_show_hrow(await _imp_get_anchor(message, state), state)
+
+
+@integration_router.callback_query(F.data.startswith("gs_imphr_"))
+async def gs_import_hrow_router(callback: CallbackQuery, state: FSMContext):
+    """Кликабельный выбор строки-шапки для импорта."""
+    raw = callback.data[len("gs_imphr_"):]
+    await callback.answer()
+    if raw.startswith("pg_"):
+        await _imp_show_hrow(callback.message, state, page=int(raw[len("pg_"):]))
+        return
+    if raw == "manual":
+        data = await state.get_data()
+        conn_id = data.get('gs_import_conn_id', 0)
+        await state.update_data(anchor_msg_id=callback.message.message_id)
+        await callback.message.edit_text(
+            "✏️ Введите <b>номер строки с заголовками</b> (например, <b>1</b>):",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[_back(f"gs_import_{conn_id}")]]),
+            parse_mode="HTML")
+        await state.set_state(GSImportStates.waiting_header_row)
+        return
+    if raw.startswith("row_"):
+        try:
+            header_row = int(raw[len("row_"):])
+        except ValueError:
+            return
+        await _imp_start_field_mapping(callback.message, state, header_row)
 
 
 @integration_router.message(GSImportStates.waiting_header_row)
 async def gs_import_header_row(message: Message, state: FSMContext):
-    """Получен номер строки заголовков — читаем лист и запускаем мастер сопоставления колонок."""
+    """Ручной фоллбэк: получен номер строки заголовков — строим мастер сопоставления колонок."""
     raw = (message.text or "").strip()
     data = await state.get_data()
     conn_id = data.get('gs_import_conn_id', 0)
@@ -3646,59 +3861,36 @@ async def gs_import_header_row(message: Message, state: FSMContext):
         return
 
     await state.update_data(gs_import_header_row=header_row, gs_conn_id=conn_id)
-    await fsm_edit(state, message, "⏳ Читаю лист…", parse_mode="HTML")
 
-    # Read the sheet so the user can map fields by clicking on real columns.
-    rows_data = {}
-    try:
-        provider, cfg = await _fetch_gs_config(message.from_user.id, state)
-        if provider:
-            rows_data = await asyncio.wait_for(
-                provider.get_first_rows(cfg, _render_sheet_macro(sheet_name), max_rows=50),
-                timeout=12.0)
-    except Exception as e:
-        logger.warning(f"gs_import_header_row read: {e}")
+    # Use cached rows if the sheet was already read; otherwise read it now.
+    rows_sorted = data.get('gs_imp_rows')
+    if not rows_sorted:
+        await fsm_edit(state, message, "⏳ Читаю лист…", parse_mode="HTML")
         rows_data = {}
+        try:
+            provider, cfg = await _fetch_gs_config(message.from_user.id, state)
+            if provider:
+                rows_data = await asyncio.wait_for(
+                    provider.get_first_rows(cfg, _render_sheet_macro(sheet_name), max_rows=50),
+                    timeout=12.0)
+        except Exception as e:
+            logger.warning(f"gs_import_header_row read: {e}")
+            rows_data = {}
 
-    if not rows_data:
-        await fsm_edit(
-            state, message,
-            f"⚠️ Не удалось прочитать лист <code>{he(sheet_name)}</code>.\n\n"
-            "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Попробовать снова",
-                                      callback_data=f"gs_imptyp_{imp_type}_{conn_id}")],
-                [_back(f"gs_import_{conn_id}")],
-            ]), parse_mode="HTML")
-        await state.set_state(None)
-        return
+        if not rows_data:
+            await fsm_edit(
+                state, message,
+                f"⚠️ Не удалось прочитать лист <code>{he(sheet_name)}</code>.\n\n"
+                "Проверьте название листа и доступ Google-аккаунта, затем попробуйте снова:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Попробовать снова",
+                                          callback_data=f"gs_imptyp_{imp_type}_{conn_id}")],
+                    [_back(f"gs_import_{conn_id}")],
+                ]), parse_mode="HTML")
+            await state.set_state(None)
+            return
+        rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
+        await state.update_data(gs_imp_rows=rows_sorted)
 
-    rows_sorted = [(rn, rows_data[rn]) for rn in sorted(rows_data)]
-    header_vals = next((v for r, v in rows_sorted if r == header_row), [])
-    first_drow  = next((v for r, v in rows_sorted if r == header_row + 1), [])
-    ncols = max(len(header_vals), len(first_drow), 1)
-    cols = [(i,
-             str(header_vals[i-1]) if i-1 < len(header_vals) else "",
-             str(first_drow[i-1]) if i-1 < len(first_drow) else "")
-            for i in range(1, ncols + 1)]
-
-    fields = IMPORT_FIELD_SCHEMA.get(imp_type, [])
-    await state.update_data(gs_imp_cols=cols, gs_imp_fields=fields,
-                            gs_imp_field_idx=0, gs_imp_mapping={})
     await state.set_state(None)
-
-    anchor_id = (await state.get_data()).get('anchor_msg_id')
-
-    class _AnchorProxy:
-        def __init__(self, bot, chat_id, msg_id):
-            self.bot = bot; self.chat_id = chat_id; self.msg_id = msg_id
-        async def edit_text(self, text, reply_markup=None, parse_mode=None):
-            await self.bot.edit_message_text(
-                text, chat_id=self.chat_id, message_id=self.msg_id,
-                reply_markup=reply_markup, parse_mode=parse_mode or "HTML")
-
-    if not anchor_id:
-        sent = await message.answer("…")
-        anchor_id = sent.message_id
-        await state.update_data(anchor_msg_id=anchor_id)
-    await _imp_show_field(_AnchorProxy(message.bot, message.chat.id, anchor_id), state)
+    await _imp_start_field_mapping(await _imp_get_anchor(message, state), state, header_row)
