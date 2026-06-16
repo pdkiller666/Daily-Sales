@@ -10,11 +10,138 @@ Public API:
     TOOLS          — dict[name, {description, fn}]
     get_tools_description() -> str
     call_tool(name, params, db) -> str
+    get_tool_stats(date_str=None) -> dict   — usage counters for admin/reporting
+    reset_tool_stats() -> None              — clear all counters (testing only)
 """
 import logging
 import datetime as _dt
+import threading
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
+
+_SHOP_BOT_DB = "data/shop_bot.db"
+
+# ── Usage counters ────────────────────────────────────────────────────────────
+# Key: (tool_name, org_db, date_str)  →  int call count
+# In-memory write-through cache. Persisted to ai_tool_stats in shop_bot.db on
+# every call so counts survive server restarts. Stats functions read from DB
+# (persistent history) and overlay in-memory values (catches writes not yet
+# flushed by the background thread).
+
+_stats_lock: threading.Lock = threading.Lock()
+_stats: dict[tuple[str, str, str], int] = defaultdict(int)
+
+
+def _persist_call(tool_name: str, org_db: str, date_str: str) -> None:
+    """Write one call increment to shop_bot.db. Runs in a daemon thread."""
+    try:
+        from database import Database
+        Database(_SHOP_BOT_DB).record_ai_tool_call(tool_name, org_db, date_str)
+    except Exception as exc:
+        logger.warning("ai_tool_stats persist failed: %s", exc)
+
+
+def _record_call(tool_name: str, org_db: str) -> None:
+    """Increment the counter for tool_name × org_db × today (UTC).
+
+    Writes to both the in-memory dict (immediate, thread-safe) and the
+    persistent DB table ai_tool_stats in shop_bot.db (background thread).
+    """
+    date_str = _dt.date.today().isoformat()
+    with _stats_lock:
+        _stats[(tool_name, org_db, date_str)] += 1
+    threading.Thread(
+        target=_persist_call, args=(tool_name, org_db, date_str), daemon=True
+    ).start()
+
+
+def _get_shop_bot_db():
+    from database import Database
+    return Database(_SHOP_BOT_DB)
+
+
+def get_tool_stats(date_str: str | None = None) -> dict:
+    """Return usage counters for a specific date, merging DB + in-memory.
+
+    DB is the source of truth for historical data; in-memory is overlaid to
+    capture any calls not yet flushed by the background persist thread.
+
+    Returns a dict:
+      {
+        "date": "2026-06-16",          # filter date (today if omitted)
+        "by_tool": {"get_inventory": 12, "get_tasks": 5, ...},
+        "by_org":  {"data/tenants/org_7.db": {"get_inventory": 3, ...}, ...},
+        "total_calls": 42,
+        "source": "db+memory",
+      }
+    """
+    if date_str is None:
+        date_str = _dt.date.today().isoformat()
+
+    combined: dict[tuple[str, str], int] = {}
+
+    try:
+        db_rows = _get_shop_bot_db().get_ai_tool_stats_db(date_str)
+        combined.update(db_rows)
+    except Exception as exc:
+        logger.warning("get_tool_stats: DB read failed: %s", exc)
+
+    with _stats_lock:
+        snapshot = dict(_stats)
+    for (tool, org, day), count in snapshot.items():
+        if day != date_str:
+            continue
+        key = (tool, org)
+        combined[key] = max(combined.get(key, 0), count)
+
+    by_tool: dict[str, int] = defaultdict(int)
+    by_org: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for (tool, org), count in combined.items():
+        by_tool[tool] += count
+        by_org[org][tool] += count
+
+    return {
+        "date": date_str,
+        "by_tool": dict(sorted(by_tool.items(), key=lambda kv: kv[1], reverse=True)),
+        "by_org": {org: dict(tools) for org, tools in by_org.items()},
+        "total_calls": sum(by_tool.values()),
+        "source": "db+memory",
+    }
+
+
+def get_tool_stats_all_dates() -> dict[str, dict]:
+    """Return stats for all dates, merging DB + in-memory. Used for history."""
+    combined: dict[tuple[str, str, str], int] = {}
+
+    try:
+        db_rows = _get_shop_bot_db().get_ai_tool_stats_all_dates_db()
+        combined.update(db_rows)
+    except Exception as exc:
+        logger.warning("get_tool_stats_all_dates: DB read failed: %s", exc)
+
+    with _stats_lock:
+        snapshot = dict(_stats)
+    for key, count in snapshot.items():
+        combined[key] = max(combined.get(key, 0), count)
+
+    per_date: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for (tool, _org, day), count in combined.items():
+        per_date[day][tool] += count
+
+    return {
+        day: {
+            "by_tool": dict(sorted(tools.items(), key=lambda kv: kv[1], reverse=True)),
+            "total_calls": sum(tools.values()),
+        }
+        for day, tools in sorted(per_date.items(), reverse=True)
+    }
+
+
+def reset_tool_stats() -> None:
+    """Clear in-memory counters. Intended for testing only. Does NOT clear DB."""
+    with _stats_lock:
+        _stats.clear()
 
 
 # ── Tool implementations ──────────────────────────────────────────────────────
@@ -723,11 +850,24 @@ def get_tools_description() -> str:
 
 
 def call_tool(name: str, params: dict, db) -> str:
-    """Dispatch a tool call. Returns a formatted string result."""
+    """Dispatch a tool call. Returns a formatted string result.
+
+    Side-effect: increments the in-memory usage counter for this tool,
+    keyed by (tool_name, org_db, today_utc). Counters are accessible via
+    get_tool_stats() and exposed at GET /admin/ai-tool-stats.
+    """
     tool = TOOLS.get(name)
     if not tool:
         available = ", ".join(TOOLS.keys())
         return f"Инструмент «{name}» не найден. Доступные: {available}."
+
+    org_db: str = ""
+    try:
+        org_db = str(getattr(db, "db_file", "") or "")
+    except Exception:
+        pass
+    _record_call(name, org_db)
+
     try:
         return tool["fn"](db, params)
     except Exception as exc:

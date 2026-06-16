@@ -1068,6 +1068,74 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # Очистка старых записей ai_tool_stats — ежедневно в 03:15 UTC
+    AI_TOOL_STATS_RETENTION_DAYS = 90
+
+    async def prune_ai_tool_stats_job():
+        try:
+            from database import Database as _Database
+            _db = _Database('data/shop_bot.db')
+            deleted = _db.prune_ai_tool_stats(AI_TOOL_STATS_RETENTION_DAYS)
+            logging.info(
+                "prune_ai_tool_stats: удалено %d строк старше %d дней",
+                deleted, AI_TOOL_STATS_RETENTION_DAYS,
+            )
+        except Exception as _e:
+            logging.error("prune_ai_tool_stats_job error: %s", _e)
+
+    scheduler.add_job(
+        prune_ai_tool_stats_job,
+        CronTrigger(hour=3, minute=15),
+        id='prune_ai_tool_stats',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Авто-архивация AI-сессий — ежедневно в 03:20 UTC
+    AI_SESSION_ARCHIVE_DAYS = 30
+
+    async def auto_archive_ai_sessions():
+        """Вставляет авто-разрыв для AI DM/chat сессий без активности > 30 дней."""
+        import glob as _glob
+        count_dm = 0
+        count_chat = 0
+        try:
+            from database import Database as _Database
+            org_dbs = _glob.glob('data/tenants/org_*.db')
+            for _db_path in org_dbs:
+                try:
+                    _db = _Database(_db_path)
+                    count_dm += _db.archive_old_ai_dm_sessions(
+                        days=AI_SESSION_ARCHIVE_DAYS
+                    )
+                    try:
+                        _ai_tid = _db.get_ai_topic_id()
+                        if _ai_tid:
+                            if _db.archive_old_ai_chat_session(
+                                _ai_tid, days=AI_SESSION_ARCHIVE_DAYS
+                            ):
+                                count_chat += 1
+                    except Exception:
+                        pass
+                except Exception as _de:
+                    logging.error("auto_archive_ai_sessions db=%s: %s", _db_path, _de)
+        except Exception as _e:
+            logging.error("auto_archive_ai_sessions: %s", _e)
+        logging.info(
+            "auto_archive_ai_sessions: %d DM-тредов, %d тем архивировано",
+            count_dm, count_chat,
+        )
+
+    scheduler.add_job(
+        auto_archive_ai_sessions,
+        CronTrigger(hour=3, minute=20),
+        id='auto_archive_ai_sessions',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # Дедлайны задач — ежедневно в 09:10
     async def check_task_deadlines():
         """Напоминания о задачах с дедлайном сегодня и просроченных задачах."""

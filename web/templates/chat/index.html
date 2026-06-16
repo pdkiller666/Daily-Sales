@@ -555,6 +555,22 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             <p class="text-sm">Сообщений пока нет. Начните беседу!</p>
         </div>
 
+        <!-- AI thinking indicator -->
+        <div x-show="aiThinking" x-cloak
+             class="flex gap-2.5 mb-3 msg-other msg-ai">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto msg-ai-avatar">🤖</div>
+            <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
+                <p class="text-[10px] font-semibold mb-1 text-teal-600 dark:text-teal-400">AI-ассистент</p>
+                <div class="flex items-center gap-2 text-sm text-teal-700 dark:text-teal-300">
+                    <svg class="w-3.5 h-3.5 spin shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    <span>AI думает…</span>
+                </div>
+            </div>
+        </div>
+
         <div id="chat-bottom"></div>
     </div>
 
@@ -576,7 +592,19 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
         </div>
 
         <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
-            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
+            <!-- Кнопка «Новый диалог» — только в AI-теме -->
+            <button x-show="currentTopicIsAi" x-cloak type="button"
+                    @click="resetAiTopicSession()"
+                    class="shrink-0 p-2 rounded-xl text-teal-500 hover:text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors"
+                    title="Начать новый диалог (AI забудет историю)">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </button>
+            <!-- Кнопка прикрепить файл — скрыта в AI-теме -->
+            <label x-show="!currentTopicIsAi"
+                   class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
@@ -787,6 +815,22 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             Нет сообщений. Напишите первым! 👋
                         </div>
 
+                        <!-- AI thinking indicator (DM) -->
+                        <div x-show="dmAiThinking" x-cloak
+                             class="flex items-end gap-1.5">
+                            <div class="dm-avatar shrink-0"
+                                 style="width:28px;height:28px;font-size:.75rem;background:#14b8a6">🤖</div>
+                            <div class="flex flex-col items-start max-w-[72%]">
+                                <div class="px-3 py-2 text-sm leading-relaxed shadow-sm dm-bubble-other flex items-center gap-2">
+                                    <svg class="w-3.5 h-3.5 spin shrink-0 text-teal-500" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                                    </svg>
+                                    <span class="text-teal-700 dark:text-teal-300">AI думает…</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Typing indicator -->
                         <p x-show="dmTypingText" x-text="dmTypingText"
                            class="text-xs text-slate-400 px-1 h-4 shrink-0"></p>
@@ -806,7 +850,19 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             </template>
                         </div>
                         <form @submit.prevent="dmSend()" class="flex items-end gap-2">
-                            <label class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
+                            <!-- Кнопка «Новый диалог» — только в AI ЛС -->
+                            <button x-show="dmPeerId === -1" x-cloak type="button"
+                                    @click="resetAiDmSession()"
+                                    class="shrink-0 p-2 rounded-xl text-teal-500 hover:text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-colors"
+                                    title="Начать новый диалог (AI забудет историю)">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                            </button>
+                            <!-- Кнопка прикрепить файл — скрыта в AI ЛС -->
+                            <label x-show="dmPeerId !== -1"
+                                   class="shrink-0 cursor-pointer p-2 rounded-xl text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Прикрепить файлы (до 10)">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                           d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
@@ -889,6 +945,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         searchResults: [],
         searchLoading: false,
         searchTimer:  null,
+
+        /* ── AI thinking indicator ── */
+        aiThinking:        false,   /* topic chat: AI processing a message */
+        dmAiThinking:      false,   /* DM chat: AI processing a message */
+        _aiThinkingTimer:  null,    /* auto-clear fallback timer */
+        _dmAiThinkingTimer: null,
 
         /* ── polling ── */
         pollTimer: null,
@@ -1066,6 +1128,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const existingIds = new Set(this.msgs.map(m => m.id));
                 const newOnes = data.messages.filter(m => !existingIds.has(m.id));
                 if (newOnes.length) {
+                    /* If AI answered, clear the thinking indicator */
+                    if (this.aiThinking && newOnes.some(m => m.is_ai)) {
+                        this.aiThinking = false;
+                        clearTimeout(this._aiThinkingTimer);
+                    }
                     this.msgs.push(...newOnes);
                     this.latestId = data.latest_id;
                     if (!document.hidden) this.markTopicRead(this.currentTopicId, data.latest_id);
@@ -1099,6 +1166,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (topicId === this.currentTopicId) return;
             const seq = ++this._topicReqSeq;   /* race guard: помечаем это переключение */
             this.loadingTopic = true;
+            this.aiThinking = false;
             this.msgs = [];
 
             let loaded = [];
@@ -1237,6 +1305,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const res = await fetch('/chat/send', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (data.ok) {
+                    /* Show AI thinking indicator if sending to the AI topic */
+                    if (this.currentTopicIsAi && txt) {
+                        this.aiThinking = true;
+                        this.scrollBottom();
+                        /* Auto-clear after 60 s in case AI fails silently */
+                        clearTimeout(this._aiThinkingTimer);
+                        this._aiThinkingTimer = setTimeout(() => { this.aiThinking = false; }, 60000);
+                    }
                     this.text = '';
                     this.clearFile();
                     this.$nextTick(() => {
@@ -1427,6 +1503,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.dmHasMore      = false;
             this.dmMobileShowConv = true;
             this.dmNewMode      = false;
+            this.dmAiThinking   = false;
             /* clear unread badge */
             const c = this.dmContacts.find(x => x.id === contact.id);
             if (c) { this.dmTotalUnread -= (c.unread || 0); c.unread = 0; if (this.dmTotalUnread < 0) this.dmTotalUnread = 0; }
@@ -1513,6 +1590,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const res  = await fetch('/chat/dm/send', {method: 'POST', body: fd});
                 const data = await res.json();
                 if (data.ok) {
+                    /* Show AI thinking indicator when sending to the AI peer */
+                    if (this.dmPeerId === -1 && txt) {
+                        this.dmAiThinking = true;
+                        this._dmScrollBottom();
+                        /* Auto-clear after 60 s in case AI fails silently */
+                        clearTimeout(this._dmAiThinkingTimer);
+                        this._dmAiThinkingTimer = setTimeout(() => { this.dmAiThinking = false; }, 60000);
+                    }
                     this.dmMessages.push({...data.message, is_mine: true, can_delete: true});
                     this.dmText = '';
                     this.dmClearFile();
@@ -1531,6 +1616,37 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const data = await res.json();
                 if (data.ok) this.dmMessages = this.dmMessages.filter(m => m.id !== msgId);
             } catch(e) {}
+        },
+
+        /* ── AI Session Reset ── */
+        async resetAiDmSession() {
+            if (!confirm('Начать новый диалог? AI забудет историю текущего разговора (данные останутся в базе).')) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                const res = await fetch('/chat/ai/reset', {method: 'POST', body: fd});
+                const data = await res.json();
+                if (data.ok) {
+                    /* Очищаем экран — AI начинает с чистого листа */
+                    this.dmMessages = [];
+                    this.dmHasMore = false;
+                }
+            } catch(e) { alert('Ошибка соединения'); }
+        },
+
+        async resetAiTopicSession() {
+            if (!confirm('Начать новый диалог? AI забудет историю текущего разговора (данные останутся в базе).')) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('topic_id', this.currentTopicId);
+                const res = await fetch('/chat/topic/ai/reset', {method: 'POST', body: fd});
+                const data = await res.json();
+                if (data.ok) {
+                    this.msgs = [];
+                    this.latestId = 0;
+                }
+            } catch(e) { alert('Ошибка соединения'); }
         },
 
         /* ── DM File (multi-file) ── */
@@ -1619,6 +1735,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     isAi ? (this.dmPeerId === -1) : (data.from_user_id === this.dmPeerId)
                 );
                 if (!isMine && viewingThisPeer) {
+                    /* AI answered — clear the DM thinking indicator */
+                    if (isAi && this.dmAiThinking) {
+                        this.dmAiThinking = false;
+                        clearTimeout(this._dmAiThinkingTimer);
+                    }
                     this.dmMessages.push({
                         id: data.id, message: data.message || '',
                         has_file: !!data.has_file, is_image: !!data.is_image,

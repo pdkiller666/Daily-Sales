@@ -80,6 +80,122 @@
     </div>
 </div>
 
+<!-- ── 30-Day Trend Chart ──────────────────────────────────────── -->
+<div class="card p-5 mb-5">
+    <div class="flex items-start justify-between gap-3 mb-4">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200">📈 Вызовы AI-инструментов — 30 дней</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Суммарное число вызовов всех инструментов по дням (UTC)</p>
+        </div>
+        <div class="shrink-0 text-right text-[11px] text-slate-400 space-y-0.5">
+            <div>Сегодня: <span class="font-semibold text-indigo-600 dark:text-indigo-400">{{ tool_today_total }}</span></div>
+            <div>Вчера: <span class="font-semibold text-slate-600 dark:text-slate-300">{{ tool_yesterday_total }}</span></div>
+            <div>7 дней: <span class="font-semibold text-slate-600 dark:text-slate-300">{{ tool_week_total }}</span></div>
+            <div>Всего: <span class="font-semibold text-slate-600 dark:text-slate-300">{{ alltime_total }}</span></div>
+        </div>
+    </div>
+    {% if alltime_total > 0 %}
+    <div class="relative h-40">
+        <canvas id="aiToolTrendChart"></canvas>
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-slate-400">
+        <div class="text-2xl mb-2">📊</div>
+        <p class="text-sm">Данных пока нет</p>
+        <p class="text-xs mt-1">График появится после первых AI-запросов с инструментами</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- ── All-Time Breakdown Table ───────────────────────────────── -->
+{% if alltime_by_tool %}
+<div class="card p-5 mb-5">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">🔧 Статистика по инструментам — всё время</h2>
+    {% set max_alltime = alltime_by_tool.values() | max %}
+    {% set max_alltime = max_alltime if max_alltime > 0 else 1 %}
+    <div class="space-y-2.5">
+        {% for tool_name, total_count in alltime_by_tool.items() %}
+        <div class="flex items-center gap-3">
+            <code class="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded shrink-0 w-52 truncate">{{ tool_name }}</code>
+            <div class="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                <div class="h-2 rounded-full bg-indigo-500 dark:bg-indigo-400 transition-all"
+                     style="width: {{ [(total_count / max_alltime * 100)|int, 100]|min }}%"></div>
+            </div>
+            <span class="text-xs font-bold text-indigo-700 dark:text-indigo-300 w-10 text-right shrink-0">{{ total_count }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <p class="text-[11px] text-slate-400 mt-3">
+        Данные сохраняются в <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">data/shop_bot.db</code> — история не сбрасывается при рестарте сервера.
+    </p>
+</div>
+{% endif %}
+
+<!-- ── AI Tool Usage (per-period) ─────────────────────────────── -->
+<div class="card p-5 mb-5">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-4">Использование по периодам</h2>
+
+    {% if tool_rows %}
+    {% set max_today = tool_rows | map(attribute='today') | max %}
+    {% set max_today = max_today if max_today > 0 else 1 %}
+    <div class="overflow-x-auto -mx-5">
+        <table class="w-full text-xs">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700">
+                    <th class="text-left pl-5 pr-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Инструмент</th>
+                    <th class="text-right px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px] whitespace-nowrap">Сегодня</th>
+                    <th class="text-right px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px] whitespace-nowrap">Вчера</th>
+                    <th class="text-right pr-5 pl-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px] whitespace-nowrap">7 дней</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50 dark:divide-slate-800">
+                {% for row in tool_rows %}
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td class="pl-5 pr-3 py-2.5">
+                        <div class="flex items-center gap-2">
+                            <code class="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">{{ row.name }}</code>
+                        </div>
+                        {% if row.today > 0 %}
+                        <div class="mt-1.5 w-full max-w-[200px]">
+                            <div class="h-1 rounded-full bg-slate-100 dark:bg-slate-700">
+                                <div class="h-1 rounded-full bg-indigo-400 dark:bg-indigo-500 transition-all"
+                                     style="width: {{ [(row.today / max_today * 100)|int, 100]|min }}%"></div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td class="text-right px-3 py-2.5">
+                        <span class="font-bold {% if row.today > 0 %}text-indigo-600 dark:text-indigo-400{% else %}text-slate-300 dark:text-slate-600{% endif %}">
+                            {{ row.today if row.today > 0 else '—' }}
+                        </span>
+                    </td>
+                    <td class="text-right px-3 py-2.5">
+                        <span class="{% if row.yesterday > 0 %}text-slate-600 dark:text-slate-300{% else %}text-slate-300 dark:text-slate-600{% endif %}">
+                            {{ row.yesterday if row.yesterday > 0 else '—' }}
+                        </span>
+                    </td>
+                    <td class="text-right pr-5 pl-3 py-2.5">
+                        <span class="{% if row.week > 0 %}text-slate-600 dark:text-slate-300{% else %}text-slate-300 dark:text-slate-600{% endif %}">
+                            {{ row.week if row.week > 0 else '—' }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="text-[11px] text-slate-400 mt-3 px-0">
+        7 дней = сегодня + 6 предыдущих дней.
+    </p>
+    {% else %}
+    <div class="text-center py-6 text-slate-400">
+        <div class="text-2xl mb-2">🔧</div>
+        <p class="text-sm">Инструменты ещё не вызывались</p>
+        <p class="text-xs mt-1">Статистика появится после первого AI-запроса с использованием инструментов</p>
+    </div>
+    {% endif %}
+</div>
+
 <!-- ── Today's top users ──────────────────────────────────────── -->
 <div class="card p-5">
     <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">
@@ -121,4 +237,47 @@
     </div>
     {% endif %}
 </div>
+
+{% if alltime_total > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    const chartData = {{ chart_data | tojson }};
+    const isDark = document.documentElement.classList.contains('dark');
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+    const labels = chartData.map(function(d){ return d.date.slice(5); });
+    const values = chartData.map(function(d){ return d.total; });
+    new Chart(document.getElementById('aiToolTrendChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Вызовов',
+                data: values,
+                backgroundColor: 'rgba(99,102,241,0.7)',
+                borderRadius: 4,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor, font: { size: 10 }, maxRotation: 45, maxTicksLimit: 15 }
+                },
+                y: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor, font: { size: 11 }, stepSize: 1 },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

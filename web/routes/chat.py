@@ -173,7 +173,9 @@ _AI_CHAT_DAILY_LIMIT = 50
 AI_PEER_ID = -1
 
 
-_HISTORY_MAX_CHARS = 5_000   # ~1 600 токенов — держим контекст без расточительства
+_HISTORY_MAX_CHARS    = 5_000  # ~1 600 токенов — держим контекст без расточительства
+_SESSION_COMPRESS_AT  = 12    # триггер авто-сжатия: N сообщений в текущей сессии
+_SESSION_KEEP_FRESH   = 6     # столько свежих сообщений оставляем «за бортом» сжатия
 
 
 def _rows_to_history(rows: list, uid_col: int, text_col: int,
@@ -303,16 +305,8 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
 
         system, _user_name = await _build_ai_system_prompt(db, user_db_id)
 
-        # История диалога в теме (последние 20 сообщений до текущего)
-        # get_chat_messages → ASC; последний ряд = только что добавленное сообщение → [:-1]
-        # uid=row[1], text=row[2], fname=row[8], lname=row[9]
-        _hist_rows = await anyio.to_thread.run_sync(
-            lambda: db.get_chat_messages(limit=21, topic_id=topic_id)
-        )
-        history = _rows_to_history(
-            _hist_rows[:-1] if _hist_rows else [],
-            uid_col=1, text_col=2, fname_col=8, lname_col=9,
-        )
+        # История диалога в теме с учётом сессионных разрывов и резюме
+        history, last_break_id = await _fetch_ai_chat_history(db, topic_id, anyio)
 
         try:
             answer = await ask_llm_with_tools(
@@ -327,6 +321,11 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         ai_text = f"🤖 {answer}"
         await anyio.to_thread.run_sync(
             lambda: db.add_chat_message(user_id=0, message=ai_text, topic_id=topic_id)
+        )
+
+        # Авто-сжатие сессии (не блокирует ответ — запускаем задачей)
+        asyncio.create_task(
+            _maybe_compress_chat_session(db, topic_id, last_break_id, anyio)
         )
     except Exception:
         pass
@@ -387,16 +386,8 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
 
         system, _user_name = await _build_ai_system_prompt(db, sender_db_id)
 
-        # История личного диалога с AI (последние 20 сообщений до текущего)
-        # get_ai_dm_conversation → ASC; последний ряд = только что добавленное → [:-1]
-        # uid=row[1], text=row[3]
-        _hist_rows = await anyio.to_thread.run_sync(
-            lambda: db.get_ai_dm_conversation(sender_db_id, limit=21)
-        )
-        history = _rows_to_history(
-            _hist_rows[:-1] if _hist_rows else [],
-            uid_col=1, text_col=3,
-        )
+        # История личного диалога с AI с учётом сессионных разрывов и резюме
+        history, last_break_id = await _fetch_ai_dm_history(db, sender_db_id, anyio)
 
         try:
             answer = await ask_llm_with_tools(
@@ -409,6 +400,11 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             return
 
         await _post_ai_dm(f"🤖 {answer}")
+
+        # Авто-сжатие сессии (не блокирует ответ — запускаем задачей)
+        asyncio.create_task(
+            _maybe_compress_dm_session(db, sender_db_id, last_break_id, anyio)
+        )
     except Exception:
         pass
 
@@ -419,6 +415,153 @@ def _load_dm_files_bulk(db, dm_ids: list) -> dict:
         return db.get_dm_files_bulk(dm_ids)
     except Exception:
         return {}
+
+
+# ── AI Session Helpers ─────────────────────────────────────────────────────────
+
+async def _fetch_ai_dm_history(db, user_db_id: int, anyio) -> tuple[list[dict], int]:
+    """Загружает историю AI DM с учётом сессионных разрывов и резюме.
+
+    Возвращает (history, last_break_id).
+    """
+    last_break_id = await anyio.to_thread.run_sync(
+        lambda: db.get_last_ai_dm_session_break_id(user_db_id)
+    )
+    summary_text = await anyio.to_thread.run_sync(
+        lambda: db.get_ai_session_text_dm(user_db_id, since_id=last_break_id)
+    )
+    _hist_rows = await anyio.to_thread.run_sync(
+        lambda: db.get_ai_dm_conversation(user_db_id, limit=21, since_id=last_break_id)
+    )
+    history: list[dict] = []
+    if summary_text:
+        history.append({"role": "user",
+                        "content": f"[Краткое резюме предыдущей части этого разговора]: {summary_text}"})
+        history.append({"role": "assistant",
+                        "content": "Понял, продолжу с учётом этого контекста."})
+    history.extend(_rows_to_history(
+        _hist_rows[:-1] if _hist_rows else [],
+        uid_col=1, text_col=3,
+    ))
+    return history, last_break_id
+
+
+async def _fetch_ai_chat_history(db, topic_id: int, anyio) -> tuple[list[dict], int]:
+    """Загружает историю AI chat-темы с учётом сессионных разрывов и резюме.
+
+    Возвращает (history, last_break_id).
+    """
+    last_break_id = await anyio.to_thread.run_sync(
+        lambda: db.get_last_ai_chat_session_break_id(topic_id)
+    )
+    summary_text = await anyio.to_thread.run_sync(
+        lambda: db.get_ai_session_text_chat(topic_id, since_id=last_break_id)
+    )
+    _hist_rows = await anyio.to_thread.run_sync(
+        lambda: db.get_chat_messages(limit=21, topic_id=topic_id, since_id=last_break_id)
+    )
+    history: list[dict] = []
+    if summary_text:
+        history.append({"role": "user",
+                        "content": f"[Краткое резюме предыдущей части разговора в этой теме]: {summary_text}"})
+        history.append({"role": "assistant",
+                        "content": "Понял, продолжу с учётом контекста."})
+    history.extend(_rows_to_history(
+        _hist_rows[:-1] if _hist_rows else [],
+        uid_col=1, text_col=2, fname_col=8, lname_col=9,
+    ))
+    return history, last_break_id
+
+
+async def _maybe_compress_dm_session(db, user_db_id: int,
+                                     last_break_id: int, anyio) -> None:
+    """Авто-сжатие AI DM сессии при превышении порога.
+
+    Вызывается ПОСЛЕ сохранения ответа AI — основной поток не ждёт.
+    Если резюме уже есть или сообщений мало — нет-оп.
+    """
+    try:
+        from web.ai_utils import ask_llm_with_tools
+        count = await anyio.to_thread.run_sync(
+            lambda: db.count_ai_dm_session_msgs(user_db_id, since_id=last_break_id)
+        )
+        if count <= _SESSION_COMPRESS_AT:
+            return
+        existing = await anyio.to_thread.run_sync(
+            lambda: db.get_ai_session_text_dm(user_db_id, since_id=last_break_id)
+        )
+        if existing:
+            return
+        all_rows = await anyio.to_thread.run_sync(
+            lambda: db.get_ai_dm_conversation(user_db_id, limit=count, since_id=last_break_id)
+        )
+        to_compress = all_rows[:-_SESSION_KEEP_FRESH]
+        if len(to_compress) < 4:
+            return
+        dialog_text = "\n".join(
+            f"{'AI' if r[1] == 0 else 'Пользователь'}: {(r[3] or '').strip()}"
+            for r in to_compress if (r[3] or '').strip()
+        )
+        if not dialog_text:
+            return
+        system_compress = (
+            "Ты — система сжатия контекста для AI-ассистента. "
+            "Кратко и точно перескажи суть диалога в 3–4 предложениях, "
+            "сохраняя ключевые факты, числа и решения. Не добавляй ничего от себя."
+        )
+        summary = await ask_llm_with_tools(
+            f"Сожми следующий диалог:\n\n{dialog_text}",
+            system_compress, db, max_rounds=1, max_tokens=300, history=[]
+        )
+        if summary:
+            await anyio.to_thread.run_sync(
+                lambda: db.add_ai_session_summary_dm(user_db_id, summary)
+            )
+    except Exception as _e:
+        logger.error("_maybe_compress_dm_session: %s", _e)
+
+
+async def _maybe_compress_chat_session(db, topic_id: int,
+                                       last_break_id: int, anyio) -> None:
+    """Авто-сжатие AI chat-темы при превышении порога."""
+    try:
+        from web.ai_utils import ask_llm_with_tools
+        count = await anyio.to_thread.run_sync(
+            lambda: db.count_ai_chat_session_msgs(topic_id, since_id=last_break_id)
+        )
+        if count <= _SESSION_COMPRESS_AT:
+            return
+        existing = await anyio.to_thread.run_sync(
+            lambda: db.get_ai_session_text_chat(topic_id, since_id=last_break_id)
+        )
+        if existing:
+            return
+        all_rows = await anyio.to_thread.run_sync(
+            lambda: db.get_chat_messages(limit=count, topic_id=topic_id, since_id=last_break_id)
+        )
+        to_compress = all_rows[:-_SESSION_KEEP_FRESH]
+        if len(to_compress) < 4:
+            return
+        dialog_text = "\n".join(
+            f"{'AI' if r[1] == 0 else (r[8] or 'Сотрудник')}: {(r[2] or '').strip()}"
+            for r in to_compress if (r[2] or '').strip()
+        )
+        if not dialog_text:
+            return
+        system_compress = (
+            "Ты — система сжатия контекста. "
+            "Кратко перескажи суть командного диалога в 3–4 предложениях."
+        )
+        summary = await ask_llm_with_tools(
+            f"Сожми:\n\n{dialog_text}",
+            system_compress, db, max_rounds=1, max_tokens=300, history=[]
+        )
+        if summary:
+            await anyio.to_thread.run_sync(
+                lambda: db.add_ai_session_summary_chat(topic_id, summary)
+            )
+    except Exception as _e:
+        logger.error("_maybe_compress_chat_session: %s", _e)
 
 
 def _fmt_topic(row) -> dict:
@@ -2042,3 +2185,67 @@ async def ws_dm(websocket: WebSocket):
         logger.error("ws_dm error uid=%s: %s", user_db_id, e)
     finally:
         dm_manager.disconnect(org_db, user_db_id)
+
+
+# ── AI Session Reset Routes ────────────────────────────────────────────────────
+
+@router.post("/chat/ai/reset")
+async def ai_dm_reset_session(
+    request: Request,
+    csrf_token: str = Form(""),
+):
+    """Вставить маркер разрыва сессии в личный AI-тред (кнопка «Новый диалог»)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = await get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "Invalid CSRF"}, status_code=403)
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    if not _ai_ext_ok(get_web_db(telegram_id, org_db), telegram_id):
+        return JSONResponse({"ok": False, "error": "AI недоступен"}, status_code=403)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if not user_db_id:
+            return JSONResponse({"ok": False}, status_code=400)
+        new_id = db.add_ai_dm_session_break(user_db_id)
+        return JSONResponse({"ok": bool(new_id)})
+    except Exception as e:
+        logger.error("ai_dm_reset_session: %s", e)
+        return JSONResponse({"ok": False}, status_code=500)
+
+
+@router.post("/chat/topic/ai/reset")
+async def ai_topic_reset_session(
+    request: Request,
+    csrf_token: str = Form(""),
+    topic_id: int = Form(0),
+):
+    """Вставить маркер разрыва сессии в AI-тему (кнопка «Новый диалог» в теме)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    user = await get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "Invalid CSRF"}, status_code=403)
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _ai_ext_ok(db, telegram_id):
+            return JSONResponse({"ok": False, "error": "AI недоступен"}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if not user_db_id or not topic_id:
+            return JSONResponse({"ok": False}, status_code=400)
+        ai_tid = db.get_ai_topic_id()
+        if not ai_tid or ai_tid != topic_id:
+            return JSONResponse({"ok": False, "error": "Не AI-тема"}, status_code=400)
+        new_id = db.add_ai_chat_session_break(user_db_id, topic_id)
+        return JSONResponse({"ok": bool(new_id)})
+    except Exception as e:
+        logger.error("ai_topic_reset_session: %s", e)
+        return JSONResponse({"ok": False}, status_code=500)

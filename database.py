@@ -1233,6 +1233,21 @@ class Database:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_msg_deleted ON chat_messages(topic_id, is_deleted, deleted_at)')
 
+        # ── AI-сессии: is_session_break, is_ai_summary ───────────────────────────
+        cursor.execute("PRAGMA table_info(direct_messages)")
+        _dm_cols2 = [col[1] for col in cursor.fetchall()]
+        if 'is_session_break' not in _dm_cols2:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN is_session_break INTEGER DEFAULT 0")
+        if 'is_ai_summary' not in _dm_cols2:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN is_ai_summary INTEGER DEFAULT 0")
+
+        cursor.execute("PRAGMA table_info(chat_messages)")
+        _cm_cols = [col[1] for col in cursor.fetchall()]
+        if 'is_session_break' not in _cm_cols:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN is_session_break INTEGER DEFAULT 0")
+        if 'is_ai_summary' not in _cm_cols:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN is_ai_summary INTEGER DEFAULT 0")
+
         # ── Chat read state (серверный учёт прочитанного по темам) ─────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_read_state (
@@ -1697,7 +1712,7 @@ class Database:
                 )
             ''')
 
-        # ── AI rate-limit config (только shop_bot.db) ────────────────────────
+        # ── AI rate-limit config + tool stats (только shop_bot.db) ─────────────
         if 'shop_bot' in self.db_file:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS ai_rate_config (
@@ -1714,6 +1729,18 @@ class Database:
                     'INSERT OR IGNORE INTO ai_rate_config (key, value) VALUES (?, ?)',
                     (_k, _v)
                 )
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS ai_tool_stats (
+                    tool_name  TEXT NOT NULL,
+                    org_db     TEXT NOT NULL DEFAULT '',
+                    date       TEXT NOT NULL,
+                    call_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (tool_name, org_db, date)
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_ai_tool_stats_date ON ai_tool_stats(date)'
+            )
 
         # ── Настройки дизайна ценника (per-org, singleton row id=1) ───────────
         cursor.execute('''
@@ -11191,17 +11218,25 @@ class Database:
         conn.close()
         return new_id
 
-    def get_chat_messages(self, limit: int = 50, topic_id: int = 1) -> list:
-        """Последние N сообщений темы чата с данными пользователя."""
+    def get_chat_messages(self, limit: int = 50, topic_id: int = 1,
+                          since_id: int = 0) -> list:
+        """Последние N сообщений темы чата с данными пользователя.
+
+        since_id > 0 — только сообщения с id > since_id (для сессионного окна AI).
+        Служебные строки (session_break / ai_summary) исключены — для AI истории
+        используй get_ai_chat_history_rows.
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
+        extra = f' AND m.id > {int(since_id)}' if since_id > 0 else ''
+        cursor.execute(f'''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
                    u.first_name, u.last_name, u.username
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
+              AND m.is_session_break = 0 AND m.is_ai_summary = 0{extra}
             ORDER BY m.id DESC
             LIMIT ?
         ''', (topic_id, limit))
@@ -11220,6 +11255,7 @@ class Database:
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
+              AND m.is_session_break = 0 AND m.is_ai_summary = 0
             ORDER BY m.id ASC
         ''', (topic_id, since_id))
         rows = cursor.fetchall()
@@ -11851,14 +11887,24 @@ class Database:
     # (там ai_peer_id = id реального собеседника, т.е. >= 1).
 
     def get_ai_dm_conversation(self, user_id: int,
-                                limit: int = 50, before_id: int = 0) -> list:
-        """История личного треда пользователя с AI-ассистентом (ASC по id)."""
+                                limit: int = 50, before_id: int = 0,
+                                since_id: int = 0) -> list:
+        """История личного треда пользователя с AI-ассистентом (ASC по id).
+
+        since_id > 0 — только сообщения с id > since_id (сессионное окно).
+        before_id > 0 — пагинация назад (id < before_id).
+        Служебные строки (session_break / ai_summary) исключены — только
+        содержательные сообщения для истории и отображения.
+        """
         try:
             conn = self.get_connection()
             params: list = [user_id, user_id]
             extra = ''
+            if since_id > 0:
+                extra += ' AND d.id > ?'
+                params.append(since_id)
             if before_id > 0:
-                extra = ' AND d.id < ?'
+                extra += ' AND d.id < ?'
                 params.append(before_id)
             params.append(limit)
             rows = conn.execute(
@@ -11870,7 +11916,8 @@ class Database:
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = 0)
                         OR (d.from_user_id = 0 AND d.to_user_id = ? AND d.ai_peer_id = 0))
-                      AND d.is_deleted = 0{extra}
+                      AND d.is_deleted = 0
+                      AND d.is_session_break = 0 AND d.is_ai_summary = 0{extra}
                     ORDER BY d.id DESC
                     LIMIT ?''',
                 params
@@ -11928,6 +11975,275 @@ class Database:
         except Exception as e:
             logger.error("get_ai_dm_summary: %s", e)
             return ('', 0, '', 0)
+
+    # ── AI Session methods (DM тред) ──────────────────────────────────────────
+
+    def get_last_ai_dm_session_break_id(self, user_id: int) -> int:
+        """ID последнего маркера разрыва сессии в личном AI-треде. 0 если нет."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT MAX(id) FROM direct_messages
+                   WHERE ((from_user_id = ? AND to_user_id = 0)
+                       OR (from_user_id = 0 AND to_user_id = ? AND ai_peer_id = 0))
+                     AND is_session_break = 1 AND is_deleted = 0''',
+                (user_id, user_id)
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row and row[0] else 0
+        except Exception as e:
+            logger.error("get_last_ai_dm_session_break_id: %s", e)
+            return 0
+
+    def add_ai_dm_session_break(self, user_id: int) -> int:
+        """Вставить маркер разрыва сессии в личный AI-тред. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                '''INSERT INTO direct_messages
+                   (from_user_id, to_user_id, message, is_session_break)
+                   VALUES (?, 0, '', 1)''',
+                (user_id,)
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error("add_ai_dm_session_break: %s", e)
+            return 0
+
+    def get_ai_session_text_dm(self, user_id: int, since_id: int = 0) -> str | None:
+        """Текст последнего сжатого резюме в текущей AI DM сессии. None если нет."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT message FROM direct_messages
+                   WHERE ((from_user_id = 0 AND to_user_id = ?)
+                       OR (from_user_id = ? AND to_user_id = 0))
+                     AND is_ai_summary = 1 AND is_deleted = 0 AND id > ?
+                   ORDER BY id DESC LIMIT 1''',
+                (user_id, user_id, since_id)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error("get_ai_session_text_dm: %s", e)
+            return None
+
+    def add_ai_session_summary_dm(self, user_id: int, summary: str) -> int:
+        """Вставить сжатое резюме сессии в AI DM тред. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                '''INSERT INTO direct_messages
+                   (from_user_id, to_user_id, message, is_ai_summary, ai_peer_id)
+                   VALUES (0, ?, ?, 1, 0)''',
+                (user_id, summary)
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error("add_ai_session_summary_dm: %s", e)
+            return 0
+
+    def count_ai_dm_session_msgs(self, user_id: int, since_id: int = 0) -> int:
+        """Количество содержательных сообщений в текущей AI DM сессии."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT COUNT(*) FROM direct_messages
+                   WHERE ((from_user_id = ? AND to_user_id = 0)
+                       OR (from_user_id = 0 AND to_user_id = ? AND ai_peer_id = 0))
+                     AND is_deleted = 0 AND is_session_break = 0 AND is_ai_summary = 0
+                     AND id > ?''',
+                (user_id, user_id, since_id)
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("count_ai_dm_session_msgs: %s", e)
+            return 0
+
+    def archive_old_ai_dm_sessions(self, days: int = 30) -> int:
+        """Вставить авто-разрыв для AI DM тредов без активности > N дней.
+        Возвращает количество затронутых пользователей."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT from_user_id, MAX(created_at) as last_at
+                   FROM direct_messages
+                   WHERE to_user_id = 0 AND from_user_id > 0
+                     AND is_session_break = 0 AND is_deleted = 0
+                   GROUP BY from_user_id
+                   HAVING last_at < datetime('now', ?)''',
+                (f'-{int(days)} days',)
+            ).fetchall()
+            count = 0
+            for row in rows:
+                uid = row[0]
+                has_break = conn.execute(
+                    '''SELECT MAX(id) FROM direct_messages
+                       WHERE from_user_id = ? AND to_user_id = 0
+                         AND is_session_break = 1 AND is_deleted = 0''',
+                    (uid,)
+                ).fetchone()
+                last_msg = conn.execute(
+                    '''SELECT MAX(id) FROM direct_messages
+                       WHERE from_user_id = ? AND to_user_id = 0
+                         AND is_session_break = 0 AND is_deleted = 0''',
+                    (uid,)
+                ).fetchone()
+                # Вставляем разрыв только если нет разрыва после последнего сообщения
+                break_id = (has_break[0] or 0) if has_break else 0
+                last_id = (last_msg[0] or 0) if last_msg else 0
+                if last_id > 0 and break_id < last_id:
+                    conn.execute(
+                        '''INSERT INTO direct_messages
+                           (from_user_id, to_user_id, message, is_session_break)
+                           VALUES (?, 0, '', 1)''',
+                        (uid,)
+                    )
+                    count += 1
+            conn.commit()
+            conn.close()
+            return count
+        except Exception as e:
+            logger.error("archive_old_ai_dm_sessions: %s", e)
+            return 0
+
+    # ── AI Session methods (Chat тема) ─────────────────────────────────────────
+
+    def get_last_ai_chat_session_break_id(self, topic_id: int) -> int:
+        """ID последнего маркера разрыва сессии в AI-теме. 0 если нет."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT MAX(id) FROM chat_messages
+                   WHERE topic_id = ? AND is_session_break = 1 AND is_deleted = 0''',
+                (topic_id,)
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row and row[0] else 0
+        except Exception as e:
+            logger.error("get_last_ai_chat_session_break_id: %s", e)
+            return 0
+
+    def add_ai_chat_session_break(self, user_db_id: int, topic_id: int) -> int:
+        """Вставить маркер разрыва сессии в AI-тему. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                '''INSERT INTO chat_messages
+                   (user_id, message, topic_id, is_session_break)
+                   VALUES (?, '', ?, 1)''',
+                (user_db_id, topic_id)
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error("add_ai_chat_session_break: %s", e)
+            return 0
+
+    def get_ai_session_text_chat(self, topic_id: int, since_id: int = 0) -> str | None:
+        """Текст последнего сжатого резюме в текущей AI chat сессии. None если нет."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT message FROM chat_messages
+                   WHERE topic_id = ? AND is_ai_summary = 1 AND is_deleted = 0 AND id > ?
+                   ORDER BY id DESC LIMIT 1''',
+                (topic_id, since_id)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error("get_ai_session_text_chat: %s", e)
+            return None
+
+    def add_ai_session_summary_chat(self, topic_id: int, summary: str) -> int:
+        """Вставить сжатое резюме сессии в AI-тему. Возвращает id."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                '''INSERT INTO chat_messages
+                   (user_id, message, topic_id, is_ai_summary)
+                   VALUES (0, ?, ?, 1)''',
+                (summary, topic_id)
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+            conn.close()
+            return new_id
+        except Exception as e:
+            logger.error("add_ai_session_summary_chat: %s", e)
+            return 0
+
+    def count_ai_chat_session_msgs(self, topic_id: int, since_id: int = 0) -> int:
+        """Количество содержательных сообщений в текущей AI chat сессии."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                '''SELECT COUNT(*) FROM chat_messages
+                   WHERE topic_id = ? AND is_deleted = 0
+                     AND is_session_break = 0 AND is_ai_summary = 0
+                     AND id > ?''',
+                (topic_id, since_id)
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("count_ai_chat_session_msgs: %s", e)
+            return 0
+
+    def archive_old_ai_chat_session(self, topic_id: int, days: int = 30) -> bool:
+        """Вставить авто-разрыв для AI-темы, если > N дней нет активности.
+        Возвращает True если разрыв был вставлен."""
+        try:
+            conn = self.get_connection()
+            last_row = conn.execute(
+                '''SELECT MAX(id), MAX(created_at) FROM chat_messages
+                   WHERE topic_id = ? AND is_session_break = 0
+                     AND is_ai_summary = 0 AND is_deleted = 0''',
+                (topic_id,)
+            ).fetchone()
+            if not last_row or not last_row[1]:
+                conn.close()
+                return False
+            last_id, last_at = last_row
+            # Проверяем возраст последнего сообщения
+            is_old = conn.execute(
+                "SELECT ? < datetime('now', ?)",
+                (last_at, f'-{int(days)} days')
+            ).fetchone()
+            if not (is_old and is_old[0]):
+                conn.close()
+                return False
+            # Проверяем: нет ли уже разрыва после последнего сообщения
+            break_row = conn.execute(
+                '''SELECT MAX(id) FROM chat_messages
+                   WHERE topic_id = ? AND is_session_break = 1 AND is_deleted = 0''',
+                (topic_id,)
+            ).fetchone()
+            break_id = (break_row[0] or 0) if break_row else 0
+            if break_id >= (last_id or 0):
+                conn.close()
+                return False
+            conn.execute(
+                '''INSERT INTO chat_messages (user_id, message, topic_id, is_session_break)
+                   VALUES (0, '', ?, 1)''',
+                (topic_id,)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("archive_old_ai_chat_session: %s", e)
+            return False
 
     def get_dm_message(self, msg_id: int) -> tuple | None:
         """Получить одно ЛС по id (для скачивания файлов)."""
@@ -13487,6 +13803,65 @@ class Database:
         except Exception as exc:
             logger.error('get_user_active_billing_items: %s', exc)
             return set()
+
+    def record_ai_tool_call(self, tool_name: str, org_db: str, date_str: str) -> None:
+        """Upsert one call into ai_tool_stats (only valid on shop_bot.db)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                """INSERT INTO ai_tool_stats (tool_name, org_db, date, call_count)
+                   VALUES (?, ?, ?, 1)
+                   ON CONFLICT(tool_name, org_db, date)
+                   DO UPDATE SET call_count = call_count + 1""",
+                (tool_name, org_db, date_str),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as exc:
+            logger.error('record_ai_tool_call: %s', exc)
+
+    def get_ai_tool_stats_db(self, date_str: str) -> dict:
+        """Return {(tool_name, org_db): call_count} for a specific date."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                'SELECT tool_name, org_db, call_count FROM ai_tool_stats WHERE date=?',
+                (date_str,),
+            ).fetchall()
+            conn.close()
+            return {(r[0], r[1]): r[2] for r in rows}
+        except Exception as exc:
+            logger.error('get_ai_tool_stats_db: %s', exc)
+            return {}
+
+    def get_ai_tool_stats_all_dates_db(self) -> dict:
+        """Return {(tool_name, org_db, date): call_count} for all dates."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                'SELECT tool_name, org_db, date, call_count FROM ai_tool_stats ORDER BY date DESC',
+            ).fetchall()
+            conn.close()
+            return {(r[0], r[1], r[2]): r[3] for r in rows}
+        except Exception as exc:
+            logger.error('get_ai_tool_stats_all_dates_db: %s', exc)
+            return {}
+
+    def prune_ai_tool_stats(self, days: int = 90) -> int:
+        """Delete ai_tool_stats rows older than *days* days. Returns deleted row count."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                "DELETE FROM ai_tool_stats WHERE date < date('now', ?)",
+                (f'-{days} days',),
+            )
+            deleted = cur.rowcount
+            conn.commit()
+            conn.close()
+            return deleted
+        except Exception as exc:
+            logger.error('prune_ai_tool_stats: %s', exc)
+            return 0
 
     def get_billing_stats(self) -> dict:
         """Статистика биллинга для super admin панели."""

@@ -1073,9 +1073,58 @@ async def admin_ai_limits(request: Request):
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
 
+    import datetime as _dt
     from web.rate_store import get_ai_rate_limits, get_ai_usage_stats_today
+    from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
+
     base, high = get_ai_rate_limits()
     top_users = get_ai_usage_stats_today(top_n=30)
+
+    today_str = _dt.date.today().isoformat()
+    yesterday_str = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+
+    today_stats = get_tool_stats(today_str)
+    yesterday_stats = get_tool_stats(yesterday_str)
+    all_dates = get_tool_stats_all_dates()
+
+    cutoff = (_dt.date.today() - _dt.timedelta(days=6)).isoformat()
+    week_by_tool: dict = {}
+    for day, day_data in all_dates.items():
+        if day >= cutoff:
+            for tool, count in day_data["by_tool"].items():
+                week_by_tool[tool] = week_by_tool.get(tool, 0) + count
+    week_by_tool = dict(sorted(week_by_tool.items(), key=lambda kv: kv[1], reverse=True))
+
+    all_tools = list(
+        dict.fromkeys(
+            list(today_stats["by_tool"]) +
+            list(yesterday_stats["by_tool"]) +
+            list(week_by_tool)
+        )
+    )
+    tool_rows = [
+        {
+            "name": t,
+            "today": today_stats["by_tool"].get(t, 0),
+            "yesterday": yesterday_stats["by_tool"].get(t, 0),
+            "week": week_by_tool.get(t, 0),
+        }
+        for t in all_tools
+    ]
+    tool_rows.sort(key=lambda r: r["today"], reverse=True)
+
+    cutoff_30 = (_dt.date.today() - _dt.timedelta(days=29)).isoformat()
+    chart_data = []
+    for i in range(30):
+        day = (_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat()
+        total = all_dates.get(day, {}).get("total_calls", 0)
+        chart_data.append({"date": day, "total": total})
+
+    alltime_by_tool: dict = {}
+    for day_data in all_dates.values():
+        for tool, count in day_data["by_tool"].items():
+            alltime_by_tool[tool] = alltime_by_tool.get(tool, 0) + count
+    alltime_by_tool = dict(sorted(alltime_by_tool.items(), key=lambda kv: kv[1], reverse=True))
 
     return request.app.state.templates.TemplateResponse(
         request,
@@ -1086,6 +1135,15 @@ async def admin_ai_limits(request: Request):
             "top_users": top_users,
             "csrf_token": get_csrf_token(request),
             "msg": request.query_params.get("msg", ""),
+            "tool_rows": tool_rows,
+            "tool_today_total": today_stats["total_calls"],
+            "tool_yesterday_total": yesterday_stats["total_calls"],
+            "tool_week_total": sum(week_by_tool.values()),
+            "today_str": today_str,
+            "yesterday_str": yesterday_str,
+            "chart_data": chart_data,
+            "alltime_by_tool": alltime_by_tool,
+            "alltime_total": sum(alltime_by_tool.values()),
         }),
     )
 
@@ -1132,3 +1190,61 @@ async def admin_ai_limits_save(
             conn.close()
 
     return RedirectResponse("/admin/ai-limits?msg=saved", 303)
+
+
+# ─── AI tool usage stats ──────────────────────────────────────────────────────
+
+@router.get("/ai-tool-stats")
+async def admin_ai_tool_stats(request: Request):
+    """Return AI tool usage counters (persisted in shop_bot.db, survives restarts).
+
+    Query params:
+      ?date=YYYY-MM-DD   — show stats for a specific date (default: today UTC)
+      ?all=1             — show stats for all dates
+      ?format=text       — return plain-text summary instead of JSON
+
+    Super-admin only.
+    """
+    import datetime as _dt
+    from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
+
+    user = get_session_user(request)
+    if _guard(user):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+
+    params = request.query_params
+    show_all = params.get("all", "0") == "1"
+    fmt = params.get("format", "json").lower()
+
+    try:
+        if show_all:
+            history = get_tool_stats_all_dates()
+            if fmt == "text":
+                lines = [f"AI tool usage — all dates in memory ({len(history)} days)"]
+                for date_str, day_data in history.items():
+                    lines.append(f"\n{date_str}  ({day_data['total_calls']} calls total):")
+                    for tool, count in day_data["by_tool"].items():
+                        lines.append(f"  {tool}: {count}")
+                return JSONResponse(
+                    {"ok": True, "text": "\n".join(lines)},
+                    media_type="application/json",
+                )
+            return JSONResponse({"ok": True, "history": history})
+
+        date_str = params.get("date") or _dt.date.today().isoformat()
+        stats = get_tool_stats(date_str)
+
+        if fmt == "text":
+            if not stats["by_tool"]:
+                summary = f"AI tool usage for {date_str}: no calls recorded."
+            else:
+                parts = [f"{tool} ×{count}" for tool, count in stats["by_tool"].items()]
+                summary = f"AI tool usage for {date_str} ({stats['total_calls']} calls): " + ", ".join(parts)
+            return JSONResponse({"ok": True, "text": summary})
+
+        return JSONResponse({"ok": True, **stats})
+
+    except Exception as exc:
+        import logging as _lg
+        _lg.error("admin_ai_tool_stats: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

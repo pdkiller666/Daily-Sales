@@ -1,6 +1,23 @@
-CURRENT_VERSION = "1.35.0"
+CURRENT_VERSION = "1.36.0"
 
 ENTRIES = [
+    {
+        "version": "1.36.0",
+        "date": "16 июня 2026",
+        "items": [
+            "- Кнопка **«Новый диалог»** (⟳) в AI ЛС и AI-теме — явный сброс контекста; история остаётся в базе",
+            "- Кнопка прикрепить файл скрыта в AI-треде (там файлы не нужны)",
+            "- **Авто-сжатие**: при >12 сообщений в сессии AI делает краткое резюме и продолжает с ним",
+            "- **Авто-архивация**: сессии без активности >30 дней автоматически закрываются (ежедневно в 03:20 UTC)",
+            "Add conversation history to AI assistant chats and direct messages",
+            "Add AI chat topic \"thinking\" indicator",
+            "Track AI tool usage with in-memory counters + admin endpoint",
+            "Show AI tool usage in the super-admin dashboard UI",
+            "Persist AI tool usage stats across server restarts",
+            "Add nightly background job to prune old AI tool usage records",
+            "Show AI tool usage history charts in the super-admin dashboard",
+        ],
+    },
     {
         "version": "1.35.0",
         "date": "16 июня 2026",
