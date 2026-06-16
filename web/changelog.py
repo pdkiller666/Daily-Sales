@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.10.0"
+CURRENT_VERSION = "1.11.0"
 
 ENTRIES = [
+    {
+        "version": "1.11.0",
+        "date": "16 июня 2026",
+        "items": [
+            "⚡ Навигация по меню без перезагрузки страницы — переходы между разделами стали мгновенными (HTMX content-swap)",
+            "HTMX content-swap navigation (no full page reloads on menu clicks)",
+        ],
+    },
     {
         "version": "1.10.0",
         "date": "16 июня 2026",
