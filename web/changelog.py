@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.25.0"
+CURRENT_VERSION = "1.26.0"
 
 ENTRIES = [
+    {
+        "version": "1.26.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Чат: бейдж FAB по серверному read-state + анкеринг поля ввода",
+        ],
+    },
     {
         "version": "1.25.0",
         "date": "16 июня 2026",

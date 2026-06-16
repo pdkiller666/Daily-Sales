@@ -2556,14 +2556,17 @@ function mainApp() {
     window.addEventListener('touchmove', pointerMove, { passive: false });
     window.addEventListener('touchend', pointerUp);
 
-    /* ── unread badge: topic new msgs (/chat/poll) + DM unread (/api/unread-count) ── */
-    const LS_KEY = 'ds_chat_last_id';
-    let lastId   = parseInt(localStorage.getItem(LS_KEY) || '0', 10);
-    let topicNew = 0;   /* new topic messages since last visit */
-    let dmUnread = 0;   /* DM unread count from server */
+    /* ── unread badge: authoritative server unread ──
+       topicUnread = сумма серверных счётчиков непрочитанного по темам
+       (get_chat_unread_counts через /chat/poll), DM — /api/unread-count.
+       НИКОГДА не аккумулируем messages.length и НЕ помечаем тему прочитанной
+       (mark_read=0). Бейдж сам обнуляется, как только in-page чат отметит
+       сообщения прочитанными на сервере (/chat/read, /chat/dm/<peer>/read). */
+    let topicUnread = 0;   /* server-side unread across all topics */
+    let dmUnread    = 0;   /* DM unread count from server */
 
     function updateBadge() {
-        const total = topicNew + dmUnread;
+        const total = topicUnread + dmUnread;
         if (total > 0) {
             badge.textContent = total > 9 ? '9+' : total;
             badge.classList.remove('hidden');
@@ -2582,33 +2585,33 @@ function mainApp() {
         } catch (_) {}
     }
 
-    async function pollUnread() {
+    async function fetchTopicUnread() {
         try {
-            const res  = await fetch('/chat/poll?since_id=' + lastId);
+            /* since_id высокий → пустой messages (нужен только topic_unread);
+               mark_read=0 → FAB НИКОГДА молча не помечает тему прочитанной. */
+            const res  = await fetch('/chat/poll?since_id=2147483647&mark_read=0');
             const data = await res.json();
-            if (data.ok && data.messages && data.messages.length > 0) {
-                topicNew += data.messages.length;
-                lastId = data.latest_id;
-                try { localStorage.setItem(LS_KEY, lastId); } catch (_) {}
+            if (data.ok && data.topic_unread && typeof data.topic_unread === 'object') {
+                let sum = 0;
+                for (const k in data.topic_unread) sum += (data.topic_unread[k] || 0);
+                topicUnread = sum;
                 updateBadge();
             }
         } catch (_) {}
     }
 
-    /* Reset when user visits chat (focus or already on page) */
-    function _maybeClearChatBadge() {
-        if (window.location.pathname.startsWith('/chat')) {
-            topicNew = 0; dmUnread = 0; updateBadge();
-        }
-    }
-    window.addEventListener('focus', _maybeClearChatBadge);
-    /* Also clear immediately if page loads while already on /chat */
-    _maybeClearChatBadge();
+    function refreshUnread() { fetchTopicUnread(); fetchDmUnread(); }
 
-    setInterval(pollUnread,    10000);
-    setInterval(fetchDmUnread, 60000);
-    pollUnread();
-    fetchDmUnread();   /* Fetch DM unread immediately on load */
+    /* На странице чата бейдж не нужен: in-page чат сам ведёт серверный read-state.
+       Поллинг там НЕ запускаем, чтобы не пере-считывать активно читаемое.
+       На остальных страницах опрашиваем сервер — read-state уже обновлён,
+       поэтому прочитанный диалог покажет 0. */
+    if (!onChatPage) {
+        window.addEventListener('focus', refreshUnread);
+        setInterval(fetchTopicUnread, 10000);
+        setInterval(fetchDmUnread,    60000);
+        refreshUnread();   /* immediately on load */
+    }
 })();
 </script>
 {% endif %}

@@ -13,9 +13,14 @@ main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
 #dm-wrapper {
-    height: calc(100vh - 3.5rem);
-    height: calc(100dvh - 3.5rem);
+    /* Высота уточняется в fitDmHeight(): видимый viewport − верх обёртки − нижнее меню.
+       Фолбэк (до JS): мобильный — минус шапка(3.5rem) и нижнее меню(4rem);
+       десктоп — только минус шапка. Так композер не прячется под фикс-меню. */
+    height: var(--dm-h, calc(100dvh - 3.5rem - 4rem));
     display: flex;
+}
+@media (min-width:1024px) {
+    #dm-wrapper { height: var(--dm-h, calc(100dvh - 3.5rem)); }
 }
 
 /* ── Left panel (contacts) ── */
@@ -634,8 +639,40 @@ document.getElementById('dm-input')?.addEventListener('input', onInputTyping);
 // ── Load more button ─────────────────────────────────────────────────────────
 document.getElementById('dm-load-more-btn')?.addEventListener('click', dmLoadMore);
 
+// ── Height anchoring: композер строго между шапкой и нижним меню ──────────────
+function fitDmHeight() {
+    const el = document.getElementById('dm-wrapper');
+    if (!el) return;
+    const vv  = window.visualViewport;
+    const top = el.getBoundingClientRect().top;
+    const vh  = vv ? vv.height : window.innerHeight;
+    const offTop = vv ? vv.offsetTop : 0;   // сдвиг видимой области (URL-бар/клавиатура)
+    const isDesktop = window.matchMedia('(min-width:1024px)').matches;
+    let navH = 0;
+    if (!isDesktop) {
+        // nav.height уже включает safe-area; при открытой клавиатуре меню перекрыто → не вычитаем
+        const kbOpen = vv && (window.innerHeight - vh) > 120;
+        const nav = document.querySelector('nav.fixed.bottom-0');
+        navH = kbOpen ? 0 : (nav ? nav.getBoundingClientRect().height : 64);
+    }
+    const h = Math.max(240, Math.round(offTop + vh - top - navH));
+    el.style.setProperty('--dm-h', h + 'px');
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
+    // Высота обёртки (между шапкой и нижним меню), реагирует на viewport/клавиатуру
+    fitDmHeight();
+    setTimeout(fitDmHeight, 0);
+    window.addEventListener('resize', fitDmHeight);
+    window.addEventListener('orientationchange', fitDmHeight);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', fitDmHeight);
+        window.visualViewport.addEventListener('scroll', fitDmHeight);
+    }
+    document.addEventListener('focusin', fitDmHeight);
+    document.addEventListener('focusout', () => setTimeout(fitDmHeight, 60));
+
     // Scroll to bottom
     const scroll = document.getElementById('dm-scroll');
     if (scroll) scroll.scrollTop = scroll.scrollHeight;

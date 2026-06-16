@@ -14,11 +14,15 @@ main.ds-main { padding:0 !important; overflow:hidden; }
 footer { display:none !important; }
 
 #chat-wrapper {
-    /* Высота вычисляется в _fitHeight(): viewport − верх обёртки − нижнее меню.
-       Фолбэк на случай, если JS ещё не отработал. */
-    height: var(--chat-h, calc(100dvh - 3.5rem));
-    height: var(--chat-h, calc(100dvh - 3.5rem));
+    /* Высота вычисляется в _fitHeight(): видимый viewport − верх обёртки − нижнее меню.
+       Фолбэк (пока JS не отработал): мобильный — минус шапка(3.5rem) и нижнее меню(4rem),
+       десктоп — только минус шапка (нижнего меню нет). Так композер не прячется под
+       фикс-меню даже до JS. */
+    height: var(--chat-h, calc(100dvh - 3.5rem - 4rem));
     overflow: hidden;
+}
+@media (min-width:1024px) {
+    #chat-wrapper { height: var(--chat-h, calc(100dvh - 3.5rem)); }
 }
 
 /* ── Bubble styles ── */
@@ -538,7 +542,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
     </div>
 
     <!-- ══ Input area ══ -->
-    <div x-show="!dmMode" class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-[3.875rem] lg:pb-4 bg-white dark:bg-slate-900">
+    <div x-show="!dmMode" class="shrink-0 border-t border-slate-200 dark:border-slate-700 pt-3 px-4 sm:px-6 pb-4 bg-white dark:bg-slate-900">
 
         <!-- File previews (multi-file) -->
         <div x-show="attachedFiles.length > 0" x-cloak class="mb-2 flex items-center gap-2 flex-wrap">
@@ -917,7 +921,13 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this._fitHandler = () => this._fitHeight();
             window.addEventListener('resize', this._fitHandler);
             window.addEventListener('orientationchange', this._fitHandler);
-            if (window.visualViewport) window.visualViewport.addEventListener('resize', this._fitHandler);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', this._fitHandler);
+                window.visualViewport.addEventListener('scroll', this._fitHandler);
+            }
+            /* Клавиатура на мобильных: focus/blur поля ввода меняет видимый viewport */
+            document.addEventListener('focusin', this._fitHandler);
+            document.addEventListener('focusout', () => setTimeout(this._fitHandler, 60));
             this.scrollBottom(true);
             this.startPolling();
             /* Постоянное WS-соединение для ЛС — живёт в любом режиме */
@@ -947,15 +957,23 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         _fitHeight() {
             const el = this.$el;
             if (!el) return;
+            const vv  = window.visualViewport;
             const top = el.getBoundingClientRect().top;
-            const vh  = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+            const vh  = vv ? vv.height : window.innerHeight;
+            /* offsetTop учитывает сдвиг видимой области (URL-бар / клавиатура),
+               чтобы низ обёртки совпал с низом ВИДИМОГО viewport, а не layout-viewport. */
+            const offTop = vv ? vv.offsetTop : 0;
             const isDesktop = window.matchMedia('(min-width:1024px)').matches;
             let navH = 0;
             if (!isDesktop) {
+                /* nav.height уже включает safe-area-inset-bottom (padding-bottom env()).
+                   Клавиатура перекрывает фикс-меню → при сильно сжатом viewport
+                   не вычитаем меню, иначе поле ввода уедет вверх / спрячется. */
+                const kbOpen = vv && (window.innerHeight - vh) > 120;
                 const nav = document.querySelector('nav.fixed.bottom-0');
-                navH = nav ? nav.getBoundingClientRect().height : 64;
+                navH = kbOpen ? 0 : (nav ? nav.getBoundingClientRect().height : 64);
             }
-            const h = Math.max(240, Math.round(vh - top - navH));
+            const h = Math.max(240, Math.round(offTop + vh - top - navH));
             el.style.setProperty('--chat-h', h + 'px');
         },
 
