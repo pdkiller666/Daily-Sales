@@ -127,6 +127,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict
     return {
         "id": mid,
         "user_id": user_id,
+        "is_ai": user_id == 0,
         "message": message or "",
         "file_name": first.get("file_name", ""),
         "file_type": first.get("file_type", ""),

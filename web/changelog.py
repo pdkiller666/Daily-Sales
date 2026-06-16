@@ -1,6 +1,21 @@
-CURRENT_VERSION = "1.15.0"
+CURRENT_VERSION = "1.16.0"
 
 ENTRIES = [
+    {
+        "version": "1.16.0",
+        "date": "16 июня 2026",
+        "items": [
+            "AI-ассистент в общем чате теперь отображается с тем же стилем, что и в личных сообщениях: бирюзовая рамка, аватар 🤖 и имя «AI-ассистент» выделены зелёным цветом.",
+            "Еженедельный AI-дайджест теперь отображается в веб-кабинете на странице AI-инсайтов — без перехода на другую страницу. Последний дайджест загружается сразу при открытии, кнопка «↻ обновить» подгружает свежие данные через Alpine без перезагрузки.",
+            "Владельцы магазинов теперь могут выбрать день недели и время отправки еженедельного AI-дайджеста прямо в настройках — вместо фиксированного понедельника 09:00.",
+            "Update application information and AI features for improved user experience",
+            "Show the weekly AI digest in the web cabinet without leaving the page",
+            "Show AI bot style in topic chat messages",
+            "Let owners choose what day and time the weekly digest arrives",
+            "Show AI context blocks in bot and allow inline toggle",
+            "Send AI weekly digest via web push in addition to Telegram",
+        ],
+    },
     {
         "version": "1.15.0",
         "date": "16 июня 2026",

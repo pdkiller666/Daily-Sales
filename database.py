@@ -1305,14 +1305,28 @@ class Database:
         # ── AI smart alert settings (per-org, singleton row id=1) ─────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alert_settings (
-                id             INTEGER PRIMARY KEY DEFAULT 1,
-                enabled        INTEGER DEFAULT 1,
-                threshold_pct  INTEGER DEFAULT 35,
-                alert_hour_msk INTEGER DEFAULT 10,
-                metrics        TEXT    DEFAULT '["revenue"]',
-                updated_at     TEXT    DEFAULT (datetime('now'))
+                id                 INTEGER PRIMARY KEY DEFAULT 1,
+                enabled            INTEGER DEFAULT 1,
+                threshold_pct      INTEGER DEFAULT 35,
+                alert_hour_msk     INTEGER DEFAULT 10,
+                metrics            TEXT    DEFAULT '["revenue"]',
+                updated_at         TEXT    DEFAULT (datetime('now')),
+                digest_context     TEXT    DEFAULT '["products","sellers","plans"]',
+                digest_enabled     INTEGER DEFAULT 1,
+                digest_day_of_week INTEGER DEFAULT 0,
+                digest_hour_msk    INTEGER DEFAULT 9
             )
         ''')
+        # Миграция: добавляем колонки дайджеста если их нет (существующие org БД)
+        _ais_cols = {r[1] for r in cursor.execute("PRAGMA table_info(ai_alert_settings)").fetchall()}
+        if 'digest_context' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_context TEXT DEFAULT '[\"products\",\"sellers\",\"plans\"]'")
+        if 'digest_enabled' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_enabled INTEGER DEFAULT 1")
+        if 'digest_day_of_week' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_day_of_week INTEGER DEFAULT 0")
+        if 'digest_hour_msk' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_hour_msk INTEGER DEFAULT 9")
 
         # ── Гибкая оргструктура (Вариант A+B) ───────────────────────────────
         # Подразделения с иерархией (регион → город → магазин → отдел → команда)
@@ -1551,6 +1565,13 @@ class Database:
                     weekday       INTEGER DEFAULT 0,
                     hour_msk      INTEGER DEFAULT 12,
                     updated_at    TEXT DEFAULT (datetime(\'now\'))
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS ai_weekly_digest_cache (
+                    org_db       TEXT PRIMARY KEY,
+                    digest_text  TEXT NOT NULL,
+                    generated_at TEXT NOT NULL
                 )
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
@@ -12665,11 +12686,16 @@ class Database:
             "alert_hour_msk": 10,
             "metrics": ["revenue"],
             "digest_context": ["products", "sellers", "plans"],
+            "digest_enabled": True,
+            "digest_day_of_week": 0,
+            "digest_hour_msk": 9,
         }
         try:
             conn = self.get_connection()
             row = conn.execute(
-                "SELECT enabled, threshold_pct, alert_hour_msk, metrics, digest_context FROM ai_alert_settings WHERE id = 1"
+                "SELECT enabled, threshold_pct, alert_hour_msk, metrics, digest_context,"
+                " digest_enabled, digest_day_of_week, digest_hour_msk"
+                " FROM ai_alert_settings WHERE id = 1"
             ).fetchone()
             conn.close()
             if row:
@@ -12679,6 +12705,9 @@ class Database:
                     "alert_hour_msk": int(row[2] or 10),
                     "metrics": _json.loads(row[3] or '["revenue"]'),
                     "digest_context": _json.loads(row[4] or '["products","sellers","plans"]'),
+                    "digest_enabled": bool(row[5] if row[5] is not None else 1),
+                    "digest_day_of_week": int(row[6] or 0),
+                    "digest_hour_msk": int(row[7] if row[7] is not None else 9),
                 }
             return defaults
         except Exception as exc:
@@ -12692,6 +12721,9 @@ class Database:
         alert_hour_msk: int,
         metrics: list,
         digest_context: list | None = None,
+        digest_enabled: bool = True,
+        digest_day_of_week: int = 0,
+        digest_hour_msk: int = 9,
     ) -> bool:
         import json as _json
         if digest_context is None:
@@ -12699,16 +12731,22 @@ class Database:
         try:
             conn = self.get_connection()
             conn.execute(
-                """INSERT INTO ai_alert_settings (id, enabled, threshold_pct, alert_hour_msk, metrics, digest_context, updated_at)
-                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'))
+                """INSERT INTO ai_alert_settings
+                       (id, enabled, threshold_pct, alert_hour_msk, metrics, digest_context, updated_at,
+                        digest_enabled, digest_day_of_week, digest_hour_msk)
+                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
-                       enabled        = excluded.enabled,
-                       threshold_pct  = excluded.threshold_pct,
-                       alert_hour_msk = excluded.alert_hour_msk,
-                       metrics        = excluded.metrics,
-                       digest_context = excluded.digest_context,
-                       updated_at     = excluded.updated_at""",
-                (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics), _json.dumps(digest_context)),
+                       enabled            = excluded.enabled,
+                       threshold_pct      = excluded.threshold_pct,
+                       alert_hour_msk     = excluded.alert_hour_msk,
+                       metrics            = excluded.metrics,
+                       digest_context     = excluded.digest_context,
+                       updated_at         = excluded.updated_at,
+                       digest_enabled     = excluded.digest_enabled,
+                       digest_day_of_week = excluded.digest_day_of_week,
+                       digest_hour_msk    = excluded.digest_hour_msk""",
+                (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics),
+                 _json.dumps(digest_context), int(digest_enabled), int(digest_day_of_week), int(digest_hour_msk)),
             )
             conn.commit()
             return True

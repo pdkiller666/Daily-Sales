@@ -186,6 +186,36 @@ def _save_cached_insights(tg_id: int, text: str) -> None:
         logger.error("_save_cached_insights error: %s", exc)
 
 
+def _get_digests_for_orgs(org_dbs: list[str]) -> list[dict]:
+    """Return cached weekly digests for the given list of org_db paths, newest first."""
+    if not org_dbs:
+        return []
+    results = []
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB)
+        placeholders = ",".join("?" * len(org_dbs))
+        rows = conn.execute(
+            f"SELECT org_db, digest_text, generated_at FROM ai_weekly_digest_cache WHERE org_db IN ({placeholders}) ORDER BY generated_at DESC",
+            org_dbs,
+        ).fetchall()
+        conn.close()
+        for row in rows:
+            results.append({
+                "org_db": row[0],
+                "digest_text": row[1],
+                "generated_at": row[2],
+            })
+    except Exception as exc:
+        logger.error("_get_digests_for_orgs error: %s", exc)
+    return results
+
+
+def _get_digest_for_org(org_db: str) -> dict | None:
+    """Return the cached weekly digest for a single org_db, or None."""
+    rows = _get_digests_for_orgs([org_db])
+    return rows[0] if rows else None
+
+
 @router.get("/ai-insights")
 def ai_insights_page(request: Request):
     from web.auth import get_session_user
@@ -198,11 +228,28 @@ def ai_insights_page(request: Request):
     tg_id = int(user["sub"])
     has_module_ok = has_module(tg_id, "ai_assistant")
     has_ext_ok = has_extension(tg_id, "ai_network_insights")
+    has_alerts_ext = has_extension(tg_id, "ai_smart_alerts")
 
     user_orgs = _get_owner_orgs(tg_id)
     is_network = len(user_orgs) >= 2
 
     cached = _get_cached_insights(tg_id) if has_ext_ok and is_network else None
+
+    # Fetch weekly digests for all owner orgs (available to any ai_assistant user)
+    weekly_digests: list[dict] = []
+    if has_module_ok and (has_alerts_ext or has_ext_ok):
+        org_dbs = [o["org_db"] for o in user_orgs]
+        # Also include session org if not already listed
+        session_org_db = user.get("org_db", "")
+        if session_org_db and session_org_db not in org_dbs:
+            org_dbs.append(session_org_db)
+        if org_dbs:
+            raw = _get_digests_for_orgs(org_dbs)
+            # Annotate with org name
+            db_to_name = {o["org_db"]: o["name"] for o in user_orgs}
+            for d in raw:
+                d["org_name"] = db_to_name.get(d["org_db"], "")
+            weekly_digests = raw
 
     templates = request.app.state.templates
     return templates.TemplateResponse("ai_insights/index.html", {
@@ -210,10 +257,45 @@ def ai_insights_page(request: Request):
         "user": user,
         "has_module": has_module_ok,
         "has_extension": has_ext_ok,
+        "has_alerts_ext": has_alerts_ext,
         "is_network": is_network,
         "org_count": len(user_orgs),
         "last_report": cached,
+        "weekly_digests": weekly_digests,
     })
+
+
+@router.get("/api/ai/weekly-digest")
+def get_weekly_digest(request: Request):
+    """Return cached weekly digests for the current user's orgs as JSON (no page reload)."""
+    from web.auth import get_session_user
+    from billing_utils import has_module, has_extension
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "no_module"}, status_code=403)
+
+    has_alerts_ext = has_extension(tg_id, "ai_smart_alerts")
+    has_ext_ok = has_extension(tg_id, "ai_network_insights")
+    if not (has_alerts_ext or has_ext_ok):
+        return JSONResponse({"ok": False, "error": "no_extension"}, status_code=403)
+
+    user_orgs = _get_owner_orgs(tg_id)
+    org_dbs = [o["org_db"] for o in user_orgs]
+    session_org_db = user.get("org_db", "")
+    if session_org_db and session_org_db not in org_dbs:
+        org_dbs.append(session_org_db)
+
+    raw = _get_digests_for_orgs(org_dbs)
+    db_to_name = {o["org_db"]: o["name"] for o in user_orgs}
+    for d in raw:
+        d["org_name"] = db_to_name.get(d["org_db"], "")
+
+    return JSONResponse({"ok": True, "digests": raw})
 
 
 @router.post("/api/ai/network-insights")

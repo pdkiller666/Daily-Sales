@@ -1550,7 +1550,7 @@ async def main():
         misfire_grace_time=3600,
     )
 
-    # AI еженедельный позитивный дайджест — каждый понедельник в 09:00 МСК (06:00 UTC)
+    # AI еженедельный позитивный дайджест — запускается каждый час, проверяет per-org расписание
     async def ai_weekly_digest():
         """Отправляет позитивный AI-дайджест по итогам недели: топ-товары, лидеры продаж, планы."""
         import os as _os, json as _json, urllib.request as _ureq
@@ -1582,6 +1582,10 @@ async def main():
         try:
             from database import Database
             import datetime as _dt
+            _now_utc = _dt.datetime.utcnow()
+            _current_utc_weekday = _now_utc.weekday()  # 0=Mon
+            _current_utc_hour = _now_utc.hour
+
             today = _dt.date.today()
             week_start = (today - _dt.timedelta(days=7)).isoformat()
             week_end   = (today - _dt.timedelta(days=1)).isoformat()
@@ -1608,6 +1612,26 @@ async def main():
                             continue
                     except Exception:
                         pass
+
+                    # Per-org digest schedule check
+                    try:
+                        _digest_cfg = db.get_ai_alert_settings()
+                    except Exception:
+                        _digest_cfg = {"digest_enabled": True, "digest_day_of_week": 0, "digest_hour_msk": 9}
+
+                    if not _digest_cfg.get("digest_enabled", True):
+                        continue  # дайджест отключён для этой орг
+
+                    _digest_msk_hour = int(_digest_cfg.get("digest_hour_msk", 9))
+                    _digest_weekday_msk = int(_digest_cfg.get("digest_day_of_week", 0))
+                    _digest_expected_utc_hour = (_digest_msk_hour - 3) % 24
+                    # Если MSK час < 3, UTC-день на одни сутки раньше
+                    if _digest_msk_hour < 3:
+                        _digest_expected_utc_weekday = (_digest_weekday_msk - 1) % 7
+                    else:
+                        _digest_expected_utc_weekday = _digest_weekday_msk
+                    if _current_utc_weekday != _digest_expected_utc_weekday or _current_utc_hour != _digest_expected_utc_hour:
+                        continue  # не то время для этой орг
 
                     # Выручка за прошлую неделю и позапрошлую для сравнения
                     w_summary  = db.get_sales_summary(start_date=week_start, end_date=week_end)  or (0, 0, 0, 0)
@@ -1693,9 +1717,36 @@ async def main():
                             lines.append(f"📅 Лучший день: {_DOW_RU[_best]} ({int(max(_daily_revenues)):,} ₽)")
                         msg = "\n".join(lines)
 
+                    # Strip HTML tags for plain-text push body
+                    import re as _re
+                    _plain_body = _re.sub(r"<[^>]+>", "", msg).strip()
+                    _push_body = _plain_body[:120] + ("…" if len(_plain_body) > 120 else "")
+
                     for tg_id in admin_ids[:3]:
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
+                            try:
+                                from web.push_utils import apush as _apush
+                                await _apush(tg_id, "📊 AI-дайджест недели", _push_body, "/dashboard")
+                            except Exception as _push_err:
+                                logging.debug(f"ai_weekly_digest push: {_push_err}")
+
+                    # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
+                    try:
+                        import sqlite3 as _sq3
+                        _sdb = _sq3.connect("data/shop_bot.db")
+                        _sdb.execute(
+                            """INSERT INTO ai_weekly_digest_cache (org_db, digest_text, generated_at)
+                               VALUES (?, ?, datetime('now'))
+                               ON CONFLICT(org_db) DO UPDATE SET
+                                 digest_text  = excluded.digest_text,
+                                 generated_at = excluded.generated_at""",
+                            (db_path, ai_text or msg),
+                        )
+                        _sdb.commit()
+                        _sdb.close()
+                    except Exception as _save_err:
+                        logging.warning(f"ai_weekly_digest cache save: {_save_err}")
 
                 except Exception as _db_err:
                     logging.warning(f"ai_weekly_digest db={db_path}: {_db_err}")
@@ -1704,7 +1755,7 @@ async def main():
 
     scheduler.add_job(
         ai_weekly_digest,
-        CronTrigger(day_of_week='mon', hour=6, minute=0),
+        CronTrigger(minute=5),
         id='ai_weekly_digest',
         max_instances=1,
         coalesce=True,

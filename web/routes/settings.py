@@ -668,6 +668,9 @@ async def settings_ai_alerts(
     context_products: str = Form(default=""),
     context_sellers: str = Form(default=""),
     context_plans: str = Form(default=""),
+    digest_enabled: str = Form(default=""),
+    digest_day_of_week: int = Form(default=0),
+    digest_hour_msk: int = Form(default=9),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -681,6 +684,8 @@ async def settings_ai_alerts(
 
     threshold_pct = max(5, min(90, threshold_pct))
     alert_hour_msk = max(0, min(23, alert_hour_msk))
+    digest_day_of_week = max(0, min(6, digest_day_of_week))
+    digest_hour_msk = max(0, min(23, digest_hour_msk))
     metrics = []
     if metric_revenue:
         metrics.append("revenue")
@@ -709,6 +714,9 @@ async def settings_ai_alerts(
             alert_hour_msk=alert_hour_msk,
             metrics=metrics,
             digest_context=digest_context,
+            digest_enabled=bool(digest_enabled),
+            digest_day_of_week=digest_day_of_week,
+            digest_hour_msk=digest_hour_msk,
         )
     except Exception:
         pass

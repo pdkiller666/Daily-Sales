@@ -872,7 +872,18 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
             [InlineKeyboardButton(text=f"💳 Платежные уведомления {'✅' if settings['payment_alerts'] else '❌'}", callback_data="toggle_payment_alerts")],
             [InlineKeyboardButton(text=f"🔧 Админ уведомления {'✅' if settings['admin_notifications'] else '❌'}", callback_data="toggle_admin_notifications")],
         ])
-    
+
+    # AI alert settings — show for admins/owners who have the ai_smart_alerts extension
+    _has_ai_alerts = False
+    if is_admin:
+        try:
+            from billing_utils import has_extension as _hex_ai
+            _has_ai_alerts = _hex_ai(callback.from_user.id, 'ai_smart_alerts')
+        except Exception:
+            pass
+    if _has_ai_alerts:
+        keyboard_buttons.append([InlineKeyboardButton(text="🤖 Настройки AI-алертов", callback_data="ai_alert_settings")])
+
     keyboard_buttons.extend([
         [InlineKeyboardButton(text=f"📏 Порог остатков ({settings['stock_threshold']} шт.)", callback_data="set_stock_threshold")],
         [InlineKeyboardButton(text=f"⏰ Время уведомлений ({settings['notification_time']})", callback_data="set_notification_time")],
@@ -1293,3 +1304,138 @@ async def notif_read_handler(callback: CallbackQuery):
         await callback.message.delete()
     except Exception:
         pass
+
+
+# ── AI alert settings ─────────────────────────────────────────────────────────
+
+_AI_CTX_LABELS = {
+    "products": "📦 Топ-товары",
+    "sellers":  "👤 Топ-продавцы",
+    "plans":    "🎯 Выполнение планов",
+}
+
+
+def _build_ai_alert_settings_text(cfg: dict) -> str:
+    ctx = cfg.get("digest_context", ["products", "sellers", "plans"])
+    enabled = cfg.get("enabled", True)
+    threshold = cfg.get("threshold_pct", 35)
+    hour = cfg.get("alert_hour_msk", 10)
+    metrics = cfg.get("metrics", ["revenue"])
+
+    metric_labels = {"revenue": "Выручка", "avg_check": "Средний чек", "transactions": "Транзакции"}
+    metrics_str = ", ".join(metric_labels.get(m, m) for m in metrics) if metrics else "Выручка"
+
+    text = (
+        "🤖 <b>Настройки AI-алертов</b>\n\n"
+        f"Статус: {'✅ включены' if enabled else '❌ отключены'}\n"
+        f"Порог срабатывания: <b>{threshold}%</b>\n"
+        f"Время отправки: <b>{hour}:00 МСК</b>\n"
+        f"Метрики: <b>{metrics_str}</b>\n\n"
+        "<b>Блоки контекста AI-дайджеста</b>\n"
+        "Выберите, какие данные включаются в анализ при алерте:\n\n"
+    )
+    for key, label in _AI_CTX_LABELS.items():
+        mark = "✅" if key in ctx else "❌"
+        text += f"{mark} {label}\n"
+    return text
+
+
+def _build_ai_alert_settings_kb(cfg: dict) -> InlineKeyboardMarkup:
+    ctx = cfg.get("digest_context", ["products", "sellers", "plans"])
+    buttons = []
+    for key, label in _AI_CTX_LABELS.items():
+        mark = "✅" if key in ctx else "❌"
+        buttons.append([InlineKeyboardButton(
+            text=f"{mark} {label}",
+            callback_data=f"toggle_ai_ctx:{key}"
+        )])
+    buttons.append([back_button("notification_settings")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@notifications_router.callback_query(F.data == "ai_alert_settings")
+async def ai_alert_settings_menu(callback: CallbackQuery, state: FSMContext):
+    """Экран настроек AI-алертов: показывает активные блоки контекста и позволяет их переключать."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Только для администраторов", show_alert=True)
+        return
+
+    try:
+        from billing_utils import has_extension as _hex_ai
+        if not _hex_ai(callback.from_user.id, 'ai_smart_alerts'):
+            await callback.answer("❌ Требуется расширение «Умные алерты AI»", show_alert=True)
+            return
+    except Exception:
+        pass
+
+    current_db = await get_db(callback.from_user.id, state)
+    try:
+        cfg = await current_db.get_ai_alert_settings()
+    except Exception:
+        cfg = {"enabled": True, "threshold_pct": 35, "alert_hour_msk": 10,
+               "metrics": ["revenue"], "digest_context": ["products", "sellers", "plans"]}
+
+    await callback.answer()
+    await callback.message.edit_text(
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("toggle_ai_ctx:"))
+async def toggle_ai_context_block(callback: CallbackQuery, state: FSMContext):
+    """Переключает один блок контекста AI-дайджеста (products / sellers / plans)."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Только для администраторов", show_alert=True)
+        return
+
+    try:
+        from billing_utils import has_extension as _hex_ai
+        if not _hex_ai(callback.from_user.id, 'ai_smart_alerts'):
+            await callback.answer("❌ Требуется расширение «Умные алерты AI»", show_alert=True)
+            return
+    except Exception:
+        pass
+
+    block = callback.data.split(":", 1)[1]
+    if block not in _AI_CTX_LABELS:
+        await callback.answer("❌ Неизвестный блок", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    try:
+        cfg = await current_db.get_ai_alert_settings()
+    except Exception:
+        cfg = {"enabled": True, "threshold_pct": 35, "alert_hour_msk": 10,
+               "metrics": ["revenue"], "digest_context": ["products", "sellers", "plans"]}
+
+    ctx: list = list(cfg.get("digest_context", ["products", "sellers", "plans"]))
+    if block in ctx:
+        ctx.remove(block)
+        action = "отключён"
+    else:
+        ctx.append(block)
+        action = "включён"
+
+    # Сохраняем все настройки обратно — только context меняется
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=ctx,
+        )
+        cfg["digest_context"] = ctx
+        await callback.answer(f"✅ {_AI_CTX_LABELS[block]} {action}")
+    except Exception as _err:
+        logging.error("toggle_ai_context_block: %s", _err)
+        await callback.answer("❌ Ошибка сохранения", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
