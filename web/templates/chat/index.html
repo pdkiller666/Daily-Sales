@@ -112,12 +112,29 @@ html.dark .topic-menu-item:hover { background:#374151; }
 
 /* ── Mode toggle ── */
 .chat-mode-btn { display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:9999px;
-                 font-size:0.8125rem;font-weight:500;cursor:pointer;transition:background .15s,color .15s;user-select:none; }
+                 font-size:0.8125rem;font-weight:500;cursor:pointer;transition:background .15s,color .15s;user-select:none;
+                 background:#f1f5f9;color:#475569; }
 .chat-mode-active { background:#2563eb;color:#fff; }
 .chat-mode-idle   { background:#f1f5f9;color:#475569; }
 html.dark .chat-mode-idle { background:#1e293b;color:#94a3b8; }
 .chat-mode-idle:hover { background:#e2e8f0; }
 html.dark .chat-mode-idle:hover { background:#2d3748; }
+
+/* ── Internal header (CDN-Tailwind-timing fallback) ──
+   Layout declared as plain CSS so the header is always visible/sized
+   even before Tailwind utility classes load asynchronously from CDN. */
+#chat-header {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 16px; flex-shrink:0;
+    border-bottom:1px solid #e2e8f0; background:#fff;
+}
+html.dark #chat-header { background:#0f172a; border-bottom-color:#1e293b; }
+#chat-header-avatar {
+    width:36px; height:36px; border-radius:50%;
+    background:linear-gradient(135deg,#3b82f6,#6366f1);
+    flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-weight:700; font-size:.875rem;
+}
 
 /* ── DM contacts list ── */
 #dm-contacts-col { width:260px;flex-shrink:0;border-right:1px solid #e2e8f0; }
@@ -199,8 +216,8 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
      x-init="init()">
 
     <!-- ══ Header ══ -->
-    <div class="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
-        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0"
+    <div id="chat-header" class="flex items-center gap-3 px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
+        <div id="chat-header-avatar" class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0"
              x-text="dmMode ? '✉️' : '💬'"></div>
         <div class="flex-1 min-w-0">
             <h1 class="font-bold text-slate-800 dark:text-slate-100 text-base leading-none"
@@ -1401,17 +1418,21 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     if (idx >= 0) { this.dmMessages[idx] = {...this.dmMessages[idx], id: data.id, can_delete: true}; }
                     return;
                 }
-                if (!isMine && data.from_user_id === this.dmPeerId) {
+                const isAi = (data.from_user_id === 0) || !!data.is_ai;
+                /* AI replies (from_user_id=0) always belong to the current user's
+                   own conversation — accept them regardless of dmPeerId match. */
+                if (!isMine && (data.from_user_id === this.dmPeerId || isAi)) {
                     this.dmMessages.push({
                         id: data.id, message: data.message || '',
                         has_file: !!data.has_file, is_image: !!data.is_image,
                         file_url: data.file_url || '', file_name: data.file_name || '',
                         created_at: data.created_at || '', is_mine: false, can_delete: false,
+                        is_ai: isAi,
                     });
                     this._dmScrollBottom();
                     this._dmWsSend({type: 'read', peer_id: this.dmPeerId});
                 }
-                if (!isMine) {
+                if (!isMine && !isAi) {
                     /* Refresh contacts to get updated last_msg + unread */
                     this.dmLoadContacts();
                 }

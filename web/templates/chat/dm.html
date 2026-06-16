@@ -350,7 +350,11 @@ function wsConnect() {
 function handleWsMessage(data) {
     if (data.type === 'message') {
         const isMine = data.from_user_id === MY_DB_ID;
-        const relevant = (data.from_user_id === PEER_ID && data.to_user_id === MY_DB_ID)
+        const isAi = (data.from_user_id === 0) || !!data.is_ai;
+        /* AI replies (from_user_id=0) are always addressed to the current user's
+           own conversation — accept them without a peer match. */
+        const relevant = isAi
+                      || (data.from_user_id === PEER_ID && data.to_user_id === MY_DB_ID)
                       || (data.from_user_id === MY_DB_ID && data.to_user_id === PEER_ID);
         if (!relevant) return;
         if (data.confirmed) {

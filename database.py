@@ -11593,6 +11593,8 @@ class Database:
                        GROUP BY peer_id
                    ) last_dm
                    JOIN direct_messages d ON d.id = last_dm.last_id
+                   -- INNER JOIN drops peer_id=0 (AI assistant) — no users row exists
+                   -- for it, so the AI never appears as a ghost DM contact.
                    JOIN users u ON u.id = last_dm.peer_id
                    LEFT JOIN (
                        SELECT from_user_id AS peer_id, COUNT(*) AS cnt

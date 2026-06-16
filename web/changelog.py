@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.19.0"
+CURRENT_VERSION = "1.20.0"
 
 ENTRIES = [
+    {
+        "version": "1.20.0",
+        "date": "16 июня 2026",
+        "items": [
+            "chat header invisible in light mode (CDN Tailwind timing)",
+            "AI DM replies invisible to users (@ии in DM never shows)",
+        ],
+    },
     {
         "version": "1.19.0",
         "date": "16 июня 2026",
