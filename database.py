@@ -1315,7 +1315,8 @@ class Database:
                 digest_enabled     INTEGER DEFAULT 1,
                 digest_day_of_week  INTEGER DEFAULT 0,
                 digest_hour_msk     INTEGER DEFAULT 9,
-                digest_push_enabled INTEGER DEFAULT 1
+                digest_push_enabled INTEGER DEFAULT 1,
+                alert_push_enabled  INTEGER DEFAULT 1
             )
         ''')
         # Миграция: добавляем колонки дайджеста если их нет (существующие org БД)
@@ -1330,6 +1331,8 @@ class Database:
             cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_hour_msk INTEGER DEFAULT 9")
         if 'digest_push_enabled' not in _ais_cols:
             cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN digest_push_enabled INTEGER DEFAULT 1")
+        if 'alert_push_enabled' not in _ais_cols:
+            cursor.execute("ALTER TABLE ai_alert_settings ADD COLUMN alert_push_enabled INTEGER DEFAULT 1")
 
         # ── Гибкая оргструктура (Вариант A+B) ───────────────────────────────
         # Подразделения с иерархией (регион → город → магазин → отдел → команда)
@@ -12693,12 +12696,14 @@ class Database:
             "digest_day_of_week": 0,
             "digest_hour_msk": 9,
             "digest_push_enabled": True,
+            "alert_push_enabled": True,
         }
         try:
             conn = self.get_connection()
             row = conn.execute(
                 "SELECT enabled, threshold_pct, alert_hour_msk, metrics, digest_context,"
-                " digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled"
+                " digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled,"
+                " alert_push_enabled"
                 " FROM ai_alert_settings WHERE id = 1"
             ).fetchone()
             conn.close()
@@ -12713,6 +12718,7 @@ class Database:
                     "digest_day_of_week": int(row[6] or 0),
                     "digest_hour_msk": int(row[7] if row[7] is not None else 9),
                     "digest_push_enabled": bool(row[8] if row[8] is not None else 1),
+                    "alert_push_enabled": bool(row[9] if row[9] is not None else 1),
                 }
             return defaults
         except Exception as exc:
@@ -12730,6 +12736,7 @@ class Database:
         digest_day_of_week: int = 0,
         digest_hour_msk: int = 9,
         digest_push_enabled: bool = True,
+        alert_push_enabled: bool = True,
     ) -> bool:
         import json as _json
         if digest_context is None:
@@ -12739,8 +12746,9 @@ class Database:
             conn.execute(
                 """INSERT INTO ai_alert_settings
                        (id, enabled, threshold_pct, alert_hour_msk, metrics, digest_context, updated_at,
-                        digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled)
-                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)
+                        digest_enabled, digest_day_of_week, digest_hour_msk, digest_push_enabled,
+                        alert_push_enabled)
+                   VALUES (1, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        enabled             = excluded.enabled,
                        threshold_pct       = excluded.threshold_pct,
@@ -12751,10 +12759,11 @@ class Database:
                        digest_enabled      = excluded.digest_enabled,
                        digest_day_of_week  = excluded.digest_day_of_week,
                        digest_hour_msk     = excluded.digest_hour_msk,
-                       digest_push_enabled = excluded.digest_push_enabled""",
+                       digest_push_enabled = excluded.digest_push_enabled,
+                       alert_push_enabled  = excluded.alert_push_enabled""",
                 (int(enabled), int(threshold_pct), int(alert_hour_msk), _json.dumps(metrics),
                  _json.dumps(digest_context), int(digest_enabled), int(digest_day_of_week), int(digest_hour_msk),
-                 int(digest_push_enabled)),
+                 int(digest_push_enabled), int(alert_push_enabled)),
             )
             conn.commit()
             return True

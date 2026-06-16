@@ -860,6 +860,22 @@
                     </label>
                 </div>
 
+                <!-- Alert push notification toggle -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm text-slate-700 dark:text-slate-300">Отправлять пуш-уведомление об алерте</span>
+                        <p class="text-xs text-slate-400 dark:text-slate-500">Помимо сообщения в Telegram</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="alert_push_enabled" value="1" class="sr-only peer"
+                               {% if ai_alert_settings.alert_push_enabled %}checked{% endif %}>
+                        <div class="w-10 h-5 bg-slate-200 dark:bg-slate-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer
+                                    peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-0.5 after:left-0.5
+                                    after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all
+                                    peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+
                 <!-- Threshold -->
                 <div>
                     <label class="text-xs font-medium text-slate-600 dark:text-slate-400 block mb-1.5">Порог падения выручки для алерта</label>

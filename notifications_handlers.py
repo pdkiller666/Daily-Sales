@@ -1321,6 +1321,7 @@ def _build_ai_alert_settings_text(cfg: dict) -> str:
     threshold = cfg.get("threshold_pct", 35)
     hour = cfg.get("alert_hour_msk", 10)
     metrics = cfg.get("metrics", ["revenue"])
+    alert_push = cfg.get("alert_push_enabled", True)
 
     metric_labels = {"revenue": "Выручка", "avg_check": "Средний чек", "transactions": "Транзакции"}
     metrics_str = ", ".join(metric_labels.get(m, m) for m in metrics) if metrics else "Выручка"
@@ -1330,7 +1331,8 @@ def _build_ai_alert_settings_text(cfg: dict) -> str:
         f"Статус: {'✅ включены' if enabled else '❌ отключены'}\n"
         f"Порог срабатывания: <b>{threshold}%</b>\n"
         f"Время отправки: <b>{hour}:00 МСК</b>\n"
-        f"Метрики: <b>{metrics_str}</b>\n\n"
+        f"Метрики: <b>{metrics_str}</b>\n"
+        f"Пуш-уведомление: {'✅ включено' if alert_push else '❌ отключено'}\n\n"
         "<b>Блоки контекста AI-дайджеста</b>\n"
         "Выберите, какие данные включаются в анализ при алерте:\n\n"
     )
@@ -1345,6 +1347,7 @@ def _build_ai_alert_settings_kb(cfg: dict) -> InlineKeyboardMarkup:
     enabled = cfg.get("enabled", True)
     threshold = cfg.get("threshold_pct", 35)
     hour = cfg.get("alert_hour_msk", 10)
+    alert_push = cfg.get("alert_push_enabled", True)
     buttons = []
 
     # Toggle enabled/disabled
@@ -1366,6 +1369,14 @@ def _build_ai_alert_settings_kb(cfg: dict) -> InlineKeyboardMarkup:
             callback_data="set_ai_alert_hour"
         ),
     ])
+
+    # Push notification toggle
+    push_mark = "🔔" if alert_push else "🔕"
+    push_label = "Пуш включён" if alert_push else "Пуш отключён"
+    buttons.append([InlineKeyboardButton(
+        text=f"{push_mark} {push_label}",
+        callback_data="toggle_alert_push"
+    )])
 
     # Context block toggles
     for key, label in _AI_CTX_LABELS.items():
@@ -1451,6 +1462,7 @@ async def toggle_ai_context_block(callback: CallbackQuery, state: FSMContext):
             alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=ctx,
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
         )
         cfg["digest_context"] = ctx
         await callback.answer(f"✅ {_AI_CTX_LABELS[block]} {action}")
@@ -1506,12 +1518,51 @@ async def toggle_ai_alerts_enabled(callback: CallbackQuery, state: FSMContext):
             alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
         )
         cfg["enabled"] = new_enabled
         status = "включены ✅" if new_enabled else "отключены ❌"
         await callback.answer(f"AI-алерты {status}")
     except Exception as _err:
         logging.error("toggle_ai_alerts_enabled: %s", _err)
+        await callback.answer("❌ Ошибка сохранения", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        _build_ai_alert_settings_text(cfg),
+        reply_markup=_build_ai_alert_settings_kb(cfg),
+        parse_mode="HTML",
+    )
+
+
+@notifications_router.callback_query(F.data == "toggle_alert_push")
+async def toggle_alert_push(callback: CallbackQuery, state: FSMContext):
+    """Переключает пуш-уведомление об AI-алерте."""
+    if not await _check_ai_alert_access(callback):
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    cfg = await _load_ai_cfg(current_db)
+
+    new_push = not cfg.get("alert_push_enabled", True)
+    try:
+        await current_db.save_ai_alert_settings(
+            enabled=cfg.get("enabled", True),
+            threshold_pct=int(cfg.get("threshold_pct", 35)),
+            alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
+            metrics=cfg.get("metrics", ["revenue"]),
+            digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            digest_enabled=cfg.get("digest_enabled", True),
+            digest_day_of_week=int(cfg.get("digest_day_of_week", 0)),
+            digest_hour_msk=int(cfg.get("digest_hour_msk", 9)),
+            digest_push_enabled=cfg.get("digest_push_enabled", True),
+            alert_push_enabled=new_push,
+        )
+        cfg["alert_push_enabled"] = new_push
+        status = "включён 🔔" if new_push else "отключён 🔕"
+        await callback.answer(f"Пуш-уведомление об алерте {status}")
+    except Exception as _err:
+        logging.error("toggle_alert_push: %s", _err)
         await callback.answer("❌ Ошибка сохранения", show_alert=True)
         return
 
@@ -1566,6 +1617,7 @@ async def process_ai_threshold(message: Message, state: FSMContext):
             alert_hour_msk=int(cfg.get("alert_hour_msk", 10)),
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
         )
         cfg["threshold_pct"] = value
     except Exception as _err:
@@ -1626,6 +1678,7 @@ async def process_ai_alert_hour(message: Message, state: FSMContext):
             alert_hour_msk=value,
             metrics=cfg.get("metrics", ["revenue"]),
             digest_context=cfg.get("digest_context", ["products", "sellers", "plans"]),
+            alert_push_enabled=cfg.get("alert_push_enabled", True),
         )
         cfg["alert_hour_msk"] = value
     except Exception as _err:

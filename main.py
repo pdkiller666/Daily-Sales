@@ -1532,9 +1532,19 @@ async def main():
                         if extra_lines:
                             msg += "\n" + "\n".join(extra_lines)
 
+                    _alert_push_ok = alert_cfg.get("alert_push_enabled", True)
+                    import re as _re
+                    _plain_alert = _re.sub(r"<[^>]+>", "", msg).strip()
+                    _push_alert_body = _plain_alert[:120] + ("…" if len(_plain_alert) > 120 else "")
                     for tg_id in admin_ids[:3]:  # максимум 3 адреса
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
+                            if _alert_push_ok:
+                                try:
+                                    from web.push_utils import apush as _apush
+                                    await _apush(tg_id, "🤖 AI-алерт", _push_alert_body, "/dashboard")
+                                except Exception as _push_err:
+                                    logging.debug(f"ai_smart_alerts push: {_push_err}")
 
                 except Exception as _db_err:
                     logging.warning(f"ai_smart_alerts db={db_path}: {_db_err}")

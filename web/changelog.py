@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.18.0"
+CURRENT_VERSION = "1.19.0"
 
 ENTRIES = [
+    {
+        "version": "1.19.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update deployment hashes and version with new features",
+            "Git commit prior to merge",
+            "Apply push notification toggle to daily AI alerts",
+            "Mirror AI alert push toggle in bot's alert settings menu",
+        ],
+    },
     {
         "version": "1.18.0",
         "date": "16 июня 2026",
