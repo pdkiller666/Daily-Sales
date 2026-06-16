@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.24.0"
+CURRENT_VERSION = "1.25.0"
 
 ENTRIES = [
+    {
+        "version": "1.25.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Update project version and deployment information",
+            "Add checks to ensure chat module is available when creating tasks",
+        ],
+    },
     {
         "version": "1.24.0",
         "date": "16 июня 2026",

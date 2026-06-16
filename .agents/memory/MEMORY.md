@@ -53,3 +53,4 @@
 - [hx-boost incompat with base.html](hx-boost-base-incompat.md) — full-body hx-boost ломает base.html (~30 top-level listeners/timers+SW): двойной bind, стек таймеров, мёртвые графики; нужен content-target #content, не body
 - [GS import + motivation configurator](gs-import-motiv-wizard.md) — мотивация rows=models/cols=chains; aliases keyed sheet→system; manual fallback when API down; saved motiv_config; бот кликабельный, веб дефолтный порядок
 - [Targeted motivation by org structure](targeted-motivation.md) — motivation rates targetable by org scope; resolve priority user>shop>city>trade_network>global; global-only = legacy behavior; earnings tuple is append-only
+- [Cross-module gating](cross-module-gating.md) — задача создаёт тему чата → и UI, и бэкенд гейтить доступностью ЦЕЛЕВОГО модуля (chat_available), иначе сущность в отключённом модуле + dead link; delete_task намеренно не чистит тему

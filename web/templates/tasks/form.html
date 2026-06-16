@@ -289,6 +289,7 @@
     </div>
 
     <!-- Chat topic -->
+    {% if chat_available|default(false) %}
     <div class="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
       <input type="checkbox" name="create_chat_topic" value="1" id="create_chat_topic"
              class="mt-0.5 h-4 w-4 text-indigo-600 rounded border-slate-300">
@@ -301,6 +302,7 @@
         </p>
       </div>
     </div>
+    {% endif %}
     {% endif %}
 
     <!-- Submit -->

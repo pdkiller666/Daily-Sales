@@ -337,6 +337,21 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
 
 # ─── NEW FORM ────────────────────────────────────────────────────────────────
 
+def _chat_available(telegram_id: int) -> bool:
+    """Доступен ли модуль чата (глобально не отключён + есть в биллинге владельца).
+
+    Зеркалит логику chat_page: иначе задача могла создать тему в отключённом/
+    неоплаченном чате, а ссылка «Обсудить в чате» вела на заблокированный модуль.
+    """
+    try:
+        from web.routes.chat import _get_chat_min_plan, _chat_access_ok
+        if _get_chat_min_plan() == "Отключён":
+            return False
+        return _chat_access_ok(telegram_id)
+    except Exception:
+        return False
+
+
 @router.get("/tasks/new")
 def tasks_new_form(request: Request):
     from web.auth import get_session_user, get_csrf_token
@@ -357,6 +372,7 @@ def tasks_new_form(request: Request):
         "priority_labels": PRIORITY_LABELS,
         "csrf_token": get_csrf_token(request),
         "edit_task": None, "error": None,
+        "chat_available": _chat_available(telegram_id),
         "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
     }
     try:
@@ -500,7 +516,7 @@ async def tasks_new_post(
                 return RedirectResponse(url="/tasks?msg=created", status_code=303)
 
         _linked_chat_topic_id = None
-        if create_chat_topic == "1" and title:
+        if create_chat_topic == "1" and title and _chat_available(telegram_id):
             try:
                 chat_topic_id = db.add_chat_topic(title, my_db_id)
                 _linked_chat_topic_id = chat_topic_id
@@ -817,6 +833,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
         "team_completions": [], "team_members_for_task": [], "completed_user_ids": [],
         "my_completion": None,
+        "chat_available": _chat_available(telegram_id),
     }
 
     try:
@@ -1376,6 +1393,7 @@ def task_edit_form(request: Request, task_id: int):
         "priority_labels": PRIORITY_LABELS,
         "csrf_token": get_csrf_token(request),
         "edit_task": None, "error": None,
+        "chat_available": _chat_available(telegram_id),
         "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
     }
     try:
