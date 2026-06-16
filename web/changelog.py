@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.9.0"
+CURRENT_VERSION = "1.10.0"
 
 ENTRIES = [
+    {
+        "version": "1.10.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Add ability to edit and manage motivation rules",
+        ],
+    },
     {
         "version": "1.9.0",
         "date": "16 июня 2026",
