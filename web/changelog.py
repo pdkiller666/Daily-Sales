@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.22.0"
+CURRENT_VERSION = "1.23.0"
 
 ENTRIES = [
+    {
+        "version": "1.23.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Improve chat functionality with real-time updates and better error handling",
+        ],
+    },
     {
         "version": "1.22.0",
         "date": "16 июня 2026",
