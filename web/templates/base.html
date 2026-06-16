@@ -660,7 +660,7 @@ function toastMgr() {
                                  ]"
                                  @click="n.url && (notifDdOpen=false, window.location.href=n.url)">
                                 <span class="text-base shrink-0 mt-0.5"
-                                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':'🔔'"></span>
+                                      x-text="n.type==='shift_sale'||n.type==='sales'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':n.type==='dm'?'💬':n.type==='salary_adjustment'?'💵':'🔔'"></span>
                                 <div class="flex-1 min-w-0">
                                     <p class="text-xs text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                                     <div class="flex items-center gap-1.5 mt-0.5">
@@ -2295,7 +2295,7 @@ function mainApp() {
                  ]"
                  @click="n.url && (notifOpen=false, window.location.href=n.url)">
                 <span class="text-xl shrink-0 mt-0.5"
-                      x-text="n.type==='shift_sale'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':'🔔'"></span>
+                      x-text="n.type==='shift_sale'||n.type==='sales'?'💰':n.type==='plan_milestone'?'🎯':n.type==='low_stock'?'📦':n.type==='daily_report'?'📊':n.type==='payment'||n.type==='trial_expired'||n.type==='trial_expiring'?'💳':n.type==='task_assigned'||n.type==='task_status'||n.type==='task_deadline'||n.type==='task_overdue'?'📋':n.type==='dm'?'💬':n.type==='salary_adjustment'?'💵':'🔔'"></span>
                 <div class="flex-1 min-w-0">
                     <p class="text-sm text-slate-700 leading-snug" x-text="stripHtml(n.message)"></p>
                     <div class="flex items-center gap-2 mt-1">

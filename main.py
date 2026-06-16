@@ -1545,6 +1545,14 @@ async def main():
                                     await _apush(tg_id, "🤖 AI-алерт", _push_alert_body, "/dashboard")
                                 except Exception as _push_err:
                                     logging.debug(f"ai_smart_alerts push: {_push_err}")
+                            try:
+                                _nc = db.get_connection()
+                                _nr = _nc.execute("SELECT id FROM users WHERE telegram_id = ?", (int(tg_id),)).fetchone()
+                                _nc.close()
+                                if _nr:
+                                    db.add_notification_to_history(_nr[0], 'admin', _push_alert_body)
+                            except Exception:
+                                pass
 
                 except Exception as _db_err:
                     logging.warning(f"ai_smart_alerts db={db_path}: {_db_err}")
@@ -1742,6 +1750,14 @@ async def main():
                                     await _apush(tg_id, "📊 AI-дайджест недели", _push_body, "/dashboard")
                                 except Exception as _push_err:
                                     logging.debug(f"ai_weekly_digest push: {_push_err}")
+                            try:
+                                _nc = db.get_connection()
+                                _nr = _nc.execute("SELECT id FROM users WHERE telegram_id = ?", (int(tg_id),)).fetchone()
+                                _nc.close()
+                                if _nr:
+                                    db.add_notification_to_history(_nr[0], 'admin', _push_body)
+                            except Exception:
+                                pass
 
                     # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
                     try:

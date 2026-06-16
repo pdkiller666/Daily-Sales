@@ -126,6 +126,23 @@ async def _notify_user(state, telegram_id: int, text: str):
             import re as _re, asyncio as _aio
             _pb = _re.sub(r'<[^>]+>', '', text)[:120].strip()
             await _aio.to_thread(send_web_push, int(telegram_id), "📋 Отсутствия", _pb, "/absences")
+            try:
+                import sqlite3 as _sq3
+                _mc = _sq3.connect("data/main.db")
+                _org_row = _mc.execute(
+                    "SELECT org_db FROM user_org_mapping WHERE telegram_id = ?", (int(telegram_id),)
+                ).fetchone()
+                _mc.close()
+                if _org_row and _org_row[0]:
+                    from database import Database as _ADB
+                    _tdb = _ADB(_org_row[0])
+                    _uc = _tdb.get_connection()
+                    _ur = _uc.execute("SELECT id FROM users WHERE telegram_id = ?", (int(telegram_id),)).fetchone()
+                    _uc.close()
+                    if _ur:
+                        _tdb.add_notification_to_history(_ur[0], 'absence', _pb)
+            except Exception:
+                pass
         except Exception:
             pass
     except Exception as e:
