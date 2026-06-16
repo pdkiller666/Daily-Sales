@@ -305,15 +305,27 @@ try:
         "INSERT INTO direct_messages (from_user_id, to_user_id, message, ai_peer_id) VALUES (0, ?, ?, ?)",
         (_me, "ответ ИИ", _peer)
     )
+    # AI-ответ в переписке с ДРУГИМ собеседником (_peer2) — для проверки изоляции:
+    # mark_dm_read(_me, _peer) НЕ должен трогать AI-ответы чужой переписки.
+    _db10.add_user(telegram_id=10003, first_name="Peer2", last_name="Other2")
+    _peer2 = _db10.get_user(10003)[0]
+    _conn10.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message, ai_peer_id) VALUES (0, ?, ?, ?)",
+        (_me, "ответ ИИ для peer2", _peer2)
+    )
     _conn10.commit()
     _conn10.close()
-    assert _db10.get_dm_unread_count(_me) == 3, f"ожидалось 3 непрочитанных ЛС (2 + AI), получено {_db10.get_dm_unread_count(_me)}"
+    assert _db10.get_dm_unread_count(_me) == 4, f"ожидалось 4 непрочитанных ЛС (2 + AI + AI peer2), получено {_db10.get_dm_unread_count(_me)}"
     # Непрочитанное AI-ответа должно быть привязано к строке контакта _peer
     _contacts10 = {c[0]: c[8] for c in _db10.get_dm_contacts(_me)}
     assert _contacts10.get(_peer, 0) == 3, f"контакт _peer должен показывать 3 непрочитанных (incl AI), получено {_contacts10}"
-    # После mark_dm_read счётчик ЛС падает до 0 — включая AI-ответ
+    # После mark_dm_read(_peer) закрываются только сообщения переписки с _peer (incl AI),
+    # AI-ответ переписки с _peer2 остаётся непрочитанным → счётчик 1.
     _db10.mark_dm_read(_me, _peer)
-    assert _db10.get_dm_unread_count(_me) == 0, f"после mark_dm_read должно быть 0 ЛС (incl AI), получено {_db10.get_dm_unread_count(_me)}"
+    assert _db10.get_dm_unread_count(_me) == 1, f"после mark_dm_read(_peer) должно остаться 1 ЛС (AI peer2), получено {_db10.get_dm_unread_count(_me)}"
+    # А после чтения _peer2 — полное обнуление
+    _db10.mark_dm_read(_me, _peer2)
+    assert _db10.get_dm_unread_count(_me) == 0, f"после mark_dm_read(_peer2) должно быть 0 ЛС, получено {_db10.get_dm_unread_count(_me)}"
 
     _os.unlink(_tmp10)
     _fn_ok("chat read-state: бейдж темы и ЛС обнуляются после прочтения")
