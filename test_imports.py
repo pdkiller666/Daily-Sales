@@ -298,17 +298,125 @@ try:
         "INSERT INTO direct_messages (from_user_id, to_user_id, message) VALUES (?, ?, ?)",
         (_peer, _me, "лс 2")
     )
+    # AI-ответ в этой переписке: from_user_id=0, ai_peer_id=_peer.
+    # Регресс: раньше mark_dm_read не закрывал его (фильтр по from_user_id=_peer)
+    # → счётчик ЛС висел вечно после введения AI в личных сообщениях.
+    _conn10.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message, ai_peer_id) VALUES (0, ?, ?, ?)",
+        (_me, "ответ ИИ", _peer)
+    )
     _conn10.commit()
     _conn10.close()
-    assert _db10.get_dm_unread_count(_me) == 2, f"ожидалось 2 непрочитанных ЛС, получено {_db10.get_dm_unread_count(_me)}"
-    # После mark_dm_read счётчик ЛС падает до 0
+    assert _db10.get_dm_unread_count(_me) == 3, f"ожидалось 3 непрочитанных ЛС (2 + AI), получено {_db10.get_dm_unread_count(_me)}"
+    # Непрочитанное AI-ответа должно быть привязано к строке контакта _peer
+    _contacts10 = {c[0]: c[8] for c in _db10.get_dm_contacts(_me)}
+    assert _contacts10.get(_peer, 0) == 3, f"контакт _peer должен показывать 3 непрочитанных (incl AI), получено {_contacts10}"
+    # После mark_dm_read счётчик ЛС падает до 0 — включая AI-ответ
     _db10.mark_dm_read(_me, _peer)
-    assert _db10.get_dm_unread_count(_me) == 0, f"после mark_dm_read должно быть 0 ЛС, получено {_db10.get_dm_unread_count(_me)}"
+    assert _db10.get_dm_unread_count(_me) == 0, f"после mark_dm_read должно быть 0 ЛС (incl AI), получено {_db10.get_dm_unread_count(_me)}"
 
     _os.unlink(_tmp10)
     _fn_ok("chat read-state: бейдж темы и ЛС обнуляются после прочтения")
 except Exception as _e:
     _fn_fail("chat read-state badge reset", _e)
+
+# 11. Chat HTTP end-to-end: POST /chat/read + POST /chat/dm/<peer>/read
+try:
+    import tempfile, os as _os11
+    from unittest.mock import patch as _patch11
+    from fastapi.testclient import TestClient as _TC11
+    from web.app import create_web_app as _cwa11
+    from web.auth import create_session_token as _cst11, COOKIE_NAME as _CN11, get_csrf_token as _gct11
+
+    # ── Temp org DB: two users + chat messages + DM ──────────────────────────
+    _tmp11 = tempfile.mktemp(suffix='_chat_test.db')
+    _db11 = Database(_tmp11)
+    _db11.create_tables()
+
+    _db11.add_user(telegram_id=30001, first_name="Rider", last_name="A")
+    _db11.add_user(telegram_id=30002, first_name="Sender", last_name="B")
+    _me11   = _db11.get_user(30001)[0]   # internal users.id
+    _peer11 = _db11.get_user(30002)[0]
+
+    # Peer writes 2 topic-chat messages (unread for _me11)
+    _msg11a = _db11.add_chat_message(_peer11, "msg one", topic_id=1)
+    _msg11b = _db11.add_chat_message(_peer11, "msg two", topic_id=1)
+    assert _db11.get_chat_unread_counts(_me11).get(1, 0) == 2, "pre-condition: 2 unread topic msgs"
+
+    # Peer sends 1 DM to reader
+    _c11 = _db11.get_connection()
+    _c11.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message) VALUES (?,?,?)",
+        (_peer11, _me11, "dm hello"),
+    )
+    _c11.commit()
+    _c11.close()
+    assert _db11.get_dm_unread_count(_me11) == 1, "pre-condition: 1 unread DM"
+
+    # ── JWT cookie + CSRF via public helper ────────────────────────────────────
+    _jwt11 = _cst11(30001, "Rider", _tmp11, "user")
+
+    # Derive CSRF via the same public function the server uses, feeding it a
+    # minimal fake request that carries the session cookie.
+    class _FakeReq11:
+        cookies = {_CN11: _jwt11}
+    _csrf11 = _gct11(_FakeReq11())
+
+    # ── FastAPI test client with billing/DB gates mocked ──────────────────────
+    _app11 = _cwa11()
+
+    def _mock_get_web_db11(*_a, **_kw):
+        return _db11
+
+    with _patch11("web.routes.chat._chat_access_ok", return_value=True), \
+         _patch11("web.deps.get_web_db", side_effect=_mock_get_web_db11):
+
+        _client11 = _TC11(_app11, raise_server_exceptions=True)
+        _ck11 = {_CN11: _jwt11}
+
+        # ── Test A: POST /chat/read returns ok and zeros topic unread ─────────
+        _resp_r = _client11.post(
+            "/chat/read",
+            data={"topic_id": 1, "last_id": _msg11b, "csrf_token": _csrf11},
+            cookies=_ck11,
+        )
+        assert _resp_r.status_code == 200, f"/chat/read HTTP {_resp_r.status_code}: {_resp_r.text}"
+        assert _resp_r.json().get("ok") is True, f"/chat/read body: {_resp_r.json()}"
+
+        # Verify the badge through GET /chat/poll: topic_unread for topic 1 → 0
+        _resp_poll = _client11.get(
+            "/chat/poll",
+            params={"since_id": _msg11b, "topic_id": 1, "mark_read": 0},
+            cookies=_ck11,
+        )
+        assert _resp_poll.status_code == 200, f"/chat/poll HTTP {_resp_poll.status_code}"
+        _pj = _resp_poll.json()
+        assert _pj.get("ok") is True, f"/chat/poll not ok: {_pj}"
+        assert int(_pj.get("topic_unread", {}).get("1", 0)) == 0, \
+            f"/chat/poll topic_unread still {_pj.get('topic_unread')} after /chat/read"
+
+        # ── Test B: POST /chat/dm/<peer>/read returns ok and zeros DM count ───
+        _resp_dm = _client11.post(
+            f"/chat/dm/{_peer11}/read",
+            data={"csrf_token": _csrf11},
+            cookies=_ck11,
+        )
+        assert _resp_dm.status_code == 200, f"/chat/dm/read HTTP {_resp_dm.status_code}: {_resp_dm.text}"
+        assert _resp_dm.json().get("ok") is True, f"/chat/dm/read body: {_resp_dm.json()}"
+        assert _db11.get_dm_unread_count(_me11) == 0, \
+            f"DM badge still {_db11.get_dm_unread_count(_me11)} after /chat/dm/read"
+
+        # ── Test C: GET /api/unread-count reflects zeroed DMs ─────────────────
+        _resp_uc = _client11.get("/api/unread-count", cookies=_ck11)
+        assert _resp_uc.status_code == 200, f"/api/unread-count HTTP {_resp_uc.status_code}"
+        _ucj = _resp_uc.json()
+        assert _ucj.get("ok") is True, f"/api/unread-count not ok: {_ucj}"
+        assert _ucj.get("dms", -1) == 0, f"/api/unread-count dms={_ucj.get('dms')} expected 0"
+
+    _os11.unlink(_tmp11)
+    _fn_ok("chat HTTP end-to-end: /chat/read + /chat/dm/<peer>/read → ok + badges zeroed")
+except Exception as _e11:
+    _fn_fail("chat HTTP end-to-end read routes", _e11)
 
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")

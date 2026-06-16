@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.30.0"
+CURRENT_VERSION = "1.31.0"
 
 ENTRIES = [
+    {
+        "version": "1.31.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Исправлен «вечный» счётчик непрочитанных в личных сообщениях: ответы AI-ассистента (отправитель — система) теперь корректно помечаются прочитанными при открытии диалога и привязаны к строке нужного собеседника.",
+            "Update chat module with corrected type annotations and audit details",
+            "Add HTTP end-to-end tests for chat mark-read routes",
+        ],
+    },
     {
         "version": "1.30.0",
         "date": "16 июня 2026",

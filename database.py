@@ -11703,10 +11703,15 @@ class Database:
                    -- for it, so the AI never appears as a ghost DM contact.
                    JOIN users u ON u.id = last_dm.peer_id
                    LEFT JOIN (
-                       SELECT from_user_id AS peer_id, COUNT(*) AS cnt
+                       -- AI-ответы (from_user_id=0) привязываем к ai_peer_id,
+                       -- иначе их непрочитанное не попадает ни в одну строку
+                       -- контакта (но учитывается в общем счётчике) → рассинхрон.
+                       SELECT CASE WHEN from_user_id = 0 THEN ai_peer_id
+                                   ELSE from_user_id END AS peer_id,
+                              COUNT(*) AS cnt
                        FROM direct_messages
                        WHERE to_user_id = ? AND is_read = 0 AND is_deleted = 0
-                       GROUP BY from_user_id
+                       GROUP BY peer_id
                    ) unread ON unread.peer_id = last_dm.peer_id
                    ORDER BY last_dm.last_id DESC''',
                 (user_id, user_id, user_id, user_id)
@@ -11738,14 +11743,22 @@ class Database:
             return []
 
     def mark_dm_read(self, viewer_id: int, from_user_id: int) -> None:
-        """Пометить все сообщения от from_user_id к viewer_id как прочитанные."""
+        """Пометить переписку viewer_id↔from_user_id прочитанной.
+
+        Закрывает как обычные входящие (from_user_id → viewer_id), так и
+        AI-ответы этой переписки (from_user_id=0, ai_peer_id=собеседник).
+        AI-ответы видны в get_dm_conversation на тех же условиях, поэтому без
+        этого их is_read=0 оставался навсегда и счётчик ЛС висел не обнуляясь.
+        """
         try:
             conn = self.get_connection()
             conn.execute(
                 '''UPDATE direct_messages
                    SET is_read = 1
-                   WHERE to_user_id = ? AND from_user_id = ? AND is_read = 0 AND is_deleted = 0''',
-                (viewer_id, from_user_id)
+                   WHERE to_user_id = ? AND is_read = 0 AND is_deleted = 0
+                     AND (from_user_id = ?
+                          OR (from_user_id = 0 AND ai_peer_id = ?))''',
+                (viewer_id, from_user_id, from_user_id)
             )
             conn.commit()
             conn.close()
