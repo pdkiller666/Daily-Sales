@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.29.0"
+CURRENT_VERSION = "1.30.0"
 
 ENTRIES = [
+    {
+        "version": "1.30.0",
+        "date": "16 июня 2026",
+        "items": [
+            "Аудит модуля чата: type-аннотации rate-limit хранилищ приведены к `int` (telegram_id); все 7 DB-индексов чата подтверждены; 10/10 функциональных тестов.",
+            "Update application with new version and improved notification features",
+            "автотест — бейдж чата обнуляется после прочтения",
+        ],
+    },
     {
         "version": "1.29.0",
         "date": "16 июня 2026",

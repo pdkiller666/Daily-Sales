@@ -262,6 +262,54 @@ try:
 except Exception as _e:
     _fn_fail("rate_store limit", _e)
 
+# 10. Chat read-state: бейдж обнуляется после прочтения темы + ЛС
+try:
+    import tempfile, os as _os
+    _tmp10 = tempfile.mktemp(suffix='.db')
+    _db10 = Database(_tmp10)
+    _db10.create_tables()
+    # Два пользователя в орге: «я» (читатель) и собеседник (автор сообщений)
+    _db10.add_user(telegram_id=10001, first_name="Reader", last_name="Me")
+    _db10.add_user(telegram_id=10002, first_name="Peer", last_name="Other")
+    _me = _db10.get_user(10001)[0]
+    _peer = _db10.get_user(10002)[0]
+
+    # ── Тема чата: собеседник пишет 2 сообщения в «Общий» (topic_id=1) ──
+    _m1 = _db10.add_chat_message(_peer, "привет 1", topic_id=1)
+    _m2 = _db10.add_chat_message(_peer, "привет 2", topic_id=1)
+    _counts = _db10.get_chat_unread_counts(_me)
+    assert _counts.get(1, 0) == 2, f"ожидалось 2 непрочитанных в теме 1, получено {_counts}"
+    # После set_chat_read бейдж темы обнуляется
+    _db10.set_chat_read(_me, 1, _m2)
+    _counts_after = _db10.get_chat_unread_counts(_me)
+    assert _counts_after.get(1, 0) == 0, f"после set_chat_read должно быть 0, получено {_counts_after}"
+    # Своё сообщение не считается непрочитанным
+    _db10.add_chat_message(_me, "это я сам", topic_id=1)
+    _counts_self = _db10.get_chat_unread_counts(_me)
+    assert _counts_self.get(1, 0) == 0, f"своё сообщение не должно быть непрочитанным, получено {_counts_self}"
+
+    # ── ЛС: собеседник пишет 2 ЛС читателю ──
+    _conn10 = _db10.get_connection()
+    _conn10.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message) VALUES (?, ?, ?)",
+        (_peer, _me, "лс 1")
+    )
+    _conn10.execute(
+        "INSERT INTO direct_messages (from_user_id, to_user_id, message) VALUES (?, ?, ?)",
+        (_peer, _me, "лс 2")
+    )
+    _conn10.commit()
+    _conn10.close()
+    assert _db10.get_dm_unread_count(_me) == 2, f"ожидалось 2 непрочитанных ЛС, получено {_db10.get_dm_unread_count(_me)}"
+    # После mark_dm_read счётчик ЛС падает до 0
+    _db10.mark_dm_read(_me, _peer)
+    assert _db10.get_dm_unread_count(_me) == 0, f"после mark_dm_read должно быть 0 ЛС, получено {_db10.get_dm_unread_count(_me)}"
+
+    _os.unlink(_tmp10)
+    _fn_ok("chat read-state: бейдж темы и ЛС обнуляются после прочтения")
+except Exception as _e:
+    _fn_fail("chat read-state badge reset", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

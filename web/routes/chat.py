@@ -33,9 +33,9 @@ _SHOP_BOT_DB = "data/shop_bot.db"
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 _SEND_RATE_STORE:   dict[int, list[float]] = {}   # 30 msg/min per telegram_id
-_POLL_RATE_STORE:   dict[str, list[float]] = {}   # 60 req/min per IP
+_POLL_RATE_STORE:   dict[int, list[float]] = {}   # 60 req/min per telegram_id
 _TOPIC_RATE_STORE:  dict[int, list[float]] = {}   # 5 topics/hour per telegram_id
-_SEARCH_RATE_STORE: dict[str, list[float]] = {}   # 30 search req/min per IP
+_SEARCH_RATE_STORE: dict[int, list[float]] = {}   # 30 search req/min per telegram_id
 
 
 def _rate_ok(store: dict, key, limit: int, window: float) -> bool:
