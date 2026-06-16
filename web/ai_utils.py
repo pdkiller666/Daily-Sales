@@ -381,23 +381,111 @@ def build_sales_forecast_prompt(
     )
 
 
+def build_weekly_digest_prompt(
+    org_name: str,
+    week_revenue: float,
+    prev_week_revenue: float,
+    top_products: list | None = None,
+    top_sellers: list | None = None,
+    plans: list | None = None,
+) -> str:
+    """Промпт для еженедельного позитивного дайджеста (понедельник 09:00 МСК).
+
+    Отправляется всегда при наличии данных за неделю — не только при падениях.
+    Акцент: что продавалось хорошо, кто лидировал, выполнение планов.
+    """
+    growth_str = ""
+    if prev_week_revenue > 0:
+        diff_pct = (week_revenue - prev_week_revenue) / prev_week_revenue * 100
+        direction = "выросла" if diff_pct >= 0 else "снизилась"
+        growth_str = f" ({direction} на {abs(diff_pct):.0f}% vs прошлая неделя)"
+
+    lines: list[str] = [
+        f"Магазин «{org_name}». Итоги недели: выручка {int(week_revenue):,} ₽{growth_str}."
+    ]
+
+    if top_products:
+        parts = []
+        for row in top_products[:3]:
+            name, qty, rev = row[0], row[1], row[2]
+            parts.append(f"{name} — {int(qty)} шт., {int(rev):,} ₽")
+        lines.append("Топ товары недели: " + "; ".join(parts) + ".")
+
+    if top_sellers:
+        parts = []
+        for row in top_sellers[:3]:
+            fn, ln, shop, rev = row[0] or "", row[1] or "", row[2] or "", row[3]
+            seller = f"{fn} {ln}".strip() or shop or "—"
+            parts.append(f"{seller} — {int(rev):,} ₽")
+        lines.append("Лидеры продаж: " + "; ".join(parts) + ".")
+
+    if plans:
+        plan_parts = []
+        for p in plans[:3]:
+            pct = p.get("pct", 0)
+            label = p.get("label", "план")
+            plan_parts.append(f"{label} — {pct}%")
+        lines.append("Выполнение планов: " + "; ".join(plan_parts) + ".")
+
+    data_block = " ".join(lines)
+
+    return (
+        f"{data_block}\n\n"
+        "Напиши короткий позитивный дайджест для владельца магазина (3–4 предложения): "
+        "отметь, что продавалось хорошо, кто из продавцов отличился, "
+        "и дай 1 конкретный совет по развитию на следующую неделю. "
+        "Тон — дружелюбный, поддерживающий, без паники даже если есть небольшое снижение."
+    )
+
+
 def build_smart_alert_prompt(
     org_name: str,
     yesterday_revenue: float,
     avg_7d: float,
     drop_pct: float,
     zero_yesterday: bool,
+    top_products: list | None = None,
+    top_sellers: list | None = None,
+    plans: list | None = None,
 ) -> str:
+    # Build rich context block from optional supplementary data
+    ctx_lines: list[str] = []
+
+    if top_products:
+        parts = []
+        for row in top_products[:3]:
+            name, qty, rev = row[0], row[1], row[2]
+            parts.append(f"{name} — {int(qty)} шт., {int(rev):,} ₽")
+        ctx_lines.append("Топ товары (месяц): " + "; ".join(parts) + ".")
+
+    if top_sellers:
+        parts = []
+        for row in top_sellers[:3]:
+            fn, ln, shop, rev = row[0] or "", row[1] or "", row[2] or "", row[3]
+            seller = f"{fn} {ln}".strip() or shop or "—"
+            parts.append(f"{seller} {int(rev):,} ₽")
+        ctx_lines.append("Топ продавцы (месяц): " + "; ".join(parts) + ".")
+
+    if plans:
+        plan_parts = []
+        for p in plans[:3]:
+            pct = p.get("pct", 0)
+            label = p.get("label", "план")
+            plan_parts.append(f"{label} — {pct}%")
+        ctx_lines.append("Планы: " + "; ".join(plan_parts) + ".")
+
+    ctx_block = ("\nКонтекст: " + " ".join(ctx_lines)) if ctx_lines else ""
+
     if zero_yesterday:
         return (
             f"Магазин «{org_name}»: вчера не было ни одной продажи. "
-            f"Средняя выручка за последние 7 дней: {int(avg_7d):,} ₽.\n"
+            f"Средняя выручка за последние 7 дней: {int(avg_7d):,} ₽.{ctx_block}\n"
             "Напиши короткое тревожное уведомление для владельца магазина: "
             "1–2 предложения, без паники, с призывом проверить причины."
         )
     return (
         f"Магазин «{org_name}»: вчерашняя выручка {int(yesterday_revenue):,} ₽ "
-        f"на {abs(drop_pct):.0f}% ниже средней за 7 дней ({int(avg_7d):,} ₽).\n"
+        f"на {abs(drop_pct):.0f}% ниже средней за 7 дней ({int(avg_7d):,} ₽).{ctx_block}\n"
         "Напиши короткое уведомление для владельца: 1–2 предложения, "
         "отметь падение и предложи 1 конкретный шаг для проверки."
     )

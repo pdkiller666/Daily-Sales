@@ -4202,7 +4202,8 @@ class Database:
 
     def get_plans_with_progress(self):
         """Активные планы продаж с текущим прогрессом (с учётом target_type и filter_type).
-        Возвращает список словарей с ключами: label, target, current, pct."""
+        Возвращает список словарей с ключами: label, target, current, pct,
+        seller_name (для seller-планов), seller_breakdown (для shop-планов, top-5)."""
         try:
             import json as _json2
             from datetime import date, timedelta
@@ -4288,12 +4289,61 @@ class Database:
                 period_ru = {"daily": "день", "weekly": "неделю", "monthly": "месяц"}.get(plan_type, plan_type)
                 metric_ru = "выручка" if metric_type == "turnover" else "шт."
                 label = f"{'на ' + scope + ': ' if scope else ''}{metric_ru} за {period_ru}"
-                result.append({
+                entry: dict = {
                     "label":   label,
                     "target":  target_val,
                     "current": current,
                     "pct":     pct,
-                })
+                }
+                # For seller-level plans expose the seller name explicitly
+                if target_type == "seller" and (fn or ln):
+                    entry["seller_name"] = f"{fn} {ln}".strip()
+                # For shop-level plans add per-seller breakdown (top-5 by metric)
+                if target_type == "shop":
+                    try:
+                        breakdown_conditions = [c for c in conditions if "s.user_id" not in c]
+                        bd_where = " AND ".join(breakdown_conditions)
+                        bd_params = [p for p, c in zip(params, conditions) if "s.user_id" not in c]
+                        # rebuild params list correctly (conditions and params are parallel for positional ?)
+                        bd_params2: list = [start, end]
+                        if shop_name:
+                            bd_params2.append(shop_name)
+                        if filter_type == "category" and filter_value:
+                            try:
+                                cats2 = _json2.loads(filter_value)
+                                if isinstance(cats2, list) and cats2:
+                                    bd_params2.extend(cats2)
+                                else:
+                                    bd_params2.append(filter_value)
+                            except Exception:
+                                bd_params2.append(filter_value)
+                        elif filter_type == "product" and filter_value:
+                            try:
+                                ids2 = _json2.loads(filter_value)
+                                if ids2:
+                                    bd_params2.extend(ids2)
+                            except Exception:
+                                pass
+                        bd_q = (
+                            f"SELECT u.first_name, u.last_name, {metric_expr} "
+                            f"FROM sales s LEFT JOIN users u ON s.user_id = u.id "
+                            f"{join_clause} WHERE {bd_where} "
+                            f"GROUP BY s.user_id ORDER BY 3 DESC LIMIT 5"
+                        )
+                        conn2 = self.get_connection()
+                        bd_rows = conn2.execute(bd_q, bd_params2).fetchall()
+                        conn2.close()
+                        breakdown = []
+                        for bfn, bln, bval in bd_rows:
+                            bname = f"{bfn or ''} {bln or ''}".strip() or "—"
+                            bval = float(bval or 0)
+                            bpct = round(bval / target_val * 100) if target_val else 0
+                            breakdown.append({"name": bname, "current": bval, "pct": bpct})
+                        if breakdown:
+                            entry["seller_breakdown"] = breakdown
+                    except Exception:
+                        pass
+                result.append(entry)
             return result
         except Exception:
             return []

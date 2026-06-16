@@ -1,6 +1,19 @@
-CURRENT_VERSION = "1.13.0"
+CURRENT_VERSION = "1.14.0"
 
 ENTRIES = [
+    {
+        "version": "1.14.0",
+        "date": "16 июня 2026",
+        "items": [
+            "AI-ассистент теперь отвечает и в личных сообщениях: напишите `@ИИ` в DM — и получите ответ с данными организации (топ товаров, активные продавцы, прогресс планов). Контекст такой же богатый, как в топиках чата.",
+            "Еженедельный AI-дайджест по понедельникам: топ-товары, лидеры продаж и выполнение планов — теперь приходят владельцам даже когда всё хорошо, не только при падениях.",
+            "Update application with new AI features and improve deployment information",
+            "Apply rich context to scheduled AI digest (weekly smart alerts)",
+            "Show AI what each seller's plan completion looks like individually",
+            "Extend AI context to DM conversations (Task #90)",
+            "AI weekly positive digest — top products, sellers, plan progress every Monday",
+        ],
+    },
     {
         "version": "1.13.0",
         "date": "16 июня 2026",

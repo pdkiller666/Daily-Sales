@@ -1477,6 +1477,20 @@ async def main():
                         txn_drop = (avg_7d_cnt - y_cnt) / avg_7d_cnt * 100 if avg_7d_cnt > 0 else 0
                         extra_lines.append(f"Транзакций упало на {int(txn_drop)}%: {y_cnt} вчера vs {avg_7d_cnt:.1f} среднее 7д.")
 
+                    # Fetch rich context: top products, top sellers, plan progress
+                    try:
+                        _top_products = db.get_top_products_month(3)
+                    except Exception:
+                        _top_products = []
+                    try:
+                        _top_sellers = db.get_active_sellers_month(3)
+                    except Exception:
+                        _top_sellers = []
+                    try:
+                        _plans = db.get_plans_with_progress()
+                    except Exception:
+                        _plans = []
+
                     ai_text: str | None = None
                     if is_configured():
                         try:
@@ -1486,10 +1500,13 @@ async def main():
                                 avg_7d=avg_7d,
                                 drop_pct=drop_pct,
                                 zero_yesterday=zero_yesterday,
+                                top_products=_top_products,
+                                top_sellers=_top_sellers,
+                                plans=_plans,
                             )
                             if extra_lines:
                                 prompt += "\nДополнительно: " + " ".join(extra_lines)
-                            ai_text = await ask_llm(prompt, max_tokens=200)
+                            ai_text = await ask_llm(prompt, max_tokens=350)
                         except Exception as _ai_err:
                             logging.warning(f"ai_smart_alerts LLM error: {_ai_err}")
 
@@ -1516,6 +1533,142 @@ async def main():
         ai_smart_alerts,
         CronTrigger(hour='*', minute=5),
         id='ai_smart_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # AI еженедельный позитивный дайджест — каждый понедельник в 09:00 МСК (06:00 UTC)
+    async def ai_weekly_digest():
+        """Отправляет позитивный AI-дайджест по итогам недели: топ-товары, лидеры продаж, планы."""
+        import os as _os, json as _json, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        try:
+            from web.ai_utils import ask_llm, build_weekly_digest_prompt, is_configured
+        except Exception as _imp_err:
+            logging.warning(f"ai_weekly_digest: cannot import ai_utils: {_imp_err}")
+            return
+
+        def _send_tg(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]}
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                import threading as _th
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from database import Database
+            import datetime as _dt
+            today = _dt.date.today()
+            week_start = (today - _dt.timedelta(days=7)).isoformat()
+            week_end   = (today - _dt.timedelta(days=1)).isoformat()
+            prev_start = (today - _dt.timedelta(days=14)).isoformat()
+            prev_end   = (today - _dt.timedelta(days=8)).isoformat()
+
+            db_paths = _get_scheduler_db_paths()
+
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+
+                    # Gate: ai_smart_alerts extension required (same billing extension)
+                    try:
+                        admin_ids = db.get_all_admins_telegram_ids()
+                    except Exception:
+                        continue
+                    if not admin_ids:
+                        continue
+
+                    try:
+                        from billing_utils import has_extension as _hex_ext
+                        if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        pass
+
+                    # Выручка за прошлую неделю и позапрошлую для сравнения
+                    w_summary  = db.get_sales_summary(start_date=week_start, end_date=week_end)  or (0, 0, 0, 0)
+                    pw_summary = db.get_sales_summary(start_date=prev_start, end_date=prev_end) or (0, 0, 0, 0)
+                    week_rev      = float(w_summary[2] or 0)
+                    prev_week_rev = float(pw_summary[2] or 0)
+
+                    # Нет данных за неделю — пропускаем
+                    if week_rev == 0:
+                        continue
+
+                    # Топ товары, продавцы, планы за прошедшую неделю
+                    try:
+                        _top_products = db.get_top_products_month(3)
+                    except Exception:
+                        _top_products = []
+                    try:
+                        _top_sellers = db.get_active_sellers_month(3)
+                    except Exception:
+                        _top_sellers = []
+                    try:
+                        _plans = db.get_plans_with_progress()
+                    except Exception:
+                        _plans = []
+
+                    org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
+
+                    ai_text: str | None = None
+                    if is_configured():
+                        try:
+                            prompt = build_weekly_digest_prompt(
+                                org_name=org_name,
+                                week_revenue=week_rev,
+                                prev_week_revenue=prev_week_rev,
+                                top_products=_top_products,
+                                top_sellers=_top_sellers,
+                                plans=_plans,
+                            )
+                            ai_text = await ask_llm(prompt, max_tokens=350)
+                        except Exception as _ai_err:
+                            logging.warning(f"ai_weekly_digest LLM error: {_ai_err}")
+
+                    if ai_text:
+                        msg = f"📊 <b>AI-дайджест недели</b>\n\n{ai_text}"
+                    else:
+                        # Fallback без LLM: структурированный текст
+                        lines = [f"📊 <b>Итоги недели</b>: {int(week_rev):,} ₽"]
+                        if prev_week_rev > 0:
+                            diff = (week_rev - prev_week_rev) / prev_week_rev * 100
+                            arrow = "▲" if diff >= 0 else "▼"
+                            lines.append(f"{arrow} {abs(diff):.0f}% к прошлой неделе")
+                        if _top_products:
+                            name, qty, rev = _top_products[0][0], _top_products[0][1], _top_products[0][2]
+                            lines.append(f"🏆 Топ товар: {name} — {int(qty)} шт., {int(rev):,} ₽")
+                        if _top_sellers:
+                            fn, ln = _top_sellers[0][0] or "", _top_sellers[0][1] or ""
+                            seller = f"{fn} {ln}".strip() or _top_sellers[0][2] or "—"
+                            lines.append(f"⭐ Лидер продаж: {seller} — {int(_top_sellers[0][3]):,} ₽")
+                        msg = "\n".join(lines)
+
+                    for tg_id in admin_ids[:3]:
+                        if tg_id and tg_id > 0:
+                            _send_tg(tg_id, msg)
+
+                except Exception as _db_err:
+                    logging.warning(f"ai_weekly_digest db={db_path}: {_db_err}")
+        except Exception as _e:
+            logging.error(f"ai_weekly_digest: {_e}")
+
+    scheduler.add_job(
+        ai_weekly_digest,
+        CronTrigger(day_of_week='mon', hour=6, minute=0),
+        id='ai_weekly_digest',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
