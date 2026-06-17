@@ -142,12 +142,17 @@ def integration_page(
                 })
                 try:
                     exports_raw = db.get_integration_exports(cid) or []
+                    _preset_scheds = {"immediate", "disabled",
+                                      "0 9 * * *", "0 8 * * 1", "0 8 1 * *"}
                     conn_exports[cid] = [
                         {
                             "id": e[0], "export_type": e[1],
                             "enabled": bool(e[2]), "schedule": e[3] or "immediate",
                             "target_sheet": e[4] or "", "operation": e[5] or "",
+                            "mapping": e[6] or "",
+                            "lookup_config": json.loads(e[7]) if e[7] else {},
                             "last_run": (e[8] or "")[:16].replace("T", " "),
+                            "is_custom_sched": (e[3] or "immediate") not in _preset_scheds,
                         }
                         for e in exports_raw
                     ]
@@ -598,6 +603,7 @@ def integration_export_create(
     target_sheet: Annotated[str, Form()],
     operation: Annotated[str, Form()],
     schedule: Annotated[str, Form()] = "immediate",
+    schedule_custom: Annotated[str, Form()] = "",
     csrf_token: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -627,7 +633,10 @@ def integration_export_create(
     if not target_sheet.strip():
         return RedirectResponse(url=f"/integration?error={quote('Укажите лист назначения')}", status_code=302)
 
-    schedule = schedule.strip() or "immediate"
+    schedule = schedule.strip()
+    if not schedule and schedule_custom.strip():
+        schedule = schedule_custom.strip()
+    schedule = schedule or "immediate"
 
     _DEFAULT_FIELDS = {
         'sales':     ['date', 'product_name', 'shop_name', 'quantity', 'price', 'total', 'seller_name', 'category'],
@@ -741,6 +750,88 @@ def integration_export_delete(
         logging.error(f"integration_export_delete: {e}")
 
     return RedirectResponse(url="/integration?msg=Правило+удалено", status_code=302)
+
+
+@router.post("/integration/{cid}/export/{eid}/edit")
+def integration_export_edit(
+    request: Request,
+    cid: int,
+    eid: int,
+    target_sheet: Annotated[str, Form()],
+    schedule: Annotated[str, Form()] = "immediate",
+    schedule_custom: Annotated[str, Form()] = "",
+    row_search_col: Annotated[str, Form()] = "",
+    row_search_field: Annotated[str, Form()] = "",
+    col_search_row: Annotated[str, Form()] = "",
+    col_search_field: Annotated[str, Form()] = "",
+    value_field: Annotated[str, Form()] = "",
+    data_start_row: Annotated[str, Form()] = "",
+    data_start_col: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not target_sheet.strip():
+        return RedirectResponse(url=f"/integration?error={quote('Укажите лист назначения')}", status_code=302)
+
+    sched = schedule.strip()
+    if not sched and schedule_custom.strip():
+        sched = schedule_custom.strip()
+    sched = sched or "immediate"
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if not exp or exp[1] != cid:
+            return RedirectResponse(url=f"/integration?error={quote('Правило не найдено')}", status_code=302)
+
+        update_kwargs = {
+            "target_sheet": target_sheet.strip(),
+            "schedule": sched,
+            "enabled": 0 if sched == "disabled" else (1 if bool(exp[2]) else 0),
+        }
+
+        operation = exp[5] or ""
+        if operation == "update_cell":
+            existing_lc = json.loads(exp[7]) if exp[7] else {}
+            def _int_or(s, default):
+                try:
+                    return int(s)
+                except (ValueError, TypeError):
+                    return default
+            def _str_or(s, default):
+                return s.strip() if s.strip() else default
+            lc = {
+                "row_search_col":   _int_or(row_search_col, existing_lc.get("row_search_col", 1)),
+                "row_search_field": _str_or(row_search_field, existing_lc.get("row_search_field", "shop_name")),
+                "col_search_row":   _int_or(col_search_row, existing_lc.get("col_search_row", 1)),
+                "col_search_field": _str_or(col_search_field, existing_lc.get("col_search_field", "product_name")),
+                "value_field":      _str_or(value_field, existing_lc.get("value_field", "quantity")),
+                "data_start_row":   _int_or(data_start_row, existing_lc.get("data_start_row", 2)),
+                "data_start_col":   _int_or(data_start_col, existing_lc.get("data_start_col", 2)),
+                "operation":        existing_lc.get("operation", "set"),
+            }
+            update_kwargs["lookup_config"] = json.dumps(lc, ensure_ascii=False)
+
+        db.update_integration_export(eid, **update_kwargs)
+    except Exception as e:
+        logging.error(f"integration_export_edit: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка сохранения')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Правило+обновлено", status_code=302)
 
 
 @router.post("/integration/{cid}/export/{eid}/run")

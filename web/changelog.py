@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.63.0"
+CURRENT_VERSION = "1.64.0"
 
 ENTRIES = [
+    {
+        "version": "1.64.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Интеграции: редактирование правил экспорта прямо в веб-кабинете — кнопка ✏️ у каждого правила, поддержка произвольного cron-расписания и настройка маппинга матрицы для операции «Обновить ячейку».",
+            "Add WebSocket library to support real-time features",
+            "Add screenshots for integration page and bot functionality",
+        ],
+    },
     {
         "version": "1.63.0",
         "date": "17 июня 2026",

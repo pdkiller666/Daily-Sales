@@ -243,41 +243,145 @@
             {% if exports %}
             <div class="space-y-1.5 mb-3">
                 {% for e in exports %}
-                <div class="flex items-center gap-2 text-xs bg-white border border-slate-100 rounded-lg px-3 py-2">
-                    <span class="w-2 h-2 rounded-full shrink-0 {% if e.enabled %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
-                    <span class="text-slate-700 font-medium min-w-[60px]">{{ e.export_type }}</span>
-                    <span class="text-slate-400">→ <span class="font-mono">{{ e.target_sheet or '—' }}</span></span>
-                    <span class="text-slate-400 hidden sm:inline">{{ e.operation or '' }}</span>
-                    <span class="text-slate-300 hidden sm:inline">|</span>
-                    <span class="text-slate-400 hidden sm:inline">{{ e.schedule }}</span>
-                    {% if e.last_run %}
-                    <span class="text-slate-300 hidden md:inline">|</span>
-                    <span class="text-slate-400 hidden md:inline">{{ e.last_run }}</span>
-                    {% endif %}
-                    <!-- Per-rule actions -->
-                    <div class="ml-auto flex items-center gap-1 shrink-0">
-                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/run">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" title="Запустить сейчас"
-                                    class="text-[10px] px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded font-medium transition-colors">
-                                ▶
+                <div x-data="{ editOpen: false }" class="bg-white border border-slate-100 rounded-lg overflow-hidden">
+                    <div class="flex items-center gap-2 text-xs px-3 py-2">
+                        <span class="w-2 h-2 rounded-full shrink-0 {% if e.enabled %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
+                        <span class="text-slate-700 font-medium min-w-[60px]">{{ e.export_type }}</span>
+                        <span class="text-slate-400">→ <span class="font-mono">{{ e.target_sheet or '—' }}</span></span>
+                        <span class="text-slate-400 hidden sm:inline">{{ e.operation or '' }}</span>
+                        <span class="text-slate-300 hidden sm:inline">|</span>
+                        <span class="text-slate-400 hidden sm:inline {% if e.is_custom_sched %}font-mono{% endif %}">{{ e.schedule }}</span>
+                        {% if e.last_run %}
+                        <span class="text-slate-300 hidden md:inline">|</span>
+                        <span class="text-slate-400 hidden md:inline">{{ e.last_run }}</span>
+                        {% endif %}
+                        <!-- Per-rule actions -->
+                        <div class="ml-auto flex items-center gap-1 shrink-0">
+                            <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/run">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" title="Запустить сейчас"
+                                        class="text-[10px] px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded font-medium transition-colors">
+                                    ▶
+                                </button>
+                            </form>
+                            <button type="button" @click="editOpen = !editOpen" title="Редактировать"
+                                    :class="editOpen ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'"
+                                    class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors">
+                                ✏️
                             </button>
-                        </form>
-                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/toggle">
+                            <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/toggle">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" title="{% if e.enabled %}Выключить{% else %}Включить{% endif %}"
+                                        class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors
+                                               {% if e.enabled %}bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200{% else %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% endif %}">
+                                    {% if e.enabled %}⏸{% else %}▶{% endif %}
+                                </button>
+                            </form>
+                            <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/delete"
+                                  onsubmit="return confirm('Удалить правило «{{ e.export_type }}»?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button type="submit" title="Удалить"
+                                        class="text-[10px] px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 rounded font-medium transition-colors">
+                                    🗑
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Inline edit form -->
+                    <div x-show="editOpen" x-cloak class="px-3 py-3 bg-slate-50 border-t border-slate-100">
+                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/edit"
+                              x-data="{ sched: '{{ '' if e.is_custom_sched else e.schedule }}' }">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" title="{% if e.enabled %}Выключить{% else %}Включить{% endif %}"
-                                    class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors
-                                           {% if e.enabled %}bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200{% else %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% endif %}">
-                                {% if e.enabled %}⏸{% else %}▶{% endif %}
-                            </button>
-                        </form>
-                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/delete"
-                              onsubmit="return confirm('Удалить правило «{{ e.export_type }}»?')">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" title="Удалить"
-                                    class="text-[10px] px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 rounded font-medium transition-colors">
-                                🗑
-                            </button>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                                <div class="sm:col-span-2">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист назначения</label>
+                                    <input type="text" name="target_sheet" required value="{{ e.target_sheet }}"
+                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <p class="text-[9px] text-slate-400 mt-0.5">Макросы: {week}, {month}, {year}</p>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Расписание</label>
+                                    <select x-model="sched" name="schedule"
+                                            class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="immediate">При событии</option>
+                                        <option value="disabled">Отключено</option>
+                                        <option value="0 9 * * *">Ежедневно 9:00</option>
+                                        <option value="0 8 * * 1">По понедельникам 8:00</option>
+                                        <option value="0 8 1 * *">1-го числа 8:00</option>
+                                        <option value="">Своё расписание (cron)...</option>
+                                    </select>
+                                    <div x-show="sched === ''" x-cloak class="mt-1">
+                                        <input type="text" name="schedule_custom"
+                                               value="{{ e.schedule if e.is_custom_sched else '' }}"
+                                               placeholder="0 18 * * 1-5"
+                                               class="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <p class="text-[9px] text-slate-400 mt-0.5">Пример: 0 18 * * 1-5 = в 18:00 по будням</p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% if e.operation == 'update_cell' %}
+                            <div class="mb-2 p-2 bg-white border border-slate-200 rounded-lg">
+                                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Маппинг матрицы (update_cell)</p>
+                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Колонка строк</label>
+                                        <input type="number" name="row_search_col" min="1"
+                                               value="{{ e.lookup_config.get('row_search_col', 1) }}"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Поле строки</label>
+                                        <input type="text" name="row_search_field"
+                                               value="{{ e.lookup_config.get('row_search_field', 'shop_name') }}"
+                                               placeholder="shop_name"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Строка шапки</label>
+                                        <input type="number" name="col_search_row" min="1"
+                                               value="{{ e.lookup_config.get('col_search_row', 1) }}"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Поле колонок</label>
+                                        <input type="text" name="col_search_field"
+                                               value="{{ e.lookup_config.get('col_search_field', 'product_name') }}"
+                                               placeholder="product_name"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Поле значения</label>
+                                        <input type="text" name="value_field"
+                                               value="{{ e.lookup_config.get('value_field', 'quantity') }}"
+                                               placeholder="quantity"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Данные с строки</label>
+                                        <input type="number" name="data_start_row" min="1"
+                                               value="{{ e.lookup_config.get('data_start_row', 2) }}"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] text-slate-400 mb-1">Данные с колонки</label>
+                                        <input type="number" name="data_start_col" min="1"
+                                               value="{{ e.lookup_config.get('data_start_col', 2) }}"
+                                               class="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            <div class="flex gap-2">
+                                <button type="submit"
+                                        class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                                    💾 Сохранить
+                                </button>
+                                <button type="button" @click="editOpen = false"
+                                        class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors">
+                                    Отмена
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -290,7 +394,8 @@
             <!-- Add export form -->
             <div x-show="addExportOpen" x-cloak class="mt-2 bg-blue-50/60 border border-blue-100 rounded-xl p-3">
                 <p class="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">Новое правило экспорта</p>
-                <form method="post" action="/integration/{{ c.id }}/export/create">
+                <form method="post" action="/integration/{{ c.id }}/export/create"
+                      x-data="{ sched: 'immediate' }">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
                         <div>
@@ -308,6 +413,7 @@
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист назначения</label>
                             <input type="text" name="target_sheet" required placeholder="Лист1"
                                    class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-[9px] text-slate-400 mt-0.5">Макросы: {week}, {month}, {year}</p>
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Операция</label>
@@ -317,18 +423,23 @@
                                 <option value="replace_sheet">Заменить лист (снимок)</option>
                                 <option value="update_cell">Обновить ячейку (матрица)</option>
                             </select>
-                            <p class="text-[9px] text-slate-400 mt-0.5">«Обновить ячейку» создаётся с дефолтными полями; уточните через бота для точного поиска</p>
                         </div>
                         <div>
                             <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Расписание</label>
-                            <select name="schedule"
+                            <select x-model="sched" name="schedule"
                                     class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 <option value="immediate">При событии</option>
                                 <option value="disabled">Отключено</option>
                                 <option value="0 9 * * *">Ежедневно 9:00</option>
                                 <option value="0 8 * * 1">По понедельникам 8:00</option>
                                 <option value="0 8 1 * *">1-го числа 8:00</option>
+                                <option value="">Своё расписание (cron)...</option>
                             </select>
+                            <div x-show="sched === ''" x-cloak class="mt-1">
+                                <input type="text" name="schedule_custom" placeholder="0 18 * * 1-5"
+                                       class="w-full border border-blue-300 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="text-[9px] text-slate-400 mt-0.5">Пример: 0 18 * * 1-5 = в 18:00 по будням</p>
+                            </div>
                         </div>
                     </div>
                     <button type="submit"
