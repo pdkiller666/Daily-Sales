@@ -27,7 +27,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=e3db71b82a">
+    <link rel="stylesheet" href="/static/app.css?v=a73033dd0b">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -294,7 +294,7 @@ function toastMgr() {
 
 <!-- ═══ SIDEBAR ═══ -->
 <aside :class="open?'translate-x-0':'-translate-x-full'"
-       class="fixed inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 transform transition-transform duration-200 -translate-x-full lg:translate-x-0 lg:static lg:inset-0">
+       class="fixed inset-y-0 left-0 z-30 flex flex-col w-64 bg-slate-900 transform transition-transform duration-200 -translate-x-full lg:translate-x-0">
 
     <!-- Logo + Changelog -->
     <div x-data="dsChangelog()" class="relative shrink-0">
