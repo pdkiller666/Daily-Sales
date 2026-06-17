@@ -75,8 +75,10 @@ def _search_rate_ok(key)      -> bool: return _rate_ok(_SEARCH_RATE_STORE, key, 
 def _get_user_db_id(db, telegram_id: int) -> int | None:
     try:
         conn = db.get_connection()
-        row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
-        conn.close()
+        try:
+            row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -1073,11 +1075,13 @@ def chat_file(request: Request, msg_id: int):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        row = conn.execute(
-            "SELECT file_path, file_name, file_type FROM chat_messages WHERE id = ? AND is_deleted = 0",
-            (msg_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT file_path, file_name, file_type FROM chat_messages WHERE id = ? AND is_deleted = 0",
+                (msg_id,)
+            ).fetchone()
+        finally:
+            conn.close()
 
         if not row or not row[0]:
             return Response(content="Файл не найден", status_code=404)
@@ -1126,11 +1130,13 @@ def chat_delete_message(
 
         # Получаем file_path до удаления, чтобы потом удалить файл с диска
         conn = db.get_connection()
-        msg_row = conn.execute(
-            "SELECT file_path FROM chat_messages WHERE id = ? AND is_deleted = 0",
-            (msg_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            msg_row = conn.execute(
+                "SELECT file_path FROM chat_messages WHERE id = ? AND is_deleted = 0",
+                (msg_id,)
+            ).fetchone()
+        finally:
+            conn.close()
 
         ok = db.soft_delete_chat_message(msg_id, user_db_id or 0, is_admin)
 
@@ -1609,11 +1615,13 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     for r in raw_members if r[0] not in existing_ids
                 ]
                 conn = db.get_connection()
-                peer_row = conn.execute(
-                    "SELECT id, first_name, last_name, username FROM users WHERE id = ?",
-                    (peer_id,)
-                ).fetchone()
-                conn.close()
+                try:
+                    peer_row = conn.execute(
+                        "SELECT id, first_name, last_name, username FROM users WHERE id = ?",
+                        (peer_id,)
+                    ).fetchone()
+                finally:
+                    conn.close()
                 if peer_row:
                     pname = f"{peer_row[1] or ''} {peer_row[2] or ''}".strip() or peer_row[3] or f"User#{peer_id}"
                     ctx["peer"] = {"id": peer_id, "display_name": pname, "initial": pname[0].upper()}
@@ -1935,8 +1943,10 @@ async def dm_send(
             # Web Push для DM
             try:
                 conn = db.get_connection()
-                _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_user_id,)).fetchone()
-                conn.close()
+                try:
+                    _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_user_id,)).fetchone()
+                finally:
+                    conn.close()
                 if _row and _row[0]:
                     from web.push_utils import apush
                     await apush(int(_row[0]), "💬 Новое сообщение", dm_msg, "/chat/dm")
@@ -2185,8 +2195,10 @@ async def ws_dm(websocket: WebSocket):
                     )
                     try:
                         conn = db.get_connection()
-                        _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_id,)).fetchone()
-                        conn.close()
+                        try:
+                            _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (to_id,)).fetchone()
+                        finally:
+                            conn.close()
                         if _row and _row[0]:
                             from web.push_utils import apush
                             await apush(int(_row[0]), "💬 Новое сообщение", _dm_msg, "/chat/dm")
