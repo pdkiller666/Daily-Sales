@@ -226,15 +226,17 @@ def products_page(
             from datetime import date as _date, timedelta as _td
             _start90 = (_date.today() - _td(days=90)).isoformat()
             _conn = db.get_connection()
-            _rows = _conn.execute("""
-                SELECT product_id, SUM(quantity_sold * sale_price) AS revenue
-                FROM sales
-                WHERE date(sale_date) >= ?
-                GROUP BY product_id
-                HAVING revenue > 0
-                ORDER BY revenue DESC
-            """, (_start90,)).fetchall()
-            _conn.close()
+            try:
+                _rows = _conn.execute("""
+                    SELECT product_id, SUM(quantity_sold * sale_price) AS revenue
+                    FROM sales
+                    WHERE date(sale_date) >= ?
+                    GROUP BY product_id
+                    HAVING revenue > 0
+                    ORDER BY revenue DESC
+                """, (_start90,)).fetchall()
+            finally:
+                _conn.close()
             if _rows:
                 _total = sum(r[1] for r in _rows)
                 _cumul = 0.0
@@ -1379,15 +1381,17 @@ def _get_user_label_size(telegram_id: int) -> str:
     try:
         import sqlite3
         c = sqlite3.connect("data/main.db", timeout=5)
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS user_label_prefs "
-            "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
-        )
-        row = c.execute(
-            "SELECT label_size FROM user_label_prefs WHERE telegram_id=?", (telegram_id,)
-        ).fetchone()
-        c.commit()
-        c.close()
+        try:
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS user_label_prefs "
+                "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
+            )
+            row = c.execute(
+                "SELECT label_size FROM user_label_prefs WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+            c.commit()
+        finally:
+            c.close()
         size = row[0] if row else "58x40"
         return size if size in _VALID_LABEL_SIZES else "58x40"
     except Exception:
@@ -1401,17 +1405,19 @@ def _save_user_label_size(telegram_id: int, size: str) -> None:
         if size not in _VALID_LABEL_SIZES:
             return
         c = sqlite3.connect("data/main.db", timeout=5)
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS user_label_prefs "
-            "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
-        )
-        c.execute(
-            "INSERT INTO user_label_prefs (telegram_id, label_size, updated_at) VALUES (?,?,datetime('now')) "
-            "ON CONFLICT(telegram_id) DO UPDATE SET label_size=excluded.label_size, updated_at=excluded.updated_at",
-            (telegram_id, size),
-        )
-        c.commit()
-        c.close()
+        try:
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS user_label_prefs "
+                "(telegram_id INTEGER PRIMARY KEY, label_size TEXT DEFAULT '58x40', updated_at TEXT)"
+            )
+            c.execute(
+                "INSERT INTO user_label_prefs (telegram_id, label_size, updated_at) VALUES (?,?,datetime('now')) "
+                "ON CONFLICT(telegram_id) DO UPDATE SET label_size=excluded.label_size, updated_at=excluded.updated_at",
+                (telegram_id, size),
+            )
+            c.commit()
+        finally:
+            c.close()
     except Exception:
         pass
 

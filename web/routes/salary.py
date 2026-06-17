@@ -124,11 +124,13 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
             pass
         import sqlite3 as _sq
         conn_m = _sq.connect("data/main.db")
-        uid_row = conn_m.execute(
-            "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
-            (telegram_id,)
-        ).fetchone()
-        conn_m.close()
+        try:
+            uid_row = conn_m.execute(
+                "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+                (telegram_id,)
+            ).fetchone()
+        finally:
+            conn_m.close()
 
         conn_u = db.get_connection()
         try:

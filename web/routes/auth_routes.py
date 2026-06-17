@@ -114,11 +114,13 @@ async def switch_org(
     import sqlite3
     try:
         conn = sqlite3.connect("data/main.db")
-        row = conn.execute(
-            "SELECT db_path FROM organizations WHERE db_path=? AND is_active=1",
-            (org_db,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT db_path FROM organizations WHERE db_path=? AND is_active=1",
+                (org_db,)
+            ).fetchone()
+        finally:
+            conn.close()
     except Exception:
         row = None
 
@@ -309,10 +311,12 @@ def _get_display_name(telegram_id: int, org_db: str) -> str:
         if org_db and org_db != 'data/shop_bot.db' and os.path.exists(org_db):
             db = Database(org_db)
             conn = db.get_connection()
-            row = conn.execute(
-                "SELECT first_name FROM users WHERE telegram_id=?", (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT first_name FROM users WHERE telegram_id=?", (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if row and row[0]:
                 return row[0]
     except Exception:

@@ -18,10 +18,12 @@ def _get_org_info(db_file: str) -> tuple:
     """Return (org_id, invite_code) from main.db for this org db path."""
     try:
         conn = sqlite3.connect("data/main.db")
-        cur = conn.cursor()
-        cur.execute("SELECT id, invite_code FROM organizations WHERE db_path = ?", (db_file,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, invite_code FROM organizations WHERE db_path = ?", (db_file,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return (row[0], row[1] or "") if row else (None, "")
     except Exception:
         return (None, "")
@@ -31,30 +33,34 @@ def _get_org_roles(org_db_path: str) -> dict[int, dict]:
     """Returns {telegram_id: {role, custom_title}} from main.db for this org."""
     try:
         conn = sqlite3.connect("data/main.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id FROM organizations WHERE db_path = ?", (org_db_path,)
-        )
-        org_row = cursor.fetchone()
-        if not org_row:
-            conn.close()
-            return {}
-        org_id = org_row[0]
-        cursor.execute(
-            """SELECT telegram_id, role, custom_title, scope_type, scope_value
-               FROM user_org_mapping WHERE org_id = ? AND is_active = 1""",
-            (org_id,),
-        )
-        result = {
-            row[0]: {
-                "role": row[1] or "user",
-                "custom_title": row[2] or "",
-                "scope_type": row[3] or "",
-                "scope_value": row[4] or "",
+        try:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM organizations WHERE db_path = ?", (org_db_path,)
+                )
+                org_row = cursor.fetchone()
+        finally:
+            if not org_row:.close()
+                conn.close()
+                return {}
+            org_id = org_row[0]
+            cursor.execute(
+                """SELECT telegram_id, role, custom_title, scope_type, scope_value
+                   FROM user_org_mapping WHERE org_id = ? AND is_active = 1""",
+                (org_id,),
+            )
+            result = {
+                row[0]: {
+                    "role": row[1] or "user",
+                    "custom_title": row[2] or "",
+                    "scope_type": row[3] or "",
+                    "scope_value": row[4] or "",
+                }
+                for row in cursor.fetchall()
             }
-            for row in cursor.fetchall()
-        }
-        conn.close()
+        finally:
+            conn.close()
         return result
     except Exception:
         return {}

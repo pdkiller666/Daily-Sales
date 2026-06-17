@@ -23,20 +23,22 @@ SHOP_BOT_DB = "data/shop_bot.db"
 def _get_all_users_with_subs(limit: int = 500) -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT u.id, u.first_name, u.last_name, u.username, u.shop_name,
-                   s.plan_type, s.end_date
-            FROM users u
-            LEFT JOIN subscriptions s ON s.user_id = u.id
-            ORDER BY u.first_name, u.last_name
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT u.id, u.first_name, u.last_name, u.username, u.shop_name,
+                       s.plan_type, s.end_date
+                FROM users u
+                LEFT JOIN subscriptions s ON s.user_id = u.id
+                ORDER BY u.first_name, u.last_name
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
         return [
             {
                 "id": r[0],
@@ -54,10 +56,12 @@ def _get_all_users_with_subs(limit: int = 500) -> list[dict]:
 def _get_admin_db_id(telegram_id: int) -> int | None:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -66,21 +70,23 @@ def _get_admin_db_id(telegram_id: int) -> int | None:
 def _get_pending(limit: int = 200) -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.created_at,
-                   u.first_name, u.last_name, u.shop_name
-            FROM payment_requests pr
-            JOIN users u ON pr.user_id = u.id
-            WHERE pr.status = 'pending'
-            ORDER BY pr.created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT pr.id, pr.user_id, pr.plan_type, pr.amount, pr.created_at,
+                       u.first_name, u.last_name, u.shop_name
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                WHERE pr.status = 'pending'
+                ORDER BY pr.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
         return [
             {
                 "id": r[0],
@@ -101,24 +107,26 @@ def _get_pending(limit: int = 200) -> list[dict]:
 def _get_history(limit: int = 50) -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT pr.id, pr.plan_type, pr.amount, pr.status,
-                   pr.created_at, pr.processed_at,
-                   u.first_name, u.last_name, u.shop_name,
-                   a.first_name, a.last_name
-            FROM payment_requests pr
-            JOIN users u ON pr.user_id = u.id
-            LEFT JOIN users a ON pr.processed_by = a.id
-            WHERE pr.status IN ('approved', 'rejected')
-            ORDER BY pr.processed_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT pr.id, pr.plan_type, pr.amount, pr.status,
+                       pr.created_at, pr.processed_at,
+                       u.first_name, u.last_name, u.shop_name,
+                       a.first_name, a.last_name
+                FROM payment_requests pr
+                JOIN users u ON pr.user_id = u.id
+                LEFT JOIN users a ON pr.processed_by = a.id
+                WHERE pr.status IN ('approved', 'rejected')
+                ORDER BY pr.processed_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
         return [
             {
                 "id": r[0],
@@ -141,10 +149,12 @@ def _get_history(limit: int = 50) -> list[dict]:
 def get_pending_count() -> int:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'")
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM payment_requests WHERE status = 'pending'")
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else 0
     except Exception:
         return 0

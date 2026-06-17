@@ -58,11 +58,13 @@ def _get_user_info(telegram_id: int, org_db: str | None) -> dict:
         import sqlite3
         if org_db:
             conn = sqlite3.connect(org_db)
-            row = conn.execute(
-                "SELECT first_name, last_name, username, shop_name FROM users WHERE telegram_id=?",
-                (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT first_name, last_name, username, shop_name FROM users WHERE telegram_id=?",
+                    (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if row:
                 fn, ln, uname, shop = row
                 info["name"] = f"{fn or ''} {ln or ''}".strip()
@@ -70,13 +72,15 @@ def _get_user_info(telegram_id: int, org_db: str | None) -> dict:
                 info["shop"] = shop or ""
         row2 = None
         conn2 = sqlite3.connect("data/main.db")
-        row2 = conn2.execute(
-            "SELECT org_name FROM organizations o "
-            "JOIN user_org_mapping m ON m.org_id=o.id "
-            "WHERE m.telegram_id=? AND m.is_active=1",
-            (telegram_id,)
-        ).fetchone()
-        conn2.close()
+        try:
+            row2 = conn2.execute(
+                "SELECT org_name FROM organizations o "
+                "JOIN user_org_mapping m ON m.org_id=o.id "
+                "WHERE m.telegram_id=? AND m.is_active=1",
+                (telegram_id,)
+            ).fetchone()
+        finally:
+            conn2.close()
         if row2:
             info["org"] = row2[0] or ""
     except Exception as e:

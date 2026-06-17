@@ -42,15 +42,17 @@ def _get_owner_orgs(tg_id: int) -> list[dict]:
     result = []
     try:
         conn = sqlite3.connect(_MAIN_DB)
-        rows = conn.execute(
-            """SELECT o.id, o.name, o.db_path
-               FROM organizations o
-               JOIN user_org_mapping m ON m.org_id = o.id
-               WHERE m.telegram_id = ? AND m.role = 'owner' AND o.is_active = 1
-               ORDER BY o.name""",
-            (tg_id,)
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT o.id, o.name, o.db_path
+                   FROM organizations o
+                   JOIN user_org_mapping m ON m.org_id = o.id
+                   WHERE m.telegram_id = ? AND m.role = 'owner' AND o.is_active = 1
+                   ORDER BY o.name""",
+                (tg_id,)
+            ).fetchall()
+        finally:
+            conn.close()
         for row in rows:
             if row[2] and os.path.exists(row[2]) and row[2] != "data/shop_bot.db":
                 result.append({
@@ -161,11 +163,13 @@ def _build_network_prompt(orgs: list) -> str:
 def _get_cached_insights(tg_id: int) -> dict | None:
     try:
         conn = sqlite3.connect(_SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT insights_text, generated_at FROM ai_insights_cache WHERE tg_id = ?",
-            (tg_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT insights_text, generated_at FROM ai_insights_cache WHERE tg_id = ?",
+                (tg_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         if row:
             return {"insights_text": row[0], "generated_at": row[1]}
     except Exception as exc:
@@ -176,16 +180,18 @@ def _get_cached_insights(tg_id: int) -> dict | None:
 def _save_cached_insights(tg_id: int, text: str) -> None:
     try:
         conn = sqlite3.connect(_SHOP_BOT_DB)
-        conn.execute(
-            """INSERT INTO ai_insights_cache (tg_id, insights_text, generated_at)
-               VALUES (?, ?, datetime('now'))
-               ON CONFLICT(tg_id) DO UPDATE SET
-                 insights_text = excluded.insights_text,
-                 generated_at  = excluded.generated_at""",
-            (tg_id, text)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                """INSERT INTO ai_insights_cache (tg_id, insights_text, generated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(tg_id) DO UPDATE SET
+                     insights_text = excluded.insights_text,
+                     generated_at  = excluded.generated_at""",
+                (tg_id, text)
+            )
+            conn.commit()
+        finally:
+            conn.close()
     except Exception as exc:
         logger.error("_save_cached_insights error: %s", exc)
 
@@ -197,12 +203,14 @@ def _get_digests_for_orgs(org_dbs: list[str]) -> list[dict]:
     results = []
     try:
         conn = sqlite3.connect(_SHOP_BOT_DB)
-        placeholders = ",".join("?" * len(org_dbs))
-        rows = conn.execute(
-            f"SELECT org_db, digest_text, generated_at FROM ai_weekly_digest_cache WHERE org_db IN ({placeholders}) ORDER BY generated_at DESC",
-            org_dbs,
-        ).fetchall()
-        conn.close()
+        try:
+            placeholders = ",".join("?" * len(org_dbs))
+            rows = conn.execute(
+                f"SELECT org_db, digest_text, generated_at FROM ai_weekly_digest_cache WHERE org_db IN ({placeholders}) ORDER BY generated_at DESC",
+                org_dbs,
+            ).fetchall()
+        finally:
+            conn.close()
         for row in rows:
             results.append({
                 "org_db": row[0],

@@ -299,14 +299,16 @@ def push_status(request: Request):
         last_sent: str | None = None
         try:
             _conn = _sqlite3.connect(_shop_db)
-            rows = _conn.execute(
-                """SELECT title, sent_at FROM push_delivery_log
-                   WHERE user_id = ?
-                   ORDER BY sent_at DESC
-                   LIMIT 3""",
-                (tg_id,),
-            ).fetchall()
-            _conn.close()
+            try:
+                rows = _conn.execute(
+                    """SELECT title, sent_at FROM push_delivery_log
+                       WHERE user_id = ?
+                       ORDER BY sent_at DESC
+                       LIMIT 3""",
+                    (tg_id,),
+                ).fetchall()
+            finally:
+                _conn.close()
             recent_pushes = [{"title": r[0], "sent_at": r[1]} for r in rows]
             last_sent = recent_pushes[0]["sent_at"] if recent_pushes else None
         except Exception:

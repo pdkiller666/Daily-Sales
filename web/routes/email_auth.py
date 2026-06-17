@@ -40,10 +40,12 @@ def _name_from_org(tg_id: int, org_db: str) -> str:
         if org_db and os.path.exists(org_db):
             db = Database(org_db)
             conn = db.get_connection()
-            row = conn.execute(
-                "SELECT first_name FROM users WHERE telegram_id=?", (tg_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT first_name FROM users WHERE telegram_id=?", (tg_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if row and row[0]:
                 return row[0]
     except Exception:
@@ -54,13 +56,15 @@ def _name_from_org(tg_id: int, org_db: str) -> str:
 def _add_org_mapping(synthetic_tg_id: int, org_id: int, role: str = 'user'):
     try:
         conn = sqlite3.connect('data/main.db')
-        conn.execute(
-            "INSERT OR IGNORE INTO user_org_mapping (telegram_id, org_id, role, is_active) "
-            "VALUES (?, ?, ?, 1)",
-            (synthetic_tg_id, org_id, role)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_org_mapping (telegram_id, org_id, role, is_active) "
+                "VALUES (?, ?, ?, 1)",
+                (synthetic_tg_id, org_id, role)
+            )
+            conn.commit()
+        finally:
+            conn.close()
     except Exception as exc:
         logger.error("_add_org_mapping: %s", exc)
 
@@ -163,10 +167,12 @@ def _email_registration_enabled() -> bool:
     try:
         import sqlite3 as _sl3
         _c = _sl3.connect("data/shop_bot.db")
-        _r = _c.execute(
-            "SELECT value FROM payment_settings WHERE key='email_registration_enabled'"
-        ).fetchone()
-        _c.close()
+        try:
+            _r = _c.execute(
+                "SELECT value FROM payment_settings WHERE key='email_registration_enabled'"
+            ).fetchone()
+        finally:
+            _c.close()
         return _r is None or _r[0] != "0"
     except Exception:
         return True
@@ -243,11 +249,13 @@ async def register_submit(
 
     try:
         conn = sqlite3.connect('data/main.db')
-        org_row = conn.execute(
-            "SELECT id, name, db_path FROM organizations WHERE invite_code=? AND is_active=1",
-            (invite_code,)
-        ).fetchone()
-        conn.close()
+        try:
+            org_row = conn.execute(
+                "SELECT id, name, db_path FROM organizations WHERE invite_code=? AND is_active=1",
+                (invite_code,)
+            ).fetchone()
+        finally:
+            conn.close()
     except Exception as exc:
         logger.error("register main.db: %s", exc)
         return _err("Ошибка проверки инвайт-кода. Попробуйте позже.")

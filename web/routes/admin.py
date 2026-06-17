@@ -1181,13 +1181,15 @@ async def admin_ai_limits(request: Request):
     try:
         if os.path.exists(_RATE_DB_PATH):
             _ul_conn = _sqlite3.connect(_RATE_DB_PATH, timeout=3, check_same_thread=False)
-            _ul_row = _ul_conn.execute(
-                "SELECT COUNT(*), MIN(usage_date) FROM ai_usage_log"
-            ).fetchone()
-            _ul_page = _ul_conn.execute(
-                "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
-            ).fetchone()
-            _ul_conn.close()
+            try:
+                _ul_row = _ul_conn.execute(
+                    "SELECT COUNT(*), MIN(usage_date) FROM ai_usage_log"
+                ).fetchone()
+                _ul_page = _ul_conn.execute(
+                    "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
+                ).fetchone()
+            finally:
+                _ul_conn.close()
             if _ul_row:
                 _usage_log_count = _ul_row[0] or 0
                 _usage_log_oldest = _ul_row[1]

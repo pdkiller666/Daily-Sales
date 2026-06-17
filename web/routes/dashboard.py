@@ -111,13 +111,15 @@ def dashboard(request: Request, msg: str = ""):
         import sqlite3 as _sqlite3
         _shop_db = "data/shop_bot.db"
         _aconn = _sqlite3.connect(_shop_db)
-        _row_ver = _aconn.execute(
-            "SELECT value FROM payment_settings WHERE key='apk_latest_version'"
-        ).fetchone()
-        _row_url = _aconn.execute(
-            "SELECT value FROM payment_settings WHERE key='apk_release_url'"
-        ).fetchone()
-        _aconn.close()
+        try:
+            _row_ver = _aconn.execute(
+                "SELECT value FROM payment_settings WHERE key='apk_latest_version'"
+            ).fetchone()
+            _row_url = _aconn.execute(
+                "SELECT value FROM payment_settings WHERE key='apk_release_url'"
+            ).fetchone()
+        finally:
+            _aconn.close()
         apk_new_version = _row_ver[0].strip() if _row_ver and _row_ver[0] else ""
         apk_release_url = _row_url[0].strip() if _row_url and _row_url[0] else "/download/android"
     except Exception:

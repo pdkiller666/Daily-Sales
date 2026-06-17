@@ -69,10 +69,12 @@ def _plan_type_label(plan_type: str) -> str:
 def _get_user_id_in_shop_bot(telegram_id: int) -> int | None:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -88,12 +90,14 @@ def _strip_leading_emoji(name: str, icon: str) -> str:
 def _get_all_billing_modules() -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        rows = conn.execute(
-            """SELECT key, name, icon, description, price_monthly, features_json
-               FROM billing_modules WHERE is_active=1
-               ORDER BY sort_order, id"""
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT key, name, icon, description, price_monthly, features_json
+                   FROM billing_modules WHERE is_active=1
+                   ORDER BY sort_order, id"""
+            ).fetchall()
+        finally:
+            conn.close()
         result = []
         for r in rows:
             key, name, icon, desc, price, feats_json = r
@@ -121,12 +125,14 @@ def _get_all_billing_extensions() -> list[dict]:
     """Расширения из billing_extensions, сгруппированные по module_key."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        rows = conn.execute(
-            """SELECT module_key, key, name, icon, description, price_monthly
-               FROM billing_extensions WHERE is_active=1
-               ORDER BY module_key, sort_order, id"""
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT module_key, key, name, icon, description, price_monthly
+                   FROM billing_extensions WHERE is_active=1
+                   ORDER BY module_key, sort_order, id"""
+            ).fetchall()
+        finally:
+            conn.close()
         result = []
         for r in rows:
             module_key, key, name, icon, desc, price = r
@@ -160,12 +166,14 @@ def _modules_map(modules: list[dict], extensions: list[dict] | None = None) -> d
 def _get_all_billing_bundles() -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        rows = conn.execute(
-            """SELECT key, name, icon, description, includes_json, price_monthly
-               FROM billing_bundles WHERE is_active=1
-               ORDER BY sort_order, id"""
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT key, name, icon, description, includes_json, price_monthly
+                   FROM billing_bundles WHERE is_active=1
+                   ORDER BY sort_order, id"""
+            ).fetchall()
+        finally:
+            conn.close()
         result = []
         for r in rows:
             key, name, icon, desc, inc_json, price = r
@@ -191,13 +199,15 @@ def _get_all_billing_bundles() -> list[dict]:
 def _get_user_active_module_subs(telegram_id: int) -> dict:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        rows = conn.execute(
-            """SELECT item_key, item_type, end_date FROM billing_module_subs
-               WHERE user_telegram_id=? AND is_active=1
-                 AND (end_date IS NULL OR end_date > datetime('now'))""",
-            (telegram_id,)
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT item_key, item_type, end_date FROM billing_module_subs
+                   WHERE user_telegram_id=? AND is_active=1
+                     AND (end_date IS NULL OR end_date > datetime('now'))""",
+                (telegram_id,)
+            ).fetchall()
+        finally:
+            conn.close()
         return {
             r[0]: {"item_type": r[1], "end_date": str(r[2] or "")[:10] or "∞"}
             for r in rows
@@ -211,13 +221,15 @@ def _get_active_trial(user_id: int | None) -> dict | None:
         return None
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        row = conn.execute(
-            """SELECT end_date FROM subscriptions
-               WHERE user_id=? AND is_trial=1 AND end_date > datetime('now')
-               ORDER BY end_date DESC LIMIT 1""",
-            (user_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                """SELECT end_date FROM subscriptions
+                   WHERE user_id=? AND is_trial=1 AND end_date > datetime('now')
+                   ORDER BY end_date DESC LIMIT 1""",
+                (user_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         if row:
             return {"end_date": str(row[0] or "")[:10], "is_trial": True}
         return None
@@ -229,17 +241,19 @@ def _get_payment_history(user_id: int, limit: int = 10) -> tuple[list[dict], boo
     """Returns (history_rows, has_more). has_more=True when total records > limit."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        total = conn.execute(
-            "SELECT COUNT(*) FROM payment_requests WHERE user_id = ?", (user_id,)
-        ).fetchone()[0]
-        rows = conn.execute(
-            """SELECT id, plan_type, amount, status, created_at, processed_at
-               FROM payment_requests
-               WHERE user_id = ?
-               ORDER BY created_at DESC LIMIT ?""",
-            (user_id, limit),
-        ).fetchall()
-        conn.close()
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM payment_requests WHERE user_id = ?", (user_id,)
+            ).fetchone()[0]
+            rows = conn.execute(
+                """SELECT id, plan_type, amount, status, created_at, processed_at
+                   FROM payment_requests
+                   WHERE user_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+        finally:
+            conn.close()
         STATUS_LABELS = {
             "pending": ("⏳ Ожидает", "text-amber-600 bg-amber-50"),
             "approved": ("✅ Подтверждено", "text-emerald-600 bg-emerald-50"),
@@ -268,11 +282,13 @@ def _get_payment_history(user_id: int, limit: int = 10) -> tuple[list[dict], boo
 def _has_pending_request(user_id: int) -> bool:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT id FROM payment_requests WHERE user_id = ? AND status = 'pending'",
-            (user_id,),
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT id FROM payment_requests WHERE user_id = ? AND status = 'pending'",
+                (user_id,),
+            ).fetchone()
+        finally:
+            conn.close()
         return row is not None
     except Exception:
         return False
@@ -380,14 +396,16 @@ def _get_tariff_plans(current_plan_name: str | None, user_id: int | None = None)
     текущей подписки сгорит при немедленной замене."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        rows = conn.execute(
-            """SELECT id, name, duration_days, price, description,
-                      max_products, max_shops, max_sales_per_month
-               FROM subscription_plans
-               WHERE is_active=1 AND price > 0
-               ORDER BY price"""
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT id, name, duration_days, price, description,
+                          max_products, max_shops, max_sales_per_month
+                   FROM subscription_plans
+                   WHERE is_active=1 AND price > 0
+                   ORDER BY price"""
+            ).fetchall()
+        finally:
+            conn.close()
     except Exception:
         return []
 
@@ -445,32 +463,34 @@ def _get_item_price(plan_type: str) -> int | None:
     Используется вместо клиентского amount, чтобы пользователь не мог подделать сумму."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        price = None
-        if plan_type.startswith("module_"):
-            key = plan_type[7:]
-            row = conn.execute(
-                "SELECT price_monthly FROM billing_modules WHERE key=? AND is_active=1 LIMIT 1",
-                (key,),
-            ).fetchone()
-            if row:
-                price = int(row[0] or 0)
-        elif plan_type.startswith("bundle_"):
-            key = plan_type[7:]
-            row = conn.execute(
-                "SELECT price_monthly FROM billing_bundles WHERE key=? AND is_active=1 LIMIT 1",
-                (key,),
-            ).fetchone()
-            if row:
-                price = int(row[0] or 0)
-        elif plan_type.startswith("extension_"):
-            key = plan_type[10:]
-            row = conn.execute(
-                "SELECT price_monthly FROM billing_extensions WHERE key=? AND is_active=1 LIMIT 1",
-                (key,),
-            ).fetchone()
-            if row:
-                price = int(row[0] or 0)
-        conn.close()
+        try:
+            price = None
+            if plan_type.startswith("module_"):
+                key = plan_type[7:]
+                row = conn.execute(
+                    "SELECT price_monthly FROM billing_modules WHERE key=? AND is_active=1 LIMIT 1",
+                    (key,),
+                ).fetchone()
+                if row:
+                    price = int(row[0] or 0)
+            elif plan_type.startswith("bundle_"):
+                key = plan_type[7:]
+                row = conn.execute(
+                    "SELECT price_monthly FROM billing_bundles WHERE key=? AND is_active=1 LIMIT 1",
+                    (key,),
+                ).fetchone()
+                if row:
+                    price = int(row[0] or 0)
+            elif plan_type.startswith("extension_"):
+                key = plan_type[10:]
+                row = conn.execute(
+                    "SELECT price_monthly FROM billing_extensions WHERE key=? AND is_active=1 LIMIT 1",
+                    (key,),
+                ).fetchone()
+                if row:
+                    price = int(row[0] or 0)
+        finally:
+            conn.close()
         return price
     except Exception:
         return None
@@ -480,12 +500,14 @@ def _get_tariff_plan_by_name(name: str) -> dict | None:
     """Валидация: активный платный тариф с таким именем (для заявки из веба)."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        row = conn.execute(
-            """SELECT name, price FROM subscription_plans
-               WHERE name=? AND is_active=1 AND price > 0""",
-            (name,),
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                """SELECT name, price FROM subscription_plans
+                   WHERE name=? AND is_active=1 AND price > 0""",
+                (name,),
+            ).fetchone()
+        finally:
+            conn.close()
         if row:
             return {"name": row[0], "price": int(row[1] or 0)}
         return None
@@ -497,10 +519,12 @@ def _get_payment_requisites() -> str:
     """Возвращает реквизиты оплаты из payment_settings."""
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        row = conn.execute(
-            "SELECT value FROM payment_settings WHERE key='card_number'"
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT value FROM payment_settings WHERE key='card_number'"
+            ).fetchone()
+        finally:
+            conn.close()
         return row[0] if row and row[0] else ""
     except Exception:
         return ""

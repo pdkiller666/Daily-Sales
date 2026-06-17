@@ -13,10 +13,12 @@ def _get_user_db_id(db, telegram_id: int) -> int | None:
     try:
         import sqlite3
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -27,11 +29,13 @@ def _get_org_id_for_user(telegram_id: int) -> int | None:
     try:
         import sqlite3
         conn = sqlite3.connect("data/main.db")
-        row = conn.execute(
-            "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
-            (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT org_id FROM user_org_mapping WHERE telegram_id=? AND is_active=1",
+                (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -122,14 +126,16 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
     try:
         import sqlite3 as _s3
         _ac = _s3.connect("data/main.db")
-        _ac.execute(
-            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
-            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
-        )
-        _ar = _ac.execute(
-            "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?", (telegram_id,)
-        ).fetchone()
-        _ac.close()
+        try:
+            _ac.execute(
+                "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+                "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+            )
+            _ar = _ac.execute(
+                "SELECT enabled FROM apk_notif_prefs WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            _ac.close()
         ctx["apk_notif_enabled"] = bool(_ar[0]) if _ar else False
     except Exception:
         ctx["apk_notif_enabled"] = False
@@ -235,17 +241,19 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         # Org info from main.db
         import sqlite3
         conn = sqlite3.connect("data/main.db")
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT o.id, o.name, o.subscription_plan, o.subscription_end, o.invite_code, "
-            "o.invite_preset_role, o.invite_preset_shop "
-            "FROM organizations o "
-            "JOIN user_org_mapping m ON m.org_id = o.id "
-            "WHERE m.telegram_id = ? AND m.is_active = 1 LIMIT 1",
-            (telegram_id,)
-        )
-        org_row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT o.id, o.name, o.subscription_plan, o.subscription_end, o.invite_code, "
+                "o.invite_preset_role, o.invite_preset_shop "
+                "FROM organizations o "
+                "JOIN user_org_mapping m ON m.org_id = o.id "
+                "WHERE m.telegram_id = ? AND m.is_active = 1 LIMIT 1",
+                (telegram_id,)
+            )
+            org_row = cur.fetchone()
+        finally:
+            conn.close()
 
         if org_row:
             org_id = org_row[0]
@@ -307,10 +315,12 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
             try:
                 import sqlite3 as _sqlite3
                 _mc = _sqlite3.connect("data/main.db")
-                _orgs = _mc.execute(
-                    "SELECT id, name, db_path FROM organizations WHERE is_active=1 ORDER BY name"
-                ).fetchall()
-                _mc.close()
+                try:
+                    _orgs = _mc.execute(
+                        "SELECT id, name, db_path FROM organizations WHERE is_active=1 ORDER BY name"
+                    ).fetchall()
+                finally:
+                    _mc.close()
                 ctx["all_orgs"] = [
                     {"id": r[0], "name": r[1] or f"Орг #{r[0]}", "db_path": r[2]}
                     for r in _orgs if r[2]
@@ -324,10 +334,12 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 import sqlite3 as _sqlite3
                 _sdb2 = "data/shop_bot.db"
                 _c2 = _sqlite3.connect(_sdb2)
-                _row = _c2.execute(
-                    "SELECT value FROM payment_settings WHERE key='beta_mode'"
-                ).fetchone()
-                _c2.close()
+                try:
+                    _row = _c2.execute(
+                        "SELECT value FROM payment_settings WHERE key='beta_mode'"
+                    ).fetchone()
+                finally:
+                    _c2.close()
                 ctx["beta_mode_enabled"] = (_row is None or _row[0] != "0")
             except Exception:
                 ctx["beta_mode_enabled"] = True
@@ -345,10 +357,12 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 import sqlite3 as _sqlite3
                 _sdb5 = "data/shop_bot.db"
                 _c5 = _sqlite3.connect(_sdb5)
-                _row5 = _c5.execute(
-                    "SELECT value FROM payment_settings WHERE key='email_registration_enabled'"
-                ).fetchone()
-                _c5.close()
+                try:
+                    _row5 = _c5.execute(
+                        "SELECT value FROM payment_settings WHERE key='email_registration_enabled'"
+                    ).fetchone()
+                finally:
+                    _c5.close()
                 ctx["email_registration_enabled"] = (_row5 is None or _row5[0] != "0")
             except Exception:
                 ctx["email_registration_enabled"] = True
@@ -372,12 +386,14 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
             import sqlite3 as _sqlite3
             _sdb = "data/shop_bot.db"
             _conn = _sqlite3.connect(_sdb)
-            _cur = _conn.cursor()
-            _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ?", (telegram_id,))
-            total_ref = (_cur.fetchone() or [0])[0]
-            _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND bonus_granted = 1", (telegram_id,))
-            paid_ref = (_cur.fetchone() or [0])[0]
-            _conn.close()
+            try:
+                _cur = _conn.cursor()
+                _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ?", (telegram_id,))
+                total_ref = (_cur.fetchone() or [0])[0]
+                _cur.execute("SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND bonus_granted = 1", (telegram_id,))
+                paid_ref = (_cur.fetchone() or [0])[0]
+            finally:
+                _conn.close()
             ctx["referral"] = {
                 "total_referred": total_ref,
                 "bonus_granted": paid_ref,
