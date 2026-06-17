@@ -43,11 +43,16 @@ def invalidate_plan_analysis_cache(org_db: str, plan_id: int) -> None:
 
 def _api_csrf_ok(request: Request) -> bool:
     """Same-origin guard for JSON API endpoints.
-    Returns False only when Origin header is present but doesn't match the host.
+    Принимает запрос если:
+    - присутствует заголовок X-Requested-With: XMLHttpRequest (наши fetch-вызовы), или
+    - заголовок Origin совпадает с host.
+    Отклоняет если Origin отсутствует и X-Requested-With не задан.
     """
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return True
     origin = request.headers.get("origin")
     if not origin:
-        return True
+        return False
     host = request.headers.get("host", "")
     try:
         from urllib.parse import urlparse

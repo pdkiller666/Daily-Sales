@@ -13,9 +13,12 @@ _MAIN_DB = "data/main.db"
 
 
 def _api_csrf_ok(request: Request) -> bool:
+    """Same-origin guard: X-Requested-With или совпадение Origin с host."""
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return True
     origin = request.headers.get("origin")
     if not origin:
-        return True
+        return False
     host = request.headers.get("host", "")
     try:
         from urllib.parse import urlparse

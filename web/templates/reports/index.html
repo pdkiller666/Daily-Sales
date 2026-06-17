@@ -320,7 +320,7 @@ window._aiReportData = {
                          shop: d.shop || ''
                      };
                  }
-                 const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+                 const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify(body) });
                  const resp = await r.json();
                  if (resp.ok) {
                      this.aiText = resp.text;

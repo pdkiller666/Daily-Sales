@@ -133,6 +133,9 @@ def products_page(
     if not user:
         return RedirectResponse(url="/login", status_code=302)
 
+    _cleanup_import_sessions()
+    _cleanup_article_sessions()
+
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 

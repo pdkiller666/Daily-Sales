@@ -288,7 +288,7 @@ async function aiAnalyzePlan(planId, btn) {
     try {
         const fd = new FormData();
         fd.append('plan_id', planId);
-        const resp = await fetch('/api/ai/analyze-plan', { method: 'POST', body: fd });
+        const resp = await fetch('/api/ai/analyze-plan', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd });
         const data = await resp.json();
 
         if (data.ok && data.text) {
