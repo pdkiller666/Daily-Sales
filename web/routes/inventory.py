@@ -281,13 +281,15 @@ def inventory_adjust(
 
         # Read current quantity for all modes
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
-            (product_id, shop_name),
-        )
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+                (product_id, shop_name),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
         current = int(row[0] or 0) if row else 0
 
         if mode == "set":
@@ -315,13 +317,15 @@ def inventory_adjust(
 
         # Read new qty
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
-            (product_id, shop_name),
-        )
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE product_id = ? AND shop_name = ?",
+                (product_id, shop_name),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
         new_qty = int(row[0] or 0) if row else 0
 
         # Google Sheets: ждём результата (до 8с), чтобы показать статус пользователю

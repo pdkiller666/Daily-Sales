@@ -16,10 +16,12 @@ def _get_own_db_uid(db, telegram_id: int):
     """Return internal users.id for this telegram_id, or None."""
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None

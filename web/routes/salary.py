@@ -750,10 +750,12 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
 def _get_internal_uid(db, telegram_id: int):
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -797,10 +799,12 @@ def salary_adj_add(
         if set(allowed_shops) != set(all_shops):
             # Scoped admin — verify target user belongs to allowed shops
             conn = db.get_connection()
-            target_row = conn.execute(
-                "SELECT id, shop_name FROM users WHERE id = ?", (target_user_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                target_row = conn.execute(
+                    "SELECT id, shop_name FROM users WHERE id = ?", (target_user_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if not target_row or target_row[1] not in allowed_shops:
                 return RedirectResponse(url="/salary?error=access_denied", status_code=302)
 

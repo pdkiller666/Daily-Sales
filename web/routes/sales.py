@@ -639,13 +639,15 @@ def _get_inventory_qty(db, shop_name: str, product_id: int) -> int:
     """Return current inventory qty for a product in a shop, or 0 on error."""
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT quantity FROM inventory WHERE shop_name = ? AND product_id = ?",
-            (shop_name, product_id),
-        )
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE shop_name = ? AND product_id = ?",
+                (shop_name, product_id),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return int(row[0]) if row else 0
     except Exception:
         return 0

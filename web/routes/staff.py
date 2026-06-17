@@ -315,10 +315,12 @@ def staff_set_role(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row:
             # Check target's current role — admins can only change user-level staff
             org_roles = _get_org_roles(db.db_file)
@@ -359,10 +361,12 @@ def staff_remove(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row:
             # Enforce hierarchy: admin cannot remove admin or owner; only owner/super_admin can
             org_roles = _get_org_roles(db.db_file)
@@ -406,10 +410,12 @@ def staff_set_shop(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row:
             target_tg_id = row[0]
             org_roles = _get_org_roles(db.db_file)
@@ -490,10 +496,12 @@ def staff_detail(request: Request, user_id: int):
 
         # Get user row
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-        u = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            u = cur.fetchone()
+        finally:
+            conn.close()
 
         if not u:
             return RedirectResponse(url="/staff", status_code=302)
@@ -680,10 +688,12 @@ def staff_set_scope(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row:
             org_roles = _get_org_roles(db.db_file)
             target_telegram_id = row[0]
@@ -730,10 +740,12 @@ def staff_set_custom_title(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT telegram_id FROM users WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row:
             org_roles = _get_org_roles(db.db_file)
             target_telegram_id = row[0]
