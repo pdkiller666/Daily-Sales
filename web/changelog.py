@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.55.0"
+CURRENT_VERSION = "1.56.0"
 
 ENTRIES = [
+    {
+        "version": "1.56.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Improve security and prevent data loss by fixing database connection leaks and escaping user input",
+        ],
+    },
     {
         "version": "1.55.0",
         "date": "17 июня 2026",
