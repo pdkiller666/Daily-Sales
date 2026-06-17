@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.60.0"
+CURRENT_VERSION = "1.61.0"
 
 ENTRIES = [
+    {
+        "version": "1.61.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Restore landing page to previous version with emoji icons",
+        ],
+    },
     {
         "version": "1.60.0",
         "date": "17 июня 2026",
