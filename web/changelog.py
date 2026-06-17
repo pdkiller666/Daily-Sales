@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.62.0"
+CURRENT_VERSION = "1.63.0"
 
 ENTRIES = [
+    {
+        "version": "1.63.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Update landing page and version with absolute download links",
+        ],
+    },
     {
         "version": "1.62.0",
         "date": "17 июня 2026",
