@@ -131,11 +131,13 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
     """Получить telegram_id сотрудника по его users.id."""
     try:
         conn = db.get_connection()
-        row = conn.execute(
-            "SELECT id, telegram_id FROM users WHERE id = ?", (user_db_id,)
-        ).fetchone()
+        try:
+            row = conn.execute(
+                "SELECT id, telegram_id FROM users WHERE id = ?", (user_db_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         logger.info("_get_user_tg_id: uid=%s row=%s", user_db_id, row)
-        conn.close()
         if row and row[1] is not None:
             return row[1]
         # Фоллбэк: возможно id не совпадает, пробуем поиск среди всех пользователей
@@ -143,12 +145,14 @@ def _get_user_tg_id(db, user_db_id: int) -> int | None:
         logger.warning("_get_user_tg_id: tg_id is None for uid=%s, fallback to all-users scan",
                        user_db_id)
         conn2 = db.get_connection()
-        all_rows = conn2.execute(
-            "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
-        ).fetchall()
+        try:
+            all_rows = conn2.execute(
+                "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn2.close()
         logger.warning("_get_user_tg_id: all users with tg_id: %s",
                        [(r[0], r[1]) for r in all_rows])
-        conn2.close()
         return None
     except Exception as e:
         logger.error("_get_user_tg_id error uid=%s: %s", user_db_id, e)
@@ -177,12 +181,14 @@ def _get_shops_list(db) -> list:
     """Список магазинов из users.shop_name (distinct)."""
     try:
         conn = db.get_connection()
-        rows = conn.execute(
-            "SELECT DISTINCT shop_name FROM users "
-            "WHERE shop_name IS NOT NULL AND shop_name != '' "
-            "ORDER BY shop_name"
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT shop_name FROM users "
+                "WHERE shop_name IS NOT NULL AND shop_name != '' "
+                "ORDER BY shop_name"
+            ).fetchall()
+        finally:
+            conn.close()
         return [{"id": r[0], "name": r[0]} for r in rows]
     except Exception:
         return []
@@ -223,12 +229,14 @@ def _get_shop_members_tg_ids(db, shop_name: str) -> list[tuple]:
     """Возвращает [(users.id, telegram_id)] всех активных сотрудников магазина."""
     try:
         conn = db.get_connection()
-        rows = conn.execute(
-            "SELECT id, telegram_id FROM users "
-            "WHERE shop_name = ? AND telegram_id IS NOT NULL",
-            (shop_name,)
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                "SELECT id, telegram_id FROM users "
+                "WHERE shop_name = ? AND telegram_id IS NOT NULL",
+                (shop_name,)
+            ).fetchall()
+        finally:
+            conn.close()
         return [(r[0], r[1]) for r in rows]
     except Exception:
         return []
@@ -238,11 +246,13 @@ def _get_all_members_tg_ids(db) -> list[tuple]:
     """Возвращает [(users.id, telegram_id)] всех сотрудников орга."""
     try:
         conn = db.get_connection()
-        rows = conn.execute(
-            "SELECT id, telegram_id FROM users "
-            "WHERE telegram_id IS NOT NULL"
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                "SELECT id, telegram_id FROM users "
+                "WHERE telegram_id IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
         return [(r[0], r[1]) for r in rows]
     except Exception:
         return []
@@ -304,10 +314,12 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = (my_row[1] or "") if my_row else ""
 
@@ -431,10 +443,12 @@ async def tasks_new_post(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         _topic_id = int(topic_id) if topic_id.isdigit() else None
@@ -577,8 +591,11 @@ async def tasks_new_post(
                                _assigned_to)
                 try:
                     _c = db.get_connection()
-                    _r = _c.execute("SELECT id, telegram_id FROM users WHERE id=?",
-                                    (_assigned_to,)).fetchone()
+                    try:
+                        _r = _c.execute("SELECT id, telegram_id FROM users WHERE id=?",
+                                        (_assigned_to,)).fetchone()
+                    finally:
+                        _c.close()
                     logger.warning("tasks notify: raw DB row for uid=%s → %s", _assigned_to, _r)
                 except Exception as _de:
                     logger.error("tasks notify: DB check failed: %s", _de)
@@ -727,10 +744,12 @@ def tasks_topics_new(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
         db.create_task_topic(name, color, my_db_id)
     except Exception as e:
@@ -840,10 +859,12 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = (my_row[1] or "") if my_row else ""
         ctx["my_db_id"] = my_db_id
@@ -943,10 +964,12 @@ async def task_upload_attachment(
             return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
 
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         if not is_admin and task.get("assigned_to") != my_db_id and not task.get("assign_all"):
@@ -1018,10 +1041,12 @@ def task_serve_attachment(request: Request, att_id: int):
         if not is_admin:
             task = db.get_task(task_id)
             conn = db.get_connection()
-            my_row = conn.execute(
-                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                my_row = conn.execute(
+                    "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             my_db_id = my_row[0] if my_row else 0
             my_shop = (my_row[1] or "") if my_row else ""
             shop_ok = bool(my_shop and task and task.get("assigned_shop") == my_shop)
@@ -1077,10 +1102,12 @@ def task_delete_attachment(
         _, _, _, task_id, _ = row
 
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         # delete_task_attachment returns (success, file_path)
@@ -1132,10 +1159,12 @@ def task_change_status(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         # Deny unresolved users
@@ -1262,10 +1291,12 @@ def task_add_comment(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         task = db.get_task(task_id)
@@ -1336,10 +1367,12 @@ def task_toggle_checklist(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
 
         # Deny unresolved users
@@ -1354,10 +1387,12 @@ def task_toggle_checklist(
 
         # IDOR guard: verify item_id belongs to this task_id
         item_conn = db.get_connection()
-        item_row = item_conn.execute(
-            "SELECT task_id FROM task_checklist WHERE id = ?", (item_id,)
-        ).fetchone()
-        item_conn.close()
+        try:
+            item_row = item_conn.execute(
+                "SELECT task_id FROM task_checklist WHERE id = ?", (item_id,)
+            ).fetchone()
+        finally:
+            item_conn.close()
         if not item_row or item_row[0] != task_id:
             return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
@@ -1604,10 +1639,12 @@ def task_my_complete(
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        my_row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        conn.close()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
         my_db_id = my_row[0] if my_row else 0
         if not my_db_id:
             return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
@@ -1629,10 +1666,12 @@ def task_my_complete(
             if _creator_tg:
                 try:
                     _nc = db.get_connection()
-                    _nr = _nc.execute(
-                        "SELECT first_name FROM users WHERE telegram_id = ?", (telegram_id,)
-                    ).fetchone()
-                    _nc.close()
+                    try:
+                        _nr = _nc.execute(
+                            "SELECT first_name FROM users WHERE telegram_id = ?", (telegram_id,)
+                        ).fetchone()
+                    finally:
+                        _nc.close()
                     _uname = (_nr[0] or "Сотрудник") if _nr else "Сотрудник"
                 except Exception:
                     _uname = "Сотрудник"
