@@ -331,10 +331,12 @@ def _get_tariff_overview(telegram_id: int) -> dict | None:
         used_shops = len(db.get_all_shops())
         month_start = _dt.now().strftime("%Y-%m-01")
         conn = db.get_connection()
-        used_sales = conn.execute(
-            "SELECT COUNT(*) FROM sales WHERE sale_date >= ?", (month_start,)
-        ).fetchone()[0]
-        conn.close()
+        try:
+            used_sales = conn.execute(
+                "SELECT COUNT(*) FROM sales WHERE sale_date >= ?", (month_start,)
+            ).fetchone()[0]
+        finally:
+            conn.close()
     except Exception:
         pass
 
@@ -672,13 +674,15 @@ def subscription_module_request(
 
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        conn.execute(
-            """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
-               VALUES (?, ?, ?, 'web_module_request')""",
-            (user_id, plan_type, amount),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
+                   VALUES (?, ?, ?, 'web_module_request')""",
+                (user_id, plan_type, amount),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         _notify_admin_async(
             plan_type, amount,
             user.get("first_name", user.get("email", "—")),
@@ -721,13 +725,15 @@ def subscription_tariff_request(
 
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
-        conn.execute(
-            """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
-               VALUES (?, ?, ?, 'web_tariff_request')""",
-            (user_id, plan["name"], plan["price"]),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                """INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id)
+                   VALUES (?, ?, ?, 'web_tariff_request')""",
+                (user_id, plan["name"], plan["price"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         _notify_admin_async(
             plan["name"], plan["price"],
             user.get("first_name", user.get("email", "—")),

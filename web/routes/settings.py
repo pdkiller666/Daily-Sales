@@ -584,16 +584,18 @@ async def settings_apk_notif(
     try:
         import sqlite3 as _s3
         c = _s3.connect("data/main.db")
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
-            "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
-        )
-        c.execute(
-            "INSERT OR REPLACE INTO apk_notif_prefs (telegram_id, enabled) VALUES (?, ?)",
-            (telegram_id, 1 if apk_notif == "on" else 0),
-        )
-        c.commit()
-        c.close()
+        try:
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS apk_notif_prefs "
+                "(telegram_id INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 0)"
+            )
+            c.execute(
+                "INSERT OR REPLACE INTO apk_notif_prefs (telegram_id, enabled) VALUES (?, ?)",
+                (telegram_id, 1 if apk_notif == "on" else 0),
+            )
+            c.commit()
+        finally:
+            c.close()
     except Exception:
         pass
     return RedirectResponse(url="/settings?saved=1", status_code=303)
@@ -617,13 +619,15 @@ async def settings_beta_mode(
     import sqlite3 as _sqlite3
     _sdb = "data/shop_bot.db"
     _conn = _sqlite3.connect(_sdb)
-    _conn.execute(
-        "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
-        "VALUES ('beta_mode', ?, datetime('now'))",
-        ("1" if enabled == "1" else "0",),
-    )
-    _conn.commit()
-    _conn.close()
+    try:
+        _conn.execute(
+            "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
+            "VALUES ('beta_mode', ?, datetime('now'))",
+            ("1" if enabled == "1" else "0",),
+        )
+        _conn.commit()
+    finally:
+        _conn.close()
     return RedirectResponse(url="/settings#system", status_code=303)
 
 
@@ -645,13 +649,15 @@ async def settings_email_registration(
     import sqlite3 as _sqlite3
     _sdb = "data/shop_bot.db"
     _conn = _sqlite3.connect(_sdb)
-    _conn.execute(
-        "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
-        "VALUES ('email_registration_enabled', ?, datetime('now'))",
-        ("1" if enabled == "1" else "0",),
-    )
-    _conn.commit()
-    _conn.close()
+    try:
+        _conn.execute(
+            "INSERT OR REPLACE INTO payment_settings (key, value, updated_at) "
+            "VALUES ('email_registration_enabled', ?, datetime('now'))",
+            ("1" if enabled == "1" else "0",),
+        )
+        _conn.commit()
+    finally:
+        _conn.close()
     return RedirectResponse(url="/settings#email-auth", status_code=303)
 
 

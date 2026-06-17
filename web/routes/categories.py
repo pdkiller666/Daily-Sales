@@ -30,19 +30,21 @@ def categories_page(request: Request, msg: str = ""):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        rows = conn.execute(
-            """SELECT p.category, COUNT(*) as cnt,
-                      COUNT(CASE WHEN COALESCE(inv.qty, 0) > 0 THEN 1 END) as in_stock
-               FROM products p
-               LEFT JOIN (
-                   SELECT product_id, SUM(quantity) as qty
-                   FROM inventory
-                   GROUP BY product_id
-               ) inv ON inv.product_id = p.id
-               GROUP BY p.category
-               ORDER BY p.category"""
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT p.category, COUNT(*) as cnt,
+                          COUNT(CASE WHEN COALESCE(inv.qty, 0) > 0 THEN 1 END) as in_stock
+                   FROM products p
+                   LEFT JOIN (
+                       SELECT product_id, SUM(quantity) as qty
+                       FROM inventory
+                       GROUP BY product_id
+                   ) inv ON inv.product_id = p.id
+                   GROUP BY p.category
+                   ORDER BY p.category"""
+            ).fetchall()
+        finally:
+            conn.close()
         ctx["categories"] = [
             {
                 "name": row[0] or "—",
@@ -175,10 +177,12 @@ async def categories_create(
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         conn = db.get_connection()
-        exists = conn.execute(
-            "SELECT COUNT(*) FROM products WHERE category = ?", (name,)
-        ).fetchone()[0]
-        conn.close()
+        try:
+            exists = conn.execute(
+                "SELECT COUNT(*) FROM products WHERE category = ?", (name,)
+            ).fetchone()[0]
+        finally:
+            conn.close()
         if exists > 0:
             return RedirectResponse(url="/categories?msg=duplicate", status_code=303)
         # Category only exists when a product uses it — redirect to create product with preset

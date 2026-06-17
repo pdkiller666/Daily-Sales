@@ -1807,28 +1807,29 @@ def product_detail(request: Request, product_id: int):
         month_start = today.replace(day=1).isoformat()
         # get_sales_report: id[0] pid[1] shop[2] qty[3] price[4] uid[5] date[6]
         #   product_name[7] category[8] first_name[9] last_name[10]
-        import sqlite3
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            """SELECT s.id, s.shop_name, s.quantity_sold, s.sale_price, s.sale_date,
-                      u.first_name, u.last_name, s.user_id
-               FROM sales s
-               LEFT JOIN users u ON u.id = s.user_id
-               WHERE s.product_id = ?
-               ORDER BY s.sale_date DESC LIMIT 30""",
-            (product_id,)
-        )
-        raw_sales = cur.fetchall()
-        # Month totals
-        cur.execute(
-            """SELECT SUM(s.quantity_sold), SUM(s.quantity_sold * s.sale_price)
-               FROM sales s
-               WHERE s.product_id = ? AND date(s.sale_date) >= ?""",
-            (product_id, month_start)
-        )
-        month_row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT s.id, s.shop_name, s.quantity_sold, s.sale_price, s.sale_date,
+                          u.first_name, u.last_name, s.user_id
+                   FROM sales s
+                   LEFT JOIN users u ON u.id = s.user_id
+                   WHERE s.product_id = ?
+                   ORDER BY s.sale_date DESC LIMIT 30""",
+                (product_id,)
+            )
+            raw_sales = cur.fetchall()
+            # Month totals
+            cur.execute(
+                """SELECT SUM(s.quantity_sold), SUM(s.quantity_sold * s.sale_price)
+                   FROM sales s
+                   WHERE s.product_id = ? AND date(s.sale_date) >= ?""",
+                (product_id, month_start)
+            )
+            month_row = cur.fetchone()
+        finally:
+            conn.close()
 
         ctx["recent_sales"] = raw_sales
         ctx["month_qty"] = int(month_row[0] or 0) if month_row else 0
@@ -1840,18 +1841,20 @@ def product_detail(request: Request, product_id: int):
             chart_labels = []
             chart_data = []
             conn2 = db.get_connection()
-            cur2 = conn2.cursor()
-            for i in range(6, -1, -1):
-                d = today - timedelta(days=i)
-                ds = d.isoformat()
-                cur2.execute(
-                    "SELECT COALESCE(SUM(quantity_sold * sale_price),0) FROM sales WHERE product_id=? AND date(sale_date)=?",
-                    (product_id, ds)
-                )
-                val = cur2.fetchone()
-                chart_labels.append(d.strftime('%d.%m'))
-                chart_data.append(int(float((val[0] if val else 0) or 0)))
-            conn2.close()
+            try:
+                cur2 = conn2.cursor()
+                for i in range(6, -1, -1):
+                    d = today - timedelta(days=i)
+                    ds = d.isoformat()
+                    cur2.execute(
+                        "SELECT COALESCE(SUM(quantity_sold * sale_price),0) FROM sales WHERE product_id=? AND date(sale_date)=?",
+                        (product_id, ds)
+                    )
+                    val = cur2.fetchone()
+                    chart_labels.append(d.strftime('%d.%m'))
+                    chart_data.append(int(float((val[0] if val else 0) or 0)))
+            finally:
+                conn2.close()
             ctx["chart_labels"] = chart_labels
             ctx["chart_data"] = chart_data
         except Exception:
@@ -1911,11 +1914,13 @@ def products_bulk_action(
             return RedirectResponse("/products?error=empty_cat", status_code=303)
         try:
             conn = db.get_connection()
-            for pid in product_ids:
-                conn.execute("UPDATE products SET category = ? WHERE id = ?", (new_cat, pid))
-                changed += 1
-            conn.commit()
-            conn.close()
+            try:
+                for pid in product_ids:
+                    conn.execute("UPDATE products SET category = ? WHERE id = ?", (new_cat, pid))
+                    changed += 1
+                conn.commit()
+            finally:
+                conn.close()
         except Exception:
             pass
         return RedirectResponse(f"/products?bulk=category&n={changed}", status_code=303)
@@ -1930,21 +1935,23 @@ def products_bulk_action(
         try:
             first_name = user.get("first_name") or str(user.get("sub", ""))
             conn = db.get_connection()
-            for pid in product_ids:
-                row = conn.execute("SELECT price FROM products WHERE id = ?", (pid,)).fetchone()
-                if not row:
-                    continue
-                old_price = int(row[0] or 0)
-                new_price = max(0, round(old_price * (1 + pct / 100)))
-                conn.execute("UPDATE products SET price = ? WHERE id = ?", (new_price, pid))
-                try:
-                    db.add_product_history(pid, "price", old_price, new_price,
-                                           changed_by=int(user["sub"]), changed_by_name=first_name)
-                except Exception:
-                    pass
-                changed += 1
-            conn.commit()
-            conn.close()
+            try:
+                for pid in product_ids:
+                    row = conn.execute("SELECT price FROM products WHERE id = ?", (pid,)).fetchone()
+                    if not row:
+                        continue
+                    old_price = int(row[0] or 0)
+                    new_price = max(0, round(old_price * (1 + pct / 100)))
+                    conn.execute("UPDATE products SET price = ? WHERE id = ?", (new_price, pid))
+                    try:
+                        db.add_product_history(pid, "price", old_price, new_price,
+                                               changed_by=int(user["sub"]), changed_by_name=first_name)
+                    except Exception:
+                        pass
+                    changed += 1
+                conn.commit()
+            finally:
+                conn.close()
         except Exception:
             pass
         return RedirectResponse(f"/products?bulk=price&n={changed}", status_code=303)
@@ -1972,15 +1979,16 @@ def api_update_product_price(
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         conn = db.get_connection()
-        # Read old price BEFORE updating
-        old_row = conn.execute("SELECT price FROM products WHERE id = ?", (product_id,)).fetchone()
-        if not old_row:
+        try:
+            # Read old price BEFORE updating
+            old_row = conn.execute("SELECT price FROM products WHERE id = ?", (product_id,)).fetchone()
+            if not old_row:
+                return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+            old_price = int(old_row[0]) if old_row[0] is not None else None
+            conn.execute("UPDATE products SET price = ? WHERE id = ?", (price, product_id))
+            conn.commit()
+        finally:
             conn.close()
-            return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
-        old_price = int(old_row[0]) if old_row[0] is not None else None
-        conn.execute("UPDATE products SET price = ? WHERE id = ?", (price, product_id))
-        conn.commit()
-        conn.close()
         # Log price change
         try:
             first_name = user.get("first_name") or str(user.get("sub", ""))
