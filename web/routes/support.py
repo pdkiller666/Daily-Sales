@@ -1,3 +1,4 @@
+import html as _html
 import json
 import logging
 import urllib.request
@@ -147,10 +148,10 @@ def support_send(
     cat_label = CATEGORIES.get(category, "Другое")
     now_str = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
 
-    name_part = info["name"] or user.get("name", "—")
-    uname_part = f" (@{info['username']})" if info["username"] else ""
-    org_part = info["org"] or "—"
-    shop_part = f" · {info['shop']}" if info["shop"] else ""
+    name_part = _html.escape(info["name"] or user.get("name", "—"))
+    uname_part = f" (@{_html.escape(info['username'])})" if info["username"] else ""
+    org_part = _html.escape(info["org"] or "—")
+    shop_part = f" · {_html.escape(info['shop'])}" if info["shop"] else ""
 
     text = (
         f"📨 <b>Обратная связь из веб-кабинета</b>\n\n"
@@ -159,9 +160,9 @@ def support_send(
         f"📋 Категория: {cat_label}\n"
     )
     if subject:
-        text += f"📌 Тема: {subject}\n"
+        text += f"📌 Тема: {_html.escape(subject)}\n"
     text += (
-        f"\n💬 <b>Сообщение:</b>\n{message}\n\n"
+        f"\n💬 <b>Сообщение:</b>\n{_html.escape(message)}\n\n"
         f"⏰ {now_str}"
     )
 

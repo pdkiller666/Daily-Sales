@@ -131,10 +131,12 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         conn_m.close()
 
         conn_u = db.get_connection()
-        user_row = conn_u.execute(
-            "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
-        ).fetchone()
-        conn_u.close()
+        try:
+            user_row = conn_u.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn_u.close()
 
         if not user_row:
             ctx["error"] = "Пользователь не найден в базе"

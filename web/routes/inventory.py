@@ -94,6 +94,7 @@ def inventory_page(request: Request, shop: str = "", q: str = "", category: str 
         ctx["inventory"] = inventory
 
     except Exception as exc:
+        logger.error("inventory_page tg=%s: %s", telegram_id, exc)
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
         ctx["can_edit"] = False
 

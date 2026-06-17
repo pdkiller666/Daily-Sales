@@ -18,10 +18,12 @@ def _get_internal_uid(db, telegram_id: int):
     """Return internal users.id for this telegram_id, or None."""
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row else None
     except Exception:
         return None
@@ -31,10 +33,12 @@ def _get_user_shop_from_db(db, telegram_id: int):
     """Fallback: read user's shop_name directly from the org DB users table."""
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         return row[0] if row and row[0] else None
     except Exception:
         return None
@@ -60,13 +64,15 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
             assert col in ("city", "trade_network"), f"Unexpected col: {col}"
             placeholders = ",".join("?" * len(scope_values))
             conn = db.get_connection()
-            cur = conn.cursor()
-            cur.execute(
-                f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
-                scope_values,
-            )
-            allowed = {row[0] for row in cur.fetchall()}
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
+                    scope_values,
+                )
+                allowed = {row[0] for row in cur.fetchall()}
+            finally:
+                conn.close()
             filtered = [s for s in all_shops if s in allowed]
             if filtered:
                 return filtered

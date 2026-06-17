@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.48.0"
+CURRENT_VERSION = "1.49.0"
 
 ENTRIES = [
+    {
+        "version": "1.49.0",
+        "date": "17 июня 2026",
+        "items": [
+            "- Веб-дашборд: 30 запросов к БД заменены одним GROUP BY (30-дневный график)",
+            "- Страница сотрудников: N+1 запросы заменены одним bulk-запросом",
+            "- Обратная связь: HTML-экранирование всех полей перед отправкой в Telegram",
+            "- Устранены утечки соединений с БД в categories, inventory, dashboard, sales, salary",
+            "Improve performance by optimizing data fetching and error handling",
+        ],
+    },
     {
         "version": "1.48.0",
         "date": "17 июня 2026",

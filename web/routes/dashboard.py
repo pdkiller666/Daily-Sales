@@ -187,14 +187,16 @@ def dashboard(request: Request, msg: str = ""):
         except Exception:
             pass
 
-        # ── 30-day chart ─────────────────────────────────────────────────────
+        # ── 30-day chart — один GROUP BY вместо 30 отдельных запросов ──────
+        chart_start = (today - timedelta(days=29)).isoformat()
+        daily = db.get_daily_chart_data(chart_start, today_str)
         labels, data, dates = [], [], []
         for i in range(29, -1, -1):
             d = today - timedelta(days=i)
-            s = db.get_sales_summary(start_date=d.isoformat(), end_date=d.isoformat())
+            d_str = d.isoformat()
             labels.append(d.strftime('%d.%m'))
-            data.append(int(float(s[2] or 0)) if s else 0)
-            dates.append(d.isoformat())
+            data.append(int(daily.get(d_str, 0)))
+            dates.append(d_str)
         ctx["chart_labels"] = labels
         ctx["chart_data"] = data
         ctx["chart_dates"] = dates
@@ -214,40 +216,44 @@ def dashboard(request: Request, msg: str = ""):
             try:
                 uid = db.get_user_id(telegram_id)
                 conn2 = db.get_connection()
-                cur2 = conn2.cursor()
-                threshold = 5
-                if uid:
-                    th_row = cur2.execute(
-                        "SELECT stock_threshold FROM notification_settings WHERE user_id=?", (uid,)
-                    ).fetchone()
-                    if th_row and th_row[0] is not None:
-                        threshold = int(th_row[0])
-                cur2.execute("""
-                    SELECT p.name, i.quantity, i.shop_name, i.product_id
-                    FROM inventory i
-                    JOIN products p ON i.product_id = p.id
-                    WHERE i.quantity <= ?
-                    ORDER BY i.quantity ASC
-                    LIMIT 8
-                """, (threshold,))
-                ctx["low_stock"] = cur2.fetchall()
-                conn2.close()
+                try:
+                    cur2 = conn2.cursor()
+                    threshold = 5
+                    if uid:
+                        th_row = cur2.execute(
+                            "SELECT stock_threshold FROM notification_settings WHERE user_id=?", (uid,)
+                        ).fetchone()
+                        if th_row and th_row[0] is not None:
+                            threshold = int(th_row[0])
+                    cur2.execute("""
+                        SELECT p.name, i.quantity, i.shop_name, i.product_id
+                        FROM inventory i
+                        JOIN products p ON i.product_id = p.id
+                        WHERE i.quantity <= ?
+                        ORDER BY i.quantity ASC
+                        LIMIT 8
+                    """, (threshold,))
+                    ctx["low_stock"] = cur2.fetchall()
+                finally:
+                    conn2.close()
             except Exception:
                 pass
 
             try:
                 conn3 = db.get_connection()
-                cur3 = conn3.cursor()
-                cur3.execute("""
-                    SELECT u.id, u.first_name, u.last_name, u.shop_name,
-                           ws.start_time, ws.end_time
-                    FROM work_schedule ws
-                    JOIN users u ON ws.user_id = u.id
-                    WHERE ws.work_date = ?
-                    ORDER BY u.shop_name, u.first_name
-                """, (today_str,))
-                ctx["on_shift_today"] = cur3.fetchall()
-                conn3.close()
+                try:
+                    cur3 = conn3.cursor()
+                    cur3.execute("""
+                        SELECT u.id, u.first_name, u.last_name, u.shop_name,
+                               ws.start_time, ws.end_time
+                        FROM work_schedule ws
+                        JOIN users u ON ws.user_id = u.id
+                        WHERE ws.work_date = ?
+                        ORDER BY u.shop_name, u.first_name
+                    """, (today_str,))
+                    ctx["on_shift_today"] = cur3.fetchall()
+                finally:
+                    conn3.close()
             except Exception:
                 ctx["on_shift_today"] = []
 
@@ -319,6 +325,8 @@ def dashboard(request: Request, msg: str = ""):
                 ctx["plans_dash"] = []
 
     except Exception as exc:
+        import logging
+        logging.error("dashboard error tg=%s: %s", telegram_id, exc)
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     # ── AI Network Insights widget (owners with ai_network_insights + ≥2 orgs) ──

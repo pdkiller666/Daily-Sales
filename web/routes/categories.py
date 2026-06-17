@@ -88,20 +88,19 @@ async def categories_rename(
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         conn = db.get_connection()
-        # Check duplicate
-        dup = conn.execute(
-            "SELECT COUNT(*) FROM products WHERE category = ?", (new_name,)
-        ).fetchone()[0]
-        if dup > 0:
+        try:
+            dup = conn.execute(
+                "SELECT COUNT(*) FROM products WHERE category = ?", (new_name,)
+            ).fetchone()[0]
+            if dup > 0:
+                return RedirectResponse(url="/categories?msg=duplicate", status_code=303)
+            conn.execute(
+                "UPDATE products SET category = ? WHERE category = ?",
+                (new_name, old_name),
+            )
+            conn.commit()
+        finally:
             conn.close()
-            return RedirectResponse(url="/categories?msg=duplicate", status_code=303)
-
-        conn.execute(
-            "UPDATE products SET category = ? WHERE category = ?",
-            (new_name, old_name),
-        )
-        conn.commit()
-        conn.close()
         return RedirectResponse(url="/categories?msg=renamed", status_code=303)
     except Exception as exc:
         import logging
@@ -130,19 +129,21 @@ async def categories_delete(
     try:
         db = get_web_db(int(user["sub"]), user.get("org_db"))
         conn = db.get_connection()
-        if move_to and move_to.strip() and move_to.strip() != name:
-            conn.execute(
-                "UPDATE products SET category = ? WHERE category = ?",
-                (move_to.strip(), name),
-            )
-        else:
-            # Move to "Без категории" placeholder
-            conn.execute(
-                "UPDATE products SET category = 'Без категории' WHERE category = ?",
-                (name,),
-            )
-        conn.commit()
-        conn.close()
+        try:
+            if move_to and move_to.strip() and move_to.strip() != name:
+                conn.execute(
+                    "UPDATE products SET category = ? WHERE category = ?",
+                    (move_to.strip(), name),
+                )
+            else:
+                # Move to "Без категории" placeholder
+                conn.execute(
+                    "UPDATE products SET category = 'Без категории' WHERE category = ?",
+                    (name,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
         return RedirectResponse(url="/categories?msg=deleted", status_code=303)
     except Exception as exc:
         import logging

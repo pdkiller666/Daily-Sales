@@ -5465,6 +5465,54 @@ class Database:
         conn.close()
         return summary
 
+    def get_users_sales_summary_bulk(self, start_date: str, end_date: str) -> dict:
+        """Один GROUP BY запрос вместо N отдельных get_sales_summary для staff-страницы.
+        Возвращает {user_id: (count, qty, revenue, avg)}.
+        """
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    '''SELECT user_id,
+                              COUNT(*),
+                              SUM(quantity_sold),
+                              SUM(quantity_sold * sale_price),
+                              AVG(quantity_sold * sale_price)
+                       FROM sales
+                       WHERE date(sale_date) >= ? AND date(sale_date) <= ?
+                       GROUP BY user_id''',
+                    (start_date, end_date)
+                ).fetchall() or []
+            finally:
+                conn.close()
+            return {row[0]: (row[1] or 0, row[2] or 0, row[3] or 0, row[4] or 0)
+                    for row in rows}
+        except Exception as e:
+            logger.error("get_users_sales_summary_bulk: %s", e)
+            return {}
+
+    def get_daily_chart_data(self, start_date: str, end_date: str) -> dict:
+        """Один GROUP BY запрос вместо N отдельных get_sales_summary для дашборда.
+        Возвращает {date_iso: float} — выручка за каждый день диапазона.
+        Дни без продаж отсутствуют в словаре (caller заполняет нулями).
+        """
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    '''SELECT date(sale_date), SUM(quantity_sold * sale_price)
+                       FROM sales
+                       WHERE date(sale_date) >= ? AND date(sale_date) <= ?
+                       GROUP BY date(sale_date)''',
+                    (start_date, end_date)
+                ).fetchall() or []
+            finally:
+                conn.close()
+            return {row[0]: float(row[1] or 0) for row in rows}
+        except Exception as e:
+            logger.error("get_daily_chart_data: %s", e)
+            return {}
+
     # Дополнительные методы для полного функционала
     def delete_user(self, telegram_id):
         """Полное удаление пользователя из орг-базы.

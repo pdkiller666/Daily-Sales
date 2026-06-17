@@ -139,6 +139,12 @@ def staff_page(
         today = date.today()
         month_start = today.replace(day=1).isoformat()
 
+        # Один GROUP BY вместо N отдельных запросов по каждому сотруднику
+        try:
+            bulk_stats = db.get_users_sales_summary_bulk(month_start, today.isoformat())
+        except Exception:
+            bulk_stats = {}
+
         staff = []
         for u in all_users:
             role_info = org_roles.get(u[1], {})
@@ -147,15 +153,9 @@ def staff_page(
             label, badge_cls = ROLE_LABELS.get(role, ("Сотрудник", "bg-slate-100 text-slate-600"))
             display_role = custom_title if custom_title else label
 
-            try:
-                summary = db.get_sales_summary(
-                    start_date=month_start, end_date=today.isoformat(), user_id=u[0]
-                ) or (0, 0, 0, 0)
-                month_sales = int(summary[0] or 0)
-                month_revenue = float(summary[2] or 0)
-            except Exception:
-                month_sales = 0
-                month_revenue = 0.0
+            s = bulk_stats.get(u[0], (0, 0, 0, 0))
+            month_sales = int(s[0])
+            month_revenue = float(s[2])
 
             staff.append({
                 "id": u[0],
