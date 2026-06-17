@@ -1,6 +1,23 @@
-CURRENT_VERSION = "1.56.0"
+CURRENT_VERSION = "1.57.0"
 
 ENTRIES = [
+    {
+        "version": "1.57.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Update competitive analysis report with new metrics and features",
+            "Full \"Precision Grid\" redesign of web/templates/landing.html",
+            "Restored to '8a51129379bbd088ae145d701b1b1da91befa67f'",
+            "Add real OG screenshot image for social sharing previews",
+            "redesign landing.html to \"Тёплая Точность\" visual concept",
+            "Premium landing page redesign — Vercel/Linear quality level",
+            "Restored to 'b12abb6870149eb947f4b1ce104340c67b37b9c1'",
+            "Saved your changes before starting work",
+            "Restore landing page to a previous version",
+            "Update landing page to include new features and improve design elements",
+            "Add screenshots to asset directory",
+        ],
+    },
     {
         "version": "1.56.0",
         "date": "17 июня 2026",
