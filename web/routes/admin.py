@@ -658,7 +658,8 @@ def admin_generate_vapid(request: Request, csrf_token: str = Form("")):
         from web.push_utils import generate_vapid_keypair
         keys = generate_vapid_keypair()
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        import logging as _log; _log.error(f"vapid_generate: {e}")
+        return JSONResponse({"error": "Не удалось сгенерировать VAPID-ключи."}, status_code=500)
     mailto = (os.environ.get("VAPID_MAILTO") or "").strip()
     if mailto and not mailto.startswith("mailto:"):
         mailto = "mailto:" + mailto

@@ -1,6 +1,7 @@
 """Lightweight JSON API endpoints (polling, feeds)."""
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+import logging
 import os as _os
 
 router = APIRouter(prefix="/api")
@@ -317,9 +318,10 @@ def push_status(request: Request):
             "recent_pushes": recent_pushes,
         }
     except Exception as exc:
+        logging.error(f"push_status: {exc}")
         return JSONResponse({"ok": False, "vapid": False, "subs_count": 0,
                              "permission": "unknown", "last_sent": None,
-                             "recent_pushes": [], "error": str(exc)}, status_code=500)
+                             "recent_pushes": []}, status_code=500)
 
 
 @router.get("/push/vapid-public-key")
@@ -385,7 +387,8 @@ async def push_test(request: Request):
         return {"ok": True, "code": "ok", "sent": sent,
                 "msg": f"Тестовый push отправлен на {sent} устройств(а)"}
     except Exception as exc:
-        return JSONResponse({"ok": False, "code": "error", "error": str(exc)}, status_code=500)
+        logging.error(f"push_test: {exc}")
+        return JSONResponse({"ok": False, "code": "error"}, status_code=500)
 
 
 @router.post("/push/subscribe")
@@ -420,7 +423,8 @@ async def push_subscribe(request: Request):
         ok = db.save_push_subscription(tg_id, endpoint, p256dh, auth)
         return {"ok": ok}
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        logging.error(f"push_subscribe: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера."}, status_code=500)
 
 
 @router.post("/push/unsubscribe")
@@ -450,7 +454,8 @@ async def push_unsubscribe(request: Request):
             db.delete_all_push_subscriptions(tg_id)
         return {"ok": True}
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        logging.error(f"push_unsubscribe: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера."}, status_code=500)
 
 
 @router.get("/nav-config")

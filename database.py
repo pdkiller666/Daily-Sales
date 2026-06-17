@@ -3138,6 +3138,16 @@ class Database:
         conn.close()
 
     # Методы для работы с товарами
+    def get_product_count(self) -> int:
+        """SELECT COUNT(*) вместо загрузки всех строк — только для счётчика."""
+        conn = self.get_connection()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
     def get_all_products(self):
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -3481,6 +3491,16 @@ class Database:
         categories = [row[0] for row in cursor.fetchall()]
         conn.close()
         return categories
+
+    def get_user_count(self) -> int:
+        """SELECT COUNT(*) вместо загрузки всех строк — только для счётчика."""
+        conn = self.get_connection()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        except Exception:
+            return 0
+        finally:
+            conn.close()
 
     def get_all_users(self, shop_name=None, city=None, trade_network=None,
                       shop_names=None, cities=None, trade_networks=None):

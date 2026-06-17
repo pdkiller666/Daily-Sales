@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.45.0"
+CURRENT_VERSION = "1.46.0"
 
 ENTRIES = [
+    {
+        "version": "1.46.0",
+        "date": "17 июня 2026",
+        "items": [
+            "- Аудит безопасности (этап 4): устранена утечка внутренних деталей ошибок (SQLite-пути, имена таблиц) через HTTP-ответы — 13 мест в 6 файлах заменены на дженерик-сообщения с логированием; оптимизация дашборда: счётчики товаров и сотрудников теперь через SELECT COUNT(*) вместо загрузки всех строк в Python",
+            "Finalize comprehensive audit by addressing stability and performance issues",
+        ],
+    },
     {
         "version": "1.45.0",
         "date": "17 июня 2026",

@@ -207,10 +207,10 @@ def dashboard(request: Request, msg: str = ""):
         ctx["seller_ranking"] = (_rank_cached(
             f"seller:{_rk}:{month_str}", db.get_sales_ranking,
             start_date=month_str, end_date=today_str) or [])[:5]
-        ctx["product_count"] = len(db.get_all_products() or [])
+        ctx["product_count"] = db.get_product_count()
 
         if is_admin:
-            ctx["user_count"] = len(db.get_all_users() or [])
+            ctx["user_count"] = db.get_user_count()
             try:
                 uid = db.get_user_id(telegram_id)
                 conn2 = db.get_connection()

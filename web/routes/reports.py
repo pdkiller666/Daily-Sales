@@ -555,7 +555,8 @@ def reports_heatmap(
         ctx["heatmap"] = heatmap
         ctx["max_revenue"] = max_rev or 1
     except Exception as exc:
-        ctx["error"] = str(exc)
+        import logging as _log; _log.error(f"reports_heatmap: {exc}")
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "reports/heatmap.html", ctx)
 
@@ -634,7 +635,8 @@ def reports_abc(
         ctx["b_count"] = sum(1 for x in items if x["group"] == "B")
         ctx["c_count"] = sum(1 for x in items if x["group"] == "C")
     except Exception as exc:
-        ctx["error"] = str(exc)
+        import logging as _log; _log.error(f"reports_abc: {exc}")
+        ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
     return request.app.state.templates.TemplateResponse(request, "reports/abc.html", ctx)
 

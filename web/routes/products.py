@@ -842,7 +842,7 @@ async def bulk_assign_articles(request: Request):
         return JSONResponse({"ok": True, "count": count})
     except Exception as exc:
         logging.error(f"bulk_assign_articles: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера."}, status_code=500)
 
 
 @router.get("/products/import-articles")
@@ -1110,7 +1110,7 @@ async def product_photo_delete(request: Request, product_id: int, photo_id: int)
         return JSONResponse({"ok": True})
     except Exception as exc:
         logging.error(f"product_photo_delete: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера."}, status_code=500)
 
 
 @router.post("/products/{product_id}/photos/reorder")
@@ -1138,7 +1138,7 @@ async def product_photos_reorder(request: Request, product_id: int):
         return JSONResponse({"ok": True})
     except Exception as exc:
         logging.error(f"product_photos_reorder: {exc}")
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера."}, status_code=500)
 
 
 @router.post("/products/{product_id}/delete")

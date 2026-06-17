@@ -105,7 +105,7 @@ def shops_create(
     except Exception as exc:
         logging.error(f"shops_create error: {exc}")
         return RedirectResponse(
-            url=f"/shops?error={quote(str(exc))}", status_code=302
+            url=f"/shops?error={quote('Не удалось создать магазин. Попробуйте позже.')}", status_code=302
         )
 
 
@@ -238,7 +238,7 @@ async def shop_stock_save(request: Request, shop_name: str):
     except Exception as exc:
         logging.error(f"shop_stock_save error: {exc}")
         return RedirectResponse(
-            url=f"/shops/{quote(shop_name)}/stock?error={quote(str(exc))}",
+            url=f"/shops/{quote(shop_name)}/stock?error={quote('Ошибка сохранения остатков. Попробуйте позже.')}",
             status_code=302,
         )
 
@@ -302,7 +302,7 @@ def shops_rename(
     except Exception as exc:
         logging.error(f"shops_rename error: {exc}")
         return RedirectResponse(
-            url=f"/shops?error={quote(str(exc))}", status_code=302
+            url=f"/shops?error={quote('Не удалось переименовать магазин. Попробуйте позже.')}", status_code=302
         )
 
 
@@ -351,5 +351,5 @@ def shops_delete(
     except Exception as exc:
         logging.error(f"shops_delete error: {exc}")
         return RedirectResponse(
-            url=f"/shops?error={quote(str(exc))}", status_code=302
+            url=f"/shops?error={quote('Не удалось удалить магазин. Попробуйте позже.')}", status_code=302
         )

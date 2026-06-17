@@ -258,7 +258,8 @@ def motivation_plan_coeff(
             )
     except Exception as exc:
         from urllib.parse import quote as _q
-        return RedirectResponse(url=f"/motivation?error={_q(str(exc))}", status_code=303)
+        import logging as _log; _log.error(f"motivation_coeff_save: {exc}")
+        return RedirectResponse(url=f"/motivation?error={_q('Ошибка сохранения настроек. Попробуйте позже.')}", status_code=303)
 
     return RedirectResponse(url="/motivation?coeff_saved=1", status_code=303)
 
