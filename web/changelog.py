@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.53.0"
+CURRENT_VERSION = "1.54.0"
 
 ENTRIES = [
+    {
+        "version": "1.54.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Update landing page text from \"without card\" to \"without payment\"",
+        ],
+    },
     {
         "version": "1.53.0",
         "date": "17 июня 2026",
