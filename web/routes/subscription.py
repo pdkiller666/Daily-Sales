@@ -1,3 +1,4 @@
+import html as _html
 import json
 import logging
 import os
@@ -20,9 +21,9 @@ def _notify_admin_new_request(plan_type: str, amount: int, user_display: str, te
     label = _plan_type_label(plan_type)
     text = (
         "🔔 <b>Новая заявка из веб-кабинета!</b>\n\n"
-        f"👤 <b>Пользователь:</b> {user_display}\n"
+        f"👤 <b>Пользователь:</b> {_html.escape(str(user_display))}\n"
         f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
-        f"📦 <b>Позиция:</b> {label}\n"
+        f"📦 <b>Позиция:</b> {_html.escape(label)}\n"
         f"💰 <b>Сумма:</b> {amount}\u00a0₽\n\n"
         "⏰ Заявка ожидает рассмотрения в боте."
     )
@@ -614,9 +615,9 @@ def subscription_cancel_request(
         safe_name = item_name or _plan_type_label(plan_type)
         text = (
             "❌ <b>Запрос на отключение!</b>\n\n"
-            f"👤 <b>Пользователь:</b> {user_display}\n"
+            f"👤 <b>Пользователь:</b> {_html.escape(str(user_display))}\n"
             f"🆔 <b>Telegram ID:</b> {telegram_id}\n"
-            f"📦 <b>Позиция:</b> {safe_name}\n\n"
+            f"📦 <b>Позиция:</b> {_html.escape(safe_name)}\n\n"
             "Пожалуйста, отключите доступ вручную в <b>/admin/billing/grants</b>."
         )
         payload = json.dumps({"chat_id": admin_id, "text": text, "parse_mode": "HTML"}).encode()

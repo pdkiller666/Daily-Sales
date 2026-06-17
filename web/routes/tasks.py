@@ -13,6 +13,7 @@ GET  /tasks/topics                       — управление темами (
 POST /tasks/topics/new                   — создать тему
 POST /tasks/topics/{tid}/delete          — удалить тему
 """
+import html as _html
 import json
 import logging
 import mimetypes
@@ -482,7 +483,7 @@ async def tasks_new_post(
                     _dl_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
                     _multi_tg_text = (
                         f"📋 <b>Вам назначена задача</b>\n\n"
-                        f"<b>{title}</b>\n"
+                        f"<b>{_html.escape(title)}</b>\n"
                         f"{_prio_label}{_dl_str}\n\n"
                         f"🌐 Откройте веб-кабинет для подробностей."
                     )
@@ -545,7 +546,7 @@ async def tasks_new_post(
         prio = PRIORITY_LABELS.get(priority, "")
         notify_text = (
             f"📋 <b>Вам назначена задача</b>\n\n"
-            f"<b>{title}</b>\n"
+            f"<b>{_html.escape(title)}</b>\n"
             f"{prio}{deadline_str}\n\n"
             f"🌐 Откройте веб-кабинет для подробностей."
         )
@@ -1199,8 +1200,8 @@ def task_change_status(
                 _send_tg_task_notify(
                     tg_id,
                     f"📋 <b>Статус задачи изменён</b>\n\n"
-                    f"<b>{task['title']}</b>\n"
-                    f"Новый статус: {status_text}"
+                    f"<b>{_html.escape(task['title'])}</b>\n"
+                    f"Новый статус: {_html.escape(status_text)}"
                 )
                 try:
                     from web.push_utils import send_web_push
@@ -1217,7 +1218,7 @@ def task_change_status(
                 )
                 _send_tg_task_notify(
                     assigned_tg_id,
-                    f"✅ <b>Задача выполнена</b>\n\n<b>{task['title']}</b>"
+                    f"✅ <b>Задача выполнена</b>\n\n<b>{_html.escape(task['title'])}</b>"
                 )
                 try:
                     from web.push_utils import send_web_push
@@ -1295,7 +1296,7 @@ def task_add_comment(
                     pass
                 _send_tg_task_notify(
                     _ntg,
-                    f"💬 <b>Новый комментарий</b>\n\nЗадача: <b>{task['title']}</b>"
+                    f"💬 <b>Новый комментарий</b>\n\nЗадача: <b>{_html.escape(task['title'])}</b>"
                 )
                 try:
                     from web.push_utils import send_web_push
@@ -1493,7 +1494,7 @@ def task_edit_post(
                     _send_tg_task_notify(
                         tg_id,
                         f"📋 <b>Вам назначена задача</b>\n\n"
-                        f"<b>{title}</b>"
+                        f"<b>{_html.escape(title)}</b>"
                         f"{_deadline_str}\n\n"
                         f"🌐 Откройте веб-кабинет для подробностей."
                     )
@@ -1513,7 +1514,7 @@ def task_edit_post(
                     _send_tg_task_notify(
                         tg_id,
                         f"📋 <b>Задача обновлена</b>\n\n"
-                        f"<b>{title}</b>"
+                        f"<b>{_html.escape(title)}</b>"
                         f"{_deadline_str}\n\n"
                         f"🌐 Откройте веб-кабинет для деталей."
                     )
@@ -1534,7 +1535,7 @@ def task_edit_post(
                 if _sm_tg:
                     _send_tg_task_notify(
                         _sm_tg,
-                        f"📋 <b>{_sh_tg_hdr}</b>\n\n<b>{title}</b>{_deadline_str}\n\n"
+                        f"📋 <b>{_html.escape(_sh_tg_hdr)}</b>\n\n<b>{_html.escape(title)}</b>{_deadline_str}\n\n"
                         f"🌐 Откройте веб-кабинет."
                     )
                     try:
@@ -1643,7 +1644,7 @@ def task_my_complete(
                 _send_tg_task_notify(
                     _creator_tg,
                     f"✅ <b>Задача отмечена выполненной</b>\n\n"
-                    f"<b>{task['title']}</b>\n{_uname}"
+                    f"<b>{_html.escape(task['title'])}</b>\n{_html.escape(_uname)}"
                 )
                 try:
                     from web.push_utils import send_web_push

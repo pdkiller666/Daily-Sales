@@ -6,6 +6,7 @@ POST /absences/update     — одобрить / отклонить / отмен
 GET  /absences/settings   — настройки типов (admin)
 POST /absences/settings/update — сохранить настройку типа
 """
+import html as _html
 import json
 import logging
 import calendar as _cal
@@ -83,7 +84,7 @@ def _send_tg_absence_notify(
                 f'{type_label}\n'
                 f'📅 {sd_fmt}–{ed_fmt} ({days} дн.)')
         if admin_comment:
-            text += f'\nПричина: {admin_comment}'
+            text += f'\nПричина: {_html.escape(str(admin_comment))}'
     else:
         return
     try:

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.49.0"
+CURRENT_VERSION = "1.50.0"
 
 ENTRIES = [
+    {
+        "version": "1.50.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Закрыта HTML-инъекция в Telegram-уведомлениях из модулей задач (tasks.py — 9 точек: title, task['title']), отсутствий (absences.py — admin_comment) и подписок (subscription.py — user_display, label).",
+        ],
+    },
     {
         "version": "1.49.0",
         "date": "17 июня 2026",
