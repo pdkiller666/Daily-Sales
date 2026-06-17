@@ -336,6 +336,14 @@ def salary_page(
         # Bulk-fetch worked/adj_sum in 2 GROUP BY queries → avoids N+1 for these fields
         bulk = db.get_salary_bulk_stats(year, month, start_date, end_date)
 
+        # Bulk-fetch paid absence days for all users (2 queries instead of N)
+        non_admin_uids = [r[0] for r in all_rates if not env_manager.is_super_admin(r[4])]
+        paid_abs_bulk: dict = {}
+        try:
+            paid_abs_bulk = db.get_paid_absence_days_bulk(year, month, non_admin_uids)
+        except Exception:
+            pass
+
         # Contest rewards for all users (computed once per contest)
         contest_bulk: dict = {}
         try:
@@ -351,7 +359,7 @@ def salary_page(
             bk = bulk.get(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
             worked = bk['worked']
             adj_sum = bk['adj_sum']
-            paid_abs = db.get_paid_absence_days_count(uid, year, month)
+            paid_abs = paid_abs_bulk.get(uid, 0)
             base = rate * (worked + paid_abs)
             # Correct motivation: includes joint_bonus + plan_coeff
             earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
@@ -536,6 +544,14 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         except Exception:
             pass
 
+        # Bulk paid absence days for Excel export
+        xls_non_admin_uids = [r[0] for r in all_rates if not env_manager.is_super_admin(r[4])]
+        xls_paid_abs_bulk: dict = {}
+        try:
+            xls_paid_abs_bulk = db.get_paid_absence_days_bulk(year, month, xls_non_admin_uids)
+        except Exception:
+            pass
+
         rows: list = []
         total_fund = 0.0
         motivation_details: dict = {}
@@ -545,7 +561,7 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
             uid = row[0]
             rate = float(row[3] or 0)
             worked = db.get_worked_days_count(uid, year, month)
-            paid_abs = db.get_paid_absence_days_count(uid, year, month)
+            paid_abs = xls_paid_abs_bulk.get(uid, 0)
             adj = db.get_salary_adjustments_sum(uid, year, month)
             earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
             motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)

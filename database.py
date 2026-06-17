@@ -11158,6 +11158,65 @@ class Database:
                 logger.debug("get_paid_absence_days_count: подавлено исключение: %s", _exc)
         return len(paid_days)
 
+    def get_paid_absence_days_bulk(self, year: int, month: int,
+                                    user_ids: list) -> dict:
+        """Bulk-версия get_paid_absence_days_count для списка пользователей.
+        Возвращает {user_id: int} — количество оплачиваемых дней за месяц.
+        Делает 2 запроса вместо N (один для type_settings, один для всех records).
+        """
+        import calendar as _cal
+        from datetime import date, timedelta
+        if not user_ids:
+            return {}
+        _, days_in_month = _cal.monthrange(year, month)
+        ms = f"{year}-{month:02d}-01"
+        me = f"{year}-{month:02d}-{days_in_month:02d}"
+        month_start_d = date(year, month, 1)
+        month_end_d = date(year, month, days_in_month)
+        conn = self.get_connection()
+        try:
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+            placeholders = ','.join('?' * len(user_ids))
+            rows = conn.execute(
+                f'''SELECT ar.user_id, ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.user_id IN ({placeholders}) AND ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (*user_ids, me, ms)
+            ).fetchall() or []
+        except Exception as e:
+            logger.error("get_paid_absence_days_bulk: %s", e)
+            return {uid: 0 for uid in user_ids}
+        finally:
+            conn.close()
+        # Group records by user_id
+        by_user: dict = {}
+        for row in rows:
+            by_user.setdefault(row[0], []).append(row[1:])
+        result = {}
+        for uid in user_ids:
+            paid_days: set = set()
+            for atype, sd, ed, is_paid_override in by_user.get(uid, []):
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                try:
+                    d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                    d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                    cur = d_start
+                    while cur <= d_end:
+                        paid_days.add(cur)
+                        cur += timedelta(days=1)
+                except Exception as _exc:
+                    logger.debug("get_paid_absence_days_bulk uid=%s: %s", uid, _exc)
+            result[uid] = len(paid_days)
+        return result
+
     def get_absence_used_days(self, user_id: int, atype: str, year: int) -> int:
         """Использованных дней данного типа за год (для лимитов)."""
         from datetime import date, timedelta
