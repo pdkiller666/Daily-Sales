@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.50.0"
+CURRENT_VERSION = "1.51.0"
 
 ENTRIES = [
+    {
+        "version": "1.51.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Оптимизация: xlsx-экспорт зарплат теперь делает 3 SQL-запроса вместо 4×N (новый метод get_salary_xlsx_bulk); страница /admin/orgs загружает счётчики сотрудников за 1 запрос вместо N (get_all_org_user_counts).",
+            "Add HTML escaping to prevent injection in notifications",
+        ],
+    },
     {
         "version": "1.50.0",
         "date": "17 июня 2026",

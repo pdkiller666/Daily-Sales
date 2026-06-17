@@ -554,6 +554,13 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
         except Exception:
             pass
 
+        # Bulk-загрузка данных для xlsx: 3 запроса вместо 4×N
+        xls_bulk: dict = {}
+        try:
+            xls_bulk = db.get_salary_xlsx_bulk(xls_non_admin_uids, year, month, start_date, end_date)
+        except Exception:
+            xls_bulk = {'worked': {}, 'adj_sum': {}, 'earnings': {}, 'earnings_detail': {}}
+
         rows: list = []
         total_fund = 0.0
         motivation_details: dict = {}
@@ -562,23 +569,19 @@ def salary_export_xlsx(request: Request, year: int = 0, month: int = 0):
                 continue
             uid = row[0]
             rate = float(row[3] or 0)
-            worked = db.get_worked_days_count(uid, year, month)
+            worked = xls_bulk['worked'].get(uid, 0)
             paid_abs = xls_paid_abs_bulk.get(uid, 0)
-            adj = db.get_salary_adjustments_sum(uid, year, month)
-            earn = db.get_seller_total_earnings(uid, start_date=start_date, end_date=end_date) or {}
-            motivation = round(float(earn.get('total_earnings', 0.0) or 0), 2)
+            adj = xls_bulk['adj_sum'].get(uid, 0.0)
+            motivation = round(xls_bulk['earnings'].get(uid, 0.0), 2)
             contest_r = round(xls_contest_bulk.get(row[4], 0.0), 2)
             base = rate * (worked + paid_abs)
             total = base + adj + motivation + contest_r
             total_fund += total
             name = f"{row[1] or ''} {row[2] or ''}".strip()
             rows.append((name, rate, worked, paid_abs, base, motivation, adj, contest_r, total, uid))
-            try:
-                earnings_detail = db.get_seller_earnings(uid, start_date=start_date, end_date=end_date) or []
-                if earnings_detail:
-                    motivation_details[name] = earnings_detail
-            except Exception:
-                pass
+            earnings_detail = xls_bulk['earnings_detail'].get(uid, [])
+            if earnings_detail:
+                motivation_details[name] = earnings_detail
 
         rows.sort(key=lambda r: -r[8])
 

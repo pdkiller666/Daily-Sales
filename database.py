@@ -5513,6 +5513,95 @@ class Database:
             logger.error("get_daily_chart_data: %s", e)
             return {}
 
+    def get_salary_xlsx_bulk(
+        self,
+        user_ids: list,
+        year: int,
+        month: int,
+        start_date: str,
+        end_date: str,
+    ) -> dict:
+        """Bulk-данные для xlsx-экспорта зарплат: 3 SQL-запроса вместо 4×N.
+
+        Возвращает:
+          {
+            'worked':   {user_id: int},          # число смен
+            'adj_sum':  {user_id: float},         # сумма корректировок
+            'earnings': {user_id: float},         # мотивация (комиссия SE)
+            'earnings_detail': {user_id: [rows]}, # строки для расшифровки
+          }
+        Для пользователей без данных ключи в подсловарях отсутствуют
+        (caller должен использовать .get(uid, default)).
+        """
+        if not user_ids:
+            return {'worked': {}, 'adj_sum': {}, 'earnings': {}, 'earnings_detail': {}}
+        placeholders = ','.join('?' * len(user_ids))
+        try:
+            conn = self.get_connection()
+            try:
+                month_start = f"{year}-{month:02d}-01"
+                month_end = f"{year}-{month:02d}-31"
+
+                # 1. Смены (work_schedule)
+                worked: dict = {}
+                for row in conn.execute(
+                    f'SELECT user_id, COUNT(*) FROM work_schedule '
+                    f'WHERE user_id IN ({placeholders}) '
+                    f'AND work_date >= ? AND work_date <= ? '
+                    f'GROUP BY user_id',
+                    (*user_ids, month_start, month_end),
+                ).fetchall():
+                    worked[row[0]] = int(row[1])
+
+                # 2. Корректировки (salary_adjustments)
+                adj_sum: dict = {}
+                for row in conn.execute(
+                    f'SELECT user_id, COALESCE(SUM(amount), 0) FROM salary_adjustments '
+                    f'WHERE user_id IN ({placeholders}) AND year = ? AND month = ? '
+                    f'GROUP BY user_id',
+                    (*user_ids, year, month),
+                ).fetchall():
+                    adj_sum[row[0]] = float(row[1])
+
+                # 3. Заработок (seller_earnings) — агрегат и детали одним запросом
+                earnings: dict = {}
+                earnings_detail: dict = {}
+                se_rows = conn.execute(
+                    f'''SELECT se.user_id,
+                               se.commission_amount,
+                               COALESCE(se.motivation_type, 'percentage') AS motivation_type,
+                               COALESCE(se.motivation_value, 0)           AS motivation_value,
+                               p.name                                      AS product_name,
+                               s.quantity_sold,
+                               s.sale_price,
+                               s.sale_date,
+                               s.shop_name,
+                               COALESCE(se.motivation_source, 'global')    AS motivation_source
+                        FROM seller_earnings se
+                        JOIN sales s ON se.sale_id = s.id
+                        JOIN products p ON se.product_id = p.id
+                        WHERE se.user_id IN ({placeholders})
+                          AND s.sale_date >= ? AND s.sale_date <= ?
+                        ORDER BY se.user_id, s.sale_date DESC''',
+                    (*user_ids, start_date, end_date),
+                ).fetchall()
+                for se_row in se_rows:
+                    uid = se_row[0]
+                    earnings[uid] = round(earnings.get(uid, 0.0) + float(se_row[1] or 0), 2)
+                    earnings_detail.setdefault(uid, []).append(se_row[1:])
+
+            finally:
+                conn.close()
+            return {
+                'worked': worked,
+                'adj_sum': adj_sum,
+                'earnings': earnings,
+                'earnings_detail': earnings_detail,
+            }
+        except Exception as e:
+            logger.error("get_salary_xlsx_bulk: %s", e)
+            return {'worked': {}, 'adj_sum': {}, 'earnings': {}, 'earnings_detail': {}}
+
     # Дополнительные методы для полного функционала
     def delete_user(self, telegram_id):
         """Полное удаление пользователя из орг-базы.

@@ -659,6 +659,34 @@ class TenantManager:
         conn.close()
         return orgs
 
+    def get_all_org_user_counts(self) -> dict:
+        """Вернуть {org_id: int} — число пользователей в каждой организации.
+
+        Выполняет один запрос к main.db чтобы получить все org_id/db_path,
+        затем один COUNT(*) к каждой tenant DB (без загрузки полных строк).
+        """
+        counts: dict = {}
+        try:
+            conn = sqlite3.connect(self.main_db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, db_path FROM organizations WHERE db_path IS NOT NULL")
+            org_rows = cursor.fetchall()
+            conn.close()
+        except Exception:
+            return counts
+        for org_id, db_path in org_rows:
+            if not db_path or not os.path.exists(db_path):
+                counts[org_id] = 0
+                continue
+            try:
+                org_conn = sqlite3.connect(db_path)
+                row = org_conn.execute("SELECT COUNT(*) FROM users").fetchone()
+                org_conn.close()
+                counts[org_id] = int(row[0]) if row else 0
+            except Exception:
+                counts[org_id] = 0
+        return counts
+
     def get_org_users(self, org_id):
         """Получить пользователей конкретной организации из её tenant DB"""
         conn = sqlite3.connect(self.main_db_path)

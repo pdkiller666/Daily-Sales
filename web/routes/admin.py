@@ -105,10 +105,10 @@ async def admin_orgs(request: Request):
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
     orgs_raw = tenant_manager.get_all_organizations()
+    org_user_counts = tenant_manager.get_all_org_user_counts()
     orgs = []
     for row in orgs_raw:
         org_id, name, db_path, owner_id, invite_code, plan, is_active, created = row
-        users = tenant_manager.get_org_users(org_id)
         orgs.append({
             "id": org_id,
             "name": name,
@@ -116,7 +116,7 @@ async def admin_orgs(request: Request):
             "plan": plan or "Бесплатный",
             "is_active": bool(is_active),
             "created": (created or "")[:10],
-            "users_count": len(users),
+            "users_count": org_user_counts.get(org_id, 0),
             "invite_code": invite_code or "—",
         })
     return request.app.state.templates.TemplateResponse(
