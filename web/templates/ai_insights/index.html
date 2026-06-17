@@ -193,31 +193,66 @@
 
     {# ── История алертов — виден пользователям с ai_smart_alerts ── #}
     {% if has_module and has_alerts_ext %}
-    <div class="space-y-3">
-        <div class="flex items-center gap-2">
-            <span class="text-lg">🔔</span>
-            <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">История алертов</span>
-        </div>
-        {% if alert_history %}
-        <div class="space-y-3">
-            {% for entry in alert_history %}
-            <div class="card p-4 space-y-1.5">
-                <div class="flex items-center justify-between flex-wrap gap-1">
-                    <span class="inline-flex items-center gap-1 text-xs font-semibold
-                        {% if entry.type == 'digest' %}text-indigo-600 dark:text-indigo-400{% else %}text-amber-600 dark:text-amber-400{% endif %}">
-                        {% if entry.type == 'digest' %}📊 Дайджест{% else %}⚠️ Алерт{% endif %}
-                    </span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ entry.created_at }}</span>
-                </div>
-                <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">{{ entry.text }}</div>
+    <div x-data="alertHistory()" x-init="init()" class="space-y-3">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="text-lg">🔔</span>
+                <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">История алертов</span>
             </div>
-            {% endfor %}
+            <button @click="refresh()" :disabled="refreshing"
+                    class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-40 flex items-center gap-1">
+                <svg x-show="refreshing" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <span x-show="!refreshing">↻ обновить</span>
+            </button>
         </div>
+
+        {# Server-rendered entries on first load #}
+        {% if alert_history %}
+        <template x-if="!items.length">
+            <div class="space-y-3">
+                {% for entry in alert_history %}
+                <div class="card p-4 space-y-1.5">
+                    <div class="flex items-center justify-between flex-wrap gap-1">
+                        <span class="inline-flex items-center gap-1 text-xs font-semibold
+                            {% if entry.type == 'digest' %}text-indigo-600 dark:text-indigo-400{% else %}text-amber-600 dark:text-amber-400{% endif %}">
+                            {% if entry.type == 'digest' %}📊 Дайджест{% else %}⚠️ Алерт{% endif %}
+                        </span>
+                        <span class="text-xs text-slate-400 dark:text-slate-500">{{ entry.created_at }}</span>
+                    </div>
+                    <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">{{ entry.text }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </template>
         {% else %}
-        <div class="card p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-            Алерты появятся здесь автоматически при следующем срабатывании планировщика.
-        </div>
+        <template x-if="!items.length && !refreshing">
+            <div class="card p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                Алерты появятся здесь автоматически при следующем срабатывании планировщика.
+            </div>
+        </template>
         {% endif %}
+
+        {# Alpine-rendered entries after inline refresh #}
+        <template x-if="items.length">
+            <div class="space-y-3">
+                <template x-for="entry in items" :key="entry.id ?? entry.created_at">
+                    <div class="card p-4 space-y-1.5">
+                        <div class="flex items-center justify-between flex-wrap gap-1">
+                            <span class="inline-flex items-center gap-1 text-xs font-semibold"
+                                  :class="entry.type === 'digest' ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400'"
+                                  x-text="entry.type === 'digest' ? '📊 Дайджест' : '⚠️ Алерт'"></span>
+                            <span class="text-xs text-slate-400 dark:text-slate-500" x-text="entry.created_at"></span>
+                        </div>
+                        <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line" x-text="entry.text"></div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <div x-show="refreshError" x-cloak class="text-xs text-red-500 dark:text-red-400 text-center" x-text="refreshError"></div>
     </div>
     {% endif %}{# end alert history #}
 
@@ -231,7 +266,6 @@
         <div class="card p-5">
             <form method="POST" action="/settings/ai-alerts" class="space-y-5">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="next_url" value="/ai-insights">
 
                 {# Вкл/выкл алерты #}
                 <div class="flex items-center justify-between">
@@ -336,6 +370,19 @@
                     </label>
                 </div>
 
+                {# Email для алертов #}
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">Email для алертов</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Письмо на email при каждом AI-алерте</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="alert_email_enabled" value="on" class="sr-only peer"
+                               {% if ai_alert_settings.alert_email_enabled %}checked{% endif %}>
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+
                 {# Еженедельный дайджест #}
                 <div class="border-t border-slate-100 dark:border-slate-700 pt-4 space-y-4">
                     <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Еженедельный дайджест</p>
@@ -382,6 +429,18 @@
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" name="digest_push_enabled" value="on" class="sr-only peer"
                                    {% if ai_alert_settings.digest_push_enabled %}checked{% endif %}>
+                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-slate-700 dark:text-slate-300">Email для дайджеста</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">Письмо на email с еженедельным дайджестом</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="digest_email_enabled" value="on" class="sr-only peer"
+                                   {% if ai_alert_settings.digest_email_enabled %}checked{% endif %}>
                             <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
                         </label>
                     </div>
@@ -449,6 +508,37 @@ function aiInsights() {
                 this.error = 'Ошибка соединения. Попробуйте ещё раз.';
             } finally {
                 this.loading = false;
+            }
+        }
+    };
+}
+
+function alertHistory() {
+    return {
+        items: [],
+        refreshing: false,
+        refreshError: '',
+
+        init() {},
+
+        async refresh() {
+            this.refreshing = true;
+            this.refreshError = '';
+            try {
+                const resp = await fetch('/api/ai/alert-history');
+                const data = await resp.json();
+                if (data.ok) {
+                    this.items = data.entries || [];
+                    if (!this.items.length) {
+                        this.refreshError = 'Алертов пока нет.';
+                    }
+                } else {
+                    this.refreshError = 'Не удалось загрузить историю алертов.';
+                }
+            } catch (e) {
+                this.refreshError = 'Ошибка соединения.';
+            } finally {
+                this.refreshing = false;
             }
         }
     };

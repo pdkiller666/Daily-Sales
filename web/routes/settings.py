@@ -109,8 +109,6 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "profile": {},
         # web credentials
         "web_cred": None,
-        # AI alert settings (admin only)
-        "ai_alert_settings": None,
         # AI weekly digest prefs (owners with ai_network_insights)
         "has_network_insights": False,
         "digest_prefs": {"weekday": 0, "hour_msk": 12},
@@ -194,16 +192,6 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 ]
             except Exception:
                 ctx["notification_history"] = []
-
-        # AI alert settings (admin only)
-        if is_admin:
-            try:
-                ctx["ai_alert_settings"] = db.get_ai_alert_settings()
-            except Exception:
-                ctx["ai_alert_settings"] = {
-                    "enabled": True, "threshold_pct": 35,
-                    "alert_hour_msk": 10, "metrics": ["revenue"],
-                }
 
         # AI weekly digest prefs (owners with ai_network_insights extension)
         if is_owner:
@@ -695,6 +683,8 @@ async def settings_ai_alerts(
     digest_hour_msk: int = Form(default=9),
     digest_push_enabled: str = Form(default=""),
     alert_push_enabled: str = Form(default=""),
+    alert_email_enabled: str = Form(default=""),
+    digest_email_enabled: str = Form(default=""),
     next_url: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -744,15 +734,13 @@ async def settings_ai_alerts(
             digest_hour_msk=digest_hour_msk,
             digest_push_enabled=bool(digest_push_enabled),
             alert_push_enabled=bool(alert_push_enabled),
+            alert_email_enabled=bool(alert_email_enabled),
+            digest_email_enabled=bool(digest_email_enabled),
         )
     except Exception:
         pass
 
-    safe_next = next_url.strip() if next_url else ""
-    redirect_to = safe_next if safe_next in ("/ai-insights",) else "/settings?saved=1#ai-alerts"
-    if redirect_to == "/ai-insights":
-        redirect_to = "/ai-insights?saved=1"
-    return RedirectResponse(url=redirect_to, status_code=303)
+    return RedirectResponse(url="/ai-insights?saved=1", status_code=303)
 
 
 @router.post("/settings/ai-digest")

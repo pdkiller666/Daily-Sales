@@ -352,6 +352,27 @@ def get_weekly_digest(request: Request):
     return JSONResponse({"ok": True, "digests": raw})
 
 
+@router.get("/api/ai/alert-history")
+def get_alert_history(request: Request):
+    """Return last 10 AI alert log entries for the current user's org as JSON."""
+    from web.auth import get_session_user
+    from billing_utils import has_module, has_extension
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "no_module"}, status_code=403)
+    if not has_extension(tg_id, "ai_smart_alerts"):
+        return JSONResponse({"ok": False, "error": "no_extension"}, status_code=403)
+
+    session_org_db = user.get("org_db", "")
+    entries = _get_ai_alert_history(session_org_db) if session_org_db else []
+    return JSONResponse({"ok": True, "entries": entries})
+
+
 @router.post("/api/ai/network-insights")
 async def generate_network_insights(request: Request):
     if not _api_csrf_ok(request):

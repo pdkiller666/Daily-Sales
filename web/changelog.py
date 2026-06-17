@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.65.0"
+CURRENT_VERSION = "1.66.0"
 
 ENTRIES = [
+    {
+        "version": "1.66.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Email-доставка AI-алертов и дайджестов: в настройках инсайтов появились переключатели «Email для алертов» и «Email для дайджеста» — письма отправляются администраторам с привязанным и подтверждённым email.",
+            "Update application to include AI insights history and settings",
+            "Перенести настройки AI-алертов со страницы настроек на /ai-insights",
+            "real-time alert history refresh on /ai-insights without page reload",
+            "Добавить email-доставку умных алертов и дайджестов",
+        ],
+    },
     {
         "version": "1.65.0",
         "date": "17 июня 2026",

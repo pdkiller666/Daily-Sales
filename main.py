@@ -1686,6 +1686,29 @@ async def main():
                         except Exception as _push_err:
                             logging.debug(f"ai_smart_alerts push_bulk: {_push_err}")
 
+                    # Email — администраторам орги у которых есть email в web_credentials
+                    if alert_cfg.get("alert_email_enabled", False):
+                        try:
+                            from web.email_utils import send_smart_alert_email as _send_alert_email, is_configured as _email_ok
+                            import sqlite3 as _sq3e
+                            if _email_ok():
+                                _sdb_e = _sq3e.connect("data/shop_bot.db")
+                                for _tid in admin_ids[:3]:
+                                    if not _tid or int(_tid) <= 0:
+                                        continue
+                                    _wc = _sdb_e.execute(
+                                        "SELECT email FROM web_credentials WHERE telegram_id=? AND is_verified=1 LIMIT 1",
+                                        (int(_tid),)
+                                    ).fetchone()
+                                    if _wc and _wc[0]:
+                                        import anyio as _anyio
+                                        await _anyio.to_thread.run_sync(
+                                            lambda _e=_wc[0]: _send_alert_email(_e, _plain_alert)
+                                        )
+                                _sdb_e.close()
+                        except Exception as _email_err:
+                            logging.debug(f"ai_smart_alerts email: {_email_err}")
+
                 except Exception as _db_err:
                     logging.warning(f"ai_smart_alerts db={db_path}: {_db_err}")
         except Exception as _e:
@@ -1957,6 +1980,29 @@ async def main():
                                 await _apush_bulk(_all_tids, "📊 AI-дайджест недели", _push_body, "/ai-insights")
                         except Exception as _push_err:
                             logging.debug(f"ai_weekly_digest push_bulk: {_push_err}")
+
+                    # Email — администраторам орги у которых есть email в web_credentials
+                    if _digest_cfg.get("digest_email_enabled", False):
+                        try:
+                            from web.email_utils import send_weekly_digest_email as _send_digest_email, is_configured as _email_ok
+                            import sqlite3 as _sq3de
+                            if _email_ok():
+                                _sdb_de = _sq3de.connect("data/shop_bot.db")
+                                for _tid in admin_ids[:3]:
+                                    if not _tid or int(_tid) <= 0:
+                                        continue
+                                    _wc = _sdb_de.execute(
+                                        "SELECT email FROM web_credentials WHERE telegram_id=? AND is_verified=1 LIMIT 1",
+                                        (int(_tid),)
+                                    ).fetchone()
+                                    if _wc and _wc[0]:
+                                        import anyio as _anyio
+                                        await _anyio.to_thread.run_sync(
+                                            lambda _e=_wc[0]: _send_digest_email(_e, _plain_body)
+                                        )
+                                _sdb_de.close()
+                        except Exception as _email_err:
+                            logging.debug(f"ai_weekly_digest email: {_email_err}")
 
                     # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
                     try:
