@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.52.0"
+CURRENT_VERSION = "1.53.0"
 
 ENTRIES = [
+    {
+        "version": "1.53.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Update landing page content and fix a database connection issue",
+        ],
+    },
     {
         "version": "1.52.0",
         "date": "17 июня 2026",
