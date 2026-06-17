@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.59.0"
+CURRENT_VERSION = "1.60.0"
 
 ENTRIES = [
+    {
+        "version": "1.60.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Fix sidebar display issue causing content to shift down",
+            "Extend premium 3D icons to all remaining landing icons",
+        ],
+    },
     {
         "version": "1.59.0",
         "date": "17 июня 2026",
