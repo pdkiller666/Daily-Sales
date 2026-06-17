@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.66.0"
+CURRENT_VERSION = "1.67.0"
 
 ENTRIES = [
+    {
+        "version": "1.67.0",
+        "date": "17 июня 2026",
+        "items": [
+            "AI-дайджест сети теперь отправляется на email владельца, если включена опция «Email-дайджест» в настройках AI-инсайтов и добавлен подтверждённый адрес почты.",
+            "Update application with email alerts and real-time insights",
+            "Add email delivery to the AI network insights digest for owners",
+            "Show warning when email alerts on but no admin has verified email",
+        ],
+    },
     {
         "version": "1.66.0",
         "date": "17 июня 2026",

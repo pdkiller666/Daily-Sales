@@ -228,6 +228,32 @@ def _get_digest_for_org(org_db: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _has_verified_admin_email(org_db: str, owner_tg_id: int) -> bool:
+    """Return True if any admin/owner in the org has a verified email in web_credentials."""
+    try:
+        from database import Database
+        org_inst = Database(org_db)
+        admin_tg_ids = org_inst.get_all_admins_telegram_ids()
+        if owner_tg_id and owner_tg_id not in admin_tg_ids:
+            admin_tg_ids.append(owner_tg_id)
+        if not admin_tg_ids:
+            return True  # fail open
+        conn = sqlite3.connect(_SHOP_BOT_DB)
+        try:
+            placeholders = ",".join("?" * len(admin_tg_ids))
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM web_credentials "
+                f"WHERE telegram_id IN ({placeholders}) AND email_verified = 1",
+                admin_tg_ids,
+            ).fetchone()
+        finally:
+            conn.close()
+        return bool(row and row[0] > 0)
+    except Exception as exc:
+        logger.error("_has_verified_admin_email error: %s", exc)
+        return True  # fail open — don't show false warnings on error
+
+
 def _get_ai_alert_history(org_db: str) -> list[dict]:
     """Return the last 10 AI alert/digest log entries for an org DB."""
     if not org_db:
@@ -301,6 +327,14 @@ def ai_insights_page(request: Request, saved: str = ""):
                 "digest_push_enabled": True, "alert_push_enabled": True,
             }
 
+    # Warn if email alerts are on but no admin has a verified email
+    email_missing_warning = False
+    if is_admin and ai_alert_settings:
+        if ai_alert_settings.get("alert_email_enabled") or ai_alert_settings.get("digest_email_enabled"):
+            session_org_db = user.get("org_db", "")
+            if session_org_db:
+                email_missing_warning = not _has_verified_admin_email(session_org_db, tg_id)
+
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "ai_insights/index.html", {
         "user": user,
@@ -316,6 +350,7 @@ def ai_insights_page(request: Request, saved: str = ""):
         "is_admin": is_admin,
         "csrf_token": get_csrf_token(request),
         "saved": saved == "1",
+        "email_missing_warning": email_missing_warning,
     })
 
 
@@ -430,6 +465,30 @@ async def generate_network_insights(request: Request):
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка AI"}, status_code=500)
 
     _save_cached_insights(tg_id, answer)
+
+    # Email delivery — send to owner if digest_email_enabled and verified email exists
+    try:
+        from web.email_utils import send_weekly_digest_email as _send_digest, is_configured as _email_ok
+        if _email_ok() and user_orgs:
+            from database import Database as _Database
+            _first_db = _Database(user_orgs[0]["org_db"])
+            _cfg = _first_db.get_ai_alert_settings()
+            if _cfg.get("digest_email_enabled", False):
+                _conn = sqlite3.connect(_SHOP_BOT_DB)
+                try:
+                    _wc = _conn.execute(
+                        "SELECT email FROM web_credentials WHERE telegram_id=? AND is_verified=1 LIMIT 1",
+                        (tg_id,)
+                    ).fetchone()
+                finally:
+                    _conn.close()
+                if _wc and _wc[0]:
+                    import anyio as _anyio
+                    await _anyio.to_thread.run_sync(
+                        lambda _e=_wc[0]: _send_digest(_e, answer)
+                    )
+    except Exception as _email_err:
+        logger.debug("generate_network_insights email: %s", _email_err)
 
     generated_at = _dt.datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC")
     return JSONResponse({"ok": True, "insights": answer, "generated_at": generated_at})

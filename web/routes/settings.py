@@ -208,6 +208,19 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
             except Exception:
                 ctx["has_network_insights"] = False
 
+        # Email-missing warning for AI alert email toggles (admin only)
+        if is_admin and org_db:
+            try:
+                from billing_utils import has_extension as _has_ext2, has_module as _has_mod2
+                if _has_mod2(telegram_id, "ai_assistant") and _has_ext2(telegram_id, "ai_smart_alerts"):
+                    from web.routes.ai_insights import _has_verified_admin_email
+                    _ais_db = get_web_db(telegram_id, org_db)
+                    _ais = _ais_db.get_ai_alert_settings()
+                    if _ais and (_ais.get("alert_email_enabled") or _ais.get("digest_email_enabled")):
+                        ctx["email_missing_warning"] = not _has_verified_admin_email(org_db, telegram_id)
+            except Exception:
+                pass
+
         # Scheduled notifications (admin only)
         if is_admin:
             raw_sched = db.get_scheduled_notifications(status=None) or []

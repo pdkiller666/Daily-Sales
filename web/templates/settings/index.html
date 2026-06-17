@@ -844,6 +844,12 @@
         <div class="card p-5" id="ai-alerts">
             <h2 class="font-semibold text-slate-800 dark:text-slate-200 mb-1">🤖 AI-инсайты и алерты</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Ежедневные уведомления о падении продаж, еженедельный дайджест и история алертов</p>
+            {% if email_missing_warning %}
+            <div class="flex items-start gap-2.5 p-3 mb-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl text-sm text-amber-800 dark:text-amber-300">
+                <span class="mt-0.5 shrink-0">⚠️</span>
+                <span>Email-алерты включены, но ни один администратор не привязал email. <a href="/settings#profile" class="underline font-medium">Добавить email</a></span>
+            </div>
+            {% endif %}
             <a href="/ai-insights"
                class="flex items-center justify-between w-full py-2.5 px-4 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
                 <span>Настроить инсайты</span>
