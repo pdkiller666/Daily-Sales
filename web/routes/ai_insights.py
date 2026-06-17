@@ -88,30 +88,31 @@ def _get_org_summary(org_db: str) -> dict:
 
         try:
             conn = db.get_connection()
-            cat_row = conn.execute(
-                """SELECT p.category, SUM(s.quantity * s.price) as rev
-                   FROM sales s JOIN products p ON p.id = s.product_id
-                   WHERE s.sale_date >= ? AND s.sale_date <= ?
-                   GROUP BY p.category ORDER BY rev DESC LIMIT 1""",
-                (month_start, today_str)
-            ).fetchone()
-            if cat_row and cat_row[0]:
-                top_category = str(cat_row[0])
-
-            sc_row = conn.execute(
-                "SELECT COUNT(DISTINCT telegram_id) FROM users WHERE is_active = 1"
-            ).fetchone()
-            seller_count = int(sc_row[0] or 0) if sc_row else 0
-
-            if revenue_month > 0:
-                plan_row = conn.execute(
-                    """SELECT SUM(target_amount) FROM sales_plans
-                       WHERE target_type = 'global' AND is_active = 1"""
+            try:
+                cat_row = conn.execute(
+                    """SELECT p.category, SUM(s.quantity * s.price) as rev
+                       FROM sales s JOIN products p ON p.id = s.product_id
+                       WHERE s.sale_date >= ? AND s.sale_date <= ?
+                       GROUP BY p.category ORDER BY rev DESC LIMIT 1""",
+                    (month_start, today_str)
                 ).fetchone()
-                if plan_row and plan_row[0] and float(plan_row[0]) > 0:
-                    plan_pct = round(revenue_month / float(plan_row[0]) * 100, 1)
+                if cat_row and cat_row[0]:
+                    top_category = str(cat_row[0])
 
-            conn.close()
+                sc_row = conn.execute(
+                    "SELECT COUNT(DISTINCT telegram_id) FROM users WHERE is_active = 1"
+                ).fetchone()
+                seller_count = int(sc_row[0] or 0) if sc_row else 0
+
+                if revenue_month > 0:
+                    plan_row = conn.execute(
+                        """SELECT SUM(target_amount) FROM sales_plans
+                           WHERE target_type = 'global' AND is_active = 1"""
+                    ).fetchone()
+                    if plan_row and plan_row[0] and float(plan_row[0]) > 0:
+                        plan_pct = round(revenue_month / float(plan_row[0]) * 100, 1)
+            finally:
+                conn.close()
         except Exception:
             pass
 

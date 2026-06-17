@@ -55,11 +55,13 @@ TARGET_LABELS = {"seller": "Продавец", "shop": "Магазин"}
 def _get_user_db_id(db, telegram_id: int):
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
     except Exception:
         return None
 
@@ -669,20 +671,22 @@ def _load_milestone_history(db, plan_id: int) -> list:
     """Return milestone alert rows for a plan, newest first, with seller names resolved."""
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT pma.milestone, pma.period_start, pma.alerted_at,
-                   u.first_name, u.last_name, pma.user_id
-            FROM plan_milestone_alerts pma
-            LEFT JOIN users u ON u.id = pma.user_id
-            WHERE pma.plan_id = ?
-            ORDER BY pma.alerted_at DESC
-            """,
-            (plan_id,),
-        )
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT pma.milestone, pma.period_start, pma.alerted_at,
+                       u.first_name, u.last_name, pma.user_id
+                FROM plan_milestone_alerts pma
+                LEFT JOIN users u ON u.id = pma.user_id
+                WHERE pma.plan_id = ?
+                ORDER BY pma.alerted_at DESC
+                """,
+                (plan_id,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
         result = []
         for row in rows:
             milestone, period_start, alerted_at, fname, lname, user_id = row

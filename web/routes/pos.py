@@ -9,11 +9,13 @@ router = APIRouter()
 def _get_internal_uid(db, telegram_id: int):
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
     except Exception:
         return None
 
@@ -35,13 +37,15 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
             assert col in ("city", "trade_network"), f"Unexpected col: {col}"
             placeholders = ",".join("?" * len(scope_values))
             conn = db.get_connection()
-            cur = conn.cursor()
-            cur.execute(
-                f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
-                scope_values,
-            )
-            allowed = {row[0] for row in cur.fetchall()}
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    f"SELECT DISTINCT shop_name FROM users WHERE {col} IN ({placeholders}) AND shop_name IS NOT NULL",
+                    scope_values,
+                )
+                allowed = {row[0] for row in cur.fetchall()}
+            finally:
+                conn.close()
             filtered = [s for s in all_shops if s in allowed]
             if filtered:
                 return filtered
@@ -50,10 +54,12 @@ def _get_user_allowed_shops(telegram_id: int, db) -> list:
     # Fallback: user's shop from org DB
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
         if row and row[0] and row[0] in all_shops:
             return [row[0]]
     except Exception:
@@ -93,10 +99,12 @@ def pos_page(request: Request):
         default_shop = ctx["shops"][0] if ctx["shops"] else ""
         try:
             conn = db.get_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
-            row = cur.fetchone()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT shop_name FROM users WHERE telegram_id = ?", (telegram_id,))
+                row = cur.fetchone()
+            finally:
+                conn.close()
             if row and row[0] and row[0] in ctx["shops"]:
                 default_shop = row[0]
         except Exception:

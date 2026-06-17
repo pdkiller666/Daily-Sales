@@ -78,11 +78,13 @@ ROLE_LABELS = {
 def _get_user_db_id(db, telegram_id: int):
     try:
         conn = db.get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
     except Exception:
         return None
 

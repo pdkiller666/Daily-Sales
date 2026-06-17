@@ -194,12 +194,13 @@ def motivation_page(request: Request, category: str = ""):
 
         # Plan coefficient settings for current user
         try:
-            import sqlite3 as _sq3
             _conn = db.get_connection()
-            _cur = _conn.cursor()
-            _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-            _row = _cur.fetchone()
-            _conn.close()
+            try:
+                _cur = _conn.cursor()
+                _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+                _row = _cur.fetchone()
+            finally:
+                _conn.close()
             if _row:
                 ns = db.get_notification_settings(_row[0])
                 ctx["plan_coeff_enabled"] = bool(ns.get("plan_coeff_enabled", False))
@@ -246,10 +247,12 @@ def motivation_plan_coeff(
     try:
         db = get_web_db(telegram_id, org_db)
         _conn = db.get_connection()
-        _cur = _conn.cursor()
-        _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-        _row = _cur.fetchone()
-        _conn.close()
+        try:
+            _cur = _conn.cursor()
+            _cur.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+            _row = _cur.fetchone()
+        finally:
+            _conn.close()
         if _row:
             db.update_notification_settings(
                 _row[0],

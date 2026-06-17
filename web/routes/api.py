@@ -32,27 +32,27 @@ def sales_feed(request: Request, since: str = ""):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-
-        if since:
-            rows = conn.execute(
-                """
-                SELECT s.id, p.name,
-                       CAST(s.quantity_sold AS REAL) * COALESCE(s.sale_price, 0),
-                       s.sale_date,
-                       u.first_name, u.shop_name
-                FROM sales s
-                JOIN products p ON p.id = s.product_id
-                JOIN users u ON u.id = s.user_id
-                WHERE s.sale_date > ? AND u.telegram_id != ?
-                ORDER BY s.sale_date DESC
-                LIMIT 10
-                """,
-                (since, telegram_id),
-            ).fetchall()
-        else:
-            rows = []
-
-        conn.close()
+        try:
+            if since:
+                rows = conn.execute(
+                    """
+                    SELECT s.id, p.name,
+                           CAST(s.quantity_sold AS REAL) * COALESCE(s.sale_price, 0),
+                           s.sale_date,
+                           u.first_name, u.shop_name
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    JOIN users u ON u.id = s.user_id
+                    WHERE s.sale_date > ? AND u.telegram_id != ?
+                    ORDER BY s.sale_date DESC
+                    LIMIT 10
+                    """,
+                    (since, telegram_id),
+                ).fetchall()
+            else:
+                rows = []
+        finally:
+            conn.close()
 
         items = [
             {
@@ -144,32 +144,31 @@ def my_notifications(request: Request, limit: int = 20):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            if not row:
+                return {"ok": True, "unread": 0, "items": []}
+            user_db_id = row[0]
 
-        row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        if not row:
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
+                (user_db_id,),
+            ).fetchone()[0]
+
+            rows = conn.execute(
+                """
+                SELECT id, notification_type, message, is_read, created_at
+                FROM notification_history
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (user_db_id, min(limit, 50)),
+            ).fetchall()
+        finally:
             conn.close()
-            return {"ok": True, "unread": 0, "items": []}
-        user_db_id = row[0]
-
-        unread = conn.execute(
-            "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
-            (user_db_id,),
-        ).fetchone()[0]
-
-        rows = conn.execute(
-            """
-            SELECT id, notification_type, message, is_read, created_at
-            FROM notification_history
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (user_db_id, min(limit, 50)),
-        ).fetchall()
-
-        conn.close()
 
         dms = db.get_dm_unread_count(user_db_id)
 
@@ -211,16 +210,18 @@ def my_notifications_read_all(request: Request):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        if row:
-            conn.execute(
-                "UPDATE notification_history SET is_read = 1 WHERE user_id = ? AND is_read = 0",
-                (row[0],),
-            )
-            conn.commit()
-        conn.close()
+        try:
+            row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE notification_history SET is_read = 1 WHERE user_id = ? AND is_read = 0",
+                    (row[0],),
+                )
+                conn.commit()
+        finally:
+            conn.close()
         return {"ok": True}
     except Exception:
         return {"ok": False}
@@ -247,18 +248,19 @@ def unread_count(request: Request):
     try:
         db = get_web_db(telegram_id, org_db)
         conn = db.get_connection()
-        row = conn.execute(
-            "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()
-        if not row:
+        try:
+            row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+            if not row:
+                return {"ok": True, "total": 0, "notifs": 0, "dms": 0}
+            user_db_id = row[0]
+            notifs = conn.execute(
+                "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
+                (user_db_id,),
+            ).fetchone()[0]
+        finally:
             conn.close()
-            return {"ok": True, "total": 0, "notifs": 0, "dms": 0}
-        user_db_id = row[0]
-        notifs = conn.execute(
-            "SELECT COUNT(*) FROM notification_history WHERE user_id = ? AND is_read = 0",
-            (user_db_id,),
-        ).fetchone()[0]
-        conn.close()
         dms = db.get_dm_unread_count(user_db_id)
         total = notifs + dms
         return {"ok": True, "total": total, "notifs": notifs, "dms": dms}
