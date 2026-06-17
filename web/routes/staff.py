@@ -34,15 +34,12 @@ def _get_org_roles(org_db_path: str) -> dict[int, dict]:
     try:
         conn = sqlite3.connect("data/main.db")
         try:
-            try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id FROM organizations WHERE db_path = ?", (org_db_path,)
-                )
-                org_row = cursor.fetchone()
-        finally:
-            if not org_row:.close()
-                conn.close()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM organizations WHERE db_path = ?", (org_db_path,)
+            )
+            org_row = cursor.fetchone()
+            if not org_row:
                 return {}
             org_id = org_row[0]
             cursor.execute(

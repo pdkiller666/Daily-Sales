@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.51.0"
+CURRENT_VERSION = "1.52.0"
 
 ENTRIES = [
+    {
+        "version": "1.52.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Improve database connection handling and optimize data retrieval operations",
+        ],
+    },
     {
         "version": "1.51.0",
         "date": "17 июня 2026",
