@@ -79,6 +79,7 @@ def _get_org_mapping_cached(telegram_id: int):
     cached = _org_mapping_cache.get(telegram_id)
     if cached and now - cached[1] < _ORG_MAPPING_TTL:
         return cached[0]
+    conn = None
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
@@ -86,9 +87,14 @@ def _get_org_mapping_cached(telegram_id: int):
             "FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
-        conn.close()
     except Exception:
         row = None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
     _org_mapping_cache[telegram_id] = (row, now)
     return row
 
@@ -257,19 +263,25 @@ def is_any_admin(telegram_id: int) -> bool:
     if env_manager.is_super_admin(telegram_id):
         _admin_cache[telegram_id] = (True, now)
         return True
+    conn = None
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
             "SELECT role FROM user_org_mapping WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
-        conn.close()
         if row is not None:
             result = row[0] in ('owner', 'admin')
             _admin_cache[telegram_id] = (result, now)
             return result
     except Exception:
         pass
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
     result = env_manager.is_admin(telegram_id)
     _admin_cache[telegram_id] = (result, now)
     return result
@@ -307,6 +319,7 @@ def get_user_org_scope(telegram_id: int) -> tuple:
     if cached and now - cached[1] < _SCOPE_CACHE_TTL:
         return cached[0]
 
+    conn = None
     try:
         conn = sqlite3.connect(tenant_manager.main_db_path)
         row = conn.execute(
@@ -314,7 +327,6 @@ def get_user_org_scope(telegram_id: int) -> tuple:
             "WHERE telegram_id = ? AND is_active = 1",
             (telegram_id,)
         ).fetchone()
-        conn.close()
         if not row:
             _scope_cache[telegram_id] = ((None, []), now)
             return None, []
@@ -340,6 +352,12 @@ def get_user_org_scope(telegram_id: int) -> tuple:
         return result
     except Exception:
         return None, []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def invalidate_scope_cache(telegram_id: int) -> None:

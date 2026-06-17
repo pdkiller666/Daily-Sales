@@ -1038,19 +1038,15 @@ class Database:
         cursor.execute("PRAGMA table_info(plan_milestone_alerts)")
         _pma_cols = {row[1] for row in cursor.fetchall()}
         if 'period_start' not in _pma_cols:
-            # Пересоздаём таблицу — данные алертов не критичны
-            cursor.execute('DROP TABLE plan_milestone_alerts')
-            cursor.execute('''
-                CREATE TABLE plan_milestone_alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    plan_id INTEGER NOT NULL,
-                    milestone INTEGER NOT NULL,
-                    period_start TEXT NOT NULL DEFAULT '',
-                    alerted_at TEXT DEFAULT (datetime('now')),
-                    UNIQUE(user_id, plan_id, milestone, period_start)
+            # Добавляем колонку через ALTER TABLE — сохраняем историю алертов
+            try:
+                cursor.execute(
+                    "ALTER TABLE plan_milestone_alerts "
+                    "ADD COLUMN period_start TEXT NOT NULL DEFAULT ''"
                 )
-            ''')
+                logger.info("plan_milestone_alerts: добавлена колонка period_start")
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS integration_connections (
@@ -1570,6 +1566,8 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_date     ON sales(user_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_date     ON sales(shop_name, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date          ON sales(sale_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product       ON sales(product_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product_date  ON sales(product_id, sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_shop_prod ON inventory(shop_name, product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_schedule_date  ON work_schedule(work_date, user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_sale ON seller_earnings(sale_id)')

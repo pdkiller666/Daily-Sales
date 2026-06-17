@@ -157,6 +157,12 @@ def _api_rate_ok(ip: str) -> bool:
         return False
     hits.append(now)
     _api_rate_log[ip] = hits
+    # Периодическая очистка устаревших IP-ключей (защита от утечки памяти)
+    if len(_api_rate_log) > 500:
+        stale = [k for k, v in _api_rate_log.items()
+                 if not v or now - max(v) > _API_RATE_WINDOW]
+        for k in stale:
+            del _api_rate_log[k]
     return True
 
 

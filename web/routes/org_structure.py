@@ -54,6 +54,12 @@ def org_structure_page(request: Request, tab: str = "depts", msg: str = ""):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    # Биллинговый гейт: owner без оплаченного модуля org_structure → /dashboard
+    if user.get("role") == "owner":
+        from billing_utils import has_module
+        if not has_module(telegram_id, "org_structure"):
+            return RedirectResponse(url="/dashboard", status_code=302)
+
     ctx: dict = {
         "request": request, "user": user,
         "tab": tab if tab in ("depts", "roles", "info") else "depts",

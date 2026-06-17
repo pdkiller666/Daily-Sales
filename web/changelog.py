@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.41.0"
+CURRENT_VERSION = "1.42.0"
 
 ENTRIES = [
+    {
+        "version": "1.42.0",
+        "date": "17 июня 2026",
+        "items": [
+            "- Аудит безопасности и надёжности (этап 1): исправлена миграция `plan_milestone_alerts` (ALTER TABLE вместо DROP TABLE — данные больше не теряются), добавлен биллинговый гейт на страницу гибкой оргструктуры, исправлены утечки соединений SQLite в db_utils (try-finally), устранена утечка памяти в rate-limiter (очистка устаревших IP), добавлены индексы `product_id` и `product_id+sale_date` для ускорения аналитики товаров",
+            "Improve AI safety and reliability with critical fixes and new features",
+        ],
+    },
     {
         "version": "1.41.0",
         "date": "17 июня 2026",
