@@ -25,8 +25,12 @@ done
 COMMIT_MSG="${COMMIT_MSG:-Обновление $(date '+%Y-%m-%d %H:%M')}"
 
 # ─── Учётные данные Amvera ───────────────────────────────────────────────────
-AMVERA_USER="${AMVERA_USER:-pdkiller666}"
-AMVERA_PASS="${AMVERA_PASS:-4_5AznCgvidfr5x}"
+# Значения берутся ТОЛЬКО из Replit Secrets (AMVERA_USER, AMVERA_PASS).
+# Захардкоженный fallback намеренно убран — это защищает от деплоя task-агентами.
+if [ -z "$AMVERA_USER" ] || [ -z "$AMVERA_PASS" ]; then
+  echo "❌ AMVERA_USER или AMVERA_PASS не заданы в Secrets. Деплой прерван."
+  exit 1
+fi
 
 # ─── Инициализация GitHub-репозитория ───────────────────────────────────────
 if [ ! -d "$GITHUB_DIR/.git" ]; then
