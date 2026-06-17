@@ -178,13 +178,14 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
 
         if is_admin:
             # Список сотрудников для выбора
-            import sqlite3 as _sq
             conn = db.get_connection()
-            staff = conn.execute(
-                "SELECT id, first_name, last_name, shop_name, telegram_id "
-                "FROM users ORDER BY first_name"
-            ).fetchall() or []
-            conn.close()
+            try:
+                staff = conn.execute(
+                    "SELECT id, first_name, last_name, shop_name, telegram_id "
+                    "FROM users ORDER BY first_name"
+                ).fetchall() or []
+            finally:
+                conn.close()
             ctx["staff_list"] = [
                 {"id": r[0], "first_name": r[1] or "", "last_name": r[2] or "",
                  "shop_name": r[3] or "", "telegram_id": r[4]}
@@ -226,12 +227,13 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                 ctx["absence_map"] = merged
         else:
             # Сотрудник видит только свои записи
-            import sqlite3 as _sq
             conn = db.get_connection()
-            row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if row:
                 uid = row[0]
                 ctx["selected_user_id"] = uid
@@ -310,10 +312,12 @@ def absences_add(
             final_status = status  # admin может сразу одобрить
         else:
             conn = db.get_connection()
-            row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             target_uid = row[0] if row else 0
             final_status = "pending"  # сотрудник подаёт заявку
 
@@ -370,10 +374,12 @@ def absences_add(
                     ed_d = date.fromisoformat(end_date[:10])
                     days = (ed_d - sd_d).days + 1
                     conn_adm = db.get_connection()
-                    adm_row = conn_adm.execute(
-                        "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
-                    ).fetchone()
-                    conn_adm.close()
+                    try:
+                        adm_row = conn_adm.execute(
+                            "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                        ).fetchone()
+                    finally:
+                        conn_adm.close()
                     admin_org_id = adm_row[0] if adm_row else target_uid
                     db.apply_absence_penalty(
                         target_uid, ab_id,
@@ -438,10 +444,12 @@ def absences_update(
         # Проверка прав для cancel (сотрудник может отменить только свои pending)
         if action == "cancel" and not is_admin:
             conn = db.get_connection()
-            row = conn.execute(
-                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
-            ).fetchone()
-            conn.close()
+            try:
+                row = conn.execute(
+                    "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+                ).fetchone()
+            finally:
+                conn.close()
             if not row or row[0] != uid or old_status != "pending":
                 return RedirectResponse(
                     url=f"/absences?year={year}&month={month}&msg=no_access",
@@ -491,10 +499,12 @@ def absences_update(
         if new_status in ("approved", "rejected") and action != "cancel":
             try:
                 conn3 = db.get_connection()
-                tg_row = conn3.execute(
-                    "SELECT telegram_id FROM users WHERE id=?", (uid,)
-                ).fetchone()
-                conn3.close()
+                try:
+                    tg_row = conn3.execute(
+                        "SELECT telegram_id FROM users WHERE id=?", (uid,)
+                    ).fetchone()
+                finally:
+                    conn3.close()
                 employee_tg_id = tg_row[0] if tg_row else None
                 if employee_tg_id:
                     abs_days = (
