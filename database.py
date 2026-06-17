@@ -4971,6 +4971,20 @@ class Database:
         conn.close()
         return inventory
 
+    def get_stock_totals(self) -> dict:
+        """Суммарный остаток по каждому товару: {product_id: total_qty}.
+        Единственный GROUP BY запрос — не грузит все строки inventory в Python."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT product_id, SUM(quantity) FROM inventory GROUP BY product_id"
+            ).fetchall()
+            return {r[0]: int(r[1] or 0) for r in rows}
+        except Exception:
+            return {}
+        finally:
+            conn.close()
+
     def get_inventory_turnover(self, shop_name=None, days: int = 30):
         """Оборачиваемость остатков: текущий stock + продажи за последние days дней.
         Columns: product_id[0] name[1] category[2] price[3] shop_name[4]

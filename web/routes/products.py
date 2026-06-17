@@ -158,13 +158,7 @@ def products_page(
         db = get_web_db(telegram_id, org_db)
 
         all_products = db.get_all_products() or []
-        all_inv = db.get_all_inventory() or []
-
-        # inv: id[0] product_id[1] shop_name[2] quantity[3] ...
-        stock: dict[int, int] = {}
-        for row in all_inv:
-            pid = row[1]
-            stock[pid] = stock.get(pid, 0) + int(row[3] or 0)
+        stock: dict[int, int] = db.get_stock_totals()
 
         categories = sorted({p[2] for p in all_products if p[2]})
 
