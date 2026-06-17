@@ -419,7 +419,6 @@ async def push_subscribe(request: Request):
         if not endpoint.startswith("https://"):
             return JSONResponse({"ok": False, "error": "invalid endpoint"}, status_code=400)
         db = Database(SHOP_BOT_DB)
-        db.create_tables()
         ok = db.save_push_subscription(tg_id, endpoint, p256dh, auth)
         return {"ok": ok}
     except Exception as exc:
