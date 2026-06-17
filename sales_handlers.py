@@ -1671,8 +1671,11 @@ async def complete_sale(callback: CallbackQuery, state: FSMContext):
                 if sale_id and sale_id > 0:
                     processed_sales.append(sale_id)
 
-                    # Получаем новые остатки после продажи
-                    new_quantity = await current_db.get_inventory(shop_name, product_id)
+                    # Получаем новые остатки после продажи (не в откатываемом блоке!)
+                    try:
+                        new_quantity = await current_db.get_inventory(shop_name, product_id)
+                    except Exception:
+                        new_quantity = 0
 
                     results.append({
                         'name': item['product_name'],

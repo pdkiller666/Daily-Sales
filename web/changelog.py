@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.54.0"
+CURRENT_VERSION = "1.55.0"
 
 ENTRIES = [
+    {
+        "version": "1.55.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Prevent beta bar from overlapping with the website header",
+        ],
+    },
     {
         "version": "1.54.0",
         "date": "17 июня 2026",

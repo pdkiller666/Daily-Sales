@@ -28,6 +28,11 @@ def _get_web_interface_url() -> str | None:
             _web_url_cache["url"] = db.get_web_interface_url()
         except Exception:
             pass
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
         _web_url_cache["ts"] = now
     return _web_url_cache["url"]
 

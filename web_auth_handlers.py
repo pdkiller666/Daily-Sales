@@ -82,6 +82,7 @@ async def process_setweblogin_email(message: Message, state: FSMContext):
         return
 
     telegram_id = message.from_user.id
+    db = None
     try:
         from database import Database
         db = Database(SHOP_BOT_DB)
@@ -89,6 +90,12 @@ async def process_setweblogin_email(message: Message, state: FSMContext):
     except Exception as exc:
         logger.error("process_setweblogin_email: %s", exc)
         result = 'error'
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
 
     from db_utils import clear_state_keep_org
     await clear_state_keep_org(state)

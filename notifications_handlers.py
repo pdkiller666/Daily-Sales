@@ -1192,8 +1192,8 @@ async def show_notification_history(callback: CallbackQuery, state: FSMContext):
         for item in rows:
             status     = "✅" if item[4] else "🔵"
             date_str   = format_user_datetime(item[5], user_timezone, '%d.%m %H:%M')
-            notif_type = (item[2] or '').replace('_', ' ')
-            preview    = (item[3] or '')[:80]
+            notif_type = he((item[2] or '').replace('_', ' '))
+            preview    = he((item[3] or '')[:80])
             text += f"{status} <b>{notif_type}</b> · {date_str}\n{preview}\n\n"
 
     # ── Keyboard ──────────────────────────────────────────────────────────────
