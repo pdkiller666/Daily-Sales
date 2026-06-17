@@ -253,11 +253,12 @@ def sales_page(
             kwargs["category"] = category
             sum_kwargs["category"] = category
 
-        all_sales = db.get_sales_report(**kwargs) or []
-
-        # Filter by seller if requested
         if seller_id:
-            all_sales = [s for s in all_sales if s[5] == seller_id]
+            kwargs["user_id"] = seller_id
+        if product_id:
+            kwargs["product_id"] = product_id
+
+        all_sales = db.get_sales_report(**kwargs) or []
 
         # Backdated filter: keep only sales whose date != today in user's timezone
         if only_backdated:
@@ -278,10 +279,8 @@ def sales_page(
 
             all_sales = [s for s in all_sales if _sale_is_backdated(s[6])]
 
-        # Filter by product if requested (sales report for a single product)
-        # sales row: id[0] product_id[1] shop[2] qty[3] price[4] user_id[5] date[6] product_name[7]
+        # Имя продукта для заголовка (product_id уже передан как SQL-фильтр)
         if product_id:
-            all_sales = [s for s in all_sales if s[1] == product_id]
             try:
                 _p = db.get_product(product_id)
                 if _p:

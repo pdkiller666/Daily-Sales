@@ -5240,7 +5240,7 @@ class Database:
     def get_sales_report(self, start_date=None, end_date=None,
                          shop_name=None, city=None, trade_network=None,
                          shop_names=None, cities=None, trade_networks=None,
-                         category=None):
+                         category=None, user_id=None, product_id=None):
         """Получение детального отчета по продажам.
         Поддерживает одиночные и множественные (list) фильтры зоны."""
         conn = self.get_connection()
@@ -5290,6 +5290,14 @@ class Database:
         if category:
             query += ' AND p.category = ?'
             params.append(category)
+
+        if user_id:
+            query += ' AND s.user_id = ?'
+            params.append(user_id)
+
+        if product_id:
+            query += ' AND s.product_id = ?'
+            params.append(product_id)
 
         query += ' ORDER BY s.sale_date DESC'
 

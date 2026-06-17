@@ -192,17 +192,17 @@ def reports_page(
             # Auto-apply scope restriction (non-admin and scoped admin)
             kwargs["shop_names"] = allowed_shops
 
-        all_sales = db.get_sales_report(**kwargs) or []
-        # Category drill-down: filter by selected category
         if category:
-            all_sales = [s for s in all_sales if (s[8] or "Без категории") == category]
-        # Seller drill-down: filter by user_db_id
+            kwargs["category"] = category
         if seller_id:
-            all_sales = [s for s in all_sales if int(s[5] or 0) == seller_id]
-            if all_sales:
-                fname = (all_sales[0][9] or "").strip()
-                lname = (all_sales[0][10] or "").strip()
-                ctx["seller_name"] = f"{fname} {lname}".strip() or f"Продавец #{seller_id}"
+            kwargs["user_id"] = seller_id
+
+        all_sales = db.get_sales_report(**kwargs) or []
+        # Имя продавца из первой строки результата (SQL уже отфильтровал по seller_id)
+        if seller_id and all_sales:
+            fname = (all_sales[0][9] or "").strip()
+            lname = (all_sales[0][10] or "").strip()
+            ctx["seller_name"] = f"{fname} {lname}".strip() or f"Продавец #{seller_id}"
         ctx["all_sales"] = all_sales
         summary_kwargs: dict = {"start_date": df, "end_date": dt}
         if shop:
