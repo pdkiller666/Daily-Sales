@@ -12,6 +12,12 @@
         </div>
     </div>
 
+    {% if saved %}
+    <div class="px-4 py-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-sm text-green-700 dark:text-green-300">
+        ✅ Настройки сохранены
+    </div>
+    {% endif %}
+
     {% if not has_module %}
     {# ── Upsell: модуль не подключён ── #}
     <div class="card p-6 text-center space-y-4">
@@ -161,8 +167,7 @@
         {% else %}
         <template x-if="!items.length && !refreshing">
             <div class="card p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                Дайджест формируется каждый понедельник автоматически и отправляется в Telegram.
-                Здесь появится последний дайджест после первой отправки.
+                Дайджест формируется каждую неделю автоматически и появится здесь сразу после генерации.
             </div>
         </template>
         {% endif %}
@@ -185,6 +190,213 @@
         <div x-show="refreshError" x-cloak class="text-xs text-red-500 dark:text-red-400 text-center" x-text="refreshError"></div>
     </div>
     {% endif %}{# end digest block #}
+
+    {# ── История алертов — виден пользователям с ai_smart_alerts ── #}
+    {% if has_module and has_alerts_ext %}
+    <div class="space-y-3">
+        <div class="flex items-center gap-2">
+            <span class="text-lg">🔔</span>
+            <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">История алертов</span>
+        </div>
+        {% if alert_history %}
+        <div class="space-y-3">
+            {% for entry in alert_history %}
+            <div class="card p-4 space-y-1.5">
+                <div class="flex items-center justify-between flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold
+                        {% if entry.type == 'digest' %}text-indigo-600 dark:text-indigo-400{% else %}text-amber-600 dark:text-amber-400{% endif %}">
+                        {% if entry.type == 'digest' %}📊 Дайджест{% else %}⚠️ Алерт{% endif %}
+                    </span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ entry.created_at }}</span>
+                </div>
+                <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">{{ entry.text }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            Алерты появятся здесь автоматически при следующем срабатывании планировщика.
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}{# end alert history #}
+
+    {# ── Настройки инсайтов — только для владельцев и администраторов с ai_smart_alerts ── #}
+    {% if is_admin and has_alerts_ext and ai_alert_settings %}
+    <div class="space-y-3">
+        <div class="flex items-center gap-2">
+            <span class="text-lg">⚙️</span>
+            <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Настройки инсайтов</span>
+        </div>
+        <div class="card p-5">
+            <form method="POST" action="/settings/ai-alerts" class="space-y-5">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next_url" value="/ai-insights">
+
+                {# Вкл/выкл алерты #}
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">Умные алерты</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Уведомления при падении выручки</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="enabled" value="on" class="sr-only peer"
+                               {% if ai_alert_settings.enabled %}checked{% endif %}>
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+
+                {# Порог падения выручки #}
+                <div class="space-y-2" x-data="{ val: {{ ai_alert_settings.threshold_pct }} }">
+                    <div class="flex items-center justify-between">
+                        <label class="text-sm font-medium text-slate-700 dark:text-slate-300">Порог падения выручки</label>
+                        <span class="text-sm font-bold text-indigo-600 dark:text-indigo-400" x-text="val + '%'"></span>
+                    </div>
+                    <input type="range" name="threshold_pct" min="5" max="90" step="5"
+                           x-model="val"
+                           class="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+                    <div class="flex justify-between text-xs text-slate-400">
+                        <span>5%</span><span>90%</span>
+                    </div>
+                </div>
+
+                {# Час рассылки МСК #}
+                <div class="space-y-1.5">
+                    <label class="text-sm font-medium text-slate-700 dark:text-slate-300">Час рассылки (МСК)</label>
+                    <select name="alert_hour_msk"
+                            class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        {% for h in range(6, 24) %}
+                        <option value="{{ h }}" {% if ai_alert_settings.alert_hour_msk == h %}selected{% endif %}>
+                            {{ "%02d:00"|format(h) }} МСК
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Метрики #}
+                <div class="space-y-2">
+                    <p class="text-sm font-medium text-slate-700 dark:text-slate-300">Метрики для отслеживания</p>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="metric_revenue" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'revenue' in ai_alert_settings.metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">💰 Выручка</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="metric_avg_check" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'avg_check' in ai_alert_settings.metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🧾 Средний чек</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="metric_transactions" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'transactions' in ai_alert_settings.metrics %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">📈 Транзакции</span>
+                        </label>
+                    </div>
+                </div>
+
+                {# Контекст дайджеста #}
+                <div class="space-y-2">
+                    <p class="text-sm font-medium text-slate-700 dark:text-slate-300">Контекст дайджеста</p>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="context_products" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'products' in ai_alert_settings.digest_context %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">📦 Топ-товары</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="context_sellers" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'sellers' in ai_alert_settings.digest_context %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">👤 Топ-продавцы</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="context_plans" value="on"
+                                   class="rounded border-slate-300 dark:border-slate-600 accent-indigo-600"
+                                   {% if 'plans' in ai_alert_settings.digest_context %}checked{% endif %}>
+                            <span class="text-sm text-slate-700 dark:text-slate-300">🎯 Прогресс планов</span>
+                        </label>
+                    </div>
+                </div>
+
+                {# Web push для алертов #}
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">Web Push для алертов</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Push-уведомление при каждом алерте</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" name="alert_push_enabled" value="on" class="sr-only peer"
+                               {% if ai_alert_settings.alert_push_enabled %}checked{% endif %}>
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+
+                {# Еженедельный дайджест #}
+                <div class="border-t border-slate-100 dark:border-slate-700 pt-4 space-y-4">
+                    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Еженедельный дайджест</p>
+
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-slate-700 dark:text-slate-300">Включить дайджест</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="digest_enabled" value="on" class="sr-only peer"
+                                   {% if ai_alert_settings.digest_enabled %}checked{% endif %}>
+                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">День недели</label>
+                            <select name="digest_day_of_week"
+                                    class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                {% set days = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'] %}
+                                {% for d in days %}
+                                <option value="{{ loop.index0 }}" {% if ai_alert_settings.digest_day_of_week == loop.index0 %}selected{% endif %}>{{ d }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-600 dark:text-slate-400">Час (МСК)</label>
+                            <select name="digest_hour_msk"
+                                    class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                {% for h in range(6, 24) %}
+                                <option value="{{ h }}" {% if ai_alert_settings.digest_hour_msk == h %}selected{% endif %}>
+                                    {{ "%02d:00"|format(h) }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-slate-700 dark:text-slate-300">Web Push для дайджеста</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="digest_push_enabled" value="on" class="sr-only peer"
+                                   {% if ai_alert_settings.digest_push_enabled %}checked{% endif %}>
+                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="pt-1">
+                    <button type="submit"
+                            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors">
+                        💾 Сохранить настройки
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}{# end settings block #}
 
 </main>
 

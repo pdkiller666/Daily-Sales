@@ -1347,6 +1347,19 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tuc_task ON task_user_completions(task_id)')
 
+        # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_alerts_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_type TEXT NOT NULL DEFAULT 'alert',
+                text       TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_ai_alerts_log_ts ON ai_alerts_log(created_at DESC)'
+        )
+
         # ── AI smart alert settings (per-org, singleton row id=1) ─────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alert_settings (
@@ -13602,6 +13615,39 @@ class Database:
         except Exception as exc:
             logger.error("save_ai_alert_settings: %s", exc)
             return False
+
+    def add_ai_alert_log(self, alert_type: str, text: str) -> None:
+        """Append a smart-alert or digest entry to ai_alerts_log; keep last 50 rows."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO ai_alerts_log (alert_type, text) VALUES (?, ?)",
+                (alert_type, (text or "")[:2000]),
+            )
+            conn.execute(
+                "DELETE FROM ai_alerts_log WHERE id NOT IN "
+                "(SELECT id FROM ai_alerts_log ORDER BY id DESC LIMIT 50)"
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.error("add_ai_alert_log: %s", exc)
+
+    def get_ai_alerts_log(self, limit: int = 10) -> list:
+        """Return the latest AI alert/digest entries, newest first."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, alert_type, text, created_at FROM ai_alerts_log ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "type": r[1], "text": r[2], "created_at": (r[3] or "")[:16].replace("T", " ")}
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.error("get_ai_alerts_log: %s", exc)
+            return []
 
     # ── AI weekly digest preferences (shop_bot.db) ────────────────────────────
 

@@ -228,9 +228,22 @@ def _get_digest_for_org(org_db: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _get_ai_alert_history(org_db: str) -> list[dict]:
+    """Return the last 10 AI alert/digest log entries for an org DB."""
+    if not org_db:
+        return []
+    try:
+        from database import Database
+        db = Database(org_db)
+        return db.get_ai_alerts_log(limit=10)
+    except Exception as exc:
+        logger.error("_get_ai_alert_history error for %s: %s", org_db, exc)
+        return []
+
+
 @router.get("/ai-insights")
-def ai_insights_page(request: Request):
-    from web.auth import get_session_user
+def ai_insights_page(request: Request, saved: str = ""):
+    from web.auth import get_session_user, get_csrf_token
     from billing_utils import has_module, has_extension
 
     user = get_session_user(request)
@@ -241,6 +254,9 @@ def ai_insights_page(request: Request):
     has_module_ok = has_module(tg_id, "ai_assistant")
     has_ext_ok = has_extension(tg_id, "ai_network_insights")
     has_alerts_ext = has_extension(tg_id, "ai_smart_alerts")
+
+    role = user.get("role", "")
+    is_admin = role in ("owner", "admin", "super_admin")
 
     user_orgs = _get_owner_orgs(tg_id)
     is_network = len(user_orgs) >= 2
@@ -263,6 +279,28 @@ def ai_insights_page(request: Request):
                 d["org_name"] = db_to_name.get(d["org_db"], "")
             weekly_digests = raw
 
+    # Alert history from org DB (for ai_smart_alerts users)
+    alert_history: list[dict] = []
+    if has_module_ok and has_alerts_ext:
+        session_org_db = user.get("org_db", "")
+        if session_org_db:
+            alert_history = _get_ai_alert_history(session_org_db)
+
+    # AI alert settings (admin only)
+    ai_alert_settings: dict | None = None
+    if is_admin and has_alerts_ext:
+        try:
+            from database import Database as _Db
+            _db = _Db(user.get("org_db", ""))
+            ai_alert_settings = _db.get_ai_alert_settings()
+        except Exception:
+            ai_alert_settings = {
+                "enabled": True, "threshold_pct": 35, "alert_hour_msk": 10,
+                "metrics": ["revenue"], "digest_context": ["products", "sellers", "plans"],
+                "digest_enabled": True, "digest_day_of_week": 0, "digest_hour_msk": 9,
+                "digest_push_enabled": True, "alert_push_enabled": True,
+            }
+
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "ai_insights/index.html", {
         "user": user,
@@ -273,6 +311,11 @@ def ai_insights_page(request: Request):
         "org_count": len(user_orgs),
         "last_report": cached,
         "weekly_digests": weekly_digests,
+        "alert_history": alert_history,
+        "ai_alert_settings": ai_alert_settings,
+        "is_admin": is_admin,
+        "csrf_token": get_csrf_token(request),
+        "saved": saved == "1",
     })
 
 

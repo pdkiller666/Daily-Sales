@@ -695,6 +695,7 @@ async def settings_ai_alerts(
     digest_hour_msk: int = Form(default=9),
     digest_push_enabled: str = Form(default=""),
     alert_push_enabled: str = Form(default=""),
+    next_url: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -747,7 +748,11 @@ async def settings_ai_alerts(
     except Exception:
         pass
 
-    return RedirectResponse(url="/settings?saved=1#ai-alerts", status_code=303)
+    safe_next = next_url.strip() if next_url else ""
+    redirect_to = safe_next if safe_next in ("/ai-insights",) else "/settings?saved=1#ai-alerts"
+    if redirect_to == "/ai-insights":
+        redirect_to = "/ai-insights?saved=1"
+    return RedirectResponse(url=redirect_to, status_code=303)
 
 
 @router.post("/settings/ai-digest")

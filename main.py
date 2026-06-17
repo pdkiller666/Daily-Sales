@@ -1656,15 +1656,17 @@ async def main():
                     import re as _re
                     _plain_alert = _re.sub(r"<[^>]+>", "", msg).strip()
                     _push_alert_body = _plain_alert[:120] + ("…" if len(_plain_alert) > 120 else "")
-                    for tg_id in admin_ids[:3]:  # максимум 3 адреса
+
+                    # Сохраняем алерт в историю org БД
+                    try:
+                        db.add_ai_alert_log('alert', _plain_alert)
+                    except Exception:
+                        pass
+
+                    # Telegram — только администраторам (максимум 3)
+                    for tg_id in admin_ids[:3]:
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
-                            if _alert_push_ok:
-                                try:
-                                    from web.push_utils import apush as _apush
-                                    await _apush(tg_id, "🤖 AI-алерт", _push_alert_body, "/dashboard")
-                                except Exception as _push_err:
-                                    logging.debug(f"ai_smart_alerts push: {_push_err}")
                             try:
                                 _nc = db.get_connection()
                                 _nr = _nc.execute("SELECT id FROM users WHERE telegram_id = ?", (int(tg_id),)).fetchone()
@@ -1673,6 +1675,16 @@ async def main():
                                     db.add_notification_to_history(_nr[0], 'admin', _push_alert_body)
                             except Exception:
                                 pass
+
+                    # Web Push — всем пользователям орги с push-подпиской
+                    if _alert_push_ok:
+                        try:
+                            from web.push_utils import apush_bulk as _apush_bulk
+                            _all_tids = [int(u[1]) for u in (db.get_all_users() or []) if u[1] and int(u[1]) > 0]
+                            if _all_tids:
+                                await _apush_bulk(_all_tids, "🤖 AI-алерт", _push_alert_body, "/ai-insights")
+                        except Exception as _push_err:
+                            logging.debug(f"ai_smart_alerts push_bulk: {_push_err}")
 
                 except Exception as _db_err:
                     logging.warning(f"ai_smart_alerts db={db_path}: {_db_err}")
@@ -1915,16 +1927,18 @@ async def main():
                     _plain_body = _re.sub(r"<[^>]+>", "", msg).strip()
                     _push_body = _plain_body[:120] + ("…" if len(_plain_body) > 120 else "")
 
+                    # Сохраняем дайджест в историю org БД
+                    try:
+                        db.add_ai_alert_log('digest', _plain_body)
+                    except Exception:
+                        pass
+
                     _push_ok = _digest_cfg.get("digest_push_enabled", True)
+
+                    # Telegram — только администраторам (максимум 3)
                     for tg_id in admin_ids[:3]:
                         if tg_id and tg_id > 0:
                             _send_tg(tg_id, msg)
-                            if _push_ok:
-                                try:
-                                    from web.push_utils import apush as _apush
-                                    await _apush(tg_id, "📊 AI-дайджест недели", _push_body, "/dashboard")
-                                except Exception as _push_err:
-                                    logging.debug(f"ai_weekly_digest push: {_push_err}")
                             try:
                                 _nc = db.get_connection()
                                 _nr = _nc.execute("SELECT id FROM users WHERE telegram_id = ?", (int(tg_id),)).fetchone()
@@ -1933,6 +1947,16 @@ async def main():
                                     db.add_notification_to_history(_nr[0], 'admin', _push_body)
                             except Exception:
                                 pass
+
+                    # Web Push — всем пользователям орги с push-подпиской
+                    if _push_ok:
+                        try:
+                            from web.push_utils import apush_bulk as _apush_bulk
+                            _all_tids = [int(u[1]) for u in (db.get_all_users() or []) if u[1] and int(u[1]) > 0]
+                            if _all_tids:
+                                await _apush_bulk(_all_tids, "📊 AI-дайджест недели", _push_body, "/ai-insights")
+                        except Exception as _push_err:
+                            logging.debug(f"ai_weekly_digest push_bulk: {_push_err}")
 
                     # Сохраняем дайджест в shop_bot.db для отображения в веб-кабинете
                     try:
