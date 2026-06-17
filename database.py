@@ -10235,7 +10235,7 @@ class Database:
                    JOIN integration_connections c ON c.id = e.connection_id
                    WHERE e.enabled = 1 AND c.enabled = 1
                      AND e.schedule IS NOT NULL AND e.schedule != ''
-                     AND e.schedule != 'immediate' '''
+                     AND e.schedule != 'immediate' AND e.schedule != 'disabled' '''
             )
             result = cursor.fetchall()
             conn.close()

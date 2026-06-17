@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.61.0"
+CURRENT_VERSION = "1.62.0"
 
 ENTRIES = [
+    {
+        "version": "1.62.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Update landing page to use absolute download links",
+            "Expand Integrations page — full CRUD for export rules, motiv config form, edit/test connection",
+        ],
+    },
     {
         "version": "1.61.0",
         "date": "17 июня 2026",

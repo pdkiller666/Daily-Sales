@@ -51,7 +51,6 @@
             Откройте ссылку ниже в браузере и введите код подтверждения:
         </p>
 
-        <!-- User code display -->
         <div class="bg-slate-50 border-2 border-slate-200 rounded-2xl px-8 py-5 mb-5 inline-block">
             <p class="text-xs text-slate-400 mb-1 uppercase tracking-wide font-semibold">Код подтверждения</p>
             <p class="text-3xl font-bold font-mono text-slate-800 tracking-widest">{{ auth_user_code }}</p>
@@ -115,11 +114,13 @@
     {% for c in connections %}
     {% set exports = conn_exports.get(c.id, []) %}
     {% set logs = conn_logs.get(c.id, []) %}
-    <div class="card overflow-hidden" x-data="{ logsOpen: false }">
+    <div class="card overflow-hidden"
+         x-data="{ logsOpen: false, editOpen: false, addExportOpen: false, testResult: null, testLoading: false }">
+
         <!-- Connection header -->
-        <div class="flex flex-col sm:flex-row sm:items-center gap-3 p-5 border-b border-slate-100">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 text-xl">
+        <div class="flex flex-col sm:flex-row sm:items-start gap-3 p-5 border-b border-slate-100">
+            <div class="flex items-start gap-3 min-w-0 flex-1">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 text-xl mt-0.5">
                     📊
                 </div>
                 <div class="min-w-0 flex-1">
@@ -140,11 +141,35 @@
                     <p class="text-xs text-slate-400 mt-0.5 font-mono truncate">ID: {{ c.spreadsheet_id }}</p>
                     {% endif %}
                     <p class="text-xs text-slate-400 whitespace-nowrap">Создано {{ c.created_at|fmt_date if c.created_at else '—' }} · {{ exports|length }} правил экспорта</p>
+
+                    <!-- Test result inline -->
+                    <template x-if="testResult !== null">
+                        <div class="mt-2 text-xs px-3 py-1.5 rounded-lg"
+                             :class="testResult.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'">
+                            <span x-text="testResult.message"></span>
+                        </div>
+                    </template>
+                    <template x-if="testLoading">
+                        <div class="mt-2 text-xs text-slate-400">⏳ Проверяем подключение...</div>
+                    </template>
                 </div>
             </div>
 
             <!-- Actions -->
-            <div class="flex items-center gap-2 flex-wrap sm:ml-auto sm:shrink-0">
+            <div class="flex items-center gap-2 flex-wrap sm:shrink-0">
+                <!-- Test button -->
+                <button @click="testLoading=true; testResult=null; fetch('/integration/{{ c.id }}/test').then(r=>r.json()).then(d=>{testResult=d;testLoading=false}).catch(e=>{testResult={ok:false,message:'Ошибка: '+e};testLoading=false})"
+                        class="text-xs px-3 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-lg font-medium transition-colors">
+                    🔍 Тест
+                </button>
+
+                <!-- Edit toggle -->
+                <button @click="editOpen = !editOpen"
+                        class="text-xs px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium transition-colors"
+                        :class="editOpen ? 'bg-slate-100 border-slate-300' : ''">
+                    ✏️ Редактировать
+                </button>
+
                 {% if has_secrets %}
                 <form method="post" action="/integration/auth/start">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -177,38 +202,159 @@
             </div>
         </div>
 
-        <!-- Exports list -->
-        {% if exports %}
-        <div class="px-5 py-3 border-b border-slate-50 bg-slate-50/50">
-            <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Правила экспорта</p>
-            <div class="space-y-1">
+        <!-- Edit form (collapsible) -->
+        <div x-show="editOpen" x-cloak class="px-5 py-4 bg-slate-50/60 border-b border-slate-100">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">✏️ Редактировать подключение</p>
+            <form method="post" action="/integration/{{ c.id }}/edit">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название <span class="text-red-400">*</span></label>
+                        <input type="text" name="name" required value="{{ c.name }}"
+                               class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">ID Google Таблицы</label>
+                        <input type="text" name="spreadsheet_id" value="{{ c.spreadsheet_id }}" placeholder="1BxiMVs0XRA5..."
+                               class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                        💾 Сохранить
+                    </button>
+                    <button type="button" @click="editOpen=false" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-medium transition-colors">
+                        Отмена
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Exports section -->
+        <div class="px-5 py-3 border-b border-slate-100">
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Правила экспорта</p>
+                <button @click="addExportOpen = !addExportOpen"
+                        class="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors">
+                    <span x-text="addExportOpen ? '✖ Закрыть' : '➕ Добавить правило'"></span>
+                </button>
+            </div>
+
+            {% if exports %}
+            <div class="space-y-1.5 mb-3">
                 {% for e in exports %}
-                <div class="flex items-center gap-3 text-xs">
+                <div class="flex items-center gap-2 text-xs bg-white border border-slate-100 rounded-lg px-3 py-2">
                     <span class="w-2 h-2 rounded-full shrink-0 {% if e.enabled %}bg-emerald-400{% else %}bg-slate-300{% endif %}"></span>
-                    <span class="text-slate-700 font-medium">{{ e.export_type }}</span>
-                    <span class="text-slate-400">→ {{ e.target_sheet or '—' }}</span>
-                    <span class="text-slate-400">{{ e.operation or '' }}</span>
-                    <span class="text-slate-300">|</span>
-                    <span class="text-slate-400">{{ e.schedule }}</span>
+                    <span class="text-slate-700 font-medium min-w-[60px]">{{ e.export_type }}</span>
+                    <span class="text-slate-400">→ <span class="font-mono">{{ e.target_sheet or '—' }}</span></span>
+                    <span class="text-slate-400 hidden sm:inline">{{ e.operation or '' }}</span>
+                    <span class="text-slate-300 hidden sm:inline">|</span>
+                    <span class="text-slate-400 hidden sm:inline">{{ e.schedule }}</span>
                     {% if e.last_run %}
-                    <span class="text-slate-300">|</span>
-                    <span class="text-slate-400">последний: {{ e.last_run }}</span>
+                    <span class="text-slate-300 hidden md:inline">|</span>
+                    <span class="text-slate-400 hidden md:inline">{{ e.last_run }}</span>
                     {% endif %}
+                    <!-- Per-rule actions -->
+                    <div class="ml-auto flex items-center gap-1 shrink-0">
+                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/run">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" title="Запустить сейчас"
+                                    class="text-[10px] px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded font-medium transition-colors">
+                                ▶
+                            </button>
+                        </form>
+                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/toggle">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" title="{% if e.enabled %}Выключить{% else %}Включить{% endif %}"
+                                    class="text-[10px] px-2 py-0.5 border rounded font-medium transition-colors
+                                           {% if e.enabled %}bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200{% else %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% endif %}">
+                                {% if e.enabled %}⏸{% else %}▶{% endif %}
+                            </button>
+                        </form>
+                        <form method="post" action="/integration/{{ c.id }}/export/{{ e.id }}/delete"
+                              onsubmit="return confirm('Удалить правило «{{ e.export_type }}»?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" title="Удалить"
+                                    class="text-[10px] px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-500 border border-red-200 rounded font-medium transition-colors">
+                                🗑
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
-        </div>
-        {% endif %}
+            {% else %}
+            <p class="text-[11px] text-slate-400 mb-2">Правила экспорта ещё не созданы.</p>
+            {% endif %}
 
-        <!-- Motivation sync (saved config) -->
-        {% if c.has_motiv_config %}
-        <div class="px-5 py-3 border-b border-slate-50" x-data="{ open: false }">
-            <button @click="open = !open" class="flex items-center justify-between w-full text-left">
-                <span class="text-xs font-semibold text-slate-600 flex items-center gap-1.5">🎯 Мотивация (сохранённая настройка)</span>
-                <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 text-slate-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            <!-- Add export form -->
+            <div x-show="addExportOpen" x-cloak class="mt-2 bg-blue-50/60 border border-blue-100 rounded-xl p-3">
+                <p class="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-2">Новое правило экспорта</p>
+                <form method="post" action="/integration/{{ c.id }}/export/create">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Тип данных</label>
+                            <select name="export_type" required
+                                    class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="sales">Продажи</option>
+                                <option value="products">Товары</option>
+                                <option value="inventory">Остатки</option>
+                                <option value="plans">Планы</option>
+                                <option value="staff">Сотрудники</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист назначения</label>
+                            <input type="text" name="target_sheet" required placeholder="Лист1"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Операция</label>
+                            <select name="operation" required
+                                    class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="append_row">Добавить строку</option>
+                                <option value="replace_sheet">Заменить лист (снимок)</option>
+                                <option value="update_cell">Обновить ячейку (матрица)</option>
+                            </select>
+                            <p class="text-[9px] text-slate-400 mt-0.5">«Обновить ячейку» создаётся с дефолтными полями; уточните через бота для точного поиска</p>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Расписание</label>
+                            <select name="schedule"
+                                    class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="immediate">При событии</option>
+                                <option value="disabled">Отключено</option>
+                                <option value="0 9 * * *">Ежедневно 9:00</option>
+                                <option value="0 8 * * 1">По понедельникам 8:00</option>
+                                <option value="0 8 1 * *">1-го числа 8:00</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit"
+                            class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                        ➕ Создать правило
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Motivation section -->
+        <div class="px-5 py-3 border-b border-slate-100" x-data="{ motivOpen: false }">
+            <button @click="motivOpen = !motivOpen" class="flex items-center justify-between w-full text-left">
+                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                    🎯 Мотивация
+                    {% if c.has_motiv_config %}
+                    <span class="text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-1.5 py-0.5">Настроено</span>
+                    {% endif %}
+                </span>
+                <svg :class="motivOpen ? 'rotate-180' : ''" class="w-3.5 h-3.5 text-slate-400 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
             </button>
-            <div x-show="open" x-cloak class="mt-3">
-                <p class="text-[11px] text-slate-400 mb-2">Лист: <strong class="font-mono">{{ c.motiv_sheet or '—' }}</strong>. Повторно прочитать таблицу и обновить кэш бонусов.</p>
+
+            <div x-show="motivOpen" x-cloak class="mt-3">
+
                 {% if c.motiv_preview %}
                 <div class="mb-3 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-[11px] text-slate-500 space-y-1">
                     <div>🏷 Сети: {% if c.motiv_preview.chains %}{% for ch in c.motiv_preview.chains %}<span class="inline-block bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-600">{{ ch }}</span>{% endfor %}{% else %}<span class="text-slate-400">— ещё не синхронизировано</span>{% endif %}</div>
@@ -216,29 +362,123 @@
                     <div>🕒 Обновлено: <strong class="text-slate-600">{{ c.motiv_preview.last_synced or '—' }}</strong></div>
                 </div>
                 {% endif %}
-                <form method="post" action="/integration/{{ c.id }}/sync-motiv">
+
+                <!-- Motiv config form -->
+                <form method="post" action="/integration/{{ c.id }}/motiv/save" class="mb-4">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                        <div class="sm:col-span-2">
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Лист мотивации <span class="text-red-400">*</span></label>
+                            <input type="text" name="sheet_name" required placeholder="w{week} или Мотивация"
+                                   value="{{ c.motiv_sheet }}"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-[10px] text-slate-400 mt-0.5">Поддерживаются макросы: {week}, {month}, {year}</p>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Строка шапки</label>
+                            <input type="number" name="header_row" min="1"
+                                   value="{{ c.motiv_header_row }}"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Колонка модели</label>
+                            <input type="text" name="model_col" placeholder="1 или A"
+                                   value="{{ c.motiv_model_col }}"
+                                   class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Колонки бонусов (через запятую)</label>
+                        <input type="text" name="bonus_cols" placeholder="2, 3, 4  или  B, C, D"
+                               value="{{ c.motiv_bonus_cols }}"
+                               class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-[10px] text-slate-400 mt-0.5">Каждая колонка соответствует одной торговой сети (цепочке). Шапка = название сети.</p>
+                    </div>
+                    <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                        💾 Сохранить настройки
+                    </button>
+                </form>
+
+                {% if c.has_motiv_config %}
+                <form method="post" action="/integration/{{ c.id }}/sync-motiv" class="mt-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="text-xs px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-medium transition-colors">
                         ⚡ Синхронизировать сейчас
                     </button>
                 </form>
+                {% endif %}
+
+                <!-- Aliases table -->
+                <div x-data="{ addAliasOpen: false }">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">🔁 Псевдонимы моделей</p>
+                        <button @click="addAliasOpen = !addAliasOpen"
+                                class="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+                            <span x-text="addAliasOpen ? '✖ Закрыть' : '➕ Добавить'"></span>
+                        </button>
+                    </div>
+
+                    {% if c.motiv_aliases %}
+                    <div class="bg-white border border-slate-100 rounded-xl overflow-hidden mb-2">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-100">
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В таблице</th>
+                                    <th class="text-left px-3 py-1.5 font-semibold text-slate-400">В системе</th>
+                                    <th class="w-8"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alias_from, alias_to in c.motiv_aliases.items() %}
+                                <tr class="border-t border-slate-50">
+                                    <td class="px-3 py-1.5 font-mono text-slate-600">{{ alias_from }}</td>
+                                    <td class="px-3 py-1.5 font-mono text-slate-600">→ {{ alias_to }}</td>
+                                    <td class="px-3 py-1.5">
+                                        <form method="post" action="/integration/{{ c.id }}/motiv/alias/delete">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                            <input type="hidden" name="alias_from" value="{{ alias_from }}">
+                                            <button type="submit" class="text-red-400 hover:text-red-600 transition-colors">🗑</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-[11px] text-slate-400 mb-2">Псевдонимы не заданы. Используйте, если название модели в таблице отличается от названия в системе.</p>
+                    {% endif %}
+
+                    <!-- Add alias form -->
+                    <div x-show="addAliasOpen" x-cloak>
+                        <form method="post" action="/integration/{{ c.id }}/motiv/alias/add">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <div class="flex gap-2 items-end">
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название в таблице</label>
+                                    <input type="text" name="alias_from" required placeholder="iPhone 15 Pro"
+                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Название в системе</label>
+                                    <input type="text" name="alias_to" required placeholder="iPhone15Pro"
+                                           class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <button type="submit" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shrink-0">
+                                    ➕ Добавить
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
-        {% else %}
-        <!-- Motivation not configured -->
-        <div class="px-5 py-3 border-b border-slate-50">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-slate-400 flex items-center gap-1.5">🎯 Мотивация</span>
-            </div>
-            <p class="text-[11px] text-slate-400 mt-1.5">Настройка мотивации ещё не создана. Запустите мастер в боте: <strong class="text-slate-500">Интеграции → Мотивация → Настроить</strong> — там вы кликами укажете строки и колонки таблицы.</p>
-        </div>
-        {% endif %}
 
         <!-- Import data -->
         <div class="px-5 py-3 border-b border-slate-50" x-data="{ open: false }">
             <button @click="open = !open" class="flex items-center justify-between w-full text-left">
-                <span class="text-xs font-semibold text-slate-600 flex items-center gap-1.5">📥 Импорт данных из таблицы</span>
-                <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 text-slate-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">📥 Импорт данных из таблицы</span>
+                <svg :class="open ? 'rotate-180' : ''" class="w-3.5 h-3.5 text-slate-400 transition-transform shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
             <div x-show="open" x-cloak class="mt-3">
                 {% if not c.has_token %}
@@ -279,28 +519,37 @@
             </div>
         </div>
 
-        <!-- Logs toggle -->
+        <!-- Logs with pagination -->
         {% if logs %}
-        <div class="px-5 py-2">
+        <div class="px-5 py-2" x-data="{ showAll: false }">
             <button @click="logsOpen = !logsOpen"
                     class="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors">
                 <span x-text="logsOpen ? '▲' : '▼'"></span>
-                <span x-text="logsOpen ? 'Скрыть лог' : 'Показать лог (' + {{ logs|length }} + ')'"></span>
+                <span x-text="logsOpen ? 'Скрыть лог' : 'Показать лог ({{ logs|length }})'"></span>
             </button>
-            <div x-show="logsOpen" x-cloak class="mt-2 space-y-1">
+            <div x-show="logsOpen" x-cloak class="mt-2 space-y-0">
                 {% for l in logs %}
-                <div class="flex items-start gap-2 text-xs py-1 border-t border-slate-50">
+                <div class="flex items-start gap-2 text-xs py-1 border-t border-slate-50"
+                     {% if loop.index > 10 %}x-show="showAll"{% endif %}>
                     <span class="shrink-0 mt-0.5 w-2 h-2 rounded-full
                                  {% if l.status == 'success' %}bg-emerald-400
                                  {% elif l.status == 'error' %}bg-red-400
                                  {% else %}bg-slate-300{% endif %}">
                     </span>
-                    <span class="text-slate-400 shrink-0">{{ l.created_at|fmt_datetime }}</span>
-                    <span class="{% if l.status == 'error' %}text-red-600{% else %}text-slate-600{% endif %}">
+                    <span class="text-slate-400 shrink-0 whitespace-nowrap">{{ l.created_at|fmt_datetime }}</span>
+                    <span class="{% if l.status == 'error' %}text-red-600{% else %}text-slate-600{% endif %} break-all">
                         {{ l.message }}
                     </span>
                 </div>
                 {% endfor %}
+                {% if logs|length > 10 %}
+                <div class="pt-1.5 border-t border-slate-50">
+                    <button @click="showAll = !showAll"
+                            class="text-[11px] text-blue-500 hover:text-blue-700 transition-colors">
+                        <span x-text="showAll ? '▲ Показать меньше' : '▼ Показать ещё ({{ logs|length - 10 }})'"></span>
+                    </button>
+                </div>
+                {% endif %}
             </div>
         </div>
         {% else %}
@@ -361,7 +610,7 @@
         </form>
         <div class="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400 space-y-1">
             <p>После создания подключения нажмите <strong>«🔑 Авторизовать»</strong> и войдите в Google аккаунт.</p>
-            <p>Правила экспорта (какие данные и когда отправлять) настраиваются через бота в разделе Интеграции.</p>
+            <p>Правила экспорта настраиваются здесь же — разверните блок «Правила экспорта» у нужного подключения.</p>
         </div>
     </div>
 </div>

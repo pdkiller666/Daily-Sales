@@ -3,7 +3,7 @@ import logging
 import sqlite3
 import time
 from fastapi import APIRouter, Request, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from typing import Annotated
 
 router = APIRouter()
@@ -118,6 +118,11 @@ def integration_page(
                         }
                     except Exception:
                         motiv_preview = None
+                motiv_bonus_cols_str = ""
+                if motiv_cfg.get("bonus_col_map"):
+                    motiv_bonus_cols_str = ", ".join(
+                        str(k) for k in motiv_cfg["bonus_col_map"].keys()
+                    )
                 conns.append({
                     "id": cid,
                     "name": c[1] or "—",
@@ -129,6 +134,10 @@ def integration_page(
                     "token_expiry": cfg.get("tokens", {}).get("expiry", 0),
                     "has_motiv_config": bool(motiv_cfg),
                     "motiv_sheet": motiv_cfg.get("sheet_name", ""),
+                    "motiv_header_row": motiv_cfg.get("header_row", 1),
+                    "motiv_model_col": motiv_cfg.get("model_col", 1),
+                    "motiv_bonus_cols": motiv_bonus_cols_str,
+                    "motiv_aliases": motiv_cfg.get("aliases") or {},
                     "motiv_preview": motiv_preview,
                 })
                 try:
@@ -145,7 +154,7 @@ def integration_page(
                 except Exception:
                     conn_exports[cid] = []
                 try:
-                    logs_raw = db.get_integration_logs(cid, limit=10) or []
+                    logs_raw = db.get_integration_logs(cid, limit=25) or []
                     conn_logs[cid] = [
                         {
                             "id": l[0], "status": l[3] or "",
@@ -497,3 +506,450 @@ async def integration_import(
             url="/integration?error=" + quote("Ошибка импорта. Попробуйте позже."),
             status_code=302,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Connection edit + test
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/integration/{cid}/edit")
+def integration_edit(
+    request: Request,
+    cid: int,
+    name: Annotated[str, Form()],
+    spreadsheet_id: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not name.strip():
+        return RedirectResponse(url="/integration?error=Название+обязательно", status_code=302)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url="/integration?error=Подключение+не+найдено", status_code=302)
+        existing_cfg = json.loads(conn_row[3] or "{}")
+        existing_cfg["spreadsheet_id"] = spreadsheet_id.strip()
+        db.update_integration_connection(
+            cid, name=name.strip(), config=json.dumps(existing_cfg)
+        )
+    except Exception as e:
+        logging.error(f"integration_edit: {e}")
+        return RedirectResponse(url="/integration?error=Ошибка+сохранения", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Подключение+обновлено", status_code=302)
+
+
+@router.get("/integration/{cid}/test")
+async def integration_test(request: Request, cid: int):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "message": "Не авторизован"}, status_code=401)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return JSONResponse({"ok": False, "message": "Нет доступа"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return JSONResponse({"ok": False, "message": "Подключение не найдено"})
+        cfg = json.loads(conn_row[3] or "{}")
+        if not cfg.get("tokens", {}).get("access_token"):
+            return JSONResponse({"ok": False, "message": "Подключение не авторизовано"})
+        from integration.manager import integration_manager
+        conn_config = await integration_manager._ensure_valid_token(db, cid, cfg)
+        provider = integration_manager.providers.get("google_sheets")
+        ok, message = await provider.test_connection(conn_config)
+        return JSONResponse({"ok": ok, "message": message})
+    except Exception as e:
+        logging.error(f"integration_test: {e}")
+        return JSONResponse({"ok": False, "message": f"Ошибка: {e}"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Export rules CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/integration/{cid}/export/create")
+def integration_export_create(
+    request: Request,
+    cid: int,
+    export_type: Annotated[str, Form()],
+    target_sheet: Annotated[str, Form()],
+    operation: Annotated[str, Form()],
+    schedule: Annotated[str, Form()] = "immediate",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    valid_types = ("sales", "products", "inventory", "plans", "staff")
+    valid_ops = ("append_row", "update_cell", "replace_sheet")
+    if export_type not in valid_types:
+        return RedirectResponse(url=f"/integration?error={quote('Неверный тип экспорта')}", status_code=302)
+    if operation not in valid_ops:
+        return RedirectResponse(url=f"/integration?error={quote('Неверная операция')}", status_code=302)
+    if not target_sheet.strip():
+        return RedirectResponse(url=f"/integration?error={quote('Укажите лист назначения')}", status_code=302)
+
+    schedule = schedule.strip() or "immediate"
+
+    _DEFAULT_FIELDS = {
+        'sales':     ['date', 'product_name', 'shop_name', 'quantity', 'price', 'total', 'seller_name', 'category'],
+        'inventory': ['shop_name', 'product_name', 'category', 'quantity', 'last_updated'],
+        'products':  ['name', 'category', 'price', 'description'],
+        'staff':     ['name', 'shop_name', 'role', 'phone'],
+        'plans':     ['type', 'metric', 'target', 'period', 'shop_name', 'seller_name'],
+    }
+    _DEFAULT_LOOKUP = {
+        'sales':     {'row_search_col': 1, 'row_search_field': 'shop_name',
+                      'col_search_row': 1, 'col_search_field': 'product_name',
+                      'operation': 'set', 'value_field': 'quantity',
+                      'data_start_row': 2, 'data_start_col': 2},
+        'inventory': {'row_search_col': 1, 'row_search_field': 'shop_name',
+                      'col_search_row': 1, 'col_search_field': 'product_name',
+                      'operation': 'set', 'value_field': 'quantity',
+                      'data_start_row': 2, 'data_start_col': 2},
+        'products':  {'row_search_col': 1, 'row_search_field': 'name',
+                      'col_search_row': 1, 'col_search_field': 'category',
+                      'operation': 'set', 'value_field': 'price',
+                      'data_start_row': 2, 'data_start_col': 2},
+        'plans':     {'row_search_col': 1, 'row_search_field': 'shop_name',
+                      'col_search_row': 1, 'col_search_field': 'metric',
+                      'operation': 'set', 'value_field': 'target',
+                      'data_start_row': 2, 'data_start_col': 2},
+        'staff':     {'row_search_col': 1, 'row_search_field': 'shop_name',
+                      'col_search_row': 1, 'col_search_field': 'name',
+                      'operation': 'set', 'value_field': 'role',
+                      'data_start_row': 2, 'data_start_col': 2},
+    }
+    mapping_json = None
+    lookup_json = None
+    if operation == 'append_row':
+        fields = _DEFAULT_FIELDS.get(export_type, [])
+        mapping_json = json.dumps({f: f for f in fields}, ensure_ascii=False)
+    elif operation == 'update_cell':
+        lookup_json = json.dumps(_DEFAULT_LOOKUP.get(export_type, {}), ensure_ascii=False)
+
+    enabled = 0 if schedule == 'disabled' else 1
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        db.add_integration_export(
+            cid, export_type, operation, target_sheet.strip(), schedule,
+            enabled=enabled, mapping=mapping_json, lookup_config=lookup_json
+        )
+    except Exception as e:
+        logging.error(f"integration_export_create: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка создания правила')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Правило+экспорта+создано", status_code=302)
+
+
+@router.post("/integration/{cid}/export/{eid}/toggle")
+def integration_export_toggle(
+    request: Request, cid: int, eid: int, csrf_token: str = Form(default="")
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if exp and exp[1] == cid:
+            new_enabled = 0 if exp[2] else 1
+            db.update_integration_export(eid, enabled=new_enabled)
+    except Exception as e:
+        logging.error(f"integration_export_toggle: {e}")
+
+    return RedirectResponse(url="/integration", status_code=302)
+
+
+@router.post("/integration/{cid}/export/{eid}/delete")
+def integration_export_delete(
+    request: Request, cid: int, eid: int, csrf_token: str = Form(default="")
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if exp and exp[1] == cid:
+            db.delete_integration_export(eid)
+    except Exception as e:
+        logging.error(f"integration_export_delete: {e}")
+
+    return RedirectResponse(url="/integration?msg=Правило+удалено", status_code=302)
+
+
+@router.post("/integration/{cid}/export/{eid}/run")
+async def integration_export_run(
+    request: Request, cid: int, eid: int, csrf_token: str = Form(default="")
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        exp = db.get_integration_export(eid)
+        if not exp:
+            return RedirectResponse(url=f"/integration?error={quote('Правило не найдено')}", status_code=302)
+        actual_conn_id = exp[1]
+        if actual_conn_id != cid:
+            return RedirectResponse(url=f"/integration?error={quote('Правило не принадлежит этому подключению')}", status_code=302)
+        conn_row = db.get_integration_connection(actual_conn_id)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        export_row = (
+            eid, actual_conn_id, exp[0], exp[3], exp[4],
+            exp[5], exp[6], exp[7], conn_row[3],
+        )
+        from integration.manager import integration_manager
+        result = await integration_manager._run_export_with_result(db, export_row, {})
+        if result.get("success"):
+            return RedirectResponse(url="/integration?msg=Экспорт+выполнен", status_code=302)
+        else:
+            err = quote(result.get("error") or "Ошибка экспорта")
+            return RedirectResponse(url=f"/integration?error={err}", status_code=302)
+    except Exception as e:
+        logging.error(f"integration_export_run: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка запуска экспорта')}", status_code=302)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Motivation config
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/integration/{cid}/motiv/save")
+def integration_motiv_save(
+    request: Request,
+    cid: int,
+    sheet_name: Annotated[str, Form()],
+    header_row: Annotated[int, Form()] = 1,
+    model_col: Annotated[str, Form()] = "1",
+    bonus_cols: Annotated[str, Form()] = "",
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    can_use, _ = _check_plan(telegram_id)
+    if not can_use:
+        return RedirectResponse(url="/integration", status_code=302)
+
+    if not sheet_name.strip():
+        return RedirectResponse(url=f"/integration?error={quote('Укажите имя листа мотивации')}", status_code=302)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        existing_cfg = json.loads(conn_row[3] or "{}")
+        motiv = existing_cfg.get("motiv_config") or {}
+        motiv["sheet_name"] = sheet_name.strip()
+        motiv["header_row"] = max(1, int(header_row))
+        try:
+            col_val = int(model_col.strip())
+        except (ValueError, AttributeError):
+            import string
+            col_str = model_col.strip().upper()
+            col_val = 0
+            for ch in col_str:
+                col_val = col_val * 26 + (ord(ch) - ord('A') + 1)
+        motiv["model_col"] = col_val if col_val > 0 else 1
+        if bonus_cols.strip():
+            parts = [p.strip() for p in bonus_cols.split(",") if p.strip()]
+            bonus_col_map = {}
+            for part in parts:
+                try:
+                    idx = int(part)
+                    bonus_col_map[str(idx)] = idx
+                except ValueError:
+                    col_str = part.upper()
+                    idx = 0
+                    for ch in col_str:
+                        idx = idx * 26 + (ord(ch) - ord('A') + 1)
+                    if idx > 0:
+                        bonus_col_map[part] = idx
+            motiv["bonus_col_map"] = bonus_col_map
+        existing_cfg["motiv_config"] = motiv
+        db.update_integration_connection(cid, config=json.dumps(existing_cfg, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_motiv_save: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка сохранения настроек мотивации')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Настройки+мотивации+сохранены", status_code=302)
+
+
+@router.post("/integration/{cid}/motiv/alias/add")
+def integration_motiv_alias_add(
+    request: Request,
+    cid: int,
+    alias_from: Annotated[str, Form()],
+    alias_to: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not alias_from.strip() or not alias_to.strip():
+        return RedirectResponse(url=f"/integration?error={quote('Заполните оба поля псевдонима')}", status_code=302)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        cfg = json.loads(conn_row[3] or "{}")
+        motiv = cfg.get("motiv_config") or {}
+        aliases = motiv.get("aliases") or {}
+        aliases[alias_from.strip()] = alias_to.strip()
+        motiv["aliases"] = aliases
+        cfg["motiv_config"] = motiv
+        db.update_integration_connection(cid, config=json.dumps(cfg, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_motiv_alias_add: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка сохранения псевдонима')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Псевдоним+добавлен", status_code=302)
+
+
+@router.post("/integration/{cid}/motiv/alias/delete")
+def integration_motiv_alias_delete(
+    request: Request,
+    cid: int,
+    alias_from: Annotated[str, Form()],
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from urllib.parse import quote
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/integration", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn_row = db.get_integration_connection(cid)
+        if not conn_row:
+            return RedirectResponse(url=f"/integration?error={quote('Подключение не найдено')}", status_code=302)
+        cfg = json.loads(conn_row[3] or "{}")
+        motiv = cfg.get("motiv_config") or {}
+        aliases = motiv.get("aliases") or {}
+        aliases.pop(alias_from.strip(), None)
+        motiv["aliases"] = aliases
+        cfg["motiv_config"] = motiv
+        db.update_integration_connection(cid, config=json.dumps(cfg, ensure_ascii=False))
+    except Exception as e:
+        logging.error(f"integration_motiv_alias_delete: {e}")
+        return RedirectResponse(url=f"/integration?error={quote('Ошибка удаления псевдонима')}", status_code=302)
+
+    return RedirectResponse(url="/integration?msg=Псевдоним+удалён", status_code=302)
