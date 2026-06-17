@@ -252,8 +252,7 @@ def ai_insights_page(request: Request):
             weekly_digests = raw
 
     templates = request.app.state.templates
-    return templates.TemplateResponse("ai_insights/index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "ai_insights/index.html", {
         "user": user,
         "has_module": has_module_ok,
         "has_extension": has_ext_ok,

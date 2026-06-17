@@ -7,7 +7,15 @@
 
 {% if msg == 'saved' %}
 <div class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300">
-    ✅ Лимиты сохранены
+    ✅ Сохранено
+</div>
+{% elif msg == 'ai_enabled' %}
+<div class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300">
+    ✅ AI включён
+</div>
+{% elif msg == 'ai_disabled' %}
+<div class="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300">
+    ⏸ AI выключен — все запросы блокируются
 </div>
 {% elif msg == 'invalid' %}
 <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300">
@@ -17,7 +25,37 @@
 <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300">
     ❌ Ошибка сохранения
 </div>
+{% elif msg == 'csrf_error' %}
+<div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300">
+    ❌ CSRF-ошибка — обновите страницу и повторите
+</div>
 {% endif %}
+
+<!-- ── Kill-switch ──────────────────────────────────────────────── -->
+<div class="card p-5 mb-5 {% if not ai_enabled %}border-2 border-red-300 dark:border-red-700{% endif %}">
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">
+                {% if ai_enabled %}🟢 AI включён{% else %}🔴 AI выключен{% endif %}
+            </h2>
+            <p class="text-xs text-slate-400">
+                {% if ai_enabled %}
+                    Все AI-запросы обрабатываются в штатном режиме.
+                {% else %}
+                    Все AI-запросы блокируются — ни один провайдер не вызывается. Изменение вступает в силу немедленно без рестарта.
+                {% endif %}
+            </p>
+        </div>
+        <form method="POST" action="/admin/ai-limits/toggle" class="shrink-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit"
+                    class="px-4 py-2 text-sm font-semibold rounded-xl transition-colors shadow-sm
+                           {% if ai_enabled %}bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-300{% else %}bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 dark:text-emerald-300{% endif %}">
+                {% if ai_enabled %}⏸ Выключить AI{% else %}▶ Включить AI{% endif %}
+            </button>
+        </form>
+    </div>
+</div>
 
 <!-- ── Config Form ─────────────────────────────────────────────── -->
 <div class="card p-5 mb-5">
@@ -27,7 +65,7 @@
     <form method="POST" action="/admin/ai-limits/save" class="space-y-4">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
                 <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
                     Базовый лимит (без расширения)
@@ -38,9 +76,9 @@
                            class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
                                   bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
                                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <span class="text-xs text-slate-400 whitespace-nowrap">запросов/день</span>
+                    <span class="text-xs text-slate-400 whitespace-nowrap">зап/день</span>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ base_daily_limit }}</strong> · Рекомендуется: 20–50</p>
+                <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ base_daily_limit }}</strong> · Рек.: 20–50</p>
             </div>
 
             <div>
@@ -53,9 +91,24 @@
                            class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
                                   bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
                                   focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                    <span class="text-xs text-slate-400 whitespace-nowrap">запросов/день</span>
+                    <span class="text-xs text-slate-400 whitespace-nowrap">зап/день</span>
                 </div>
-                <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ high_daily_limit }}</strong> · Рекомендуется: 100–500</p>
+                <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ high_daily_limit }}</strong> · Рек.: 100–500</p>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+                    Лимит чат-AI (на орга/день)
+                </label>
+                <div class="flex items-center gap-2">
+                    <input type="number" name="chat_daily_limit" min="1" max="10000"
+                           value="{{ chat_daily_limit }}"
+                           class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
+                                  bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
+                                  focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                    <span class="text-xs text-slate-400 whitespace-nowrap">зап/день</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ chat_daily_limit }}</strong> · Рек.: 50–200</p>
             </div>
         </div>
 
@@ -68,6 +121,85 @@
     </form>
 </div>
 
+<!-- ── Anomaly alert threshold ──────────────────────────────────── -->
+<div class="card p-5 mb-5">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">🚨 Алерт аномалий</h2>
+    <p class="text-xs text-slate-400 mb-4">
+        APScheduler job <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">ai_anomaly_check</code> запускается ежедневно в 08:00 UTC.
+        Если суммарные AI-запросы за вчера превысят порог — суперадмин получит Telegram-уведомление на <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">ADMIN_CHAT_ID</code>.
+    </p>
+    <form method="POST" action="/admin/ai-limits/save-anomaly" class="flex items-end gap-3 flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div>
+            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">
+                Порог запросов в день
+            </label>
+            <div class="flex items-center gap-2">
+                <input type="number" name="anomaly_daily_threshold" min="1" max="100000"
+                       value="{{ anomaly_threshold }}"
+                       class="w-36 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
+                              bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
+                              focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                <span class="text-xs text-slate-400 whitespace-nowrap">запросов/день</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Сейчас: <strong>{{ anomaly_threshold }}</strong> · Дефолт: 500</p>
+        </div>
+        <div class="pb-0.5">
+            <button type="submit"
+                    class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+                Сохранить порог
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- ── Token usage stats ────────────────────────────────────────── -->
+{% if token_stats and token_stats.total_calls > 0 %}
+<div class="card p-5 mb-5">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">🪙 Статистика токенов (с последнего рестарта)</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 text-center">
+            <div class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ "{:,}".format(token_stats.prompt_tokens) }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Prompt токенов</div>
+        </div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 text-center">
+            <div class="text-lg font-bold text-purple-600 dark:text-purple-400">{{ "{:,}".format(token_stats.completion_tokens) }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Completion токенов</div>
+        </div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 text-center">
+            <div class="text-lg font-bold text-slate-700 dark:text-slate-200">{{ "{:,}".format(token_stats.total_tokens) }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Всего токенов</div>
+        </div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 text-center">
+            <div class="text-lg font-bold text-emerald-600 dark:text-emerald-400">≈ ${{ "%.4f"|format(token_stats.cost_usd) }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Оценка стоимости</div>
+        </div>
+    </div>
+
+    {% set active_providers = token_stats.by_provider | selectattr("calls", "gt", 0) | list %}
+    {% if active_providers %}
+    <div class="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
+        <p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">По провайдерам</p>
+        <div class="space-y-2">
+            {% for prov in active_providers %}
+            <div class="flex items-center gap-3 text-xs">
+                <span class="w-24 shrink-0 font-mono text-slate-600 dark:text-slate-300 capitalize">{{ prov.provider }}</span>
+                <span class="text-slate-400">prompt: <b class="text-slate-700 dark:text-slate-200">{{ "{:,}".format(prov.prompt_tokens) }}</b></span>
+                <span class="text-slate-400">completion: <b class="text-slate-700 dark:text-slate-200">{{ "{:,}".format(prov.completion_tokens) }}</b></span>
+                <span class="ml-auto text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">≈ ${{ "%.5f"|format(prov.cost_usd) }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <p class="text-[11px] text-slate-400 mt-3">
+        Тарифы: DeepSeek $0.14/$0.28/1M · Gemini $0.075/$0.30/1M · OpenRouter $0.14/$0.28/1M (prompt/completion).
+        Счётчик сбрасывается при перезапуске приложения. Вызовов с токенами: <strong>{{ token_stats.total_calls }}</strong>.
+    </p>
+</div>
+{% endif %}
+
 <!-- ── Info card ──────────────────────────────────────────────── -->
 <div class="card px-5 py-4 mb-5 bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700">
     <p class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">Как работают лимиты</p>
@@ -76,7 +208,39 @@
         <div class="flex gap-2"><span class="text-blue-500">●</span><span>Сброс происходит автоматически при наступлении нового дня UTC (полночь)</span></div>
         <div class="flex gap-2"><span class="text-blue-500">●</span><span>Расширение <strong>ai_high_limit</strong> (99₽/мес) применяет высокий лимит — описание в биллинге автоматически совпадёт с этим значением</span></div>
         <div class="flex gap-2"><span class="text-blue-500">●</span><span>Smart-алерты (APScheduler, 07:05 UTC) не учитываются в счётчике — они фоновые</span></div>
+        <div class="flex gap-2"><span class="text-emerald-500">●</span><span>Лимит чат-AI применяется к <strong>org-владельцу</strong> (owner_tg_id) — он общий для всей организации в чате и личных AI-диалогах</span></div>
         <div class="flex gap-2"><span class="text-amber-500">●</span><span>Изменения вступают в силу немедленно — следующий запрос к AI уже использует новый лимит</span></div>
+    </div>
+</div>
+
+<!-- ── ai_usage_log stats ──────────────────────────────────── -->
+<div class="card px-5 py-4 mb-5 border-slate-200 dark:border-slate-700">
+    <p class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">📋 Таблица ai_usage_log</p>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+        <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="text-lg font-bold text-indigo-600 dark:text-indigo-400">{{ usage_log_count }}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Записей всего</div>
+        </div>
+        <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200 leading-tight">
+                {{ usage_log_oldest if usage_log_oldest else '—' }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Самая старая запись</div>
+        </div>
+        <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="text-lg font-bold text-emerald-600 dark:text-emerald-400">{{ usage_log_retention }}д</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Срок хранения</div>
+        </div>
+        <div class="text-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="text-lg font-bold text-slate-600 dark:text-slate-300">
+                {% if usage_log_size_kb is not none %}{{ usage_log_size_kb }} КБ{% else %}—{% endif %}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-0.5">Размер БД (rate_limits)</div>
+        </div>
+    </div>
+    <div class="text-xs text-slate-400 space-y-1">
+        <div class="flex gap-2"><span class="text-emerald-500">●</span><span>Автоочистка запускается ежедневно в <strong>03:30 UTC</strong> — удаляет записи старше {{ usage_log_retention }} дней</span></div>
+        <div class="flex gap-2"><span class="text-slate-400">●</span><span>Срок хранения настраивается через env-переменную <code class="bg-slate-100 dark:bg-slate-700 px-1 rounded">AI_USAGE_LOG_RETENTION_DAYS</code> (минимум 7 дней, дефолт 90)</span></div>
     </div>
 </div>
 

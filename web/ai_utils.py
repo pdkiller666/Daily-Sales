@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import threading
 
 import aiohttp
 
@@ -50,9 +51,110 @@ def _reload_keys() -> None:
 
 
 def is_configured() -> bool:
-    """Возвращает True если хотя бы один API-ключ задан."""
-    _reload_keys()  # всегда актуальные ключи без рестарта
+    """Возвращает True если хотя бы один API-ключ задан И kill-switch не активен."""
+    try:
+        from web.rate_store import get_ai_enabled
+        if not get_ai_enabled():
+            return False
+    except Exception:
+        pass
+    _reload_keys()
     return bool(_DEEPSEEK_KEY or _GEMINI_KEY or _OPENROUTER_KEY)
+
+
+# ─── Token usage tracking ─────────────────────────────────────────────────────
+
+_token_lock = threading.Lock()
+_token_stats: dict = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_calls": 0,
+    "by_provider": {
+        "deepseek":    {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+        "gemini":      {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+        "openrouter":  {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+    },
+}
+
+# Approximate USD cost per 1M tokens by provider (prompt_$/1M, completion_$/1M)
+_PROVIDER_RATES: dict[str, tuple[float, float]] = {
+    "deepseek":   (0.14,  0.28),   # deepseek-chat V3
+    "gemini":     (0.075, 0.30),   # gemini-2.5-flash
+    "openrouter": (0.14,  0.28),   # default: deepseek-chat via OpenRouter
+}
+
+
+def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None:
+    """Накапливает токены в module-level счётчике (thread-safe).
+
+    Args:
+        prompt:     число prompt-токенов
+        completion: число completion-токенов
+        provider:   имя провайдера ('deepseek', 'gemini', 'openrouter')
+    """
+    key = provider.lower() if provider.lower() in _PROVIDER_RATES else ""
+    with _token_lock:
+        _token_stats["prompt_tokens"] += prompt
+        _token_stats["completion_tokens"] += completion
+        _token_stats["total_calls"] += 1
+        if key:
+            _token_stats["by_provider"][key]["prompt_tokens"] += prompt
+            _token_stats["by_provider"][key]["completion_tokens"] += completion
+            _token_stats["by_provider"][key]["calls"] += 1
+
+
+def get_token_stats() -> dict:
+    """Возвращает накопленную статистику токенов + приблизительную стоимость в USD.
+
+    Стоимость считается по тарифам каждого провайдера отдельно:
+      DeepSeek:   $0.14/1M prompt, $0.28/1M completion
+      Gemini:     $0.075/1M prompt, $0.30/1M completion
+      OpenRouter: $0.14/1M prompt, $0.28/1M completion (deepseek-chat tier)
+
+    Неатрибутированные токены (провайдер не определён) — по ценам DeepSeek.
+    """
+    with _token_lock:
+        snap = dict(_token_stats)
+        by_prov = {k: dict(v) for k, v in _token_stats["by_provider"].items()}
+
+    # Cost per provider
+    cost_usd = 0.0
+    attributed_prompt = 0
+    attributed_completion = 0
+    provider_breakdown: list[dict] = []
+    for prov, data in by_prov.items():
+        p, c = data["prompt_tokens"], data["completion_tokens"]
+        attributed_prompt += p
+        attributed_completion += c
+        rate_p, rate_c = _PROVIDER_RATES[prov]
+        prov_cost = (p * rate_p + c * rate_c) / 1_000_000
+        cost_usd += prov_cost
+        provider_breakdown.append({
+            "provider":         prov,
+            "prompt_tokens":    p,
+            "completion_tokens": c,
+            "total_tokens":     p + c,
+            "calls":            data["calls"],
+            "cost_usd":         round(prov_cost, 6),
+        })
+
+    # Unattributed tokens → DeepSeek fallback rates
+    unattr_prompt = snap["prompt_tokens"] - attributed_prompt
+    unattr_comp   = snap["completion_tokens"] - attributed_completion
+    if unattr_prompt > 0 or unattr_comp > 0:
+        rate_p, rate_c = _PROVIDER_RATES["deepseek"]
+        cost_usd += (unattr_prompt * rate_p + unattr_comp * rate_c) / 1_000_000
+
+    total_p = snap["prompt_tokens"]
+    total_c = snap["completion_tokens"]
+    return {
+        "prompt_tokens":      total_p,
+        "completion_tokens":  total_c,
+        "total_tokens":       total_p + total_c,
+        "total_calls":        snap["total_calls"],
+        "cost_usd":           round(cost_usd, 6),
+        "by_provider":        provider_breakdown,
+    }
 
 
 # ─── Provider implementations ────────────────────────────────────────────────
@@ -83,6 +185,12 @@ async def _ask_deepseek(prompt: str, system: str, max_tokens: int, temperature: 
             content = choices[0].get("message", {}).get("content", "").strip()
             if not content:
                 raise ValueError("DeepSeek returned empty content")
+            usage = data.get("usage") or {}
+            pt = int(usage.get("prompt_tokens", 0))
+            ct = int(usage.get("completion_tokens", 0))
+            logger.debug("DeepSeek usage: prompt=%d completion=%d", pt, ct)
+            if pt or ct:
+                _accumulate_tokens(pt, ct, provider="deepseek")
             return content
 
 
@@ -121,6 +229,12 @@ async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: fl
                     content = parts[0].get("text", "").strip()
                     if not content:
                         raise ValueError("Gemini returned empty text")
+                    usage = data.get("usageMetadata") or {}
+                    pt = int(usage.get("promptTokenCount", 0))
+                    ct = int(usage.get("candidatesTokenCount", 0))
+                    logger.debug("Gemini usage: prompt=%d completion=%d", pt, ct)
+                    if pt or ct:
+                        _accumulate_tokens(pt, ct, provider="gemini")
                     return content
         except (aiohttp.ClientResponseError, ValueError):
             raise
@@ -178,6 +292,12 @@ async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature
                         logger.debug("OpenRouter model %s returned empty content", model)
                         continue
                     logger.debug("OpenRouter: got response from model=%s", model)
+                    usage = data.get("usage") or {}
+                    pt = int(usage.get("prompt_tokens", 0))
+                    ct = int(usage.get("completion_tokens", 0))
+                    logger.debug("OpenRouter usage: prompt=%d completion=%d", pt, ct)
+                    if pt or ct:
+                        _accumulate_tokens(pt, ct, provider="openrouter")
                     return content
         except aiohttp.ClientResponseError as exc:
             last_err = exc
@@ -193,6 +313,15 @@ async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature
 
 # ─── Public API ──────────────────────────────────────────────────────────────
 
+def _is_ai_enabled() -> bool:
+    """Проверяет kill-switch: env var AI_ENABLED=0 или ai_rate_config.ai_enabled=0."""
+    try:
+        from web.rate_store import get_ai_enabled
+        return get_ai_enabled()
+    except Exception:
+        return True  # fail-open если rate_store недоступен
+
+
 async def ask_llm(
     prompt: str,
     system: str = "",
@@ -202,13 +331,17 @@ async def ask_llm(
     """Попробовать DeepSeek → Gemini → OpenRouter.
 
     Возвращает текст первого успешного ответа или None если все провайдеры
-    недоступны / ключи не заданы.
+    недоступны / ключи не заданы / kill-switch активен.
 
     Гарантии:
     - никогда не бросает исключений наружу
     - пустой ответ от провайдера → переход к следующему
     - timeout 28 с на провайдера
     """
+    if not _is_ai_enabled():
+        logger.debug("ask_llm: AI kill-switch is active — blocking request")
+        return None
+
     _reload_keys()
     sys_prompt = system or _DEFAULT_SYSTEM
 
@@ -238,6 +371,47 @@ async def ask_llm(
     return None
 
 
+async def ask_llm_with_usage(
+    prompt: str,
+    system: str = "",
+    max_tokens: int = 500,
+    temperature: float = 0.2,
+) -> tuple[str | None, dict]:
+    """Обёртка над ask_llm, возвращающая текст + метаданные токенов.
+
+    Returns:
+        (text, usage) где usage = {"prompt_tokens": int, "completion_tokens": int,
+                                    "total_tokens": int, "provider": str}
+        Если AI выключен или все провайдеры упали — (None, {})
+
+    Совместимость: ask_llm остаётся без изменений; эта функция — опциональный
+    вариант для вызовов, которым нужна детальная статистика токенов.
+    """
+    stats_before = get_token_stats()
+    text = await ask_llm(prompt, system=system, max_tokens=max_tokens, temperature=temperature)
+    if text is None:
+        return None, {}
+    stats_after = get_token_stats()
+    delta_prompt = stats_after["prompt_tokens"] - stats_before["prompt_tokens"]
+    delta_comp   = stats_after["completion_tokens"] - stats_before["completion_tokens"]
+    # Figure out which provider was used by looking at by_provider deltas
+    provider = ""
+    for entry_a, entry_b in zip(
+        stats_before["by_provider"],
+        stats_after["by_provider"],
+    ):
+        if entry_b["calls"] > entry_a["calls"]:
+            provider = entry_b["provider"]
+            break
+    usage = {
+        "prompt_tokens":     delta_prompt,
+        "completion_tokens": delta_comp,
+        "total_tokens":      delta_prompt + delta_comp,
+        "provider":          provider,
+    }
+    return text, usage
+
+
 # ─── Multi-provider messages helper ──────────────────────────────────────────
 
 async def _ask_with_messages(
@@ -250,6 +424,10 @@ async def _ask_with_messages(
     For Gemini (which does not support the messages API) the conversation is
     flattened into a single text prompt.
     """
+    if not _is_ai_enabled():
+        logger.debug("_ask_with_messages: AI kill-switch is active — blocking request")
+        return None
+
     _reload_keys()
 
     async def _deepseek(msgs: list[dict]) -> str:
@@ -405,8 +583,12 @@ async def ask_llm_with_tools(
       2. If the response contains TOOL_CALL: {...} → calls the tool, appends result.
       3. Repeats up to *max_rounds* times, then returns the final text answer.
 
-    Returns None only when all LLM providers fail.
+    Returns None only when all LLM providers fail or kill-switch is active.
     """
+    if not _is_ai_enabled():
+        logger.debug("ask_llm_with_tools: AI kill-switch is active — blocking request")
+        return None
+
     from web.ai_tools import call_tool, get_tools_description
 
     _reload_keys()

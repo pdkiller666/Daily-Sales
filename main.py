@@ -1099,6 +1099,49 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # Очистка старых записей ai_usage_log — ежедневно в 03:30 UTC
+    _AI_USAGE_LOG_RETENTION_DAYS_DEFAULT = 90
+
+    async def prune_ai_usage_log_job():
+        try:
+            import sqlite3 as _sqlite3
+            _retention_days = _AI_USAGE_LOG_RETENTION_DAYS_DEFAULT
+            try:
+                _env_days = os.getenv('AI_USAGE_LOG_RETENTION_DAYS', '')
+                if _env_days.strip():
+                    _parsed = int(_env_days.strip())
+                    if _parsed >= 7:
+                        _retention_days = _parsed
+            except (ValueError, TypeError):
+                pass
+            _db_path = 'data/rate_limits.db'
+            if not os.path.exists(_db_path):
+                return
+            _conn = _sqlite3.connect(_db_path, timeout=5, check_same_thread=False)
+            _conn.execute("PRAGMA journal_mode=WAL")
+            _cur = _conn.execute(
+                "DELETE FROM ai_usage_log WHERE usage_date < date('now', ?)",
+                (f'-{_retention_days} days',)
+            )
+            _deleted = _cur.rowcount
+            _conn.commit()
+            _conn.close()
+            logging.info(
+                "prune_ai_usage_log: удалено %d строк старше %d дней",
+                _deleted, _retention_days,
+            )
+        except Exception as _e:
+            logging.error("prune_ai_usage_log_job error: %s", _e)
+
+    scheduler.add_job(
+        prune_ai_usage_log_job,
+        CronTrigger(hour=3, minute=30),
+        id='prune_ai_usage_log',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # Авто-архивация AI-сессий — ежедневно в 03:20 UTC
     AI_SESSION_ARCHIVE_DAYS = 30
 
@@ -1640,6 +1683,61 @@ async def main():
         ai_smart_alerts,
         CronTrigger(hour='7,19', minute=5),   # 2 раза в день: 07:05 и 19:05 UTC (10:05 и 22:05 МСК)
         id='ai_smart_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Проверка аномального роста AI-запросов — ежедневно в 08:00 UTC
+    async def ai_anomaly_check():
+        """Сравнивает суммарные AI-запросы за вчера с порогом anomaly_daily_threshold.
+        Если превышен — отправляет Telegram-сообщение суперадмину на ADMIN_CHAT_ID.
+        """
+        import os as _os, json as _json, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token or not ADMIN_CHAT_ID:
+            return
+        try:
+            from web.rate_store import get_anomaly_threshold, get_ai_yesterday_total
+            threshold = get_anomaly_threshold()
+            yesterday_total = get_ai_yesterday_total()
+            if yesterday_total <= threshold:
+                logging.debug(
+                    "ai_anomaly_check: yesterday=%d, threshold=%d — OK",
+                    yesterday_total, threshold,
+                )
+                return
+            import datetime as _dt
+            yesterday_str = (_dt.date.today() - _dt.timedelta(days=1)).strftime("%d.%m.%Y")
+            text = (
+                f"⚠️ <b>AI-аномалия: всплеск запросов</b>\n\n"
+                f"📅 Дата: <b>{yesterday_str}</b>\n"
+                f"📊 Запросов за день: <b>{yesterday_total:,}</b>\n"
+                f"🚨 Порог: <b>{threshold:,}</b>\n\n"
+                "Проверьте /admin/ai-limits — возможно, пора скорректировать лимиты или включить kill-switch."
+            )
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": ADMIN_CHAT_ID,
+                    "text": text,
+                    "parse_mode": "HTML",
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                _ureq.urlopen(req, timeout=10)
+                logging.info(
+                    "ai_anomaly_check: alert sent (yesterday=%d > threshold=%d)",
+                    yesterday_total, threshold,
+                )
+            except Exception as _send_err:
+                logging.error("ai_anomaly_check: failed to send Telegram alert: %s", _send_err)
+        except Exception as _e:
+            logging.error("ai_anomaly_check: %s", _e)
+
+    scheduler.add_job(
+        ai_anomaly_check,
+        CronTrigger(hour=8, minute=0),   # 08:00 UTC ежедневно
+        id='ai_anomaly_check',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,

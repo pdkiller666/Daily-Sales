@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.40.0"
+CURRENT_VERSION = "1.41.0"
 
 ENTRIES = [
+    {
+        "version": "1.41.0",
+        "date": "17 июня 2026",
+        "items": [
+            "Improve AI safety and reliability with critical fixes",
+            "AI extensions в БД + очистка ai_usage_log",
+            "Fix AI-инсайты 500 на продакшне (Starlette TemplateResponse API)",
+            "AI: единый лимит чата из UI",
+            "AI kill-switch + алерт аномалий + трекинг токенов",
+        ],
+    },
     {
         "version": "1.40.0",
         "date": "16 июня 2026",

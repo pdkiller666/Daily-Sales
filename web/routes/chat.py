@@ -171,7 +171,12 @@ def _load_msg_files_bulk(db, message_ids: list) -> dict:
         return {}
 
 
-_AI_CHAT_DAILY_LIMIT = 50
+def _get_ai_chat_daily_limit() -> int:
+    try:
+        from web.rate_store import get_ai_chat_daily_limit
+        return get_ai_chat_daily_limit()
+    except Exception:
+        return 50
 
 # Виртуальный собеседник «AI-ассистент» в личных сообщениях. Используется как
 # peer_id в маршрутах/фронтенде. Значение -1 (а не 0) — потому что во фронтенде
@@ -302,10 +307,11 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
             return
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
-        if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+        _chat_lim = _get_ai_chat_daily_limit()
+        if not check_and_increment_ai(owner_tg_id, _chat_lim):
             await _post_status(
                 f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
-                f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
+                f"({_chat_lim}/день). Попробуйте завтра."
             )
             return
 
@@ -385,10 +391,11 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
             return
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
-        if not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+        _chat_lim = _get_ai_chat_daily_limit()
+        if not check_and_increment_ai(owner_tg_id, _chat_lim):
             await _post_ai_dm(
                 f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
-                f"({_AI_CHAT_DAILY_LIMIT}/день). Попробуйте завтра."
+                f"({_chat_lim}/день). Попробуйте завтра."
             )
             return
 
@@ -494,7 +501,7 @@ async def _maybe_compress_dm_session(db, user_db_id: int,
         from web.ai_utils import ask_llm_with_tools
         from web.rate_store import check_and_increment_ai
         # Проверяем лимит перед компрессией — она тоже тратит LLM-вызов
-        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _get_ai_chat_daily_limit()):
             logger.debug("_maybe_compress_dm_session: лимит исчерпан, пропускаем")
             return
         count = await anyio.to_thread.run_sync(
@@ -547,7 +554,7 @@ async def _maybe_compress_chat_session(db, topic_id: int,
         from web.ai_utils import ask_llm_with_tools
         from web.rate_store import check_and_increment_ai
         # Проверяем лимит перед компрессией — она тоже тратит LLM-вызов
-        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _AI_CHAT_DAILY_LIMIT):
+        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _get_ai_chat_daily_limit()):
             logger.debug("_maybe_compress_chat_session: лимит исчерпан, пропускаем")
             return
         count = await anyio.to_thread.run_sync(

@@ -1083,10 +1083,19 @@ async def admin_ai_limits(request: Request):
         return RedirectResponse("/dashboard", 303)
 
     import datetime as _dt
-    from web.rate_store import get_ai_rate_limits, get_ai_usage_stats_today
+    from web.rate_store import (
+        get_ai_rate_limits, get_ai_usage_stats_today,
+        get_ai_enabled, get_anomaly_threshold,
+    )
     from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
+    from web.ai_utils import get_token_stats
 
+    from web.rate_store import get_ai_chat_daily_limit as _get_chat_lim
     base, high = get_ai_rate_limits()
+    chat_lim = _get_chat_lim()
+    ai_enabled = get_ai_enabled()
+    anomaly_threshold = get_anomaly_threshold()
+    token_stats = get_token_stats()
     top_users = get_ai_usage_stats_today(top_n=30)
 
     today_str = _dt.date.today().isoformat()
@@ -1157,12 +1166,46 @@ async def admin_ai_limits(request: Request):
             sorted(per_org_alltime[org].items(), key=lambda kv: kv[1], reverse=True)
         )
 
+    import sqlite3 as _sqlite3
+    from web.rate_store import _DB_PATH as _RATE_DB_PATH
+    _usage_log_count = 0
+    _usage_log_oldest = None
+    _usage_log_size_kb = None
+    try:
+        _usage_log_retention = int(os.getenv("AI_USAGE_LOG_RETENTION_DAYS", "90"))
+        if _usage_log_retention < 7:
+            _usage_log_retention = 90
+    except (ValueError, TypeError):
+        _usage_log_retention = 90
+    try:
+        if os.path.exists(_RATE_DB_PATH):
+            _ul_conn = _sqlite3.connect(_RATE_DB_PATH, timeout=3, check_same_thread=False)
+            _ul_row = _ul_conn.execute(
+                "SELECT COUNT(*), MIN(usage_date) FROM ai_usage_log"
+            ).fetchone()
+            _ul_page = _ul_conn.execute(
+                "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
+            ).fetchone()
+            _ul_conn.close()
+            if _ul_row:
+                _usage_log_count = _ul_row[0] or 0
+                _usage_log_oldest = _ul_row[1]
+            if _ul_page and _ul_page[0]:
+                _usage_log_size_kb = round(_ul_page[0] / 1024, 1)
+    except Exception as _ule:
+        import logging as _lg
+        _lg.warning("admin_ai_limits: ai_usage_log stats error: %s", _ule)
+
     return request.app.state.templates.TemplateResponse(
         request,
         "admin/ai_limits.html",
         _ctx(request, user, {
             "base_daily_limit": base,
             "high_daily_limit": high,
+            "chat_daily_limit": chat_lim,
+            "ai_enabled": ai_enabled,
+            "anomaly_threshold": anomaly_threshold,
+            "token_stats": token_stats,
             "top_users": top_users,
             "csrf_token": get_csrf_token(request),
             "msg": request.query_params.get("msg", ""),
@@ -1177,6 +1220,10 @@ async def admin_ai_limits(request: Request):
             "alltime_total": sum(alltime_by_tool.values()),
             "all_tool_names": list(alltime_by_tool.keys()),
             "per_org_alltime": per_org_alltime,
+            "usage_log_count": _usage_log_count,
+            "usage_log_oldest": _usage_log_oldest,
+            "usage_log_retention": _usage_log_retention,
+            "usage_log_size_kb": _usage_log_size_kb,
         }),
     )
 
@@ -1187,6 +1234,7 @@ async def admin_ai_limits_save(
     csrf_token: str = Form(""),
     base_daily_limit: str = Form("20"),
     high_daily_limit: str = Form("200"),
+    chat_daily_limit: str = Form("50"),
 ):
     user = get_session_user(request)
     if _guard(user):
@@ -1197,6 +1245,7 @@ async def admin_ai_limits_save(
     try:
         base_val = max(1, min(10000, int(base_daily_limit.strip())))
         high_val = max(1, min(10000, int(high_daily_limit.strip())))
+        chat_val = max(1, min(10000, int(chat_daily_limit.strip())))
     except (ValueError, AttributeError):
         return RedirectResponse("/admin/ai-limits?msg=invalid", 303)
 
@@ -1208,7 +1257,11 @@ async def admin_ai_limits_save(
         conn.execute(
             "CREATE TABLE IF NOT EXISTS ai_rate_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
         )
-        for k, v in [("base_daily_limit", str(base_val)), ("high_daily_limit", str(high_val))]:
+        for k, v in [
+            ("base_daily_limit", str(base_val)),
+            ("high_daily_limit", str(high_val)),
+            ("chat_daily_limit", str(chat_val)),
+        ]:
             conn.execute(
                 "INSERT OR REPLACE INTO ai_rate_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
                 (k, v),
@@ -1222,6 +1275,46 @@ async def admin_ai_limits_save(
         if conn:
             conn.close()
 
+    return RedirectResponse("/admin/ai-limits?msg=saved", 303)
+
+
+@router.post("/ai-limits/toggle")
+async def admin_ai_limits_toggle(
+    request: Request,
+    csrf_token: str = Form(""),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/ai-limits?msg=csrf_error", 303)
+
+    from web.rate_store import get_ai_enabled, set_ai_enabled
+    currently_enabled = get_ai_enabled()
+    set_ai_enabled(not currently_enabled)
+    msg = "ai_enabled" if not currently_enabled else "ai_disabled"
+    return RedirectResponse(f"/admin/ai-limits?msg={msg}", 303)
+
+
+@router.post("/ai-limits/save-anomaly")
+async def admin_ai_limits_save_anomaly(
+    request: Request,
+    csrf_token: str = Form(""),
+    anomaly_daily_threshold: str = Form("500"),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/ai-limits?msg=csrf_error", 303)
+
+    try:
+        threshold_val = max(1, min(100000, int(anomaly_daily_threshold.strip())))
+    except (ValueError, AttributeError):
+        return RedirectResponse("/admin/ai-limits?msg=invalid", 303)
+
+    from web.rate_store import set_anomaly_threshold
+    set_anomaly_threshold(threshold_val)
     return RedirectResponse("/admin/ai-limits?msg=saved", 303)
 
 

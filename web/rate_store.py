@@ -67,6 +67,22 @@ def get_ai_rate_limits() -> tuple[int, int]:
         return 20, 200
 
 
+def get_ai_chat_daily_limit() -> int:
+    """Возвращает chat_daily_limit из ai_rate_config в shop_bot.db.
+    Fallback: 50 если запись отсутствует или БД недоступна.
+    """
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        row = conn.execute(
+            "SELECT value FROM ai_rate_config WHERE key = 'chat_daily_limit'"
+        ).fetchone()
+        conn.close()
+        return int(row[0]) if row else 50
+    except Exception:
+        return 50
+
+
 def get_ai_daily_usage(tg_id: int) -> int:
     """Возвращает количество AI-запросов пользователя за сегодня (UTC)."""
     today = _today_utc()
@@ -137,6 +153,103 @@ def get_ai_usage_stats_today(top_n: int = 30) -> list:
             return result
         except Exception:
             return []
+
+
+def get_ai_enabled() -> bool:
+    """Возвращает True если AI включён (по умолчанию True).
+    Kill-switch: запись ai_rate_config key='ai_enabled' value='0' → выключен.
+    Также проверяет env var AI_ENABLED=0.
+    """
+    import os as _os
+    if _os.getenv("AI_ENABLED", "1").strip() == "0":
+        return False
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        row = conn.execute(
+            "SELECT value FROM ai_rate_config WHERE key = 'ai_enabled'"
+        ).fetchone()
+        conn.close()
+        if row is not None:
+            return row[0].strip() != "0"
+    except Exception:
+        pass
+    return True
+
+
+def set_ai_enabled(enabled: bool) -> None:
+    """Записывает флаг ai_enabled в ai_rate_config в shop_bot.db."""
+    value = "1" if enabled else "0"
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ai_rate_config "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_rate_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("ai_enabled", value),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        import logging as _lg
+        _lg.error("set_ai_enabled: failed to write to shop_bot.db")
+
+
+def get_anomaly_threshold() -> int:
+    """Возвращает порог аномалии дневных AI-запросов (дефолт 500)."""
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        row = conn.execute(
+            "SELECT value FROM ai_rate_config WHERE key = 'anomaly_daily_threshold'"
+        ).fetchone()
+        conn.close()
+        if row is not None:
+            return max(1, int(row[0]))
+    except Exception:
+        pass
+    return 500
+
+
+def set_anomaly_threshold(threshold: int) -> None:
+    """Сохраняет порог аномалии в ai_rate_config."""
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS ai_rate_config "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_rate_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            ("anomaly_daily_threshold", str(max(1, threshold))),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        import logging as _lg
+        _lg.error("set_anomaly_threshold: failed to write to shop_bot.db")
+
+
+def get_ai_yesterday_total() -> int:
+    """Возвращает суммарное число AI-запросов за вчера (UTC) из ai_usage_log."""
+    yesterday = (datetime.datetime.utcnow() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _get_conn()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(count), 0) FROM ai_usage_log WHERE usage_date = ?",
+                (yesterday,),
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
 
 
 def _lookup_user_name(tg_id: int) -> str:
