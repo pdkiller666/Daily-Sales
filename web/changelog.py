@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.71.0"
+CURRENT_VERSION = "1.72.0"
 
 ENTRIES = [
+    {
+        "version": "1.72.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Highlight absence days in salary and staff shift calendars",
+        ],
+    },
     {
         "version": "1.71.0",
         "date": "18 июня 2026",

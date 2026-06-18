@@ -55,6 +55,40 @@ def _absence_day_sets(absence_rows, year: int, month: int):
     return vacation_days, sick_days, other_days
 
 
+def _absence_day_info(absence_rows, year: int, month: int) -> dict:
+    """Build {day_num: tooltip_text} for approved absences."""
+    from datetime import date as _date, timedelta as _td
+    import calendar as _cal
+    _LABELS = {"vacation": "Отпуск", "sick": "Больничный"}
+    _ABBR = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+             7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = _date(year, month, 1)
+    month_end = _date(year, month, last_day)
+    info: dict = {}
+    for ab in (absence_rows or []):
+        if ab[4] != "approved":
+            continue
+        atype = ab[1]
+        label = _LABELS.get(atype, "Отсутствие")
+        try:
+            sd = _date.fromisoformat(ab[2])
+            ed = _date.fromisoformat(ab[3])
+        except Exception:
+            continue
+        if sd.month == ed.month:
+            tip = f"{label}: {sd.day}–{ed.day} {_ABBR[sd.month]}"
+        else:
+            tip = f"{label}: {sd.day} {_ABBR[sd.month]} – {ed.day} {_ABBR[ed.month]}"
+        cur = max(sd, month_start)
+        end = min(ed, month_end)
+        while cur <= end:
+            if cur.day not in info:
+                info[cur.day] = tip
+            cur += _td(days=1)
+    return info
+
+
 ROLE_LABELS = {
     "owner": ("Владелец", "bg-purple-100 text-purple-700"),
     "admin": ("Администратор", "bg-blue-100 text-blue-700"),
@@ -574,6 +608,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         "daily_rate": 0.0, "worked_days": 0, "paid_absence_days": 0, "current_absence": None,
         "cal_grid": [], "work_days_set": set(),
         "vacation_days": set(), "sick_days": set(), "other_absence_days": set(),
+        "absence_day_info": {},
         "month_name": MONTH_NAMES.get(month, str(month)),
         "year": year, "month": month,
         "is_current_month": is_current_month,
@@ -683,6 +718,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
             ctx["vacation_days"] = _vac
             ctx["sick_days"] = _sick
             ctx["other_absence_days"] = _other
+            ctx["absence_day_info"] = _absence_day_info(_abs_for_cal, year, month)
         except Exception:
             _abs_for_cal = []
 
