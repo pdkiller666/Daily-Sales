@@ -378,7 +378,7 @@
                         </td>
                         <td class="px-5 py-3 text-right text-xs hidden md:table-cell">
                             {% if s[8] and s[5] %}
-                            <a href="/staff/{{ s[8] }}" class="text-slate-400 hover:text-blue-600 transition-colors">{{ s[5] }}</a>
+                            <a href="/staff/{{ s[8] }}?year={{ today_label[-4:] }}&month={{ today_label[3:5]|int }}" class="text-slate-400 hover:text-blue-600 transition-colors">{{ s[5] }}</a>
                             {% else %}
                             <span class="text-slate-400">{{ s[5] or '—' }}</span>
                             {% endif %}
@@ -410,7 +410,7 @@
                 {% for r in seller_ranking %}
                 {# r: first_name[0] last_name[1] shop[2] qty[3] revenue[4] sales[5] earnings[6] user_db_id[7] #}
                 {% set medals = ['🥇','🥈','🥉'] %}
-                <a href="{% if r[7] %}/staff/{{ r[7] }}{% else %}/rankings?tab=sellers&period=month{% endif %}" class="flex items-center gap-2 min-w-0 hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors">
+                <a href="{% if r[7] %}/staff/{{ r[7] }}?year={{ today_label[-4:] }}&month={{ today_label[3:5]|int }}{% else %}/rankings?tab=sellers&period=month{% endif %}" class="flex items-center gap-2 min-w-0 hover:bg-slate-50 -mx-2 px-2 py-1 rounded-lg transition-colors">
                     <span class="shrink-0 text-base w-6 text-center">
                         {% if loop.index0 < 3 %}{{ medals[loop.index0] }}{% else %}<span class="text-xs font-bold text-slate-400">{{ loop.index }}</span>{% endif %}
                     </span>

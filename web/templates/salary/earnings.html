@@ -10,7 +10,16 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <div>
-        <h1 class="text-2xl font-bold text-slate-800">💸 Мой заработок</h1>
+        <h1 class="text-2xl font-bold text-slate-800">
+            💸 Мой заработок
+            {% if absence_type == 'vacation' %}
+            <span title="{{ 'В отпуске' if is_current_month else 'Был(а) в отпуске' }}" class="ml-1">🌴</span>
+            {% elif absence_type == 'sick' %}
+            <span title="{{ 'На больничном' if is_current_month else 'Был(а) на больничном' }}" class="ml-1">🤒</span>
+            {% elif absence_type %}
+            <span title="{{ 'Отсутствует' if is_current_month else 'Отсутствовал(а) в этом месяце' }}" class="ml-2 align-middle text-sm bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{{ 'Нет' if is_current_month else 'Нет на месте' }}</span>
+            {% endif %}
+        </h1>
         <p class="text-sm text-slate-500 mt-0.5">Личный расчёт — оклад и мотивация</p>
     </div>
 </div>

@@ -1,10 +1,24 @@
 import sqlite3
 import logging
+from datetime import date
 from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+
+MONTH_NAMES = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+}
+
+
+def _adjacent_month(year: int, month: int, delta: int):
+    """Return (year, month) shifted by delta months."""
+    total = (year - 1) * 12 + (month - 1) + delta
+    return (total // 12 + 1, total % 12 + 1)
+
 
 ROLE_LABELS = {
     "owner": ("Владелец", "bg-purple-100 text-purple-700"),
@@ -70,9 +84,12 @@ def staff_page(
     q: str = "",
     sort_col: str = "role",
     sort_order: str = "asc",
+    year: int = 0,
+    month: int = 0,
 ):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
+    import calendar as _cal
 
     user = get_session_user(request)
     if not user:
@@ -88,6 +105,18 @@ def staff_page(
     sort_col = sort_col if sort_col in _VALID_STAFF_COLS else "role"
     sort_order = sort_order if sort_order in ("asc", "desc") else "asc"
 
+    today = date.today()
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+    year  = max(2015, min(year, 2040))
+    month = max(1,    min(month, 12))
+
+    is_current_month = (year == today.year and month == today.month)
+    prev_y, prev_m = _adjacent_month(year, month, -1)
+    next_y, next_m = _adjacent_month(year, month, 1)
+
     ctx: dict = {
         "request": request, "user": user,
         "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
@@ -97,6 +126,11 @@ def staff_page(
         "role_labels": ROLE_LABELS, "total_count": 0, "error": None,
         "csrf_token": get_csrf_token(request),
         "invite_code": "", "bot_link": "",
+        "year": year, "month": month,
+        "month_name": MONTH_NAMES.get(month, str(month)),
+        "is_current_month": is_current_month,
+        "prev_y": prev_y, "prev_m": prev_m,
+        "next_y": next_y, "next_m": next_m,
     }
 
     try:
@@ -138,20 +172,34 @@ def staff_page(
 
         all_users.sort(key=_sort_key)
 
-        from datetime import date
-        today = date.today()
-        month_start = today.replace(day=1).isoformat()
+        last_day = _cal.monthrange(year, month)[1]
+        month_start = f"{year}-{month:02d}-01"
+        month_end = f"{year}-{month:02d}-{last_day}"
 
-        # Один GROUP BY вместо N отдельных запросов по каждому сотруднику
+        # Sales stats for the viewed month
         try:
-            bulk_stats = db.get_users_sales_summary_bulk(month_start, today.isoformat())
+            if is_current_month:
+                bulk_stats = db.get_users_sales_summary_bulk(month_start, today.isoformat())
+            else:
+                bulk_stats = db.get_users_sales_summary_bulk(month_start, month_end)
         except Exception:
             bulk_stats = {}
 
+        # Absence badges — today if current month, else any approved absence in the month
+        absent_map: dict = {}
         try:
-            absent_today = db.get_absent_users_today(today.isoformat())
+            if is_current_month:
+                absent_map = db.get_absent_users_today(today.isoformat())
+            else:
+                all_absences = db.get_all_absences_admin(year, month)
+                for _ar in all_absences:
+                    _uid = _ar[1]
+                    _atype = _ar[2]
+                    _status = _ar[5]
+                    if _status == "approved" and _uid not in absent_map:
+                        absent_map[_uid] = _atype
         except Exception:
-            absent_today = {}
+            pass
 
         staff = []
         for u in all_users:
@@ -180,7 +228,7 @@ def staff_page(
                 "badge_cls": badge_cls,
                 "month_sales": month_sales,
                 "month_revenue": month_revenue,
-                "absence_type": absent_today.get(u[0], ""),
+                "absence_type": absent_map.get(u[0], ""),
             })
 
         # Apply user-requested sort on top of the default role-order pre-sort
@@ -450,7 +498,7 @@ def staff_set_shop(
 
 
 @router.get("/staff/{user_id}")
-def staff_detail(request: Request, user_id: int):
+def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
     from datetime import date
@@ -468,7 +516,16 @@ def staff_detail(request: Request, user_id: int):
         return RedirectResponse(url="/dashboard?msg=module_team_required", status_code=302)
 
     today = date.today()
-    year, month = today.year, today.month
+    if not year:
+        year = today.year
+    if not month:
+        month = today.month
+    year  = max(2015, min(year, 2040))
+    month = max(1,    min(month, 12))
+
+    is_current_month = (year == today.year and month == today.month)
+    prev_y, prev_m = _adjacent_month(year, month, -1)
+    next_y, next_m = _adjacent_month(year, month, 1)
 
     ctx: dict = {
         "request": request, "user": user,
@@ -481,10 +538,11 @@ def staff_detail(request: Request, user_id: int):
         "all_summary": (0, 0, 0, 0),
         "daily_rate": 0.0, "worked_days": 0, "paid_absence_days": 0, "current_absence": None,
         "cal_grid": [], "work_days_set": set(),
-        "month_name": {1:"Январь",2:"Февраль",3:"Март",4:"Апрель",5:"Май",6:"Июнь",
-                       7:"Июль",8:"Август",9:"Сентябрь",10:"Октябрь",11:"Ноябрь",12:"Декабрь"
-                       }.get(month, str(month)),
+        "month_name": MONTH_NAMES.get(month, str(month)),
         "year": year, "month": month,
+        "is_current_month": is_current_month,
+        "prev_y": prev_y, "prev_m": prev_m,
+        "next_y": next_y, "next_m": next_m,
         "error": None,
         "csrf_token": get_csrf_token(request),
         "shops": [],
@@ -546,17 +604,24 @@ def staff_detail(request: Request, user_id: int):
             "scope_values": scope_values,
         }
 
-        # Monthly sales summary
-        month_start = today.replace(day=1).isoformat()
+        # Monthly sales summary — use the viewed year/month, not always today
+        viewed_month_start = date(year, month, 1).isoformat()
+        if is_current_month:
+            viewed_month_end = today.isoformat()
+        else:
+            last_day = _cal.monthrange(year, month)[1]
+            viewed_month_end = date(year, month, last_day).isoformat()
         ctx["month_summary"] = db.get_sales_summary(
-            start_date=month_start, end_date=today.isoformat(), user_id=user_id
+            start_date=viewed_month_start, end_date=viewed_month_end, user_id=user_id
         ) or (0, 0, 0, 0)
 
         # All-time summary
         ctx["all_summary"] = db.get_sales_summary(user_id=user_id) or (0, 0, 0, 0)
 
-        # Recent sales (last 20)
-        ctx["recent_sales"] = db.get_user_sales(user_id, limit=20) or []
+        # Recent sales — scoped to the viewed month
+        ctx["recent_sales"] = db.get_user_sales_by_date(
+            user_id, viewed_month_start, viewed_month_end
+        ) or []
 
         # Calendar grid — build first so we have work_days_set for salary calc
         work_days = db.get_work_schedule(user_id, year, month)
@@ -605,24 +670,35 @@ def staff_detail(request: Request, user_id: int):
         except Exception:
             ctx["paid_absence_days"] = 0
 
-        # Current absence badge — use get_absent_users_today() for consistency with staff list
+        # Absence badge — month-aware: today's status for current month,
+        # any approved absence in the viewed month for past months
         try:
-            today_str = today.isoformat()
-            absent_map = db.get_absent_users_today(today_str)
-            absent_type = absent_map.get(user_id)
-            if absent_type:
-                current_absence: dict | None = {"type": absent_type, "end_date": today_str}
-                try:
-                    absence_rows = db.get_absences_for_user(user_id, year, month)
-                    for ab in absence_rows:
-                        # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
-                        if ab[4] == "approved" and ab[2] <= today_str <= ab[3]:
-                            current_absence["end_date"] = ab[3]
-                            break
-                except Exception:
-                    pass
+            if is_current_month:
+                today_str = today.isoformat()
+                absent_map = db.get_absent_users_today(today_str)
+                absent_type = absent_map.get(user_id)
+                if absent_type:
+                    current_absence: dict | None = {"type": absent_type, "end_date": today_str}
+                    try:
+                        absence_rows = db.get_absences_for_user(user_id, year, month)
+                        for ab in absence_rows:
+                            # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
+                            if ab[4] == "approved" and ab[2] <= today_str <= ab[3]:
+                                current_absence["end_date"] = ab[3]
+                                break
+                    except Exception:
+                        pass
+                else:
+                    current_absence = None
             else:
+                # Past month — show any approved absence that occurred in the viewed month
+                absence_rows = db.get_absences_for_user(user_id, year, month)
                 current_absence = None
+                for ab in absence_rows:
+                    # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
+                    if ab[4] == "approved":
+                        current_absence = {"type": ab[1], "end_date": ab[3]}
+                        break
             ctx["current_absence"] = current_absence
         except Exception:
             ctx["current_absence"] = None

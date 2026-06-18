@@ -1,6 +1,25 @@
-CURRENT_VERSION = "1.69.0"
+CURRENT_VERSION = "1.70.0"
 
 ENTRIES = [
+    {
+        "version": "1.70.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Клик по продавцу в рейтинге, отчётах и дашборде теперь открывает его профиль сразу за нужный месяц",
+            "Update system to include paid time off in salary and absence calculations",
+            "Show absence status badge on absences admin page employee list",
+            "Show absence status badge on the salary page for each employee",
+            "Show absence badge in absences list records",
+            "Show today-absent badge in the absence calendar view",
+            "Show absence badge on salary page for past months too",
+            "Show absence type summary in the salary detail panel for managers",
+            "Show absence badge on the staff page when viewing past months",
+            "Show absence badges on staff detail page when viewing past months",
+            "show correct monthly sales stats when browsing past months on employee detail page",
+            "scope recent-sales list on employee detail page to the viewed month",
+            "Add ?year=YYYY&month=MM params to all staff detail links from monthly contexts",
+        ],
+    },
     {
         "version": "1.69.0",
         "date": "18 июня 2026",

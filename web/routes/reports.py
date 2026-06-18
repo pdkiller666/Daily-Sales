@@ -25,7 +25,7 @@ def _period_dates(period: str, today):
     return today.replace(day=1).isoformat(), today.isoformat()
 
 
-def _aggregate(all_sales, group_by: str):
+def _aggregate(all_sales, group_by: str, link_year: int = 0, link_month: int = 0):
     """Aggregate sales rows by group_by key.
     sales cols: id[0] product_id[1] shop_name[2] qty[3] price[4]
                 user_id[5] date[6] product_name[7] category[8] first_name[9] last_name[10]
@@ -54,7 +54,8 @@ def _aggregate(all_sales, group_by: str):
             lname = (s[10] or "").strip()
             name = f"{fname} {lname}".strip() or f"id{key}"
             if key not in groups:
-                groups[key] = {"id": key, "label": name, "sub": s[2] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": f"/staff/{key}"}
+                _staff_link = f"/staff/{key}?year={link_year}&month={link_month}" if link_year and link_month else f"/staff/{key}"
+                groups[key] = {"id": key, "label": name, "sub": s[2] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": _staff_link}
             else:
                 pass
 
@@ -210,7 +211,11 @@ def reports_page(
         elif not is_admin and "shop_names" in kwargs:
             summary_kwargs["shop_names"] = kwargs["shop_names"]
         ctx["summary"] = db.get_sales_summary(**summary_kwargs) or (0, 0, 0, 0)
-        ctx["groups"] = _aggregate(all_sales, group_by)
+        try:
+            _ly, _lm = int(date_from[:4]), int(date_from[5:7])
+        except Exception:
+            _ly, _lm = 0, 0
+        ctx["groups"] = _aggregate(all_sales, group_by, link_year=_ly, link_month=_lm)
         _add_abc_badges(ctx["groups"])
         _compute_sparklines(ctx["groups"], all_sales, group_by)
 

@@ -114,6 +114,8 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "total_earnings_count": 0,
         "error": None,
         "user_tz": "Europe/Moscow",
+        "absence_type": "",
+        "is_current_month": (year == today.year and month == today.month),
     }
 
     try:
@@ -230,7 +232,23 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         start = (page - 1) * EARNINGS_PAGE_SIZE
         earnings_page = earnings[start:start + EARNINGS_PAGE_SIZE]
 
+        # Absence badge — today if current month, else any approved absence in the period
+        absence_type = ""
+        is_current_month = (year == today.year and month == today.month)
+        try:
+            if is_current_month:
+                absence_type = db.get_absent_users_today(today.isoformat()).get(user_db_id, "")
+            else:
+                absences = db.get_absences_for_user(user_db_id, year, month)
+                approved = [a for a in absences if a[4] == "approved"]
+                if approved:
+                    absence_type = approved[0][1]
+        except Exception:
+            pass
+
         ctx.update({
+            "absence_type": absence_type,
+            "is_current_month": is_current_month,
             "earnings": earnings_page,
             "total_earnings_count": total_earnings_count,
             "commission_by_source": _commission_by_source(earnings),
@@ -300,6 +318,7 @@ def salary_page(
     prev_y, prev_m = _adjacent_month(year, month, -1)
     next_y, next_m = _adjacent_month(year, month, 1)
     is_future = (year, month) > (today.year, today.month)
+    is_current_month_default = (year == today.year and month == today.month)
 
     ctx: dict = {
         "request": request, "user": user,
@@ -309,6 +328,7 @@ def salary_page(
         "prev_y": prev_y, "prev_m": prev_m,
         "next_y": next_y, "next_m": next_m,
         "is_future": is_future,
+        "is_current_month": is_current_month_default,
         "staff_salary": [], "selected_user_id": user_id,
         "detail_user": None, "work_days_set": set(),
         "adjustments": [], "adj_sum": 0.0,
@@ -316,6 +336,7 @@ def salary_page(
         "detail_joint_adj": 0.0, "detail_raw_commission": 0.0,
         "detail_plan_coeff": None, "detail_plan_coeff_details": [],
         "detail_contest_rewards": 0.0, "detail_contest_details": [],
+        "detail_absences": [],
         "detail_page": 1, "detail_total_pages": 1, "detail_total_count": 0,
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
@@ -388,6 +409,27 @@ def salary_page(
                 "total": total,
                 "shop": "",
             })
+
+        # Absence badges — today if current month, else any approved absence in the period
+        is_current_month = (year == today.year and month == today.month)
+        absent_map: dict = {}
+        try:
+            if is_current_month:
+                absent_map = db.get_absent_users_today(today.isoformat())
+            else:
+                all_absences = db.get_all_absences_admin(year, month)
+                for _ar in all_absences:
+                    _uid = _ar[1]
+                    _atype = _ar[2]
+                    _status = _ar[5]
+                    if _status == "approved" and _uid not in absent_map:
+                        absent_map[_uid] = _atype
+        except Exception:
+            pass
+
+        ctx["is_current_month"] = is_current_month
+        for entry in staff_salary:
+            entry["absence_type"] = absent_map.get(entry["user_id"], "")
 
         # Sort: by total desc
         staff_salary.sort(key=lambda x: x["total"], reverse=True)
@@ -475,6 +517,22 @@ def salary_page(
             d_start = (detail_page - 1) * EARNINGS_PAGE_SIZE
             detail_earnings_page = detail_earnings[d_start:d_start + EARNINGS_PAGE_SIZE]
 
+            # Absence breakdown — only for past months
+            detail_absences = []
+            try:
+                if (year, month) < (today.year, today.month):
+                    raw_abs = db.get_absences_for_user(user_id, year, month)
+                    for _a in raw_abs:
+                        if _a[4] == "approved":
+                            detail_absences.append({
+                                "type": _a[1],
+                                "start_date": _a[2],
+                                "end_date": _a[3],
+                                "is_paid": bool(_a[5]),
+                            })
+            except Exception:
+                pass
+
             ctx["detail_user"] = rate_row
             ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
             ctx["adjustments"] = adj_rows
@@ -492,6 +550,7 @@ def salary_page(
             ctx["detail_plan_coeff_details"] = detail_plan_coeff_details
             ctx["detail_contest_rewards"] = round(detail_contest_rewards, 2)
             ctx["detail_contest_details"] = detail_contest_details
+            ctx["detail_absences"] = detail_absences
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

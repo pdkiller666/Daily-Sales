@@ -175,7 +175,7 @@
                     {% elif tab == 'shops' and r.label %}hover:bg-blue-50/40 cursor-pointer
                     {% elif tab == 'cities' and r.label %}hover:bg-blue-50/40 cursor-pointer
                     {% else %}hover:bg-slate-50/60{% endif %}"
-             {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}'"
+             {% if tab == 'sellers' and r.user_db_id %}onclick="window.location='/staff/{{ r.user_db_id }}{% if period != 'all' and date_from %}?year={{ date_from[:4] }}&month={{ date_from[5:7]|int }}{% endif %}'"
              {% elif tab == 'shops' and r.label %}onclick="window.location='/inventory?shop={{ r.label|urlencode }}'"
              {% elif tab == 'cities' and r.label %}onclick="window.location='/rankings?tab=shops&period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}&city={{ r.label|urlencode }}'"
              {% endif %}

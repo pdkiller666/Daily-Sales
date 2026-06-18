@@ -133,7 +133,16 @@
                     data-sv-total="{{ s.total|int }}"
                     onclick="window.location='/salary?year={{ year }}&month={{ month }}&user_id={{ s.user_id }}'">
                     <td class="px-5 py-3">
-                        <p class="font-medium text-slate-800">{{ s.first_name }} {{ s.last_name }}</p>
+                        <p class="font-medium text-slate-800">
+                            {{ s.first_name }} {{ s.last_name }}
+                            {% if s.absence_type == 'vacation' %}
+                            <span title="{{ 'В отпуске' if is_current_month else 'Был(а) в отпуске' }}" class="ml-1">🌴</span>
+                            {% elif s.absence_type == 'sick' %}
+                            <span title="{{ 'На больничном' if is_current_month else 'Был(а) на больничном' }}" class="ml-1">🤒</span>
+                            {% elif s.absence_type %}
+                            <span title="{{ 'Отсутствует' if is_current_month else 'Отсутствовал(а) в этом месяце' }}" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Нет</span>
+                            {% endif %}
+                        </p>
                     </td>
                     <td class="px-3 py-3 hidden sm:table-cell" onclick="event.stopPropagation()">
                         {% if is_admin %}
@@ -209,11 +218,20 @@
             {{ (detail_user.first_name or '?')[0] }}{{ (detail_user.last_name or '')[0] if detail_user.last_name else '' }}
         </div>
         <div class="flex-1 min-w-0">
-            <p class="font-semibold text-slate-800">{{ detail_user.first_name }} {{ detail_user.last_name }}</p>
+            <p class="font-semibold text-slate-800">
+                {{ detail_user.first_name }} {{ detail_user.last_name }}
+                {% if detail_user.absence_type == 'vacation' %}
+                <span title="{{ 'В отпуске' if is_current_month else 'Был(а) в отпуске' }}" class="ml-1">🌴</span>
+                {% elif detail_user.absence_type == 'sick' %}
+                <span title="{{ 'На больничном' if is_current_month else 'Был(а) на больничном' }}" class="ml-1">🤒</span>
+                {% elif detail_user.absence_type %}
+                <span title="{{ 'Отсутствует' if is_current_month else 'Отсутствовал(а) в этом месяце' }}" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Нет</span>
+                {% endif %}
+            </p>
             <p class="text-xs text-slate-400">{{ month_name }} {{ year }} · {{ detail_user.worked_days }}{% if detail_user.paid_absence_days %} + {{ detail_user.paid_absence_days }} оплач.{% endif %} смен × {{ detail_user.daily_rate|int|fmt_currency }}</p>
         </div>
         {% if detail_user.user_id %}
-        <a href="/staff/{{ detail_user.user_id }}"
+        <a href="/staff/{{ detail_user.user_id }}?year={{ year }}&month={{ month }}"
            class="shrink-0 text-xs text-blue-500 hover:text-blue-700 hover:underline">
             Профиль →
         </a>
@@ -243,6 +261,38 @@
         </div>
         <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена</p>
     </div>
+
+    <!-- Absence breakdown (past months only) -->
+    {% if detail_absences %}
+    <div class="mb-5">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Отсутствия в этом месяце</p>
+        <div class="space-y-1.5">
+            {% for ab in detail_absences %}
+            {% if ab.type == 'vacation' %}
+                {% set _ab_icon = '🌴' %}{% set _ab_label = 'Отпуск' %}{% set _ab_cls = 'bg-emerald-50 text-emerald-700' %}
+            {% elif ab.type == 'sick' %}
+                {% set _ab_icon = '🤒' %}{% set _ab_label = 'Больничный' %}{% set _ab_cls = 'bg-blue-50 text-blue-700' %}
+            {% elif ab.type == 'compensatory' %}
+                {% set _ab_icon = '🟡' %}{% set _ab_label = 'Отгул' %}{% set _ab_cls = 'bg-yellow-50 text-yellow-700' %}
+            {% elif ab.type == 'absence' %}
+                {% set _ab_icon = '🔴' %}{% set _ab_label = 'Прогул' %}{% set _ab_cls = 'bg-red-50 text-red-700' %}
+            {% else %}
+                {% set _ab_icon = '📋' %}{% set _ab_label = 'Другое' %}{% set _ab_cls = 'bg-slate-50 text-slate-600' %}
+            {% endif %}
+            <div class="flex items-center justify-between rounded-lg px-3 py-2 {{ _ab_cls }}">
+                <div class="flex items-center gap-2">
+                    <span>{{ _ab_icon }}</span>
+                    <span class="text-xs font-medium">{{ _ab_label }}</span>
+                    <span class="text-xs opacity-70">{{ ab.start_date[5:] | replace('-', '.') }}{% if ab.start_date != ab.end_date %} – {{ ab.end_date[5:] | replace('-', '.') }}{% endif %}</span>
+                </div>
+                <span class="text-xs font-semibold shrink-0 ml-3 {% if ab.is_paid %}text-emerald-600{% else %}text-slate-400{% endif %}">
+                    {{ 'оплач.' if ab.is_paid else 'не оплач.' }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Motivation detail -->
     {% if detail_earnings or detail_total_count > 0 %}

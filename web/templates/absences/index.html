@@ -77,7 +77,7 @@
          class="flex flex-col px-3 py-2 rounded-lg text-sm transition-colors
                 {% if s.id == selected_user_id %}bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium border border-blue-200 dark:border-blue-800
                 {% else %}text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800{% endif %}">
-        <span>{{ s.first_name }} {{ s.last_name }}</span>
+        <span>{{ s.first_name }} {{ s.last_name }}{% if s.absence_type == 'vacation' %} <span title="В отпуске">🌴</span>{% elif s.absence_type == 'sick' %} <span title="На больничном">🤒</span>{% elif s.absence_type %} <span title="Отсутствует" class="text-xs bg-amber-100 text-amber-700 px-1 rounded-full font-medium">Нет</span>{% endif %}</span>
         {% if s.shop_name %}<span class="text-xs text-slate-400">{{ s.shop_name }}</span>{% endif %}
       </a>
       {% endfor %}
@@ -90,7 +90,16 @@
 
     <!-- Calendar overlay -->
     <div class="card p-4 dark:bg-slate-900">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Календарь отсутствий</p>
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+        Календарь отсутствий
+        {% if is_admin and selected_user_id %}
+          {% set _sv_type = absent_today.get(selected_user_id) %}
+          {% if _sv_type == 'vacation' %}<span class="normal-case font-normal text-emerald-500 ml-1">🌴 В отпуске сегодня</span>
+          {% elif _sv_type == 'sick' %}<span class="normal-case font-normal text-blue-500 ml-1">🤒 На больничном сегодня</span>
+          {% elif _sv_type %}<span class="normal-case font-normal ml-1"><span class="text-xs bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-medium">Нет сегодня</span></span>
+          {% endif %}
+        {% endif %}
+      </p>
       <!-- Legend -->
       <div class="flex flex-wrap gap-2 mb-3">
         <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">⚪ Отпуск</span>
@@ -134,9 +143,14 @@
         {% else %}
           {% set day_cls = 'bg-slate-50 dark:bg-slate-800 text-slate-400' %}
         {% endif %}
-        <div class="aspect-square flex items-center justify-center rounded-xl text-xs font-semibold {{ day_cls }}"
-             title="{% if abs_info %}{{ type_labels.get(abs_info.type,'') }}{% if abs_info.status == 'pending' %} (ожидание){% endif %}{% endif %}">
-          {{ day }}
+        <div class="aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold {{ day_cls }} overflow-hidden"
+             title="{% if abs_info %}{{ type_labels.get(abs_info.type,'') }}{% if abs_info.status == 'pending' %} (ожидание){% endif %}{% if abs_info.user_name %} — {{ abs_info.user_name }}{% endif %}{% endif %}">
+          <span>{{ day }}</span>
+          {% if abs_info and abs_info.user_name %}
+          <span class="text-[8px] leading-tight truncate max-w-full px-0.5 font-normal opacity-90">
+            {{ abs_info.user_name[:7] }}{% if absent_today.get(abs_info.user_id) == 'vacation' %} 🌴{% elif absent_today.get(abs_info.user_id) == 'sick' %} 🤒{% elif absent_today.get(abs_info.user_id) %} ●{% endif %}
+          </span>
+          {% endif %}
         </div>
         {% endif %}
         {% endfor %}
@@ -159,7 +173,7 @@
           <div class="flex items-start justify-between gap-3">
             <div class="flex-1 min-w-0">
               {% if is_admin and a.name %}
-              <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ a.name }}
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ a.name }}{% if a.absent_today_type == 'vacation' %} <span title="В отпуске сегодня">🌴</span>{% elif a.absent_today_type == 'sick' %} <span title="На больничном сегодня">🤒</span>{% elif a.absent_today_type %} <span title="Отсутствует сегодня" class="text-xs bg-amber-100 text-amber-700 px-1 rounded-full font-medium">Нет</span>{% endif %}
                 {% if a.shop %}<span class="text-xs text-slate-400 font-normal ml-1">{{ a.shop }}</span>{% endif %}
               </p>
               {% endif %}
