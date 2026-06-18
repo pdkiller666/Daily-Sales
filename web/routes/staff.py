@@ -605,20 +605,24 @@ def staff_detail(request: Request, user_id: int):
         except Exception:
             ctx["paid_absence_days"] = 0
 
-        # Current absence badge (approved absence covering today)
+        # Current absence badge — use get_absent_users_today() for consistency with staff list
         try:
             today_str = today.isoformat()
-            current_absence = None
-            absence_rows = db.get_absences_for_user(user_id, year, month)
-            for ab in absence_rows:
-                # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
-                if ab[4] == "approved" and ab[2] <= today_str <= ab[3]:
-                    current_absence = {
-                        "type": ab[1],
-                        "start_date": ab[2],
-                        "end_date": ab[3],
-                    }
-                    break
+            absent_map = db.get_absent_users_today(today_str)
+            absent_type = absent_map.get(user_id)
+            if absent_type:
+                current_absence: dict | None = {"type": absent_type, "end_date": today_str}
+                try:
+                    absence_rows = db.get_absences_for_user(user_id, year, month)
+                    for ab in absence_rows:
+                        # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
+                        if ab[4] == "approved" and ab[2] <= today_str <= ab[3]:
+                            current_absence["end_date"] = ab[3]
+                            break
+                except Exception:
+                    pass
+            else:
+                current_absence = None
             ctx["current_absence"] = current_absence
         except Exception:
             ctx["current_absence"] = None

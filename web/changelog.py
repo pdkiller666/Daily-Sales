@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.68.0"
+CURRENT_VERSION = "1.69.0"
 
 ENTRIES = [
+    {
+        "version": "1.69.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Update system to include paid time off in salary and absence calculations",
+            "Show paid absence days in bot salary adjustments detail screen",
+            "Show absence badge on the individual staff card page too",
+        ],
+    },
     {
         "version": "1.68.0",
         "date": "18 июня 2026",

@@ -1251,7 +1251,31 @@ async def _show_adj_list(callback: CallbackQuery, state: FSMContext, db, uid: in
     rows = await db.get_salary_adjustments(uid, year, month)
     adj_sum = sum(r[1] for r in rows)
     month_name = _MONTH_NAMES[month - 1]
+
+    try:
+        daily_rate = await db.get_salary_rate(uid)
+        worked = await db.get_work_schedule(uid, year, month)
+        worked_count = len(worked)
+        paid_abs = await db.get_paid_absence_days_count(uid, year, month)
+        effective_days = worked_count + paid_abs
+        base_salary = effective_days * daily_rate
+    except Exception:
+        daily_rate = worked_count = paid_abs = effective_days = base_salary = None
+
     text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
+
+    if daily_rate is not None and daily_rate > 0:
+        rate_str = f"{format_price(daily_rate)}₽/смену"
+        if paid_abs and paid_abs > 0:
+            shifts_str = f"Смен: {worked_count} + оплач. отпуск: {paid_abs} = {effective_days}"
+        else:
+            shifts_str = f"Смен отработано: {worked_count}"
+        text += (
+            f"💼 Ставка: {rate_str}\n"
+            f"📊 {shifts_str}\n"
+            f"💰 Оклад: {format_price(base_salary)}₽\n\n"
+        )
+
     if rows:
         for r in rows:
             adj_id, amount, comment, _, created_at, creator_name = r

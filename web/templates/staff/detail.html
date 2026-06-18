@@ -35,9 +35,7 @@
                     {% elif current_absence.type == 'sick' %}
                     <span class="text-base font-normal text-amber-600 ml-1">🤒 На больничном</span>
                     {% else %}
-                    <span class="text-base font-normal text-slate-500 ml-1">🗓 Отсутствует
-                        <span class="text-sm">(до {{ current_absence.end_date[8:10] ~ '.' ~ current_absence.end_date[5:7] }})</span>
-                    </span>
+                    <span class="text-sm font-medium ml-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full align-middle">Нет</span>
                     {% endif %}
                 {% endif %}
             </h1>
