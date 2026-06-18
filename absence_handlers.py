@@ -112,6 +112,67 @@ def _absence_line(row, with_user=False) -> str:
             f"Статус: {st_label}")
 
 
+async def _alert_heavy_absence_day(db, sd: str, ed: str) -> None:
+    """Если любой день в диапазоне [sd, ed] достигает порога отсутствий — оповестить всех админов."""
+    try:
+        threshold_raw = db._db.get_org_config('heavy_absence_threshold', '3')
+        try:
+            threshold = max(1, int(threshold_raw))
+        except (ValueError, TypeError):
+            threshold = 3
+
+        from datetime import date as _date, timedelta as _td
+        try:
+            d_start = _date.fromisoformat(sd[:10])
+            d_end   = _date.fromisoformat(ed[:10])
+        except Exception:
+            return
+
+        heavy_days: list[str] = []
+        cur = d_start
+        while cur <= d_end:
+            ds = cur.strftime('%Y-%m-%d')
+            cnt = db._db.count_approved_absences_on_day(ds)
+            if cnt >= threshold:
+                heavy_days.append(cur.strftime('%d.%m.%Y'))
+            cur += _td(days=1)
+
+        if not heavy_days:
+            return
+
+        days_str = ', '.join(heavy_days[:5])
+        if len(heavy_days) > 5:
+            days_str += f' +ещё {len(heavy_days) - 5}'
+        text = (
+            f'⚠️ <b>Много отсутствующих!</b>\n\n'
+            f'В следующие дни отсутствует {threshold}+ сотрудников:\n'
+            f'📅 {days_str}\n\n'
+            f'Проверьте расписание, чтобы не остаться без команды.'
+        )
+
+        try:
+            admin_ids = db._db.get_all_admins_telegram_ids()
+        except Exception:
+            admin_ids = []
+
+        import bot_holder as _bh
+        from notif_utils import add_read_btn
+        bot = _bh.get_bot()
+        if not bot:
+            return
+        for adm_tg_id in admin_ids:
+            if not adm_tg_id:
+                continue
+            try:
+                await bot.send_message(adm_tg_id, text,
+                                       parse_mode='HTML',
+                                       reply_markup=add_read_btn())
+            except Exception:
+                pass
+    except Exception as _e:
+        logger.warning(f"_alert_heavy_absence_day: {_e}")
+
+
 async def _notify_user(state, telegram_id: int, text: str):
     """Отправить уведомление пользователю по telegram_id."""
     try:
@@ -543,6 +604,12 @@ async def abs_approve(callback: CallbackQuery, state: FSMContext):
                 f'✅ <b>Заявка одобрена!</b>\n\n'
                 f'{_TYPE_LABELS.get(atype, atype)}\n'
                 f'📅 {_fmt_date(sd)}–{_fmt_date(ed)} ({days} дн.)')
+        # Оповестить админов если в одобренные дни слишком много отсутствующих
+        try:
+            await _alert_heavy_absence_day(db, sd, ed)
+        except Exception as _hae:
+            logger.warning(f"heavy_absence_alert: {_hae}")
+
         # Штраф за прогул — автозапись в salary_adjustments
         if atype == 'absence':
             try:

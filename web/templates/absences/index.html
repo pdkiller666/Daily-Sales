@@ -8,6 +8,28 @@
 {% endblock %}
 
 {% block content %}
+<style>
+.multi-absent {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(100,116,139,0.18) 4px,
+    rgba(100,116,139,0.18) 8px
+  );
+  background-color: #f1f5f9;
+}
+.dark .multi-absent {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(148,163,184,0.15) 4px,
+    rgba(148,163,184,0.15) 8px
+  );
+  background-color: #1e293b;
+}
+</style>
 <div class="flex items-center justify-between mb-6">
   <div>
     <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Учёт отсутствий</h1>
@@ -135,6 +157,7 @@
         {% else %}
         {% set abs_info = absence_map.get(day) if absence_map else none %}
         {% set _tip = absence_tooltip_map.get(day, '') if absence_tooltip_map else '' %}
+        {% set _count = absence_count_map.get(day, 0) if absence_count_map else 0 %}
         {% set is_today = (day == today_day) %}
         {% set _tip = absence_tooltip_map.get(day, '') %}
         {% if abs_info %}
@@ -152,6 +175,7 @@
             {% set day_cls = 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-300' %}
           {% endif %}
           {% if pending %}{% set day_cls = day_cls + ' opacity-60 border-dashed' %}{% endif %}
+          {% if _count >= 2 %}{% set day_cls = 'multi-absent text-slate-700 dark:text-slate-200 border-2 border-slate-400 dark:border-slate-500' %}{% endif %}
         {% elif is_today %}
           {% set day_cls = 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-2 border-blue-400' %}
         {% else %}
@@ -167,11 +191,14 @@
               {{ abs_info.user_name[:7] }}{% if absent_today.get(abs_info.user_id) == 'vacation' %} 🌴{% elif absent_today.get(abs_info.user_id) == 'sick' %} 🤒{% elif absent_today.get(abs_info.user_id) %} ●{% endif %}
             </span>
             {% endif %}
+            {% if _count > 1 %}
+            <span class="text-[7px] leading-none font-bold opacity-75">+{{ _count - 1 }}</span>
+            {% endif %}
           </div>
           {% if _tip %}
           <div x-show="tt" x-cloak
-               class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-800 text-white text-xs rounded-md whitespace-nowrap z-50 pointer-events-none shadow-lg"
-               style="min-width:max-content">
+               class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1.5 bg-slate-800 text-white text-xs rounded-md whitespace-pre-line z-50 pointer-events-none shadow-lg"
+               style="min-width:8rem;max-width:16rem">
             {{ _tip }}
             <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
           </div>
@@ -184,7 +211,7 @@
       <!-- Mobile tap tooltip -->
       <div x-show="_absShow" x-cloak
            @click.outside="_absShow=false"
-           class="mt-2 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs text-center shadow-lg"
+           class="mt-2 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs text-center shadow-lg whitespace-pre-line"
            x-text="_absTip"></div>
       </div>
     </div>

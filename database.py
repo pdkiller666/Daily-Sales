@@ -964,6 +964,14 @@ class Database:
             'ON absence_records(status)'
         )
 
+        # ── Общие настройки организации (key-value) ─────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS org_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            )
+        ''')
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS contests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11236,6 +11244,54 @@ class Database:
         except Exception as e:
             logger.error(f"get_all_absences_admin: {e}")
             return []
+        finally:
+            conn.close()
+
+    # ── org_config key-value helpers ────────────────────────────────────────
+
+    def get_org_config(self, key: str, default: str = '') -> str:
+        """Вернуть значение ключа из org_config (str).  Возвращает default если отсутствует."""
+        conn = self.get_connection()
+        try:
+            row = conn.execute('SELECT value FROM org_config WHERE key=?', (key,)).fetchone()
+            return row[0] if row else default
+        except Exception as e:
+            logger.error(f"get_org_config({key}): {e}")
+            return default
+        finally:
+            conn.close()
+
+    def set_org_config(self, key: str, value: str) -> bool:
+        """Сохранить / обновить значение ключа в org_config."""
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                'INSERT INTO org_config (key, value) VALUES (?, ?)'
+                ' ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                (key, str(value))
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"set_org_config({key}): {e}")
+            return False
+        finally:
+            conn.close()
+
+    def count_approved_absences_on_day(self, date_str: str) -> int:
+        """Количество уникальных сотрудников с одобренным отсутствием на конкретную дату."""
+        conn = self.get_connection()
+        try:
+            row = conn.execute(
+                """SELECT COUNT(DISTINCT user_id) FROM absence_records
+                   WHERE status = 'approved'
+                     AND start_date <= ? AND end_date >= ?""",
+                (date_str, date_str)
+            ).fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error(f"count_approved_absences_on_day: {e}")
+            return 0
         finally:
             conn.close()
 

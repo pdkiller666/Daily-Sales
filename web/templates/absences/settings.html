@@ -105,8 +105,33 @@
 {% endfor %}
 </div>
 
+<!-- Heavy absence day threshold -->
+<div class="mt-6 card p-5 dark:bg-slate-900">
+  <div class="mb-4">
+    <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100">⚠️ Предупреждение о нагрузке на смену</h3>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+      Когда одобряется заявка и суммарное число отсутствующих в какой-либо день достигает порога — все администраторы получат уведомление в Telegram.
+    </p>
+  </div>
+  <form method="post" action="/absences/settings/threshold" class="flex items-end gap-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div>
+      <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+        Порог отсутствующих <span class="text-slate-300">(чел.)</span>
+      </label>
+      <input type="number" name="heavy_threshold" min="1" max="100"
+             value="{{ heavy_threshold | default(3) }}"
+             class="w-32 text-sm border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 dark:bg-slate-800 dark:text-slate-200">
+    </div>
+    <button type="submit"
+            class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold rounded-xl transition-colors">
+      Сохранить
+    </button>
+  </form>
+</div>
+
 <!-- Explanatory note -->
-<div class="mt-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm text-slate-500 dark:text-slate-400 space-y-1">
+<div class="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm text-slate-500 dark:text-slate-400 space-y-1">
   <p class="font-medium text-slate-600 dark:text-slate-300">💡 Как работает расчёт</p>
   <p>• <strong>Оплачивается</strong> — одобренные дни отсутствия добавляются к отработанным дням при расчёте оклада.</p>
   <p>• <strong>Без оплаты</strong> — дни не учитываются в расчёте зарплаты.</p>

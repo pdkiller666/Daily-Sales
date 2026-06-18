@@ -65,6 +65,70 @@ _TYPE_LABELS_PLAIN = {
 }
 
 
+def _send_heavy_absence_alert(db, sd: str, ed: str) -> None:
+    """Fire-and-forget: проверить дни [sd, ed] и оповестить всех админов если ≥ порог."""
+    import threading
+    def _run():
+        try:
+            threshold_raw = db.get_org_config('heavy_absence_threshold', '3')
+            try:
+                threshold = max(1, int(threshold_raw))
+            except (ValueError, TypeError):
+                threshold = 3
+
+            try:
+                d_start = date.fromisoformat(sd[:10])
+                d_end   = date.fromisoformat(ed[:10])
+            except Exception:
+                return
+
+            heavy_days: list[str] = []
+            cur = d_start
+            while cur <= d_end:
+                ds = cur.strftime('%Y-%m-%d')
+                cnt = db.count_approved_absences_on_day(ds)
+                if cnt >= threshold:
+                    heavy_days.append(cur.strftime('%d.%m.%Y'))
+                cur += timedelta(days=1)
+
+            if not heavy_days:
+                return
+
+            days_str = ', '.join(heavy_days[:5])
+            if len(heavy_days) > 5:
+                days_str += f' +ещё {len(heavy_days) - 5}'
+            text = (
+                f'⚠️ <b>Много отсутствующих!</b>\n\n'
+                f'В следующие дни отсутствует {threshold}+ сотрудников:\n'
+                f'📅 {days_str}\n\n'
+                f'Проверьте расписание, чтобы не остаться без команды.'
+            )
+            token = os.environ.get("BOT_TOKEN", "")
+            if not token:
+                return
+            try:
+                admin_ids = db.get_all_admins_telegram_ids()
+            except Exception:
+                admin_ids = []
+            payload_base = {"text": text, "parse_mode": "HTML"}
+            for adm_tg_id in admin_ids:
+                if not adm_tg_id:
+                    continue
+                try:
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    payload = json.dumps({**payload_base, "chat_id": adm_tg_id}).encode("utf-8")
+                    req = urllib.request.Request(
+                        url, data=payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    urllib.request.urlopen(req, timeout=10)
+                except Exception:
+                    pass
+        except Exception as _e:
+            logging.error("heavy_absence_alert web: %s", _e)
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def _send_tg_absence_notify(
     employee_tg_id: int,
     new_status: str,
@@ -131,23 +195,24 @@ def _days_count(sd: str, ed: str) -> int:
         return 1
 
 
-def _build_absence_tooltip_map(absences_list, year: int, month: int) -> dict:
-    """Build {day_num: tooltip_text} from the already-prepared absences list.
+def _build_absence_tooltip_map(absences_list, year: int, month: int) -> tuple:
+    """Build ({day_num: tooltip_text}, {day_num: count}) from the already-prepared absences list.
 
     Format: "Имя — Тип: ДД–ДД мес" (admin all-users) or "Тип: ДД–ДД мес" (per-user).
     Pending absences get " (ожидание)" appended.
-    First absence wins per day (same as absence_map merge logic).
+    All absences per day are accumulated (newline-separated) — no first-wins truncation.
+    count_map[day] gives the number of distinct absence entries covering that day.
     """
     _ABBR = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
              7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
     last_day = _cal.monthrange(year, month)[1]
     month_start = date(year, month, 1)
     month_end = date(year, month, last_day)
-    info: dict = {}
+    lines_by_day: dict = {}
     for a in (absences_list or []):
         try:
-            sd = date.fromisoformat(a["start_date"])
-            ed = date.fromisoformat(a["end_date"])
+            sd = date.fromisoformat(str(a["start_date"])[:10])
+            ed = date.fromisoformat(str(a["end_date"])[:10])
         except Exception:
             continue
         label = (a.get("type_label") or a.get("type", "")).lstrip("⚪🔵🟡🔴⬜ ")
@@ -162,10 +227,13 @@ def _build_absence_tooltip_map(absences_list, year: int, month: int) -> dict:
         cur = max(sd, month_start)
         end = min(ed, month_end)
         while cur <= end:
-            if cur.day not in info:
-                info[cur.day] = tip
+            day_lines = lines_by_day.setdefault(cur.day, [])
+            if tip not in day_lines:
+                day_lines.append(tip)
             cur += timedelta(days=1)
-    return info
+    tooltip_map = {d: "\n".join(ls) for d, ls in lines_by_day.items()}
+    count_map = {d: len(ls) for d, ls in lines_by_day.items()}
+    return tooltip_map, count_map
 
 
 def _build_cal_grid(year: int, month: int):
@@ -214,6 +282,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "today_day": today.day if (today.year == year and today.month == month) else 0,
         "staff_list": [], "selected_user_id": user_id,
         "absences": [], "absence_map": {}, "absent_today": {},
+        "absence_count_map": {},
         "is_current_month": (year == today.year and month == today.month),
         "cal_grid": _build_cal_grid(year, month),
         "absence_tooltip_map": {},
@@ -335,7 +404,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
 
         # Build tap/hover tooltip map from whichever absences branch was taken
         try:
-            ctx["absence_tooltip_map"] = _build_absence_tooltip_map(
+            ctx["absence_tooltip_map"], ctx["absence_count_map"] = _build_absence_tooltip_map(
                 ctx["absences"], year, month
             )
         except Exception:
@@ -446,6 +515,13 @@ def absences_add(
             target_uid, atype, start_date, end_date,
             (comment or "").strip()[:500] or None, target_uid, final_status
         )
+
+        # Оповестить админов если admin добавил approved absence с нагрузкой на смену
+        if is_admin and final_status == 'approved':
+            try:
+                _send_heavy_absence_alert(db, start_date, end_date)
+            except Exception as _hae:
+                logging.error(f"absences_add heavy_alert: {_hae}")
 
         # Штраф за прогул (если admin добавляет approved absence)
         if is_admin and final_status == 'approved' and atype == 'absence':
@@ -601,6 +677,13 @@ def absences_update(
             except Exception as e:
                 logging.error(f"absences_update notify: {e}")
 
+        # Оповестить админов если дни стали «тяжёлыми» (много отсутствий)
+        if new_status == "approved":
+            try:
+                _send_heavy_absence_alert(db, sd, ed)
+            except Exception as _hae:
+                logging.error(f"absences_update heavy_alert: {_hae}")
+
         return RedirectResponse(
             url=f"/absences?year={year}&month={month}&msg={new_status}",
             status_code=302
@@ -635,9 +718,14 @@ def absences_settings_page(request: Request):
     try:
         db = get_web_db(telegram_id, org_db)
         ctx["settings"] = db.get_absence_type_settings()
+        try:
+            ctx["heavy_threshold"] = int(db.get_org_config('heavy_absence_threshold', '3') or 3)
+        except (ValueError, TypeError):
+            ctx["heavy_threshold"] = 3
     except Exception as exc:
         logging.error(f"absences_settings_page error: {exc}")
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
+        ctx.setdefault("heavy_threshold", 3)
 
     return request.app.state.templates.TemplateResponse(
         request, "absences/settings.html", ctx
@@ -671,5 +759,32 @@ def absences_settings_update(
                                      penalty_mode, penalty_amount)
     except Exception as exc:
         logging.error(f"absences_settings_update error: {exc}")
+
+    return RedirectResponse(url="/absences/settings?msg=saved", status_code=302)
+
+
+@router.post("/absences/settings/threshold")
+def absences_settings_threshold(
+    request: Request,
+    csrf_token: Annotated[str, Form()] = "",
+    heavy_threshold: Annotated[int, Form()] = 3,
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/absences/settings?msg=csrf", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/absences", status_code=302)
+
+    try:
+        threshold = max(1, min(int(heavy_threshold), 100))
+        db = get_web_db(int(user["sub"]), user.get("org_db"))
+        db.set_org_config('heavy_absence_threshold', str(threshold))
+    except Exception as exc:
+        logging.error(f"absences_settings_threshold error: {exc}")
 
     return RedirectResponse(url="/absences/settings?msg=saved", status_code=302)

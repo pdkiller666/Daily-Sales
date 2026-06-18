@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.75.0"
+CURRENT_VERSION = "1.76.0"
 
 ENTRIES = [
+    {
+        "version": "1.76.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Fix absence calendar display and improve navigation",
+            "Show hover tooltip on absences calendar for pending absences too",
+            "Show tooltip with all absent employees on the same calendar day",
+            "Highlight calendar days with multiple absences using a distinct visual style",
+            "Add heavy-absence-day warning when 3+ people are out at once",
+        ],
+    },
     {
         "version": "1.75.0",
         "date": "18 июня 2026",
