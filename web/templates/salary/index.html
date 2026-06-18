@@ -250,17 +250,17 @@
                     {% if day == 0 %}
                     <div></div>
                     {% else %}
-                    {% set _is_abs = day not in work_days_set and (day in vacation_days or day in sick_days or day in other_absence_days) %}
+                    {% set _is_abs = day in vacation_days or day in sick_days or day in other_absence_days %}
                     <div class="relative{% if _is_abs %} cursor-default{% endif %}"
                          {% if _is_abs %}x-data="{ tt: false }" @mouseenter="tt=true" @mouseleave="tt=false" @click.stop="tt=!tt" @click.outside="tt=false"{% endif %}>
                         <div class="aspect-square flex items-center justify-center rounded-lg font-medium
-                                    {% if day in work_days_set %}bg-emerald-500 text-white shadow-sm
-                                    {% elif day in vacation_days %}bg-blue-200 text-blue-700
+                                    {% if day in vacation_days %}bg-blue-200 text-blue-700
                                     {% elif day in sick_days %}bg-amber-200 text-amber-700
                                     {% elif day in other_absence_days %}bg-yellow-100 text-yellow-700
+                                    {% elif day in work_days_set %}bg-emerald-500 text-white shadow-sm
                                     {% else %}bg-slate-50 text-slate-400{% endif %}"
                              {% if not _is_abs %}title="{% if day in work_days_set %}Рабочая смена{% endif %}"{% endif %}>
-                            {% if day in vacation_days and day not in work_days_set %}🌴{% elif day in sick_days and day not in work_days_set %}🤒{% else %}{{ day }}{% endif %}
+                            {% if day in vacation_days %}🌴{% elif day in sick_days %}🤒{% else %}{{ day }}{% endif %}
                         </div>
                         {% if _is_abs %}
                         <div x-show="tt" x-cloak

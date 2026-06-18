@@ -52,6 +52,52 @@ TYPE_CSS = {
     'other':        'bg-purple-100 text-purple-600 border border-purple-300',
 }
 
+_RU_MONTHS_SHORT = {
+    1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+    7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+}
+_TYPE_LABELS_PLAIN = {
+    "vacation": "Отпуск",
+    "sick": "Больничный",
+    "compensatory": "Отгул",
+    "absence": "Прогул",
+    "other": "Другое",
+}
+
+
+def _absence_tooltip_map(absences_list, year: int, month: int) -> dict:
+    """Build {day_num: 'Тип: DD\u00a0Mmm\u2013DD\u00a0Mmm'} for approved absences.
+
+    Accepts the formatted absences list (dicts with keys type/start_date/end_date/status).
+    First approved absence per day wins (matches absence_map merge logic for admin view).
+    """
+    from datetime import date as _date, timedelta as _td
+    import calendar as _cal
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = _date(year, month, 1)
+    month_end = _date(year, month, last_day)
+    result: dict = {}
+    for a in (absences_list or []):
+        if a.get("status") != "approved":
+            continue
+        label = _TYPE_LABELS_PLAIN.get(a.get("type", ""), "Отсутствие")
+        try:
+            raw_sd = _date.fromisoformat(a["start_date"][:10])
+            raw_ed = _date.fromisoformat(a["end_date"][:10])
+            sd = max(raw_sd, month_start)
+            ed = min(raw_ed, month_end)
+        except Exception:
+            continue
+        def _fmt(d: "_date") -> str:
+            return f"{d.day}\u00a0{_RU_MONTHS_SHORT[d.month]}"
+        tip = f"{label}: {_fmt(raw_sd)}\u2013{_fmt(raw_ed)}"
+        cur = sd
+        while cur <= ed:
+            if cur.day not in result:
+                result[cur.day] = tip
+            cur += _td(days=1)
+    return result
+
 
 def _send_tg_absence_notify(
     employee_tg_id: int,
@@ -210,6 +256,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "type_css": TYPE_CSS,
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
+        "absence_tooltip_map": {},
     }
 
     try:
@@ -272,6 +319,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                     "absent_today_type": absent_viewed.get(uid, ""),
                 })
             ctx["absences"] = absences
+            ctx["absence_tooltip_map"] = _absence_tooltip_map(absences, year, month)
             _abs_raw = db.get_absence_days_map(year, month, user_id or None)
             if user_id:
                 ctx["absence_map"] = _abs_raw.get(user_id, {})
@@ -318,6 +366,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                         "name": "", "shop": "",
                     })
                 ctx["absences"] = absences
+                ctx["absence_tooltip_map"] = _absence_tooltip_map(absences, year, month)
                 _abs_raw2 = db.get_absence_days_map(year, month, uid)
                 ctx["absence_map"] = _abs_raw2.get(uid, {})
 

@@ -91,26 +91,23 @@ def _absence_day_sets(absence_rows, year: int, month: int):
     return vacation_days, sick_days, other_days
 
 
-def _absence_day_info(absence_rows, year: int, month: int) -> dict:
-    """Build {day_num: tooltip_text} for approved absences, e.g. {10: 'Отпуск: 10–17 июн'}.
+def _absence_tooltip_map(absence_rows, year: int, month: int) -> dict:
+    """Build {day_num: tooltip_text} for approved absences in the given month.
 
-    Shows the full (unclamped) date range so cross-month absences display correctly.
+    Shows the full (unclamped) date range so e.g. a vacation spanning two months
+    reads "Отпуск: 28 мая – 10 июн" even when viewed in June.
     absence_rows columns: id[0] type[1] start_date[2] end_date[3] status[4] ...
     """
     from datetime import date as _date, timedelta as _td
     import calendar as _cal
-    _LABELS = {"vacation": "Отпуск", "sick": "Больничный"}
-    _ABBR = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
-             7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
     last_day = _cal.monthrange(year, month)[1]
     month_start = _date(year, month, 1)
     month_end = _date(year, month, last_day)
-    info: dict = {}
+    result: dict = {}
     for ab in (absence_rows or []):
         if ab[4] != "approved":
             continue
-        atype = ab[1]
-        label = _LABELS.get(atype, "Отсутствие")
+        label = _ABSENCE_LABELS.get(ab[1], "Отсутствие")
         try:
             raw_sd = _date.fromisoformat(ab[2])
             raw_ed = _date.fromisoformat(ab[3])
@@ -119,15 +116,15 @@ def _absence_day_info(absence_rows, year: int, month: int) -> dict:
         except Exception:
             continue
         if raw_sd.month == raw_ed.month:
-            tip = f"{label}: {raw_sd.day}–{raw_ed.day} {_ABBR[raw_sd.month]}"
+            tip = f"{label}: {raw_sd.day}–{raw_ed.day} {_RU_MONTHS_SHORT[raw_sd.month]}"
         else:
-            tip = f"{label}: {raw_sd.day}\u00a0{_ABBR[raw_sd.month]} – {raw_ed.day}\u00a0{_ABBR[raw_ed.month]}"
+            tip = f"{label}: {raw_sd.day}\u00a0{_RU_MONTHS_SHORT[raw_sd.month]} – {raw_ed.day}\u00a0{_RU_MONTHS_SHORT[raw_ed.month]}"
         cur = sd
         while cur <= ed:
-            if cur.day not in info:
-                info[cur.day] = tip
+            if cur.day not in result:
+                result[cur.day] = tip
             cur += _td(days=1)
-    return info
+    return result
 
 
 def _commission_by_source(earnings):
@@ -423,7 +420,7 @@ def salary_page(
         "detail_contest_rewards": 0.0, "detail_contest_details": [],
         "detail_absences": [],
         "vacation_days": set(), "sick_days": set(), "other_absence_days": set(),
-        "absence_day_info": {},
+        "absence_tooltip_map": {},
         "detail_page": 1, "detail_total_pages": 1, "detail_total_count": 0,
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
@@ -608,12 +605,12 @@ def salary_page(
             detail_absences = []
             try:
                 raw_abs = db.get_absences_for_user(user_id, year, month)
-                # Build calendar day-coloring sets + tooltip info
+                # Build calendar day-coloring sets and tooltip map
                 vac_days, sick_days_set, other_days = _absence_day_sets(raw_abs, year, month)
                 ctx["vacation_days"] = vac_days
                 ctx["sick_days"] = sick_days_set
                 ctx["other_absence_days"] = other_days
-                ctx["absence_day_info"] = _absence_day_info(raw_abs, year, month)
+                ctx["absence_tooltip_map"] = _absence_tooltip_map(raw_abs, year, month)
                 # Breakdown list — only for past months
                 if (year, month) < (today.year, today.month):
                     for _a in raw_abs:

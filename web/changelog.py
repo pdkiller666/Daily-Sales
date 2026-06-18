@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.73.0"
+CURRENT_VERSION = "1.74.0"
 
 ENTRIES = [
+    {
+        "version": "1.74.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Improve calendar views with detailed absence information and consistent tooltips",
+            "Show absence tooltips in the admin absences calendar view",
+            "Add screenshot to the project assets",
+        ],
+    },
     {
         "version": "1.73.0",
         "date": "18 июня 2026",
