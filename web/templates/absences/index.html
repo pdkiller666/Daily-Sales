@@ -115,6 +115,7 @@
         {% endfor %}
       </div>
       <!-- Days -->
+      <div x-data="{ _absTip: '', _absShow: false }">
       <div class="grid grid-cols-7 gap-1">
         {% for week in cal_grid %}
         {% for day in week %}
@@ -123,6 +124,7 @@
         {% else %}
         {% set abs_info = absence_map.get(day) if absence_map else none %}
         {% set is_today = (day == today_day) %}
+        {% set _tip = absence_tooltip_map.get(day, '') %}
         {% if abs_info %}
           {% set atype = abs_info.type %}
           {% set pending = abs_info.status == 'pending' %}
@@ -143,8 +145,10 @@
         {% else %}
           {% set day_cls = 'bg-slate-50 dark:bg-slate-800 text-slate-400' %}
         {% endif %}
-        <div class="aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold {{ day_cls }} overflow-hidden"
-             title="{% if abs_info %}{{ type_labels.get(abs_info.type,'') }}{% if abs_info.status == 'pending' %} (ожидание){% endif %}{% if abs_info.user_name %} — {{ abs_info.user_name }}{% endif %}{% endif %}">
+        <div class="aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold {{ day_cls }} overflow-hidden{% if _tip %} cursor-pointer select-none{% endif %}"
+             title="{{ _tip }}"
+             {% if _tip %}data-abs-tip="{{ _tip }}"
+             @click="_absTip=$el.dataset.absTip; _absShow=true"{% endif %}>
           <span>{{ day }}</span>
           {% if abs_info and abs_info.user_name %}
           <span class="text-[8px] leading-tight truncate max-w-full px-0.5 font-normal opacity-90">
@@ -155,6 +159,12 @@
         {% endif %}
         {% endfor %}
         {% endfor %}
+      </div>
+      <!-- Mobile tap tooltip -->
+      <div x-show="_absShow" x-cloak
+           @click.outside="_absShow=false"
+           class="mt-2 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs text-center shadow-lg"
+           x-text="_absTip"></div>
       </div>
     </div>
 

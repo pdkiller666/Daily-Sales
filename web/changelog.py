@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.72.0"
+CURRENT_VERSION = "1.73.0"
 
 ENTRIES = [
+    {
+        "version": "1.73.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Improve calendar view with absence details and tooltips",
+            "Show absence legend only when employee has absences in that month",
+            "Show a tooltip with absence dates on hover in the calendar",
+        ],
+    },
     {
         "version": "1.72.0",
         "date": "18 июня 2026",

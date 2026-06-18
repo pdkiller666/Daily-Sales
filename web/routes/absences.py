@@ -119,6 +119,43 @@ def _days_count(sd: str, ed: str) -> int:
         return 1
 
 
+def _build_absence_tooltip_map(absences_list, year: int, month: int) -> dict:
+    """Build {day_num: tooltip_text} from the already-prepared absences list.
+
+    Format: "Имя — Тип: ДД–ДД мес" (admin all-users) or "Тип: ДД–ДД мес" (per-user).
+    Pending absences get " (ожидание)" appended.
+    First absence wins per day (same as absence_map merge logic).
+    """
+    _ABBR = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+             7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, last_day)
+    info: dict = {}
+    for a in (absences_list or []):
+        try:
+            sd = date.fromisoformat(a["start_date"])
+            ed = date.fromisoformat(a["end_date"])
+        except Exception:
+            continue
+        label = (a.get("type_label") or a.get("type", "")).lstrip("⚪🔵🟡🔴⬜ ")
+        name = (a.get("name") or "").strip()
+        if sd.month == ed.month:
+            date_range = f"{sd.day}–{ed.day} {_ABBR[sd.month]}"
+        else:
+            date_range = f"{sd.day} {_ABBR[sd.month]} – {ed.day} {_ABBR[ed.month]}"
+        tip = f"{name} — {label}: {date_range}" if name else f"{label}: {date_range}"
+        if a.get("status") == "pending":
+            tip += " (ожидание)"
+        cur = max(sd, month_start)
+        end = min(ed, month_end)
+        while cur <= end:
+            if cur.day not in info:
+                info[cur.day] = tip
+            cur += timedelta(days=1)
+    return info
+
+
 def _build_cal_grid(year: int, month: int):
     fw, dim = _cal.monthrange(year, month)
     grid, week = [], [0] * fw
@@ -167,6 +204,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "absences": [], "absence_map": {}, "absent_today": {},
         "is_current_month": (year == today.year and month == today.month),
         "cal_grid": _build_cal_grid(year, month),
+        "absence_tooltip_map": {},
         "weekday_names": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
         "type_labels": TYPE_LABELS, "status_labels": STATUS_LABELS,
         "type_css": TYPE_CSS,
@@ -282,6 +320,14 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                 ctx["absences"] = absences
                 _abs_raw2 = db.get_absence_days_map(year, month, uid)
                 ctx["absence_map"] = _abs_raw2.get(uid, {})
+
+        # Build tap/hover tooltip map from whichever absences branch was taken
+        try:
+            ctx["absence_tooltip_map"] = _build_absence_tooltip_map(
+                ctx["absences"], year, month
+            )
+        except Exception:
+            pass
 
     except Exception as exc:
         logging.error(f"absences_page error: {exc}")

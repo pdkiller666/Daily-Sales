@@ -239,7 +239,7 @@
     </div>
 
     <!-- Calendar -->
-    <div class="mb-5" x-data="{ _absTip: '', _absShow: false }">
+    <div class="mb-5">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">График смен</p>
         <div class="grid grid-cols-7 gap-1 text-center text-xs">
             {% for day_name in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] %}
@@ -251,30 +251,33 @@
                     <div></div>
                     {% else %}
                     {% set _is_abs = day not in work_days_set and (day in vacation_days or day in sick_days or day in other_absence_days) %}
-                    <div class="aspect-square flex items-center justify-center rounded-lg font-medium
-                                {% if day in work_days_set %}bg-emerald-500 text-white shadow-sm
-                                {% elif day in vacation_days %}bg-blue-200 text-blue-700
-                                {% elif day in sick_days %}bg-amber-200 text-amber-700
-                                {% elif day in other_absence_days %}bg-yellow-100 text-yellow-700
-                                {% else %}bg-slate-50 text-slate-400{% endif %}
-                                {% if _is_abs %}cursor-pointer select-none{% endif %}"
-                         {% if _is_abs %}data-abs-info="{{ absence_day_info.get(day, '') }}"
-                         @click="_absTip=$el.dataset.absInfo; _absShow=true"{% endif %}
-                         title="{{ absence_day_info.get(day, '') or ('Рабочая смена' if day in work_days_set else '') }}">
-                        {% if day in vacation_days and day not in work_days_set %}🌴{% elif day in sick_days and day not in work_days_set %}🤒{% else %}{{ day }}{% endif %}
+                    <div class="relative{% if _is_abs %} cursor-default{% endif %}"
+                         {% if _is_abs %}x-data="{ tt: false }" @mouseenter="tt=true" @mouseleave="tt=false" @click.stop="tt=!tt" @click.outside="tt=false"{% endif %}>
+                        <div class="aspect-square flex items-center justify-center rounded-lg font-medium
+                                    {% if day in work_days_set %}bg-emerald-500 text-white shadow-sm
+                                    {% elif day in vacation_days %}bg-blue-200 text-blue-700
+                                    {% elif day in sick_days %}bg-amber-200 text-amber-700
+                                    {% elif day in other_absence_days %}bg-yellow-100 text-yellow-700
+                                    {% else %}bg-slate-50 text-slate-400{% endif %}"
+                             {% if not _is_abs %}title="{% if day in work_days_set %}Рабочая смена{% endif %}"{% endif %}>
+                            {% if day in vacation_days and day not in work_days_set %}🌴{% elif day in sick_days and day not in work_days_set %}🤒{% else %}{{ day }}{% endif %}
+                        </div>
+                        {% if _is_abs %}
+                        <div x-show="tt" x-cloak
+                             class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-slate-800 text-white text-xs rounded-md whitespace-nowrap z-50 pointer-events-none shadow-lg"
+                             style="min-width:max-content">
+                            {{ absence_day_info.get(day, '') }}
+                            <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 {% endfor %}
             {% endfor %}
         </div>
-        <!-- Mobile tap tooltip -->
-        <div x-show="_absShow" x-cloak
-             @click.outside="_absShow=false"
-             class="mt-2 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs text-center shadow-lg"
-             x-text="_absTip"></div>
         <!-- Legend — only when absences are present -->
         {% if vacation_days or sick_days or other_absence_days %}
-        <p class="text-xs text-slate-400 mt-2">🟢 — смена &nbsp;·&nbsp; 🌴 — отпуск &nbsp;·&nbsp; 🤒 — больничный</p>
+        <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена &nbsp;·&nbsp; 🌴 — отпуск &nbsp;·&nbsp; 🤒 — больничный</p>
         {% else %}
         <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена</p>
         {% endif %}

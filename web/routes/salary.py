@@ -45,6 +45,16 @@ def _source_label(src):
 _SOURCE_ORDER = ["user", "shop", "city", "trade_network", "schedule", "global"]
 
 
+_RU_MONTHS_SHORT = {
+    1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+    7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+}
+_ABSENCE_LABELS = {
+    "vacation": "Отпуск", "sick": "Больничный",
+    "compensatory": "Отгул", "absence": "Прогул",
+}
+
+
 def _absence_day_sets(absence_rows, year: int, month: int):
     """Expand approved absence records into sets of calendar day numbers.
 
@@ -84,7 +94,8 @@ def _absence_day_sets(absence_rows, year: int, month: int):
 def _absence_day_info(absence_rows, year: int, month: int) -> dict:
     """Build {day_num: tooltip_text} for approved absences, e.g. {10: 'Отпуск: 10–17 июн'}.
 
-    Each day maps to the formatted date range of the absence it belongs to.
+    Shows the full (unclamped) date range so cross-month absences display correctly.
+    absence_rows columns: id[0] type[1] start_date[2] end_date[3] status[4] ...
     """
     from datetime import date as _date, timedelta as _td
     import calendar as _cal
@@ -101,17 +112,18 @@ def _absence_day_info(absence_rows, year: int, month: int) -> dict:
         atype = ab[1]
         label = _LABELS.get(atype, "Отсутствие")
         try:
-            sd = _date.fromisoformat(ab[2])
-            ed = _date.fromisoformat(ab[3])
+            raw_sd = _date.fromisoformat(ab[2])
+            raw_ed = _date.fromisoformat(ab[3])
+            sd = max(raw_sd, month_start)
+            ed = min(raw_ed, month_end)
         except Exception:
             continue
-        if sd.month == ed.month:
-            tip = f"{label}: {sd.day}–{ed.day} {_ABBR[sd.month]}"
+        if raw_sd.month == raw_ed.month:
+            tip = f"{label}: {raw_sd.day}–{raw_ed.day} {_ABBR[raw_sd.month]}"
         else:
-            tip = f"{label}: {sd.day} {_ABBR[sd.month]} – {ed.day} {_ABBR[ed.month]}"
-        cur = max(sd, month_start)
-        end = min(ed, month_end)
-        while cur <= end:
+            tip = f"{label}: {raw_sd.day}\u00a0{_ABBR[raw_sd.month]} – {raw_ed.day}\u00a0{_ABBR[raw_ed.month]}"
+        cur = sd
+        while cur <= ed:
             if cur.day not in info:
                 info[cur.day] = tip
             cur += _td(days=1)
