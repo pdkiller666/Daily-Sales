@@ -874,8 +874,7 @@ def create_web_app() -> FastAPI:
                 media_type="application/vnd.android.package-archive",
                 filename="DailySales.apk",
             )
-        # Локального файла нет — пробуем скачать прямо сейчас (фоново, без блокировки)
-        # чтобы следующий запрос уже получил файл.
+        # Локального файла нет — запускаем фоновую загрузку и показываем страницу ожидания.
         try:
             _apk_url_now = None
             try:
@@ -893,11 +892,36 @@ def create_web_app() -> FastAPI:
                 _aio.ensure_future(_download_apk_to_local(_apk_url_now))
         except Exception:
             pass
-        # Fallback: страница релизов GitHub (НЕ прямая ссылка — репо приватное)
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(
-            "https://github.com/pdkiller666/Daily-Sales/releases/latest",
-            status_code=302,
+        # Страница ожидания — пользователь остаётся на домене Amvera, авторефреш каждые 6 с.
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(
+            content="""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="6;url=/download/android">
+<title>APK — DailySales</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f0fdf4;color:#166534;}
+  .card{text-align:center;padding:2.5rem 2rem;background:#fff;border-radius:1.25rem;box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:340px;width:90%;}
+  .icon{font-size:3rem;margin-bottom:1rem;}
+  h1{font-size:1.25rem;font-weight:700;margin:0 0 .5rem;}
+  p{font-size:.875rem;color:#4b5563;margin:0 0 1.5rem;line-height:1.5;}
+  .spinner{width:2rem;height:2rem;border:3px solid #d1fae5;border-top-color:#16a34a;border-radius:50%;animation:spin 0.8s linear infinite;margin:.5rem auto 0;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">📱</div>
+  <h1>Подготовка APK…</h1>
+  <p>Файл загружается на сервер. Страница обновится автоматически — скачивание начнётся через несколько секунд.</p>
+  <div class="spinner"></div>
+</div>
+</body>
+</html>""",
+            status_code=200,
         )
 
     @app.post("/webhook/apk-release", include_in_schema=False)

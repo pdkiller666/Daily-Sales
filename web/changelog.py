@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.77.0"
+CURRENT_VERSION = "1.78.0"
 
 ENTRIES = [
+    {
+        "version": "1.78.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Fix APK download: 200KB size threshold + GitHub auth for private repo",
+        ],
+    },
     {
         "version": "1.77.0",
         "date": "18 июня 2026",
