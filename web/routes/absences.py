@@ -165,6 +165,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
         "today_day": today.day if (today.year == year and today.month == month) else 0,
         "staff_list": [], "selected_user_id": user_id,
         "absences": [], "absence_map": {}, "absent_today": {},
+        "is_current_month": (year == today.year and month == today.month),
         "cal_grid": _build_cal_grid(year, month),
         "weekday_names": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
         "type_labels": TYPE_LABELS, "status_labels": STATUS_LABELS,
@@ -186,19 +187,32 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                 ).fetchall() or []
             finally:
                 conn.close()
-            try:
-                absent_today = db.get_absent_users_today(today.isoformat())
-            except Exception:
-                absent_today = {}
-            ctx["absent_today"] = absent_today
+
+            is_current_month = (year == today.year and month == today.month)
+            # Все отсутствия за месяц — нужны ДО построения sidebar
+            rows = db.get_all_absences_admin(year, month)
+
+            if is_current_month:
+                try:
+                    absent_viewed = db.get_absent_users_today(today.isoformat())
+                except Exception:
+                    absent_viewed = {}
+            else:
+                # Для прошлых/будущих месяцев берём одобренные отсутствия месяца
+                absent_viewed = {}
+                for _r in rows:
+                    _uid, _atype, _status = _r[1], _r[2], _r[5]
+                    if _status == "approved" and _uid not in absent_viewed:
+                        absent_viewed[_uid] = _atype
+
+            ctx["absent_today"] = absent_viewed
+            ctx["is_current_month"] = is_current_month
             ctx["staff_list"] = [
                 {"id": r[0], "first_name": r[1] or "", "last_name": r[2] or "",
                  "shop_name": r[3] or "", "telegram_id": r[4],
-                 "absence_type": absent_today.get(r[0], "")}
+                 "absence_type": absent_viewed.get(r[0], "")}
                 for r in staff
             ]
-            # Все отсутствия за месяц
-            rows = db.get_all_absences_admin(year, month)
             absences = []
             for r in rows:
                 (ab_id, uid, atype, sd, ed, status, is_paid, comment,
@@ -217,7 +231,7 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
                     "created_at": (created_at or "")[:10],
                     "name": f"{fn or ''} {ln or ''}".strip(),
                     "shop": shop or "",
-                    "absent_today_type": absent_today.get(uid, ""),
+                    "absent_today_type": absent_viewed.get(uid, ""),
                 })
             ctx["absences"] = absences
             _abs_raw = db.get_absence_days_map(year, month, user_id or None)

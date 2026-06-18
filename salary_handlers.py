@@ -535,6 +535,7 @@ async def salary_calendar_admin(callback: CallbackQuery, state: FSMContext):
     target_uid = int(parts[2])
     year = int(parts[3])
     month = int(parts[4])
+    await state.update_data(view_year=year, view_month=month)
     current_db = await get_db(uid, state)
     await callback.answer()
     await _refresh_admin_calendar(callback, state, uid, target_uid, year, month, current_db)
@@ -1060,6 +1061,7 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
             return
     parts = callback.data.split("_")
     year, month = int(parts[2]), int(parts[3])
+    await state.update_data(view_year=year, view_month=month)
     current_db = await get_db(uid, state)
     last_day = _cal.monthrange(year, month)[1]
     month_start = f"{year}-{month:02d}-01"
@@ -1348,6 +1350,7 @@ async def slr_adj_user(callback: CallbackQuery, state: FSMContext):
     parts = callback.data.split("_")
     # slr_adj_u_{uid}_{year}_{month}
     e_uid, year, month = int(parts[3]), int(parts[4]), int(parts[5])
+    await state.update_data(view_year=year, view_month=month)
     current_db = await get_db(uid, state)
     user = await current_db.get_user_by_id(e_uid)
     name = f"{user[2]} {user[3]}".strip() if user else f"ID {e_uid}"

@@ -160,6 +160,8 @@ def dashboard(request: Request, msg: str = ""):
         today_str = today.isoformat()
         month_str = month_start.isoformat()
         ctx["today_label"] = today.strftime('%d.%m.%Y')
+        ctx["curr_year"] = today.year
+        ctx["curr_month"] = today.month
 
         today_s = db.get_sales_summary(start_date=today_str, end_date=today_str) or (0, 0, 0, 0)
         month_s = db.get_sales_summary(start_date=month_str, end_date=today_str) or (0, 0, 0, 0)

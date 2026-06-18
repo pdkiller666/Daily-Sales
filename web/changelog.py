@@ -1,6 +1,22 @@
-CURRENT_VERSION = "1.70.0"
+CURRENT_VERSION = "1.71.0"
 
 ENTRIES = [
+    {
+        "version": "1.71.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Отпуска и больничные теперь подсвечиваются прямо в календаре смен — 🌴 синим, 🤒 жёлтым. Работает на страницах зарплаты и карточки сотрудника.",
+            "Еженедельный и ежемесячный рейтинг продавцов теперь приходит в бот с кнопкой «🌐 Рейтинг в вебе» — открывает веб-кабинет сразу на нужном периоде.",
+            "Update system to correctly display sales and absence data",
+            "Let managers jump from a sales report directly to a product's detail page scoped to that month",
+            "Deep-link from bot ranking/report messages into web staff profiles",
+            "Allow managers to jump to a staff member's web page for a past month",
+            "Add web deep-links to bot dashboard reports and daily summaries",
+            "Absence calendar — month-aware sidebar badges",
+            "Add weekly/monthly ranking notifications with 'Open in web' button",
+            "add per-seller deep-links in admin daily report (task-36)",
+        ],
+    },
     {
         "version": "1.70.0",
         "date": "18 июня 2026",

@@ -1348,6 +1348,22 @@ async def admin_user_details(callback: CallbackQuery, state: FSMContext):
             buttons.append([InlineKeyboardButton(text="🚪 Исключить из орга", callback_data="adm_kick_confirm")])
     if caller_is_super and not env_manager.is_super_admin(telegram_id) and telegram_id != callback.from_user.id:
         buttons.append([InlineKeyboardButton(text="🗑 Удалить полностью", callback_data="admin_delete_user")])
+    try:
+        from keyboards import _get_web_interface_url as _gwiu
+        from urllib.parse import quote as _uq
+        from web_login_codes import generate_code as _gc
+        import datetime as _dt
+        _wu = _gwiu()
+        if _wu:
+            _fsm_data = await state.get_data()
+            _view_year  = _fsm_data.get('view_year')  or _dt.date.today().year
+            _view_month = _fsm_data.get('view_month') or _dt.date.today().month
+            _nxt = f"/staff/{u_id}?year={_view_year}&month={_view_month}"
+            _code = _gc(callback.from_user.id)
+            _lurl = f"{_wu.rstrip('/')}/auth/code/auto?c={_code}&next={_uq(_nxt, safe='')}"
+            buttons.append([InlineKeyboardButton(text="🌐 Профиль в вебе", url=_lurl)])
+    except Exception:
+        pass
     buttons.append([back_button("admin_users")])
 
     await callback.message.edit_text(

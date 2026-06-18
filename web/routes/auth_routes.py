@@ -143,9 +143,20 @@ async def switch_org(
     return response
 
 
+def _safe_next(next_path: str) -> str:
+    """Validate a `next` redirect path: must start with / but not // (open redirect guard)."""
+    if next_path and next_path.startswith("/") and not next_path.startswith("//"):
+        return next_path
+    return "/dashboard"
+
+
 @router.get("/auth/code/auto")
-async def code_auto_login(request: Request, c: str = ""):
-    """Magic-link auto-login: validate code from URL param and issue JWT immediately."""
+async def code_auto_login(request: Request, c: str = "", next: str = ""):
+    """Magic-link auto-login: validate code from URL param and issue JWT immediately.
+
+    Optional `next` param: an absolute path (must start with /) to redirect to
+    after successful login instead of the default /dashboard.
+    """
     from web.auth import get_session_user, create_session_token, COOKIE_NAME
     from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
     from env_manager import env_manager
@@ -155,7 +166,7 @@ async def code_auto_login(request: Request, c: str = ""):
     # This handles bfcache / Telegram WebView replaying the same magic-link URL
     # after the one-time code was already consumed on the first load.
     if get_session_user(request):
-        return RedirectResponse(url="/dashboard", status_code=302)
+        return RedirectResponse(url=_safe_next(next) if next else "/dashboard", status_code=302)
 
     _ip = (request.client.host if request.client else "unknown")
     if not _check_rate_limit(_ip):
@@ -192,17 +203,20 @@ async def code_auto_login(request: Request, c: str = ""):
     except Exception:
         pass
 
-    # Stay on current page if referer is one of our own pages
-    referer = request.headers.get("referer", "")
-    try:
-        from urllib.parse import urlparse
-        ref_path = urlparse(referer).path or "/dashboard"
-        _safe = ("/dashboard", "/sales", "/products", "/inventory", "/reports",
-                 "/rankings", "/staff", "/plans", "/salary", "/schedule",
-                 "/settings", "/integration", "/contests")
-        redirect_to = ref_path if any(ref_path.startswith(p) for p in _safe) else "/dashboard"
-    except Exception:
-        redirect_to = "/dashboard"
+    # Use explicit `next` param if provided, else fall back to referer
+    if next:
+        redirect_to = _safe_next(next)
+    else:
+        referer = request.headers.get("referer", "")
+        try:
+            from urllib.parse import urlparse
+            ref_path = urlparse(referer).path or "/dashboard"
+            _safe = ("/dashboard", "/sales", "/products", "/inventory", "/reports",
+                     "/rankings", "/staff", "/plans", "/salary", "/schedule",
+                     "/settings", "/integration", "/contests")
+            redirect_to = ref_path if any(ref_path.startswith(p) for p in _safe) else "/dashboard"
+        except Exception:
+            redirect_to = "/dashboard"
     response = RedirectResponse(url=redirect_to, status_code=302)
     response.set_cookie(
         COOKIE_NAME, token,

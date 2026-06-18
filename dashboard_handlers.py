@@ -917,9 +917,15 @@ async def build_user_dashboard(current_db, user_id: int, telegram_id: int,
 
 async def build_admin_daily_text(current_db, yesterday: str, shop_name: str | None,
                                  scope_type: str = None, scope_values: list = None,
-                                 scope_value: str = None) -> str:
+                                 scope_value: str = None,
+                                 telegram_id: int | None = None,
+                                 staff_link_base: str | None = None) -> str:
     """Текст для ежедневного отчёта администратору.
-    shop_name — для обратной совместимости; scope_type/scope_values — новый способ."""
+    shop_name — для обратной совместимости; scope_type/scope_values — новый способ.
+    staff_link_base — готовый префикс «{web_url}/auth/code/auto?c={code}&next=»,
+    генерируется снаружи чтобы один код использовался и для seller-ссылок, и для кнопки.
+    telegram_id — устаревший способ; если staff_link_base не передан, код генерируется
+    внутри функции (но тогда кнопка «Отчёт в вебе» НЕ должна генерировать второй код)."""
     if scope_values is None and scope_value:
         scope_values = [scope_value]
     scope_values = scope_values or []
@@ -945,6 +951,51 @@ async def build_admin_daily_text(current_db, yesterday: str, shop_name: str | No
     msg += f"• Транзакций: {total_sales}\n"
     msg += f"• Продано: {total_qty} шт.\n"
     msg += f"• Выручка: {total_revenue:,.0f} ₽\n"
+
+    # ── Топ продавцов с deep-links ──────────────────────────────────────────
+    try:
+        ranking = await current_db.get_sales_ranking(
+            yesterday, yesterday, **scope_kwargs
+        )
+        if ranking:
+            _view_year  = int(yesterday[:4])
+            _view_month = int(yesterday[5:7])
+
+            # Предпочитаем готовый staff_link_base (код уже сгенерирован снаружи).
+            # Если не передан — генерируем сами из telegram_id (legacy path).
+            _resolved_base = staff_link_base
+            if not _resolved_base and telegram_id:
+                try:
+                    from keyboards import _get_web_interface_url as _gwiu
+                    _wu = _gwiu()
+                    if _wu:
+                        from web_login_codes import generate_code as _gc
+                        _code = _gc(telegram_id)
+                        _resolved_base = f"{_wu.rstrip('/')}/auth/code/auto?c={_code}&next="
+                except Exception:
+                    pass
+
+            from urllib.parse import quote as _uq
+            medals = ['🥇', '🥈', '🥉', '4.', '5.']
+            msg += "\n🏆 <b>Топ продавцов</b>\n"
+            for i, row in enumerate(ranking[:5]):
+                fn   = row[0] or ''
+                ln   = row[1] or ''
+                qty  = int(row[3] or 0)
+                rev  = float(row[4] or 0.0)
+                uid  = row[7] if len(row) > 7 else None
+                medal = medals[i] if i < len(medals) else f"{i+1}."
+
+                if _resolved_base and uid:
+                    _nxt = _uq(f"/staff/{uid}?year={_view_year}&month={_view_month}", safe='')
+                    name_str = f"<a href='{_resolved_base}{_nxt}'>{he(fn)} {he(ln)}</a>"
+                else:
+                    name_str = f"{he(fn)} {he(ln)}"
+
+                msg += f"{medal} {name_str} — {qty} шт. · {rev:,.0f} ₽\n"
+    except Exception:
+        pass
+
     return msg
 
 
@@ -976,7 +1027,8 @@ async def build_user_daily_text(current_db, user_id: int,
 
 
 def _dashboard_period_kb(period: str, plans_page: int = 0,
-                         plans_total: int = 1) -> InlineKeyboardMarkup:
+                         plans_total: int = 1,
+                         web_btn: InlineKeyboardButton | None = None) -> InlineKeyboardMarkup:
     """Клавиатура переключения периода дашборда."""
     periods = [
         ('today', '📅 Сегодня'),
@@ -997,6 +1049,8 @@ def _dashboard_period_kb(period: str, plans_page: int = 0,
         if plans_page < plans_total - 1:
             nav.append(InlineKeyboardButton(text="▶️", callback_data="dash_pp_n"))
         rows.append(nav)
+    if web_btn:
+        rows.append([web_btn])
     rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dash_p_{period}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1042,8 +1096,33 @@ async def _render_dashboard(callback: CallbackQuery, state: FSMContext,
     await state.update_data(dash_plans_pg=plans_page, dash_period=period)
 
     text += hint_suffix(current_db, user[0], 'first_dashboard')
+
+    _web_btn = None
+    if is_any_admin(callback.from_user.id) or is_super_admin:
+        try:
+            from keyboards import _get_web_interface_url as _gwiu
+            from urllib.parse import quote as _uq
+            _wu = _gwiu()
+            if _wu:
+                from web_login_codes import generate_code as _gc
+                _code = _gc(callback.from_user.id)
+                _today_d = _now_local.date()
+                if period == 'week':
+                    _df = (_today_d - timedelta(days=6)).isoformat()
+                elif period == 'month':
+                    _df = _today_d.replace(day=1).isoformat()
+                else:
+                    _df = _today_d.isoformat()
+                _dt = _today_d.isoformat()
+                _nxt = f"/reports?period=custom&date_from={_df}&date_to={_dt}"
+                _lurl = f"{_wu.rstrip('/')}/auth/code/auto?c={_code}&next={_uq(_nxt, safe='')}"
+                _web_btn = InlineKeyboardButton(text="🌐 Отчёт в вебе", url=_lurl)
+        except Exception:
+            pass
+
     await safe_edit_message(callback.message, text, parse_mode="HTML",
-                            reply_markup=_dashboard_period_kb(period, plans_page, total_plan_pages))
+                            reply_markup=_dashboard_period_kb(period, plans_page, total_plan_pages,
+                                                              web_btn=_web_btn))
 
 
 @router.callback_query(lambda c: c.data == "dashboard")

@@ -94,9 +94,9 @@
         Календарь отсутствий
         {% if is_admin and selected_user_id %}
           {% set _sv_type = absent_today.get(selected_user_id) %}
-          {% if _sv_type == 'vacation' %}<span class="normal-case font-normal text-emerald-500 ml-1">🌴 В отпуске сегодня</span>
-          {% elif _sv_type == 'sick' %}<span class="normal-case font-normal text-blue-500 ml-1">🤒 На больничном сегодня</span>
-          {% elif _sv_type %}<span class="normal-case font-normal ml-1"><span class="text-xs bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-medium">Нет сегодня</span></span>
+          {% if _sv_type == 'vacation' %}<span class="normal-case font-normal text-emerald-500 ml-1">🌴 {{ 'В отпуске сегодня' if is_current_month else 'В отпуске в этом месяце' }}</span>
+          {% elif _sv_type == 'sick' %}<span class="normal-case font-normal text-blue-500 ml-1">🤒 {{ 'На больничном сегодня' if is_current_month else 'На больничном в этом месяце' }}</span>
+          {% elif _sv_type %}<span class="normal-case font-normal ml-1"><span class="text-xs bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full font-medium">{{ 'Нет сегодня' if is_current_month else 'Нет в этом месяце' }}</span></span>
           {% endif %}
         {% endif %}
       </p>

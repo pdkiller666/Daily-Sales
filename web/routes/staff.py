@@ -20,6 +20,41 @@ def _adjacent_month(year: int, month: int, delta: int):
     return (total // 12 + 1, total % 12 + 1)
 
 
+def _absence_day_sets(absence_rows, year: int, month: int):
+    """Expand approved absence records into sets of calendar day numbers.
+
+    Returns (vacation_days, sick_days, other_days) — all sets of int day nums.
+    absence_rows columns: id[0] type[1] start_date[2] end_date[3] status[4] is_paid[5] ...
+    """
+    from datetime import date as _date, timedelta as _td
+    import calendar as _cal
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = _date(year, month, 1)
+    month_end = _date(year, month, last_day)
+    vacation_days: set = set()
+    sick_days: set = set()
+    other_days: set = set()
+    for ab in (absence_rows or []):
+        if ab[4] != "approved":
+            continue
+        atype = ab[1]
+        try:
+            sd = max(_date.fromisoformat(ab[2]), month_start)
+            ed = min(_date.fromisoformat(ab[3]), month_end)
+        except Exception:
+            continue
+        cur = sd
+        while cur <= ed:
+            if atype == "vacation":
+                vacation_days.add(cur.day)
+            elif atype == "sick":
+                sick_days.add(cur.day)
+            else:
+                other_days.add(cur.day)
+            cur += _td(days=1)
+    return vacation_days, sick_days, other_days
+
+
 ROLE_LABELS = {
     "owner": ("Владелец", "bg-purple-100 text-purple-700"),
     "admin": ("Администратор", "bg-blue-100 text-blue-700"),
@@ -538,6 +573,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         "all_summary": (0, 0, 0, 0),
         "daily_rate": 0.0, "worked_days": 0, "paid_absence_days": 0, "current_absence": None,
         "cal_grid": [], "work_days_set": set(),
+        "vacation_days": set(), "sick_days": set(), "other_absence_days": set(),
         "month_name": MONTH_NAMES.get(month, str(month)),
         "year": year, "month": month,
         "is_current_month": is_current_month,
@@ -639,6 +675,16 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         ctx["cal_grid"] = cal_grid
         work_days_set: set = {int(d[8:10]) for d in work_days}
         ctx["work_days_set"] = work_days_set
+
+        # Absence day-sets for calendar coloring (all months)
+        try:
+            _abs_for_cal = db.get_absences_for_user(user_id, year, month)
+            _vac, _sick, _other = _absence_day_sets(_abs_for_cal, year, month)
+            ctx["vacation_days"] = _vac
+            ctx["sick_days"] = _sick
+            ctx["other_absence_days"] = _other
+        except Exception:
+            _abs_for_cal = []
 
         # Absence map for the current month — used for consistent shift counting
         # and for current-absence badge

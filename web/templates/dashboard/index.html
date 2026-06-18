@@ -357,7 +357,7 @@
                     <tr class="hover:bg-slate-50/80 transition-colors">
                         <td class="px-5 py-3">
                             {% if s[7] %}
-                            <a href="/products/{{ s[7] }}" class="group">
+                            <a href="/products/{{ s[7] }}{% if curr_year and curr_month %}?year={{ curr_year }}&month={{ curr_month }}{% endif %}" class="group">
                                 <p class="font-medium text-slate-800 truncate max-w-[140px] sm:max-w-[200px] group-hover:text-blue-600 transition-colors" title="{{ s[1] }}">{{ s[1] }}</p>
                             </a>
                             {% else %}

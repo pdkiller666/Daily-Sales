@@ -39,7 +39,8 @@ def _aggregate(all_sales, group_by: str, link_year: int = 0, link_month: int = 0
         if group_by == "product":
             key = s[1]
             if key not in groups:
-                groups[key] = {"id": s[1], "label": s[7] or "—", "sub": s[8] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": f"/products/{s[1]}"}
+                _prod_link = f"/products/{s[1]}?year={link_year}&month={link_month}" if link_year and link_month else f"/products/{s[1]}"
+                groups[key] = {"id": s[1], "label": s[7] or "—", "sub": s[8] or "—", "qty": 0, "revenue": 0.0, "count": 0, "link": _prod_link}
         elif group_by == "category":
             key = s[8] or "Без категории"
             if key not in groups:

@@ -97,9 +97,12 @@ async def _show_report_page(message, state: FSMContext, page_idx: int) -> None:
     if not pages or not (0 <= page_idx < len(pages)):
         return
     await state.update_data(rpt_page=page_idx)
-    extra_btns = [
-        InlineKeyboardButton(text=b['text'], callback_data=b['cb']) for b in extra_raw
-    ]
+    extra_btns = []
+    for b in extra_raw:
+        if b.get('url'):
+            extra_btns.append(InlineKeyboardButton(text=b['text'], url=b['url']))
+        elif b.get('cb'):
+            extra_btns.append(InlineKeyboardButton(text=b['text'], callback_data=b['cb']))
     markup = _report_page_markup(page_idx, len(pages), extra_btns, back_cb)
     try:
         await message.edit_text(pages[page_idx], reply_markup=markup, parse_mode="HTML")
@@ -1115,11 +1118,29 @@ async def generate_period_report(callback: CallbackQuery, state: FSMContext,
         message_text += "\n"
 
     await state.update_data(excel_start=start_date, excel_end=end_date, excel_shop=shop_name)
-    extra_btns = [InlineKeyboardButton(text="📥 Скачать Excel", callback_data="download_excel_period")]
+    # Сохраняем период для deep-link в admin_user_details
+    try:
+        await state.update_data(view_year=int(start_date[:4]), view_month=int(start_date[5:7]))
+    except Exception:
+        pass
+    extra_btns_raw = [{"text": "📥 Скачать Excel", "cb": "download_excel_period"}]
+    if is_admin:
+        try:
+            from keyboards import _get_web_interface_url as _gwiu
+            from urllib.parse import quote as _uq
+            _wu = _gwiu()
+            if _wu:
+                from web_login_codes import generate_code as _gc
+                _code = _gc(callback.from_user.id)
+                _nxt = f"/reports?period=custom&date_from={start_date}&date_to={end_date}"
+                _lurl = f"{_wu.rstrip('/')}/auth/code/auto?c={_code}&next={_uq(_nxt, safe='')}"
+                extra_btns_raw.append({"text": "🌐 Отчёт в вебе", "url": _lurl})
+        except Exception:
+            pass
     pages = _build_report_pages(message_text)
     await state.update_data(
         rpt_pages=pages, rpt_page=0,
-        rpt_extra_btns=[{"text": b.text, "cb": b.callback_data} for b in extra_btns],
+        rpt_extra_btns=extra_btns_raw,
         rpt_back_cb="reports",
     )
     await _show_report_page(callback.message, state, 0)
@@ -1331,19 +1352,25 @@ def _ranking_period(period: str, custom_start: str = None, custom_end: str = Non
         return today.replace(day=1).isoformat(), today.isoformat(), label
 
 
-def _period_kb(active: str, rtype: str, back_cb: str) -> InlineKeyboardMarkup:
-    """Клавиатура переключения периода + кнопка Назад"""
+def _period_kb(active: str, rtype: str, back_cb: str,
+               web_btn: "InlineKeyboardButton | None" = None) -> InlineKeyboardMarkup:
+    """Клавиатура переключения периода + кнопка Назад.
+    web_btn: необязательная кнопка «Открыть в вебе» (URL-кнопка) для администраторов.
+    """
     btns = []
     for code, label in [('7d', '7 дней'), ('month', 'Этот месяц'), ('prev', 'Прошлый')]:
         cb   = f"rank_{rtype}_{code}"
         text = f"✅ {label}" if code == active else f"📅 {label}"
         btns.append(InlineKeyboardButton(text=text, callback_data=cb))
     custom_text = "✅ 📆 Период" if active == 'custom' else "📆 Свой период"
-    return InlineKeyboardMarkup(inline_keyboard=[
+    rows = [
         btns,
         [InlineKeyboardButton(text=custom_text, callback_data=f"rank_{rtype}_custom")],
-        [back_button(back_cb)],
-    ])
+    ]
+    if web_btn is not None:
+        rows.append([web_btn])
+    rows.append([back_button(back_cb)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ─── Меню рейтингов ────────────────────────────────────────────────────────
@@ -1454,6 +1481,27 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
     except Exception:
         pass
 
+    # Сохраняем период в FSM-стейт — используется в admin_user_details для deep-link
+    _view_year  = int(end[:4])
+    _view_month = int(end[5:7])
+    await state.update_data(view_year=_view_year, view_month=_view_month)
+
+    # Для администраторов: один магический код для inline-ссылок на профили сотрудников.
+    # Первый клик — логин + редирект; последующие — уже есть сессия, редирект через next=.
+    _staff_link_tpl = None
+    if is_admin:
+        try:
+            from keyboards import _get_web_interface_url as _gwiu
+            from urllib.parse import quote as _uq2
+            _wu2 = _gwiu()
+            if _wu2:
+                from web_login_codes import generate_code as _gc2
+                _code2 = _gc2(callback.from_user.id)
+                _base2 = f"{_wu2.rstrip('/')}/auth/code/auto?c={_code2}&next="
+                _staff_link_tpl = (_base2, _view_year, _view_month, _uq2)
+        except Exception:
+            pass
+
     text = f"🏆 <b>Рейтинг продавцов</b>\n📅 {label}\n\n"
     for i, row in enumerate(ranking[:10]):
         fn, ln, sn, qty, revenue, cnt, earn = row[:7]
@@ -1462,7 +1510,13 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
         medal   = medals[i] if i < 3 else f"{i+1}."
         uname_str = f" <a href='tg://resolve?domain={he(uname)}'>@{he(uname)}</a>" if uname else ""
 
-        text += f"{medal} <b>{he(fn)} {he(ln)}</b>{uname_str}\n"
+        if _staff_link_tpl and uid_row:
+            _base_lnk, _yr, _mo, _uq2 = _staff_link_tpl
+            _nxt2 = _uq2(f"/staff/{uid_row}?year={_yr}&month={_mo}", safe='')
+            _name_str = f"<a href='{_base_lnk}{_nxt2}'>{he(fn)} {he(ln)}</a>"
+        else:
+            _name_str = f"{he(fn)} {he(ln)}"
+        text += f"{medal} <b>{_name_str}</b>{uname_str}\n"
         text += f"   🏪 {he(sn)}\n"
         text += f"   📦 {qty} шт. · 💰 {format_currency(revenue)}\n"
         if earn and earn > 0:
@@ -1503,8 +1557,23 @@ async def _show_sellers(callback: CallbackQuery, state: FSMContext, period: str)
                     reward_str = f" · +{format_currency(cr['reward'])}" if cr['reward'] > 0 else ""
                     text += f"   🏆 «{he(cr['title'])}»: {_ordinal_ru(cr['pos'])}{reward_str}\n"
 
+    _web_btn_sel = None
+    if is_admin:
+        try:
+            from keyboards import _get_web_interface_url as _gwiu
+            from urllib.parse import quote as _uq
+            _wu = _gwiu()
+            if _wu:
+                from web_login_codes import generate_code as _gc
+                _code = _gc(callback.from_user.id)
+                _nxt = f"/rankings?tab=sellers&period=custom&date_from={start}&date_to={end}"
+                _lurl = f"{_wu.rstrip('/')}/auth/code/auto?c={_code}&next={_uq(_nxt, safe='')}"
+                _web_btn_sel = InlineKeyboardButton(text="🌐 Рейтинг в вебе", url=_lurl)
+        except Exception:
+            pass
+
     await callback.message.edit_text(
-        text, reply_markup=_period_kb(period, 'sel', back_cb), parse_mode="HTML"
+        text, reply_markup=_period_kb(period, 'sel', back_cb, web_btn=_web_btn_sel), parse_mode="HTML"
     )
 
 

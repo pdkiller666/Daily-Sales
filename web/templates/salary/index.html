@@ -252,14 +252,18 @@
                     {% else %}
                     <div class="aspect-square flex items-center justify-center rounded-lg font-medium
                                 {% if day in work_days_set %}bg-emerald-500 text-white shadow-sm
-                                {% else %}bg-slate-50 text-slate-400{% endif %}">
-                        {{ day }}
+                                {% elif day in vacation_days %}bg-blue-100 text-blue-700
+                                {% elif day in sick_days %}bg-amber-100 text-amber-700
+                                {% elif day in other_absence_days %}bg-yellow-100 text-yellow-700
+                                {% else %}bg-slate-50 text-slate-400{% endif %}"
+                         title="{% if day in work_days_set %}Рабочая смена{% elif day in vacation_days %}Отпуск{% elif day in sick_days %}Больничный{% elif day in other_absence_days %}Отсутствие{% endif %}">
+                        {% if day in vacation_days and day not in work_days_set %}🌴{% elif day in sick_days and day not in work_days_set %}🤒{% else %}{{ day }}{% endif %}
                     </div>
                     {% endif %}
                 {% endfor %}
             {% endfor %}
         </div>
-        <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена</p>
+        <p class="text-xs text-slate-400 mt-2">🟢 — рабочая смена &nbsp;·&nbsp; 🌴 — отпуск &nbsp;·&nbsp; 🤒 — больничный</p>
     </div>
 
     <!-- Absence breakdown (past months only) -->

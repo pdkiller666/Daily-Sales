@@ -1731,10 +1731,11 @@ async def save_org_logo(
 
 
 @router.get("/products/{product_id}")
-def product_detail(request: Request, product_id: int):
+def product_detail(request: Request, product_id: int, year: int = 0, month: int = 0):
     from web.auth import get_session_user
     from web.deps import get_web_db
     from datetime import date
+    import calendar
 
     user = get_session_user(request)
     if not user:
@@ -1742,6 +1743,35 @@ def product_detail(request: Request, product_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+
+    # Resolve the scope month — use provided year/month or fall back to current
+    today = date.today()
+    if year and month and 1 <= month <= 12 and year >= 2000:
+        scoped_year = year
+        scoped_month = month
+    else:
+        scoped_year = today.year
+        scoped_month = today.month
+        year = 0  # treat as "no scope" so template shows default label
+        month = 0
+
+    _month_start = date(scoped_year, scoped_month, 1).isoformat()
+    _last_day = calendar.monthrange(scoped_year, scoped_month)[1]
+    _month_end = date(scoped_year, scoped_month, _last_day).isoformat()
+
+    _MONTH_RU = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                 "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    scoped_label = f"{_MONTH_RU[scoped_month]} {scoped_year}" if (year and month) else "месяц"
+
+    # Prev/next month for navigation
+    if scoped_month == 1:
+        prev_year, prev_month = scoped_year - 1, 12
+    else:
+        prev_year, prev_month = scoped_year, scoped_month - 1
+    if scoped_month == 12:
+        next_year, next_month = scoped_year + 1, 1
+    else:
+        next_year, next_month = scoped_year, scoped_month + 1
 
     ctx: dict = {
         "request": request, "user": user,
@@ -1754,6 +1784,12 @@ def product_detail(request: Request, product_id: int):
         "error": None,
         "user_tz": "Europe/Moscow",
         "product_history": [],
+        "scoped_year": scoped_year,
+        "scoped_month": scoped_month,
+        "scoped_label": scoped_label,
+        "is_scoped": bool(year and month),
+        "prev_year": prev_year, "prev_month": prev_month,
+        "next_year": next_year, "next_month": next_month,
     }
 
     try:
@@ -1808,9 +1844,7 @@ def product_detail(request: Request, product_id: int):
         except Exception:
             pass
 
-        # Recent sales of this product
-        today = date.today()
-        month_start = today.replace(day=1).isoformat()
+        # Recent sales of this product (scoped to the selected month)
         # get_sales_report: id[0] pid[1] shop[2] qty[3] price[4] uid[5] date[6]
         #   product_name[7] category[8] first_name[9] last_name[10]
         conn = db.get_connection()
@@ -1822,16 +1856,17 @@ def product_detail(request: Request, product_id: int):
                    FROM sales s
                    LEFT JOIN users u ON u.id = s.user_id
                    WHERE s.product_id = ?
+                     AND date(s.sale_date) BETWEEN ? AND ?
                    ORDER BY s.sale_date DESC LIMIT 30""",
-                (product_id,)
+                (product_id, _month_start, _month_end)
             )
             raw_sales = cur.fetchall()
-            # Month totals
+            # Month totals (same window)
             cur.execute(
                 """SELECT SUM(s.quantity_sold), SUM(s.quantity_sold * s.sale_price)
                    FROM sales s
-                   WHERE s.product_id = ? AND date(s.sale_date) >= ?""",
-                (product_id, month_start)
+                   WHERE s.product_id = ? AND date(s.sale_date) BETWEEN ? AND ?""",
+                (product_id, _month_start, _month_end)
             )
             month_row = cur.fetchone()
         finally:
@@ -1841,7 +1876,7 @@ def product_detail(request: Request, product_id: int):
         ctx["month_qty"] = int(month_row[0] or 0) if month_row else 0
         ctx["month_revenue"] = float(month_row[1] or 0) if month_row else 0.0
 
-        # 7-day chart data
+        # 7-day chart data (always last 7 days regardless of scope, for trend context)
         try:
             from datetime import timedelta
             chart_labels = []

@@ -45,6 +45,42 @@ def _source_label(src):
 _SOURCE_ORDER = ["user", "shop", "city", "trade_network", "schedule", "global"]
 
 
+def _absence_day_sets(absence_rows, year: int, month: int):
+    """Expand approved absence records into sets of calendar day numbers.
+
+    Returns (vacation_days, sick_days, other_days) — all sets of int day nums.
+    Clamps each range to [1, days_in_month].
+    absence_rows columns: id[0] type[1] start_date[2] end_date[3] status[4] is_paid[5] ...
+    """
+    from datetime import date as _date, timedelta as _td
+    import calendar as _cal
+    last_day = _cal.monthrange(year, month)[1]
+    month_start = _date(year, month, 1)
+    month_end = _date(year, month, last_day)
+    vacation_days: set = set()
+    sick_days: set = set()
+    other_days: set = set()
+    for ab in (absence_rows or []):
+        if ab[4] != "approved":
+            continue
+        atype = ab[1]
+        try:
+            sd = max(_date.fromisoformat(ab[2]), month_start)
+            ed = min(_date.fromisoformat(ab[3]), month_end)
+        except Exception:
+            continue
+        cur = sd
+        while cur <= ed:
+            if atype == "vacation":
+                vacation_days.add(cur.day)
+            elif atype == "sick":
+                sick_days.add(cur.day)
+            else:
+                other_days.add(cur.day)
+            cur += _td(days=1)
+    return vacation_days, sick_days, other_days
+
+
 def _commission_by_source(earnings):
     """Группирует список начислений по источнику мотивации.
 
@@ -337,6 +373,7 @@ def salary_page(
         "detail_plan_coeff": None, "detail_plan_coeff_details": [],
         "detail_contest_rewards": 0.0, "detail_contest_details": [],
         "detail_absences": [],
+        "vacation_days": set(), "sick_days": set(), "other_absence_days": set(),
         "detail_page": 1, "detail_total_pages": 1, "detail_total_count": 0,
         "total_salary_fund": 0.0, "error": None,
         "csrf_token": get_csrf_token(request),
@@ -517,11 +554,17 @@ def salary_page(
             d_start = (detail_page - 1) * EARNINGS_PAGE_SIZE
             detail_earnings_page = detail_earnings[d_start:d_start + EARNINGS_PAGE_SIZE]
 
-            # Absence breakdown — only for past months
+            # Absence breakdown + calendar coloring — fetch once for all months
             detail_absences = []
             try:
+                raw_abs = db.get_absences_for_user(user_id, year, month)
+                # Build calendar day-coloring sets
+                vac_days, sick_days_set, other_days = _absence_day_sets(raw_abs, year, month)
+                ctx["vacation_days"] = vac_days
+                ctx["sick_days"] = sick_days_set
+                ctx["other_absence_days"] = other_days
+                # Breakdown list — only for past months
                 if (year, month) < (today.year, today.month):
-                    raw_abs = db.get_absences_for_user(user_id, year, month)
                     for _a in raw_abs:
                         if _a[4] == "approved":
                             detail_absences.append({

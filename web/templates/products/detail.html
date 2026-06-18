@@ -200,8 +200,27 @@
 </div>
 {% endif %}
 
+<!-- Month scope nav (shown when year/month params are active) -->
+{% if is_scoped %}
+<div class="flex items-center justify-between mb-4 px-1">
+    <a href="/products/{{ product[0] }}?year={{ prev_year }}&month={{ prev_month }}"
+       class="flex items-center gap-1 text-sm text-slate-500 hover:text-blue-600 transition-colors font-medium">
+        ‹ пред.
+    </a>
+    <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ scoped_label }}</span>
+        <a href="/products/{{ product[0] }}" class="text-xs text-slate-400 hover:text-slate-600 transition-colors underline underline-offset-2">сбросить</a>
+    </div>
+    <a href="/products/{{ product[0] }}?year={{ next_year }}&month={{ next_month }}"
+       class="flex items-center gap-1 text-sm text-slate-500 hover:text-blue-600 transition-colors font-medium">
+        след. ›
+    </a>
+</div>
+{% endif %}
+
 <!-- Summary cards -->
 {% set _pname = product[1]|urlencode %}
+{% set _sales_scope = '?product_id=' ~ product[0] ~ ('&year=' ~ scoped_year ~ '&month=' ~ scoped_month if is_scoped else '') %}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
     <a href="/inventory?q={{ _pname }}"
        class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
@@ -219,17 +238,17 @@
         </p>
         <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ inventory_by_shop|length }}</p>
     </a>
-    <a href="/sales?product_id={{ product[0] }}"
+    <a href="/sales{{ _sales_scope }}"
        class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
-            Продано (месяц) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+            Продано ({{ scoped_label }}) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
         </p>
         <p class="text-2xl font-bold text-blue-600">{{ month_qty }}<span class="text-sm font-normal text-slate-400 ml-1">шт.</span></p>
     </a>
-    <a href="/sales?product_id={{ product[0] }}"
+    <a href="/sales{{ _sales_scope }}"
        class="card p-4 group hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-800 hover:-translate-y-0.5 transition-all">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center justify-between">
-            Выручка (месяц) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
+            Выручка ({{ scoped_label }}) <span class="text-slate-300 group-hover:text-blue-500 transition-colors">→</span>
         </p>
         <p class="text-2xl font-bold text-emerald-600">{{ month_revenue|int|fmt_currency }}</p>
     </a>
@@ -332,7 +351,7 @@
 {% if recent_sales %}
 <div class="card overflow-hidden mb-5">
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">📊 Последние продажи</h2>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">📊 Продажи{% if is_scoped %} — {{ scoped_label }}{% endif %}</h2>
         <span class="text-xs text-slate-400">последние {{ recent_sales|length }}</span>
     </div>
     <div class="overflow-x-auto">

@@ -541,13 +541,33 @@ async def send_daily_reports(bot: Bot):
                     except Exception:
                         continue
 
+                    # Для администраторов: один магический код на весь блок сообщения.
+                    # Используется и для seller deep-links внутри текста, и для кнопки.
+                    _admin_staff_link_base = None
+                    _admin_button_url = None
+                    if is_any_admin(telegram_id):
+                        try:
+                            from keyboards import _get_web_interface_url as _gwiu_dr
+                            from urllib.parse import quote as _uq_dr
+                            _wu_dr = _gwiu_dr()
+                            if _wu_dr:
+                                from web_login_codes import generate_code as _gc_dr
+                                _code_dr = _gc_dr(telegram_id)
+                                _base_dr = f"{_wu_dr.rstrip('/')}/auth/code/auto?c={_code_dr}&next="
+                                _admin_staff_link_base = _base_dr
+                                _nxt_dr = f"/reports?period=custom&date_from={yesterday}&date_to={yesterday}"
+                                _admin_button_url = f"{_base_dr}{_uq_dr(_nxt_dr, safe='')}"
+                        except Exception:
+                            pass
+
                     try:
                         if is_any_admin(telegram_id):
                             from db_utils import get_user_org_scope
                             _sct, _scv = get_user_org_scope(telegram_id)
                             message = await build_admin_daily_text(
                                 current_db, yesterday, shop_name,
-                                scope_type=_sct, scope_values=_scv
+                                scope_type=_sct, scope_values=_scv,
+                                staff_link_base=_admin_staff_link_base,
                             )
                         else:
                             message = await build_user_daily_text(
@@ -566,7 +586,16 @@ async def send_daily_reports(bot: Bot):
                             message += "ℹ️ Продаж не было."
 
                     try:
-                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        _daily_markup = add_read_btn()
+                        if _admin_button_url:
+                            try:
+                                from aiogram.types import InlineKeyboardMarkup as _IKM, InlineKeyboardButton as _IKB
+                                _daily_markup = add_read_btn(_IKM(inline_keyboard=[
+                                    [_IKB(text="🌐 Отчёт в вебе", url=_admin_button_url)]
+                                ]))
+                            except Exception:
+                                pass
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=_daily_markup)
                         await asyncio.sleep(0.05)
                         await current_db.add_notification_to_history(user_id, 'daily_report', message)
                         try:
@@ -906,6 +935,146 @@ async def send_post_restart_start(bot):
         logging.error(f"Ошибка при отправке post-restart сообщения: {e}")
 
 
+async def send_weekly_ranking_notification(bot: Bot):
+    """Еженедельный рейтинг топ-продавцов по всем организациям (понедельник, 09:00 UTC)."""
+    try:
+        import datetime as _dt
+        from db_utils import is_any_admin
+
+        today = _dt.date.today()
+        week_start = (today - _dt.timedelta(days=7)).isoformat()
+        week_end = today.isoformat()
+        label = f"{(today - _dt.timedelta(days=7)).strftime('%d.%m')}–{today.strftime('%d.%m.%Y')}"
+
+        db_paths = _get_scheduler_db_paths()
+        for path in db_paths:
+            await asyncio.sleep(0)
+            current_db = Database(path)
+            try:
+                admin_ids = current_db.get_all_admins_telegram_ids()
+                if not admin_ids:
+                    continue
+
+                ranking = current_db.get_sales_ranking(start_date=week_start, end_date=week_end)
+                if not ranking:
+                    continue
+
+                medals = ["🥇", "🥈", "🥉"]
+                text = f"🏆 <b>Еженедельный рейтинг продавцов</b>\n📅 {label}\n\n"
+                for i, row in enumerate(ranking[:5]):
+                    fn, ln, sn, qty, revenue = row[0], row[1], row[2], row[3], row[4]
+                    medal = medals[i] if i < 3 else f"{i + 1}."
+                    name = f"{he(fn or '')} {he(ln or '')}".strip() or "—"
+                    text += f"{medal} <b>{name}</b>\n"
+                    if sn:
+                        text += f"   🏪 {he(sn)}\n"
+                    text += f"   📦 {qty} шт. · 💰 {revenue:,.0f} ₽\n\n"
+
+                for tg_id in admin_ids:
+                    if not tg_id or int(tg_id) <= 0:
+                        continue
+                    try:
+                        _markup = add_read_btn()
+                        if is_any_admin(int(tg_id)):
+                            try:
+                                from keyboards import _get_web_interface_url as _gwiu_wr
+                                from urllib.parse import quote as _uq_wr
+                                from aiogram.types import InlineKeyboardMarkup as _IKM_wr, InlineKeyboardButton as _IKB_wr
+                                _wu_wr = _gwiu_wr()
+                                if _wu_wr:
+                                    from web_login_codes import generate_code as _gc_wr
+                                    _code_wr = _gc_wr(int(tg_id))
+                                    _nxt_wr = f"/rankings?tab=sellers&period=custom&date_from={week_start}&date_to={week_end}"
+                                    _lurl_wr = f"{_wu_wr.rstrip('/')}/auth/code/auto?c={_code_wr}&next={_uq_wr(_nxt_wr, safe='')}"
+                                    _markup = add_read_btn(_IKM_wr(inline_keyboard=[
+                                        [_IKB_wr(text="🌐 Рейтинг в вебе", url=_lurl_wr)]
+                                    ]))
+                            except Exception:
+                                pass
+                        await bot.send_message(int(tg_id), text, parse_mode="HTML", reply_markup=_markup)
+                        await asyncio.sleep(0.05)
+                    except Exception as _send_err:
+                        logging.warning(f"send_weekly_ranking_notification: skip {tg_id}: {_send_err}")
+            except Exception:
+                continue
+    except Exception as e:
+        logging.error(f"Error in send_weekly_ranking_notification: {e}")
+
+
+async def send_monthly_ranking_notification(bot: Bot):
+    """Ежемесячный рейтинг топ-продавцов за прошлый месяц (1-е числа, 09:05 UTC)."""
+    try:
+        import datetime as _dt
+        from db_utils import is_any_admin
+
+        today = _dt.date.today()
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - _dt.timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+        month_start = last_month_start.isoformat()
+        month_end = last_month_end.isoformat()
+        months_ru = {
+            1: "январь", 2: "февраль", 3: "март", 4: "апрель",
+            5: "май", 6: "июнь", 7: "июль", 8: "август",
+            9: "сентябрь", 10: "октябрь", 11: "ноябрь", 12: "декабрь",
+        }
+        label = f"{months_ru.get(last_month_start.month, '')} {last_month_start.year}"
+
+        db_paths = _get_scheduler_db_paths()
+        for path in db_paths:
+            await asyncio.sleep(0)
+            current_db = Database(path)
+            try:
+                admin_ids = current_db.get_all_admins_telegram_ids()
+                if not admin_ids:
+                    continue
+
+                ranking = current_db.get_sales_ranking(start_date=month_start, end_date=month_end)
+                if not ranking:
+                    continue
+
+                medals = ["🥇", "🥈", "🥉"]
+                text = f"🏆 <b>Рейтинг продавцов за {he(label)}</b>\n\n"
+                for i, row in enumerate(ranking[:5]):
+                    fn, ln, sn, qty, revenue = row[0], row[1], row[2], row[3], row[4]
+                    medal = medals[i] if i < 3 else f"{i + 1}."
+                    name = f"{he(fn or '')} {he(ln or '')}".strip() or "—"
+                    text += f"{medal} <b>{name}</b>\n"
+                    if sn:
+                        text += f"   🏪 {he(sn)}\n"
+                    text += f"   📦 {qty} шт. · 💰 {revenue:,.0f} ₽\n\n"
+
+                for tg_id in admin_ids:
+                    if not tg_id or int(tg_id) <= 0:
+                        continue
+                    try:
+                        _markup = add_read_btn()
+                        if is_any_admin(int(tg_id)):
+                            try:
+                                from keyboards import _get_web_interface_url as _gwiu_mr
+                                from urllib.parse import quote as _uq_mr
+                                from aiogram.types import InlineKeyboardMarkup as _IKM_mr, InlineKeyboardButton as _IKB_mr
+                                _wu_mr = _gwiu_mr()
+                                if _wu_mr:
+                                    from web_login_codes import generate_code as _gc_mr
+                                    _code_mr = _gc_mr(int(tg_id))
+                                    _nxt_mr = f"/rankings?tab=sellers&period=custom&date_from={month_start}&date_to={month_end}"
+                                    _lurl_mr = f"{_wu_mr.rstrip('/')}/auth/code/auto?c={_code_mr}&next={_uq_mr(_nxt_mr, safe='')}"
+                                    _markup = add_read_btn(_IKM_mr(inline_keyboard=[
+                                        [_IKB_mr(text="🌐 Рейтинг в вебе", url=_lurl_mr)]
+                                    ]))
+                            except Exception:
+                                pass
+                        await bot.send_message(int(tg_id), text, parse_mode="HTML", reply_markup=_markup)
+                        await asyncio.sleep(0.05)
+                    except Exception as _send_err:
+                        logging.warning(f"send_monthly_ranking_notification: skip {tg_id}: {_send_err}")
+            except Exception:
+                continue
+    except Exception as e:
+        logging.error(f"Error in send_monthly_ranking_notification: {e}")
+
+
 async def auto_reject_stale_payments(bot: Bot):
     """Авто-отклонение pending-заявок СБП старше 72 часов без обработки."""
     try:
@@ -1031,6 +1200,28 @@ async def main():
         CronTrigger(hour=10, minute=15),
         args=[bot],
         id='auto_reject_stale_payments',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Еженедельный рейтинг продавцов — каждый понедельник в 09:00 UTC
+    scheduler.add_job(
+        send_weekly_ranking_notification,
+        CronTrigger(day_of_week='mon', hour=9, minute=0),
+        args=[bot],
+        id='weekly_ranking_notification',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Ежемесячный рейтинг продавцов — 1-го числа каждого месяца в 09:05 UTC
+    scheduler.add_job(
+        send_monthly_ranking_notification,
+        CronTrigger(day=1, hour=9, minute=5),
+        args=[bot],
+        id='monthly_ranking_notification',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
