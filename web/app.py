@@ -799,7 +799,7 @@ def create_web_app() -> FastAPI:
     app.include_router(ai_insights_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
-    _APK_MIN_SIZE = 1_000_000  # 1 MB — минимальный размер валидного APK
+    _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB
 
     async def _download_apk_to_local(apk_url: str) -> None:
         """Скачивает APK из GitHub Releases на persistent volume Amvera."""
@@ -809,7 +809,11 @@ def create_web_app() -> FastAPI:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")
         try:
-            async with aiohttp.ClientSession() as session:
+            _headers = {"User-Agent": "DailySales-Server/1.0"}
+            _gh_token = os.environ.get("GITHUB_TOKEN", "")
+            if _gh_token and "github.com" in apk_url:
+                _headers["Authorization"] = f"Bearer {_gh_token}"
+            async with aiohttp.ClientSession(headers=_headers) as session:
                 async with session.get(
                     apk_url,
                     timeout=aiohttp.ClientTimeout(total=180),
@@ -826,7 +830,7 @@ def create_web_app() -> FastAPI:
                 _log.info(f"APK saved to {dest} ({dest.stat().st_size:,} bytes)")
             else:
                 tmp.unlink(missing_ok=True)
-                _log.error(f"APK download too small or missing: {apk_url}")
+                _log.error(f"APK download too small or missing: {apk_url} ({tmp.stat().st_size if tmp.exists() else 0} bytes)")
         except Exception as e:
             tmp.unlink(missing_ok=True)
             _log.error(f"APK download failed: {e}")
@@ -870,21 +874,27 @@ def create_web_app() -> FastAPI:
                 media_type="application/vnd.android.package-archive",
                 filename="DailySales.apk",
             )
-        # Fallback: прямая ссылка на APK (не страница GitHub)
-        from fastapi.responses import RedirectResponse
+        # Локального файла нет — пробуем скачать прямо сейчас (фоново, без блокировки)
+        # чтобы следующий запрос уже получил файл.
         try:
-            conn = sqlite3.connect(_SHOP_BOT_DB)
-            rows = conn.execute(
-                "SELECT key, value FROM payment_settings WHERE key IN ('apk_download_url', 'apk_release_url')"
-            ).fetchall()
-            conn.close()
-            settings = {r[0]: r[1] for r in rows if r[1]}
-            # Приоритет: прямая ссылка на файл → страница релиза → GitHub latest
-            direct = settings.get("apk_download_url") or settings.get("apk_release_url")
-            if direct:
-                return RedirectResponse(direct, status_code=302)
+            _apk_url_now = None
+            try:
+                _c2 = sqlite3.connect(_SHOP_BOT_DB, timeout=3)
+                _row2 = _c2.execute(
+                    "SELECT value FROM payment_settings WHERE key='apk_download_url'"
+                ).fetchone()
+                _c2.close()
+                if _row2 and _row2[0]:
+                    _apk_url_now = _row2[0]
+            except Exception:
+                pass
+            if _apk_url_now:
+                import asyncio as _aio
+                _aio.ensure_future(_download_apk_to_local(_apk_url_now))
         except Exception:
             pass
+        # Fallback: страница релизов GitHub (НЕ прямая ссылка — репо приватное)
+        from fastapi.responses import RedirectResponse
         return RedirectResponse(
             "https://github.com/pdkiller666/Daily-Sales/releases/latest",
             status_code=302,

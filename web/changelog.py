@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.76.0"
+CURRENT_VERSION = "1.77.0"
 
 ENTRIES = [
+    {
+        "version": "1.77.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Update application version and improve absence calendar features",
+            "Highlight heavy-absence days on the admin absence calendar",
+            "Let admins mute the heavy-absence alert for a specific day",
+        ],
+    },
     {
         "version": "1.76.0",
         "date": "18 июня 2026",

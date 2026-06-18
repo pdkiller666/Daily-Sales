@@ -66,7 +66,11 @@ _TYPE_LABELS_PLAIN = {
 
 
 def _send_heavy_absence_alert(db, sd: str, ed: str) -> None:
-    """Fire-and-forget: проверить дни [sd, ed] и оповестить всех админов если ≥ порог."""
+    """Fire-and-forget: проверить дни [sd, ed] и оповестить всех админов если ≥ порог.
+
+    Дни с флагом heavy_absence_muted_YYYY-MM-DD в org_config пропускаются.
+    Каждый тяжёлый день отправляется отдельным сообщением с кнопкой «Не напоминать».
+    """
     import threading
     def _run():
         try:
@@ -82,27 +86,19 @@ def _send_heavy_absence_alert(db, sd: str, ed: str) -> None:
             except Exception:
                 return
 
-            heavy_days: list[str] = []
+            heavy_days: list[str] = []  # ISO YYYY-MM-DD, не заглушённые
             cur = d_start
             while cur <= d_end:
                 ds = cur.strftime('%Y-%m-%d')
-                cnt = db.count_approved_absences_on_day(ds)
-                if cnt >= threshold:
-                    heavy_days.append(cur.strftime('%d.%m.%Y'))
+                if not db.get_org_config(f'heavy_absence_muted_{ds}', ''):
+                    cnt = db.count_approved_absences_on_day(ds)
+                    if cnt >= threshold:
+                        heavy_days.append(ds)
                 cur += timedelta(days=1)
 
             if not heavy_days:
                 return
 
-            days_str = ', '.join(heavy_days[:5])
-            if len(heavy_days) > 5:
-                days_str += f' +ещё {len(heavy_days) - 5}'
-            text = (
-                f'⚠️ <b>Много отсутствующих!</b>\n\n'
-                f'В следующие дни отсутствует {threshold}+ сотрудников:\n'
-                f'📅 {days_str}\n\n'
-                f'Проверьте расписание, чтобы не остаться без команды.'
-            )
             token = os.environ.get("BOT_TOKEN", "")
             if not token:
                 return
@@ -110,20 +106,37 @@ def _send_heavy_absence_alert(db, sd: str, ed: str) -> None:
                 admin_ids = db.get_all_admins_telegram_ids()
             except Exception:
                 admin_ids = []
-            payload_base = {"text": text, "parse_mode": "HTML"}
-            for adm_tg_id in admin_ids:
-                if not adm_tg_id:
-                    continue
-                try:
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    payload = json.dumps({**payload_base, "chat_id": adm_tg_id}).encode("utf-8")
-                    req = urllib.request.Request(
-                        url, data=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    urllib.request.urlopen(req, timeout=10)
-                except Exception:
-                    pass
+
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            for day_iso in heavy_days:
+                friendly = date.fromisoformat(day_iso).strftime('%d.%m.%Y')
+                text = (
+                    f'⚠️ <b>Много отсутствующих!</b>\n\n'
+                    f'📅 {friendly} — отсутствует {threshold}+ сотрудников.\n\n'
+                    f'Проверьте расписание, чтобы не остаться без команды.'
+                )
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "🔕 Понятно, не напоминать",
+                          "callback_data": f"abs_mute_{day_iso}"}],
+                        [{"text": "✅ Прочитано", "callback_data": "notif_read"}],
+                    ]
+                }
+                payload_base = {"text": text, "parse_mode": "HTML",
+                                "reply_markup": reply_markup}
+                for adm_tg_id in admin_ids:
+                    if not adm_tg_id:
+                        continue
+                    try:
+                        payload = json.dumps({**payload_base,
+                                              "chat_id": adm_tg_id}).encode("utf-8")
+                        req = urllib.request.Request(
+                            url, data=payload,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        urllib.request.urlopen(req, timeout=10)
+                    except Exception:
+                        pass
         except Exception as _e:
             logging.error("heavy_absence_alert web: %s", _e)
     threading.Thread(target=_run, daemon=True).start()
@@ -234,6 +247,34 @@ def _build_absence_tooltip_map(absences_list, year: int, month: int) -> tuple:
     tooltip_map = {d: "\n".join(ls) for d, ls in lines_by_day.items()}
     count_map = {d: len(ls) for d, ls in lines_by_day.items()}
     return tooltip_map, count_map
+
+
+def _approved_distinct_per_day(absences_list, year: int, month: int) -> dict:
+    """Return {day_num: distinct_approved_user_count} for the month.
+
+    Only 'approved' absences are counted; each user_id is counted at most once
+    per day — matching the semantics of count_approved_absences_on_day() in DB.
+    """
+    import calendar as _c
+    last_day = _c.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, last_day)
+    users_by_day: dict = {}
+    for a in (absences_list or []):
+        if a.get("status") != "approved":
+            continue
+        uid = a.get("user_id")
+        try:
+            sd = date.fromisoformat(str(a["start_date"])[:10])
+            ed = date.fromisoformat(str(a["end_date"])[:10])
+        except Exception:
+            continue
+        cur = max(sd, month_start)
+        end = min(ed, month_end)
+        while cur <= end:
+            users_by_day.setdefault(cur.day, set()).add(uid)
+            cur += timedelta(days=1)
+    return {d: len(uids) for d, uids in users_by_day.items()}
 
 
 def _build_cal_grid(year: int, month: int):
@@ -409,6 +450,20 @@ def absences_page(request: Request, year: int = 0, month: int = 0,
             )
         except Exception:
             pass
+
+        # Heavy-absence highlighting — only meaningful for admin view.
+        # Uses approved-only, distinct-user counts to match DB alert semantics.
+        if is_admin:
+            try:
+                threshold = max(1, int(db.get_org_config('heavy_absence_threshold', '3') or 3))
+            except (ValueError, TypeError):
+                threshold = 3
+            ctx["heavy_threshold"] = threshold
+            try:
+                _approved_counts = _approved_distinct_per_day(ctx["absences"], year, month)
+                ctx["heavy_days"] = {d for d, cnt in _approved_counts.items() if cnt >= threshold}
+            except Exception:
+                ctx["heavy_days"] = set()
 
     except Exception as exc:
         logging.error(f"absences_page error: {exc}")

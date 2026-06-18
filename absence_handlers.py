@@ -113,7 +113,11 @@ def _absence_line(row, with_user=False) -> str:
 
 
 async def _alert_heavy_absence_day(db, sd: str, ed: str) -> None:
-    """Если любой день в диапазоне [sd, ed] достигает порога отсутствий — оповестить всех админов."""
+    """Если любой день в диапазоне [sd, ed] достигает порога отсутствий — оповестить всех админов.
+
+    Дни с флагом heavy_absence_muted_YYYY-MM-DD в org_config пропускаются.
+    Каждый тяжёлый день отправляется отдельным сообщением с кнопкой «Не напоминать».
+    """
     try:
         threshold_raw = db._db.get_org_config('heavy_absence_threshold', '3')
         try:
@@ -128,27 +132,18 @@ async def _alert_heavy_absence_day(db, sd: str, ed: str) -> None:
         except Exception:
             return
 
-        heavy_days: list[str] = []
+        heavy_days: list[str] = []  # ISO YYYY-MM-DD, не заглушённые
         cur = d_start
         while cur <= d_end:
             ds = cur.strftime('%Y-%m-%d')
-            cnt = db._db.count_approved_absences_on_day(ds)
-            if cnt >= threshold:
-                heavy_days.append(cur.strftime('%d.%m.%Y'))
+            if not db._db.get_org_config(f'heavy_absence_muted_{ds}', ''):
+                cnt = db._db.count_approved_absences_on_day(ds)
+                if cnt >= threshold:
+                    heavy_days.append(ds)
             cur += _td(days=1)
 
         if not heavy_days:
             return
-
-        days_str = ', '.join(heavy_days[:5])
-        if len(heavy_days) > 5:
-            days_str += f' +ещё {len(heavy_days) - 5}'
-        text = (
-            f'⚠️ <b>Много отсутствующих!</b>\n\n'
-            f'В следующие дни отсутствует {threshold}+ сотрудников:\n'
-            f'📅 {days_str}\n\n'
-            f'Проверьте расписание, чтобы не остаться без команды.'
-        )
 
         try:
             admin_ids = db._db.get_all_admins_telegram_ids()
@@ -160,15 +155,30 @@ async def _alert_heavy_absence_day(db, sd: str, ed: str) -> None:
         bot = _bh.get_bot()
         if not bot:
             return
-        for adm_tg_id in admin_ids:
-            if not adm_tg_id:
-                continue
-            try:
-                await bot.send_message(adm_tg_id, text,
-                                       parse_mode='HTML',
-                                       reply_markup=add_read_btn())
-            except Exception:
-                pass
+
+        for day_iso in heavy_days:
+            friendly = _date.fromisoformat(day_iso).strftime('%d.%m.%Y')
+            text = (
+                f'⚠️ <b>Много отсутствующих!</b>\n\n'
+                f'📅 {friendly} — отсутствует {threshold}+ сотрудников.\n\n'
+                f'Проверьте расписание, чтобы не остаться без команды.'
+            )
+            mute_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text='🔕 Понятно, не напоминать',
+                    callback_data=f'abs_mute_{day_iso}'
+                )
+            ]])
+            markup = add_read_btn(mute_kb)
+            for adm_tg_id in admin_ids:
+                if not adm_tg_id:
+                    continue
+                try:
+                    await bot.send_message(adm_tg_id, text,
+                                           parse_mode='HTML',
+                                           reply_markup=markup)
+                except Exception:
+                    pass
     except Exception as _e:
         logger.warning(f"_alert_heavy_absence_day: {_e}")
 
@@ -994,6 +1004,31 @@ async def abs_cfg_penalty_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode='HTML')
     await state.set_state(AbsenceStates.settings_penalty)
+
+
+@absence_router.callback_query(F.data.startswith("abs_mute_"))
+async def cb_mute_absence_day(callback: CallbackQuery, state: FSMContext):
+    """Заглушить предупреждения о массовых отсутствиях на конкретный день."""
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer('Нет доступа', show_alert=True)
+        return
+    date_str = callback.data[len("abs_mute_"):]  # YYYY-MM-DD
+    try:
+        d = date.fromisoformat(date_str)
+        friendly = d.strftime('%d.%m.%Y')
+    except Exception:
+        await callback.answer('Неверная дата', show_alert=True)
+        return
+    db = await get_db(callback.from_user.id, state)
+    db._db.set_org_config(f'heavy_absence_muted_{date_str}', '1')
+    await callback.answer('🔕 Напоминания отключены')
+    try:
+        await callback.message.edit_text(
+            f'🔕 Предупреждения об отсутствиях <b>{friendly}</b> отключены.',
+            parse_mode='HTML'
+        )
+    except Exception:
+        pass
 
 
 @absence_router.message(AbsenceStates.settings_penalty)

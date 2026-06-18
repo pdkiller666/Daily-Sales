@@ -140,6 +140,9 @@
         <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-500">🟡 Отгул</span>
         <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-50 dark:bg-red-950 text-red-500">🔴 Прогул</span>
         <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-400 border border-dashed border-slate-300">❓ Ожидание</span>
+        {% if is_admin and heavy_days is defined and heavy_threshold is defined %}
+        <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950 text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700">⚠️ Много отсутствий (≥{{ heavy_threshold }})</span>
+        {% endif %}
       </div>
       <!-- Header -->
       <div class="grid grid-cols-7 gap-1 mb-2">
@@ -160,6 +163,7 @@
         {% set _count = absence_count_map.get(day, 0) if absence_count_map else 0 %}
         {% set is_today = (day == today_day) %}
         {% set _tip = absence_tooltip_map.get(day, '') %}
+        {% set _is_heavy = (heavy_days is defined and day in heavy_days) %}
         {% if abs_info %}
           {% set atype = abs_info.type %}
           {% set pending = abs_info.status == 'pending' %}
@@ -181,6 +185,7 @@
         {% else %}
           {% set day_cls = 'bg-slate-50 dark:bg-slate-800 text-slate-400' %}
         {% endif %}
+        {% if _is_heavy %}{% set day_cls = day_cls + ' ring-2 ring-orange-400 dark:ring-orange-500 bg-orange-50 dark:bg-orange-950' %}{% endif %}
         <div class="relative"
              {% if _tip %}x-data="{ tt: false }" @mouseenter="tt=true" @mouseleave="tt=false" @click.stop="tt=!tt" @click.outside="tt=false"{% endif %}>
           <div class="aspect-square flex flex-col items-center justify-center rounded-xl text-xs font-semibold {{ day_cls }} overflow-hidden"
