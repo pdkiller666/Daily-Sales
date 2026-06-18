@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.74.0"
+CURRENT_VERSION = "1.75.0"
 
 ENTRIES = [
+    {
+        "version": "1.75.0",
+        "date": "18 июня 2026",
+        "items": [
+            "Fix calendar displays and improve absence navigation",
+        ],
+    },
     {
         "version": "1.74.0",
         "date": "18 июня 2026",

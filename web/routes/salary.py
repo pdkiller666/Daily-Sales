@@ -100,6 +100,14 @@ def _absence_tooltip_map(absence_rows, year: int, month: int) -> dict:
     """
     from datetime import date as _date, timedelta as _td
     import calendar as _cal
+    _LABELS = {
+        "vacation": "Отпуск", "sick": "Больничный",
+        "compensatory": "Отгул", "absence": "Прогул", "other": "Другое",
+    }
+    _ABBR = {
+        1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+        7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+    }
     last_day = _cal.monthrange(year, month)[1]
     month_start = _date(year, month, 1)
     month_end = _date(year, month, last_day)
@@ -107,7 +115,7 @@ def _absence_tooltip_map(absence_rows, year: int, month: int) -> dict:
     for ab in (absence_rows or []):
         if ab[4] != "approved":
             continue
-        label = _ABSENCE_LABELS.get(ab[1], "Отсутствие")
+        label = _LABELS.get(ab[1], "Отсутствие")
         try:
             raw_sd = _date.fromisoformat(ab[2])
             raw_ed = _date.fromisoformat(ab[3])
@@ -116,9 +124,9 @@ def _absence_tooltip_map(absence_rows, year: int, month: int) -> dict:
         except Exception:
             continue
         if raw_sd.month == raw_ed.month:
-            tip = f"{label}: {raw_sd.day}–{raw_ed.day} {_RU_MONTHS_SHORT[raw_sd.month]}"
+            tip = f"{label}: {raw_sd.day}–{raw_ed.day} {_ABBR[raw_sd.month]}"
         else:
-            tip = f"{label}: {raw_sd.day}\u00a0{_RU_MONTHS_SHORT[raw_sd.month]} – {raw_ed.day}\u00a0{_RU_MONTHS_SHORT[raw_ed.month]}"
+            tip = f"{label}: {raw_sd.day}\u00a0{_ABBR[raw_sd.month]} – {raw_ed.day}\u00a0{_ABBR[raw_ed.month]}"
         cur = sd
         while cur <= ed:
             if cur.day not in result:
