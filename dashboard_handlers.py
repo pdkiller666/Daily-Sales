@@ -344,8 +344,15 @@ def _staff_by_shop_with_names(db_file: str, today: str,
             JOIN users u ON u.id = ws.user_id
             WHERE ws.work_date = ?
               AND u.shop_name IS NOT NULL AND u.shop_name != ""
+              AND NOT EXISTS (
+                  SELECT 1 FROM absence_records ar
+                  WHERE ar.user_id = u.id
+                    AND ar.status = 'approved'
+                    AND ar.start_date <= ?
+                    AND ar.end_date >= ?
+              )
         '''
-        params = [today]
+        params = [today, today, today]
         vals = scope_values or []
         if scope_type and vals:
             ph = ','.join('?' * len(vals))
@@ -476,8 +483,15 @@ def _on_shift_details(db_file: str, today: str,
             FROM work_schedule ws
             JOIN users u ON u.id = ws.user_id
             WHERE ws.work_date = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM absence_records ar
+                  WHERE ar.user_id = u.id
+                    AND ar.status = 'approved'
+                    AND ar.start_date <= ?
+                    AND ar.end_date >= ?
+              )
         '''
-        params = [today]
+        params = [today, today, today]
         vals = scope_values or []
         if scope_type and vals:
             ph = ','.join('?' * len(vals))

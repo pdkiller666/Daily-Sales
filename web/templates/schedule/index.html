@@ -98,7 +98,12 @@
         <div class="grid grid-cols-3 gap-3 mb-4">
             <div class="card p-3 text-center">
                 <p class="text-xs text-slate-400 mb-1">Рабочих дней</p>
+                {% if absence_days_in_schedule and absence_days_in_schedule > 0 %}
+                <p class="text-xl font-bold text-emerald-600">{{ work_days|length - absence_days_in_schedule }}</p>
+                <p class="text-xs text-amber-500 mt-0.5">из {{ work_days|length }}, −{{ absence_days_in_schedule }} в отпуске</p>
+                {% else %}
                 <p class="text-xl font-bold text-emerald-600">{{ work_days|length }}</p>
+                {% endif %}
             </div>
             <div class="card p-3 text-center">
                 <p class="text-xs text-slate-400 mb-1">Со временем</p>

@@ -129,7 +129,16 @@
                                 {{ (s.first_name or '?')[0] }}{{ (s.last_name or '')[0] if s.last_name else '' }}
                             </div>
                             <div>
-                                <p class="font-medium text-slate-800">{{ s.first_name }} {{ s.last_name }}</p>
+                                <p class="font-medium text-slate-800">
+                                    {{ s.first_name }} {{ s.last_name }}
+                                    {% if s.absence_type == 'vacation' %}
+                                    <span title="В отпуске" class="ml-1">🌴</span>
+                                    {% elif s.absence_type == 'sick' %}
+                                    <span title="На больничном" class="ml-1">🤒</span>
+                                    {% elif s.absence_type %}
+                                    <span title="Отсутствует" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Нет</span>
+                                    {% endif %}
+                                </p>
                                 {% if s.username %}
                                 <a href="https://t.me/{{ s.username }}" target="_blank"
                                    class="text-xs text-blue-500 hover:text-blue-700">@{{ s.username }}</a>

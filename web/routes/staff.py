@@ -148,6 +148,11 @@ def staff_page(
         except Exception:
             bulk_stats = {}
 
+        try:
+            absent_today = db.get_absent_users_today(today.isoformat())
+        except Exception:
+            absent_today = {}
+
         staff = []
         for u in all_users:
             role_info = org_roles.get(u[1], {})
@@ -175,6 +180,7 @@ def staff_page(
                 "badge_cls": badge_cls,
                 "month_sales": month_sales,
                 "month_revenue": month_revenue,
+                "absence_type": absent_today.get(u[0], ""),
             })
 
         # Apply user-requested sort on top of the default role-order pre-sort
@@ -473,7 +479,7 @@ def staff_detail(request: Request, user_id: int):
         "recent_sales": [],
         "month_summary": (0, 0, 0, 0),
         "all_summary": (0, 0, 0, 0),
-        "daily_rate": 0.0, "worked_days": 0,
+        "daily_rate": 0.0, "worked_days": 0, "paid_absence_days": 0, "current_absence": None,
         "cal_grid": [], "work_days_set": set(),
         "month_name": {1:"Январь",2:"Февраль",3:"Март",4:"Апрель",5:"Май",6:"Июнь",
                        7:"Июль",8:"Август",9:"Сентябрь",10:"Октябрь",11:"Ноябрь",12:"Декабрь"
@@ -552,12 +558,7 @@ def staff_detail(request: Request, user_id: int):
         # Recent sales (last 20)
         ctx["recent_sales"] = db.get_user_sales(user_id, limit=20) or []
 
-        # Salary info
-        # get_salary_rate returns a float directly
-        ctx["daily_rate"] = float(db.get_salary_rate(user_id) or 0)
-        ctx["worked_days"] = db.get_worked_days_count(user_id, year, month)
-
-        # Calendar grid
+        # Calendar grid — build first so we have work_days_set for salary calc
         work_days = db.get_work_schedule(user_id, year, month)
         first_weekday, days_in_month = _cal.monthrange(year, month)
         cal_grid: list[list[int]] = []
@@ -571,7 +572,56 @@ def staff_detail(request: Request, user_id: int):
             week += [0] * (7 - len(week))
             cal_grid.append(week)
         ctx["cal_grid"] = cal_grid
-        ctx["work_days_set"] = {int(d[8:10]) for d in work_days}
+        work_days_set: set = {int(d[8:10]) for d in work_days}
+        ctx["work_days_set"] = work_days_set
+
+        # Absence map for the current month — used for consistent shift counting
+        # and for current-absence badge
+        try:
+            _abs_raw = db.get_absence_days_map(year, month, user_id)
+            absence_map_user: dict = _abs_raw.get(user_id, {})
+        except Exception:
+            absence_map_user = {}
+
+        # Days where approved absence overlaps a scheduled work day
+        try:
+            approved_absence_day_nums = {
+                day_num for day_num, info in absence_map_user.items()
+                if info.get("status") == "approved"
+            }
+            absence_days_in_schedule: int = len(work_days_set & approved_absence_day_nums)
+        except Exception:
+            absence_days_in_schedule = 0
+
+        # Salary info
+        # effective_worked_days = scheduled days minus absence-covered days
+        # (mirrors what the schedule page counter shows)
+        ctx["daily_rate"] = float(db.get_salary_rate(user_id) or 0)
+        raw_worked_days: int = db.get_worked_days_count(user_id, year, month)
+        effective_worked_days: int = max(0, raw_worked_days - absence_days_in_schedule)
+        ctx["worked_days"] = effective_worked_days
+        try:
+            ctx["paid_absence_days"] = db.get_paid_absence_days_count(user_id, year, month)
+        except Exception:
+            ctx["paid_absence_days"] = 0
+
+        # Current absence badge (approved absence covering today)
+        try:
+            today_str = today.isoformat()
+            current_absence = None
+            absence_rows = db.get_absences_for_user(user_id, year, month)
+            for ab in absence_rows:
+                # ab: (id, type, start_date, end_date, status, is_paid, comment, admin_comment, created_at)
+                if ab[4] == "approved" and ab[2] <= today_str <= ab[3]:
+                    current_absence = {
+                        "type": ab[1],
+                        "start_date": ab[2],
+                        "end_date": ab[3],
+                    }
+                    break
+            ctx["current_absence"] = current_absence
+        except Exception:
+            ctx["current_absence"] = None
 
         # Available shops and cities for scope/reassignment
         ctx["shops"] = db.get_all_shops() or []

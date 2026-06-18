@@ -92,6 +92,7 @@ def schedule_page(
         "work_day_times": {},
         "templates": {},
         "absence_map": {},
+        "absence_days_in_schedule": 0,
         "today_day": today.day if (today.year == year and today.month == month) else 0,
         "msg": msg,
         "error": None,
@@ -144,6 +145,16 @@ def schedule_page(
                 ctx["absence_map"] = _abs_raw.get(user_id, {})
             except Exception:
                 ctx["absence_map"] = {}
+
+            # Count work days that overlap with approved absences
+            try:
+                approved_absence_days = {
+                    day_num for day_num, info in ctx["absence_map"].items()
+                    if info.get("status") == "approved"
+                }
+                ctx["absence_days_in_schedule"] = len(work_days & approved_absence_days)
+            except Exception:
+                ctx["absence_days_in_schedule"] = 0
 
             raw_templates = db.get_shift_templates(user_id) or {}
             templates: dict[int, dict] = {}

@@ -664,6 +664,16 @@ async def check_scheduled_notifications(bot: Bot):
                                 net_u = await asyncio.to_thread(send_db.get_all_users, None, None, _rcpt_filter)
                                 net_tids = {u[1] for u in net_u if u[1]}
                                 recipients = [r for r in recipients if r[1] in net_tids]
+                        # Filter out users on approved leave at send time
+                        try:
+                            _today_str = now_utc.strftime("%Y-%m-%d")
+                            _absent_ids = await asyncio.to_thread(
+                                send_db.get_absent_user_ids_today, _today_str
+                            )
+                            if _absent_ids:
+                                recipients = [r for r in recipients if r[0] not in _absent_ids]
+                        except Exception:
+                            pass
                         for user_data in recipients:
                             uid_internal, telegram_id = user_data[0], user_data[1]
                             if not telegram_id:

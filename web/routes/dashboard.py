@@ -251,8 +251,15 @@ def dashboard(request: Request, msg: str = ""):
                         FROM work_schedule ws
                         JOIN users u ON ws.user_id = u.id
                         WHERE ws.work_date = ?
+                          AND NOT EXISTS (
+                              SELECT 1 FROM absence_records ar
+                              WHERE ar.user_id = u.id
+                                AND ar.status = 'approved'
+                                AND ar.start_date <= ?
+                                AND ar.end_date >= ?
+                          )
                         ORDER BY u.shop_name, u.first_name
-                    """, (today_str,))
+                    """, (today_str, today_str, today_str))
                     ctx["on_shift_today"] = cur3.fetchall()
                 finally:
                     conn3.close()

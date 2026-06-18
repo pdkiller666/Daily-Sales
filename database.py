@@ -9987,9 +9987,30 @@ class Database:
                 conn.close()
                 return 0
             days_in_month = _calendar_mod.monthrange(year, month)[1]
+            # Build set of dates covered by approved absences for this user in this month
+            from datetime import date as _date, timedelta as _td
+            absent_dates: set = set()
+            _month_start = f"{year}-{month:02d}-01"
+            _month_end = f"{year}-{month:02d}-{days_in_month:02d}"
+            try:
+                cursor.execute(
+                    """SELECT start_date, end_date FROM absence_records
+                       WHERE user_id = ? AND status = 'approved'
+                         AND start_date <= ? AND end_date >= ?""",
+                    (user_id, _month_end, _month_start)
+                )
+                for _abs in cursor.fetchall():
+                    _abs_s = _date.fromisoformat(_abs[0])
+                    _abs_e = _date.fromisoformat(_abs[1])
+                    _cur = max(_abs_s, _date(year, month, 1))
+                    _end = min(_abs_e, _date(year, month, days_in_month))
+                    while _cur <= _end:
+                        absent_dates.add(_cur.isoformat())
+                        _cur += _td(days=1)
+            except Exception:
+                pass
             added = 0
             for day in range(1, days_in_month + 1):
-                from datetime import date as _date
                 weekday = _date(year, month, day).weekday()
                 tmpl = templates.get(weekday)
                 if tmpl is None:
@@ -9998,6 +10019,8 @@ class Database:
                 if start_t is None:
                     continue
                 date_str = f"{year}-{month:02d}-{day:02d}"
+                if date_str in absent_dates:
+                    continue
                 cursor.execute(
                     'INSERT OR IGNORE INTO work_schedule '
                     '(user_id, work_date, start_time, end_time, marked_by) '
@@ -11262,6 +11285,44 @@ class Database:
                 }
                 cur += timedelta(days=1)
         return result
+
+    def get_absent_user_ids_today(self, date_str: str) -> set:
+        """Возвращает set user_id с одобренным отсутствием на указанную дату.
+        Используется для фильтрации «На смене» на дашборде.
+        """
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                """SELECT DISTINCT user_id FROM absence_records
+                   WHERE status='approved'
+                     AND start_date <= ? AND end_date >= ?""",
+                (date_str, date_str)
+            ).fetchall() or []
+            return {r[0] for r in rows}
+        except Exception as e:
+            logger.error(f"get_absent_user_ids_today: {e}")
+            return set()
+        finally:
+            conn.close()
+
+    def get_absent_users_today(self, date_str: str) -> dict:
+        """Возвращает {user_id: absence_type} для всех одобренных отсутствий на дату.
+        Используется для отображения бейджей на списке сотрудников.
+        """
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                """SELECT user_id, type FROM absence_records
+                   WHERE status='approved'
+                     AND start_date <= ? AND end_date >= ?""",
+                (date_str, date_str)
+            ).fetchall() or []
+            return {r[0]: r[1] for r in rows}
+        except Exception as e:
+            logger.error(f"get_absent_users_today: {e}")
+            return {}
+        finally:
+            conn.close()
 
     def get_paid_absence_days_count(self, user_id: int,
                                      year: int, month: int) -> int:

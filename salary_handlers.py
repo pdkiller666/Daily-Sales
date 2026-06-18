@@ -152,15 +152,20 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
     daily_rate = await current_db.get_salary_rate(target_uid)
     worked = await current_db.get_work_schedule(target_uid, year, month)
     worked_count = len(worked)
-    salary = worked_count * daily_rate
+    paid_abs = await current_db.get_paid_absence_days_count(target_uid, year, month)
+    salary = (worked_count + paid_abs) * daily_rate
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+    if paid_abs > 0:
+        shifts_str = f"📊 Смен: {worked_count} + оплач. отпуск: {paid_abs} = {worked_count + paid_abs}"
+    else:
+        shifts_str = f"📊 Смен отмечено: {worked_count}"
     text = (
         f"📅 <b>График работы: {name}</b>\n"
         f"{_MONTH_NAMES[month - 1]} {year}\n\n"
         f"⬜ — нажмите чтобы добавить смену\n"
         f"✅ — нажмите для управления сменой\n\n"
         f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отмечено: {worked_count}\n"
+        f"{shifts_str}\n"
         f"💰 Оклад: {format_price(salary)}₽"
     )
     kb = _calendar_kb(year, month, worked, uid=target_uid, editable=True,
@@ -1136,15 +1141,20 @@ async def salary_summary(callback: CallbackQuery, state: FSMContext):
 # ── Мой график (продавец) ─────────────────────────────────────────────────────
 
 def _my_schedule_text(month_name: str, year: int, daily_rate: float,
-                      worked_count: int, salary: float) -> str:
+                      worked_count: int, salary: float,
+                      paid_abs: int = 0) -> str:
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
+    if paid_abs > 0:
+        shifts_str = f"📊 Смен: {worked_count} + оплач. отпуск: {paid_abs} = {worked_count + paid_abs}"
+    else:
+        shifts_str = f"📊 Смен отработано: {worked_count}"
     return (
         f"📅 <b>Мой график работы</b>\n"
         f"{month_name} {year}\n\n"
         f"✅ — рабочая смена · нажмите чтобы узнать время\n"
         f"⬜ — выходной\n\n"
         f"💼 Ставка: {rate_str}\n"
-        f"📊 Смен отработано: {worked_count}\n"
+        f"{shifts_str}\n"
         f"💰 Оклад к выплате: {format_price(salary)}₽"
     )
 
@@ -1164,8 +1174,9 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
-    salary = worked_count * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
+    paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
+    salary = (worked_count + paid_abs) * daily_rate
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary, paid_abs)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1184,8 +1195,9 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
     worked_count = len(worked)
-    salary = worked_count * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary)
+    paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
+    salary = (worked_count + paid_abs) * daily_rate
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary, paid_abs)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 

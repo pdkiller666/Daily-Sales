@@ -27,6 +27,19 @@
         <div class="flex-1 min-w-0">
             <h1 class="text-xl font-bold text-slate-800">
                 {{ member.first_name }} {{ member.last_name }}
+                {% if current_absence %}
+                    {% if current_absence.type == 'vacation' %}
+                    <span class="text-base font-normal text-emerald-600 ml-1">🌴 В отпуске
+                        <span class="text-sm text-slate-500">(до {{ current_absence.end_date[8:10] ~ '.' ~ current_absence.end_date[5:7] }})</span>
+                    </span>
+                    {% elif current_absence.type == 'sick' %}
+                    <span class="text-base font-normal text-amber-600 ml-1">🤒 На больничном</span>
+                    {% else %}
+                    <span class="text-base font-normal text-slate-500 ml-1">🗓 Отсутствует
+                        <span class="text-sm">(до {{ current_absence.end_date[8:10] ~ '.' ~ current_absence.end_date[5:7] }})</span>
+                    </span>
+                    {% endif %}
+                {% endif %}
             </h1>
             <div class="flex flex-wrap items-center gap-2 mt-1">
                 <span class="text-xs px-2 py-0.5 rounded-full font-medium {{ member.badge_cls }}">
@@ -90,10 +103,13 @@
         <div>
             <p class="text-xs text-slate-400 mb-0.5">Смен отработано</p>
             <p class="text-lg font-bold text-slate-800">{{ worked_days }}</p>
+            {% if paid_absence_days and paid_absence_days > 0 %}
+            <p class="text-xs text-emerald-600 mt-0.5">+{{ paid_absence_days }} оплач. отсутствий</p>
+            {% endif %}
         </div>
         <div>
             <p class="text-xs text-slate-400 mb-0.5">К выплате</p>
-            <p class="text-lg font-bold text-emerald-600">{{ (daily_rate * worked_days)|int|fmt_currency }}</p>
+            <p class="text-lg font-bold text-emerald-600">{{ (daily_rate * (worked_days + paid_absence_days))|int|fmt_currency }}</p>
         </div>
     </div>
 
