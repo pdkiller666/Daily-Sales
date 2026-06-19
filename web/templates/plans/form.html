@@ -215,6 +215,8 @@
                 const ft = document.querySelector('input[name=filter_type]:checked')?.value || 'all';
                 const fcats = [...document.querySelectorAll('input[name=filter_categories]:checked')].map(el => el.value);
                 const fprods = [...document.querySelectorAll('input[name=filter_products]:checked')].map(el => parseInt(el.value));
+                // Reset if params changed since last load (allow re-fetch on different filter)
+                if (this.done) { this.done = false; this.result = null; }
                 try {
                     const r = await fetch('/api/ai/plan-target-hint', {
                         method: 'POST',

@@ -1132,7 +1132,10 @@ async def ai_plan_target_hint(request: Request):
 
     org_db = user.get("org_db")
     today_month = _dt.datetime.utcnow().strftime("%Y-%m")
-    scope_key = f"{seller_id or shop_name}:{plan_type}:{metric_type}"
+    # Normalize filter_value for cache key (use first 32 chars of its hash)
+    import hashlib as _hl
+    _fv_hash = _hl.md5((filter_value or "").encode()).hexdigest()[:8] if filter_value else "all"
+    scope_key = f"{seller_id or shop_name}:{plan_type}:{metric_type}:{filter_type}:{_fv_hash}"
     _ck = f"planhint:{org_db}:{scope_key}:{today_month}"
 
     cached = _plhint_cache_get(_ck)
