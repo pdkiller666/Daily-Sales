@@ -1661,6 +1661,63 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # Напоминания о задачах — каждую минуту
+    async def check_task_reminders():
+        """Отправляет напоминания о задачах по расписанию пользователей."""
+        import os as _os
+        import json as _json
+        import urllib.request as _ureq
+        import threading as _th
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        def _push(tg_id, text, task_id):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {
+                        "inline_keyboard": [[{"text": "📋 Открыть задачу", "callback_data": f"task_open_{task_id}"}]]
+                    },
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from database import Database
+            _db_paths = _get_scheduler_db_paths()
+            for _db_path in _db_paths:
+                try:
+                    _db = Database(_db_path)
+                    for rem in _db.get_due_task_reminders():
+                        msg = (
+                            f"⏰ <b>Напоминание о задаче</b>\n\n"
+                            f"📋 {rem['title']}\n\n"
+                            f"Вы установили напоминание об этой задаче."
+                        )
+                        _push(rem['telegram_id'], msg, rem['task_id'])
+                        _db.mark_task_reminder_sent(rem['id'])
+                except Exception as _de:
+                    logging.error(f"check_task_reminders db={_db_path}: {_de}")
+        except Exception as _e:
+            logging.error(f"check_task_reminders: {_e}")
+
+    scheduler.add_job(
+        check_task_reminders,
+        CronTrigger(minute='*', second=30),
+        id='check_task_reminders',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
     # AI инсайты сети — каждый понедельник в 09:00 UTC
     async def send_weekly_network_insights():
         """Для каждого владельца сети с ai_network_insights — отправить недельный дайджест."""

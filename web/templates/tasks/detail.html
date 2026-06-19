@@ -316,6 +316,36 @@
     {% endif %}
     {% endif %}
 
+    <!-- Reminder -->
+    {% if task and task.status not in ('done', 'cancelled') %}
+    <div class="card p-4 dark:bg-slate-900">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">⏰ Напомнить мне</p>
+      {% if my_reminders %}
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Активные напоминания:</p>
+      {% for r in my_reminders %}
+      <p class="text-xs text-indigo-600 dark:text-indigo-400 mb-1">📅 {{ r.remind_at[:16] }} UTC</p>
+      {% endfor %}
+      {% endif %}
+      <form method="POST" action="/tasks/{{ task.id }}/remind" class="flex items-center gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <select name="remind_in"
+                class="flex-1 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="0.5">Через 30 мин</option>
+          <option value="1">Через 1 час</option>
+          <option value="2">Через 2 часа</option>
+          <option value="4">Через 4 часа</option>
+          <option value="24" selected>Через 1 день</option>
+          <option value="48">Через 2 дня</option>
+          <option value="168">Через неделю</option>
+        </select>
+        <button type="submit"
+                class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors whitespace-nowrap">
+          Установить
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
     <!-- Meta info -->
     <div class="card p-4 dark:bg-slate-900 space-y-3">
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Детали</p>

@@ -1402,6 +1402,18 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_th_task ON task_history(task_id)')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_reminders (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                remind_at  TEXT    NOT NULL,
+                sent       INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tr_remind ON task_reminders(sent, remind_at)')
+
         # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alerts_log (
@@ -13522,6 +13534,80 @@ class Database:
             ]
         except Exception as e:
             logger.error("get_task_history: %s", e)
+            return []
+
+    def add_task_reminder(self, task_id: int, user_id: int, remind_at: str) -> int | None:
+        """Добавить напоминание о задаче (remind_at — UTC ISO строка)."""
+        try:
+            conn = self.get_connection()
+            try:
+                cur = conn.execute(
+                    "INSERT INTO task_reminders (task_id, user_id, remind_at) VALUES (?, ?, ?)",
+                    (task_id, user_id, remind_at),
+                )
+                conn.commit()
+                return cur.lastrowid
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("add_task_reminder: %s", e)
+            return None
+
+    def get_due_task_reminders(self) -> list:
+        """Вернуть неотправленные напоминания с remind_at <= now (UTC)."""
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT r.id, r.task_id, r.user_id, r.remind_at,
+                           t.title,
+                           u.telegram_id
+                    FROM task_reminders r
+                    JOIN tasks t ON t.id = r.task_id
+                    JOIN users u ON u.id  = r.user_id
+                    WHERE r.sent = 0
+                      AND r.remind_at <= datetime('now')
+                    ORDER BY r.remind_at
+                    """
+                ).fetchall()
+            finally:
+                conn.close()
+            return [
+                {"id": r[0], "task_id": r[1], "user_id": r[2],
+                 "remind_at": r[3], "title": r[4], "telegram_id": r[5]}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_due_task_reminders: %s", e)
+            return []
+
+    def mark_task_reminder_sent(self, reminder_id: int) -> None:
+        """Пометить напоминание как отправленное."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute("UPDATE task_reminders SET sent = 1 WHERE id = ?", (reminder_id,))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("mark_task_reminder_sent: %s", e)
+
+    def get_task_reminders_for_user(self, task_id: int, user_id: int) -> list:
+        """Активные (неотправленные) напоминания пользователя по задаче."""
+        try:
+            conn = self.get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT id, remind_at FROM task_reminders WHERE task_id=? AND user_id=? AND sent=0 ORDER BY remind_at",
+                    (task_id, user_id),
+                ).fetchall()
+            finally:
+                conn.close()
+            return [{"id": r[0], "remind_at": r[1]} for r in rows]
+        except Exception as e:
+            logger.error("get_task_reminders_for_user: %s", e)
             return []
 
     def update_task(self, task_id: int, title: str, description: str,

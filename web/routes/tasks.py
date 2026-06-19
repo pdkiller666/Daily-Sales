@@ -1004,6 +1004,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "my_completion": None,
         "chat_available": _chat_available(telegram_id),
         "task_history": [],
+        "my_reminders": [],
     }
 
     try:
@@ -1104,6 +1105,13 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
                 ctx["task_history"] = []
         else:
             ctx["task_history"] = []
+
+        # My active reminders for this task
+        if my_db_id and task.get('status') not in ('done', 'cancelled'):
+            try:
+                ctx["my_reminders"] = db.get_task_reminders_for_user(task_id, my_db_id)
+            except Exception:
+                ctx["my_reminders"] = []
 
     except Exception as e:
         logger.error("task_detail: %s", e)
@@ -1613,6 +1621,57 @@ def task_toggle_checklist(
 
 
 # ─── EDIT ────────────────────────────────────────────────────────────────────
+
+@router.post("/tasks/{task_id}/remind")
+def task_set_reminder(request: Request, task_id: int,
+                      csrf_token: str = Form(""),
+                      remind_in: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    import datetime as _dt
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        hours = float(remind_in) if remind_in else 0
+        if hours <= 0 or hours > 720:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=remind_invalid", status_code=303)
+
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not my_row:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+        my_db_id = my_row[0]
+
+        remind_at = (_dt.datetime.utcnow() + _dt.timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+        db.add_task_reminder(task_id, my_db_id, remind_at)
+        try:
+            db.add_task_history(task_id, my_db_id, 'remind_set', None,
+                                f"через {remind_in}ч ({remind_at} UTC)")
+        except Exception:
+            pass
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=remind_ok", status_code=303)
+    except Exception as e:
+        logger.error("task_set_reminder: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
 
 @router.post("/tasks/{task_id}/duplicate")
 def task_duplicate(request: Request, task_id: int, csrf_token: str = Form("")):
