@@ -49,12 +49,32 @@
 </div>
 {% endif %}
 
+<!-- Search -->
+<form method="get" action="/tasks" class="mb-3">
+  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+  {% if topic_filter %}<input type="hidden" name="topic_id" value="{{ topic_filter }}">{% endif %}
+  {% if assigned_filter %}<input type="hidden" name="assigned_filter" value="{{ assigned_filter }}">{% endif %}
+  {% if shop_filter %}<input type="hidden" name="shop_filter" value="{{ shop_filter | e }}">{% endif %}
+  <div class="relative">
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+    </svg>
+    <input type="search" name="q" value="{{ q | e }}"
+           placeholder="Поиск по названию или описанию…"
+           class="w-full pl-9 pr-9 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    {% if q %}
+    <a href="/tasks?{% if status_filter %}status={{ status_filter }}&{% endif %}{% if topic_filter %}topic_id={{ topic_filter }}&{% endif %}{% if assigned_filter %}assigned_filter={{ assigned_filter }}&{% endif %}{% if shop_filter %}shop_filter={{ shop_filter | urlencode }}&{% endif %}"
+       class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none" title="Сбросить поиск">×</a>
+    {% endif %}
+  </div>
+</form>
+
 <!-- Filters -->
 <div class="flex flex-wrap gap-2 mb-5">
   <!-- Status filter -->
   {% set statuses = [('', 'Все'), ('new', '🆕 Новые'), ('in_progress', '🔄 В работе'), ('review', '🔍 На проверке'), ('done', '✅ Выполнены'), ('cancelled', '🚫 Отменены')] %}
   {% for sv, sl in statuses %}
-  <a href="/tasks?status={{ sv }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}{% if assigned_filter %}&assigned_filter={{ assigned_filter }}{% endif %}"
+  <a href="/tasks?status={{ sv }}{% if topic_filter %}&topic_id={{ topic_filter }}{% endif %}{% if assigned_filter %}&assigned_filter={{ assigned_filter }}{% endif %}{% if q %}&q={{ q | urlencode }}{% endif %}"
      class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
             {{ 'bg-indigo-600 text-white border-indigo-600' if status_filter == sv else 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400' }}">
     {{ sl }}
@@ -69,13 +89,13 @@
   <div class="lg:w-52 shrink-0">
     <div class="card p-3 dark:bg-slate-900">
       <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Темы</p>
-      <a href="/tasks?status={{ status_filter }}"
+      <a href="/tasks?status={{ status_filter }}{% if q %}&q={{ q | urlencode }}{% endif %}"
          class="block px-2.5 py-1.5 rounded-lg text-sm mb-1 transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if not topic_filter else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         Все темы
       </a>
       {% for t in topics %}
-      <a href="/tasks?status={{ status_filter }}&topic_id={{ t.id }}"
+      <a href="/tasks?status={{ status_filter }}&topic_id={{ t.id }}{% if q %}&q={{ q | urlencode }}{% endif %}"
          class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm transition-colors
                 {{ 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium' if topic_filter == t.id else 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         <span class="w-2 h-2 rounded-full shrink-0
@@ -205,7 +225,10 @@
     <div class="card p-12 text-center dark:bg-slate-900">
       <div class="text-4xl mb-3">📋</div>
       <p class="text-slate-500 dark:text-slate-400 text-sm">
-        {% if status_filter or topic_filter or assigned_filter %}
+        {% if q %}
+        По запросу «{{ q | e }}» задач не найдено.
+        <a href="/tasks?{% if status_filter %}status={{ status_filter }}{% endif %}" class="text-indigo-600 hover:underline ml-1">Сбросить поиск</a>
+      {% elif status_filter or topic_filter or assigned_filter %}
         Задач по выбранным фильтрам нет.
         <a href="/tasks" class="text-indigo-600 hover:underline ml-1">Сбросить фильтры</a>
         {% elif is_admin %}

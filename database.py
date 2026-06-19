@@ -51,6 +51,7 @@ def _get_pooled_conn(db_file: str, timeout: float = 30.0) -> sqlite3.Connection:
         conn.execute("PRAGMA temp_store=MEMORY")
         conn.execute("PRAGMA mmap_size=268435456")
         conn.execute("PRAGMA busy_timeout=10000")
+        conn.create_function("lower_u", 1, lambda s: s.lower() if s else s)
         pool[db_file] = conn
     return conn
 
@@ -13311,7 +13312,8 @@ class Database:
                   created_by: int | None = None,
                   is_admin: bool = False, my_user_id: int | None = None,
                   my_shop: str | None = None,
-                  shop_filter: str | None = None) -> list:
+                  shop_filter: str | None = None,
+                  q: str | None = None) -> list:
         """Список задач с фильтрацией. Admin видит все, user — только свои."""
         try:
             conn = self.get_connection()
@@ -13339,6 +13341,10 @@ class Database:
             if status:
                 where.append("t.status = ?")
                 params.append(status)
+            if q:
+                where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
+                like = f"%{q}%"
+                params += [like, like]
             where_sql = " AND ".join(where)
             rows = conn.execute(
                 f"""

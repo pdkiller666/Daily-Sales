@@ -290,7 +290,8 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
 
 @router.get("/tasks")
 def tasks_list(request: Request, status: str = "", topic_id: int = 0,
-               assigned_filter: int = 0, shop_filter: str = "", msg: str = ""):
+               assigned_filter: int = 0, shop_filter: str = "", msg: str = "",
+               q: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -307,6 +308,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         "tasks": [], "topics": [], "staff_list": [], "shops_list": [],
         "status_filter": status, "topic_filter": topic_id,
         "assigned_filter": assigned_filter, "shop_filter": shop_filter,
+        "q": q,
         "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
         "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
         "topic_colors": TOPIC_COLORS,
@@ -337,6 +339,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
             is_admin=is_admin,
             my_user_id=my_db_id,
             my_shop=my_shop or None,
+            q=q.strip() or None,
         )
         ctx["tasks"] = tasks
         if is_admin:
