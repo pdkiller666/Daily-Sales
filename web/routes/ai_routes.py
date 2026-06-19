@@ -1235,7 +1235,8 @@ async def ai_task_checklist(request: Request):
         return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
-    if not check_and_increment_ai(tg_id):
+    _limit_cl, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, _limit_cl):
         return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
 
     try:
@@ -1308,7 +1309,8 @@ async def ai_task_description(request: Request):
         return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
-    if not check_and_increment_ai(tg_id):
+    _limit_desc, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, _limit_desc):
         return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
 
     try:
@@ -1359,7 +1361,8 @@ async def ai_task_decompose(request: Request):
         return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
-    if not check_and_increment_ai(tg_id):
+    _limit_dc, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, _limit_dc):
         return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
 
     try:
@@ -1430,7 +1433,8 @@ async def ai_task_review(request: Request):
         return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
-    if not check_and_increment_ai(tg_id):
+    _limit_rv, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, _limit_rv):
         return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
 
     try:
@@ -1477,14 +1481,13 @@ async def ai_task_review(request: Request):
 
 # ─── AI-шаблон из задачи (Phase 4.4) ────────────────────────────────────────
 
-@router.post("/api/ai/task-suggest-template")
+@router.post("/task-suggest-template")
 async def ai_task_suggest_template(request: Request):
     """
     Генерирует оптимизированный шаблон на основе выполненной задачи.
     Gate: tasks_ai (tasks_pro + tasks_ai extension).
     """
     from web.auth import get_session_user
-    from web.auth import _api_csrf_ok
     from billing_utils import has_module as _hm, has_extension as _he
     from web.ai_utils import ask_llm
     from web.rate_store import check_and_increment_ai
@@ -1500,7 +1503,8 @@ async def ai_task_suggest_template(request: Request):
     if not _hm(telegram_id, 'tasks_pro') or not _he(telegram_id, 'tasks_ai'):
         return JSONResponse({"ok": False, "error": "Требуется tasks_ai"}, status_code=403)
 
-    if not check_and_increment_ai(telegram_id):
+    limit, _ = _get_limits(telegram_id)
+    if not check_and_increment_ai(telegram_id, limit):
         return JSONResponse({"ok": False, "error": "Лимит AI-запросов исчерпан"}, status_code=429)
 
     try:

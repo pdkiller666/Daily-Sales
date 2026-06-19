@@ -2917,6 +2917,8 @@ def task_watch(request: Request, task_id: int, csrf_token: str = Form("")):
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
+        if not db.get_task(task_id):
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute(
@@ -2947,6 +2949,8 @@ def task_unwatch(request: Request, task_id: int, csrf_token: str = Form("")):
     org_db = user.get("org_db")
     try:
         db = get_web_db(telegram_id, org_db)
+        if not db.get_task(task_id):
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
         conn = db.get_connection()
         try:
             my_row = conn.execute(

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.121.0"
+CURRENT_VERSION = "1.122.0"
 
 ENTRIES = [
+    {
+        "version": "1.122.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Add features for time tracking, task watchers, and AI-generated templates",
+        ],
+    },
     {
         "version": "1.121.0",
         "date": "19 июня 2026",
