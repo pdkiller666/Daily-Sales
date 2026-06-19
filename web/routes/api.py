@@ -19,13 +19,14 @@ def sales_feed(request: Request, since: str = ""):
     from web.deps import get_web_db
     from web.app import _api_rate_ok
 
-    ip = request.client.host if request.client else "unknown"
-    if not _api_rate_ok(ip):
-        return JSONResponse({"ok": False, "count": 0, "items": []}, status_code=429)
-
     user = get_session_user(request)
     if not user:
         return {"ok": False, "count": 0, "items": []}
+    # Rate-limit by telegram_id, not IP — behind Amvera reverse-proxy
+    # request.client.host is the shared proxy IP (see replit.md gotcha #26).
+    _rl_key = str(user.get("sub", request.client.host if request.client else "unknown"))
+    if not _api_rate_ok(_rl_key):
+        return JSONResponse({"ok": False, "count": 0, "items": []}, status_code=429)
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")

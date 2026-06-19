@@ -3141,8 +3141,8 @@ async def process_billing_edit_field(message: Message, state: FSMContext):
                 b['price_monthly'], b['sort_order'], int(b['is_active']))
             detail = _bundle_detail(db, eid)
 
-    await clear_state_keep_org(state)
     if ok and detail[0]:
         await fsm_edit(state, message, detail[0], reply_markup=detail[1])
     else:
         await fsm_edit(state, message, "❌ Не удалось сохранить изменение.")
+    await clear_state_keep_org(state)

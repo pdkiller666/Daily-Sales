@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.94.0"
+CURRENT_VERSION = "1.95.0"
 
 ENTRIES = [
+    {
+        "version": "1.95.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Комплексный аудит: исправлены нарушения порядка fsm_edit/clear в хендлерах комиссий и биллинга (clear вызывался до fsm_edit — anchor message не находился); rate-limit в sales-feed переведён с IP-адреса на telegram_id (за proxy Amvera у всех пользователей один IP — лимит блокировал всех разом).",
+            "Improve AI assistant functionality and performance",
+        ],
+    },
     {
         "version": "1.94.0",
         "date": "19 июня 2026",

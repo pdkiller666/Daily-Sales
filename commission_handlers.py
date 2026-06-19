@@ -1121,14 +1121,13 @@ async def targeted_rule_edit_value(message: Message, state: FSMContext):
     result = await asyncio.to_thread(
         current_db.update_motivation_rule_value, rule_id, rule_type, value
     )
-    await clear_state_keep_org(state)
-
     if result is None:
         await fsm_edit(state, message,
                        "❌ <b>Ошибка</b>\n\nПравило не найдено (возможно, уже удалено).",
                        reply_markup=InlineKeyboardBuilder().button(
                            text="⬅️ К правилам", callback_data="targeted_rules"
                        ).as_markup())
+        await clear_state_keep_org(state)
         return
 
     # Показываем подтверждение и обновлённый список
@@ -1144,6 +1143,7 @@ async def targeted_rule_edit_value(message: Message, state: FSMContext):
                        reply_markup=InlineKeyboardBuilder().button(
                            text="⬅️ Назад", callback_data="admin_motivation"
                        ).as_markup())
+    await clear_state_keep_org(state)
 
 
 @commission_router.callback_query(F.data.startswith("confirm_del_targ_rule_"))
