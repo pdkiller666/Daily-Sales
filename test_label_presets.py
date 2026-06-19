@@ -35,6 +35,7 @@ def _make_design(**over):
         "element_order": '["name", "price", "barcode"]',
         "visible_elements": '{"name": true, "price": true, "barcode": false}',
         "sale_badge": "АКЦИЯ",
+        "qr_content": "https://shop.ru/p/{article}",
     }
     d.update(over)
     return d
@@ -67,13 +68,14 @@ def main():
             border_color=p["border_color"], border_width=p["border_width"],
             label_theme=p["label_theme"], element_order=p["element_order"],
             visible_elements=p["visible_elements"], sale_badge=p["sale_badge"],
+            qr_content=p.get("qr_content") or "",
         )
         act = db.get_label_settings()
         # get_label_settings парсит JSON-поля в объекты — сверяем их отдельно.
         import json as _json
         for k in ("bg_color", "text_color", "price_color", "logo_path",
                   "font_size", "font_family", "border_color", "border_width",
-                  "label_theme", "sale_badge"):
+                  "label_theme", "sale_badge", "qr_content"):
             check(f"roundtrip активных настроек: {k}",
                   act.get(k) == des[k], f"{act.get(k)!r} != {des[k]!r}")
         check("roundtrip element_order (parsed)",

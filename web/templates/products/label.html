@@ -461,11 +461,26 @@
           Сохраните текущее оформление под именем и переключайтесь между наборами.
         </p>
 
+        {# Баннер активного предпросмотра #}
+        <div x-show="previewing" x-cloak
+             class="mb-2 flex items-center gap-2 flex-wrap rounded-lg px-2.5 py-2
+                    bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700">
+          <span class="flex-1 text-xs text-blue-700 dark:text-blue-300">
+            👁 Предпросмотр: <strong x-text="previewing && previewing.name"></strong>
+            <span class="block text-[11px] text-blue-500 dark:text-blue-400">Не сохранено — примените или отмените.</span>
+          </span>
+          <button @click="applyPreviewed()" class="btn-primary text-xs py-1 px-2.5">✓ Применить</button>
+          <button @click="cancelPreview()" class="btn-secondary text-xs py-1 px-2.5">Отмена</button>
+        </div>
+
         {# Список сохранённых пресетов #}
         <div class="space-y-1.5 mb-3" x-show="presets.length">
           <template x-for="p in presets" :key="p.id">
             <div class="flex items-center gap-2 text-sm bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2.5 py-1.5">
               <span class="flex-1 truncate font-medium" x-text="p.name"></span>
+              <button @click="previewPreset(p)" class="btn-secondary text-xs py-1 px-2"
+                      :class="previewing && previewing.id===p.id ? 'ring-2 ring-blue-400' : ''"
+                      title="Предпросмотр">👁</button>
               <button @click="applyPreset(p)" class="btn-secondary text-xs py-1 px-2" title="Применить">Применить</button>
               <button @click="renamePreset(p)" class="btn-secondary text-xs py-1 px-2" title="Переименовать">✏️</button>
               <button @click="deletePreset(p)" class="btn-danger text-xs py-1 px-2" title="Удалить">🗑</button>
@@ -704,6 +719,8 @@ function labelDesigner() {
     NEW_ELEMS,
     presets:       Array.isArray(PRESETS_INIT) ? [...PRESETS_INIT] : [],
     newPresetName: '',
+    previewing:    null,
+    _designBackup: null,
 
     _previewSortables: [],
 
@@ -913,6 +930,80 @@ function labelDesigner() {
         } else { this.toast('⚠ Не удалось применить'); }
       } catch { this.toast('⚠ Ошибка сети'); }
     },
+
+    /* ── Предпросмотр пресета (без сохранения) ── */
+    _snapshotDesign() {
+      return {
+        d:         Object.assign({}, this.d),
+        visElems:  Object.assign({}, this.visElems),
+        elemOrder: [...this.elemOrder],
+      };
+    },
+    _applyDesignState(s) {
+      this.d         = Object.assign({}, s.d);
+      this.visElems  = Object.assign({}, s.visElems);
+      this.elemOrder = [...s.elemOrder];
+      this.$nextTick(() => {
+        this.applyDesignVars();
+        this.applyVisibility();
+        this.applyOrder();
+      });
+    },
+    _presetToState(pr) {
+      /* reverse-map CSS font → key */
+      let ff = 'sans';
+      const f = pr.font_family || '';
+      if(f.includes('Georgia'))        ff = 'serif';
+      else if(f.includes('Courier'))   ff = 'mono';
+      else if(f.includes('Trebuchet')) ff = 'rounded';
+      const d = {
+        bg_color:     pr.bg_color     || '#ffffff',
+        text_color:   pr.text_color   || '#000000',
+        price_color:  pr.price_color  || '#000000',
+        border_color: pr.border_color || '#cccccc',
+        border_width: String(pr.border_width || '1'),
+        font_size:    pr.font_size    || 'medium',
+        sale_badge:   pr.sale_badge   || '',
+        qr_content:   pr.qr_content   || '',
+        font_family:  ff,
+        theme:        pr.label_theme  || 'standard',
+      };
+      let elemOrder = [...DEFAULT_ORDER];
+      try {
+        const o = typeof pr.element_order === 'string'
+          ? JSON.parse(pr.element_order) : pr.element_order;
+        if(Array.isArray(o) && o.length) elemOrder = o;
+      } catch(e){}
+      let visElems = Object.assign({}, DEFAULT_VIS);
+      try {
+        const v = typeof pr.visible_elements === 'string'
+          ? JSON.parse(pr.visible_elements) : pr.visible_elements;
+        if(v && typeof v === 'object') visElems = Object.assign({}, DEFAULT_VIS, v);
+      } catch(e){}
+      return { d, visElems, elemOrder };
+    },
+    async previewPreset(p) {
+      try {
+        const r = await fetch('/products/label-presets/'+p.id);
+        if(!r.ok) { this.toast('⚠ Не удалось загрузить пресет'); return; }
+        const j = await r.json();
+        if(!j.ok || !j.preset) { this.toast('⚠ Пресет не найден'); return; }
+        if(!this.previewing) this._designBackup = this._snapshotDesign();
+        this._applyDesignState(this._presetToState(j.preset));
+        this.previewing = { id: p.id, name: p.name };
+        this.toast('👁 Предпросмотр: ' + p.name);
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+    cancelPreview() {
+      if(this._designBackup) this._applyDesignState(this._designBackup);
+      this._designBackup = null;
+      this.previewing = null;
+      this.toast('Предпросмотр отменён');
+    },
+    async applyPreviewed() {
+      if(!this.previewing) return;
+      await this.applyPreset(this.previewing);
+    },
     async renamePreset(p) {
       const name = (prompt('Новое название пресета:', p.name) || '').trim();
       if(!name || name === p.name) return;
@@ -935,6 +1026,7 @@ function labelDesigner() {
       try {
         const r = await fetch('/products/label-presets/'+p.id+'/delete', {method:'POST', body:fd});
         if(r.ok) {
+          if(this.previewing && this.previewing.id === p.id) this.cancelPreview();
           this.presets = this.presets.filter(x => x.id !== p.id);
           this.toast('✓ Пресет удалён');
         } else { this.toast('⚠ Не удалось удалить'); }

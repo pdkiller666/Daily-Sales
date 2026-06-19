@@ -2379,6 +2379,22 @@ async def create_label_preset(request: Request):
     return JSONResponse({"ok": True, "id": new_id, "name": name})
 
 
+@router.get("/products/label-presets/{preset_id}")
+async def get_label_preset_detail(request: Request, preset_id: int):
+    """Return a preset's full design for client-side preview (owner only)."""
+    from fastapi.responses import Response
+
+    guard = _label_presets_guard(request)
+    if isinstance(guard, Response):
+        return guard
+    db, _telegram_id, _user = guard
+
+    preset = db.get_label_preset(preset_id)
+    if not preset:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    return JSONResponse({"ok": True, "preset": preset})
+
+
 @router.post("/products/label-presets/{preset_id}/apply")
 async def apply_label_preset(request: Request, preset_id: int):
     """Load a preset into the active label settings (owner only)."""
