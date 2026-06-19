@@ -13974,6 +13974,89 @@ class Database:
             logger.error("get_open_tasks_count: %s", e)
             return 0
 
+    def get_tasks_analytics(self) -> dict:
+        """Агрегированная статистика задач для дашборда аналитики."""
+        empty = {
+            'total': 0, 'by_status': {}, 'overdue': 0,
+            'by_topic': [], 'by_assignee': [], 'by_priority': [],
+            'created_daily': [], 'completed_daily': [],
+            'avg_rating': None, 'rated_count': 0, 'avg_time_to_done': None,
+        }
+        try:
+            conn = self.get_connection()
+            try:
+                by_status_rows = conn.execute(
+                    "SELECT status, COUNT(*) FROM tasks WHERE is_active=1 GROUP BY status"
+                ).fetchall()
+                by_status = {r[0]: r[1] for r in by_status_rows}
+                total = sum(by_status.values())
+
+                overdue = conn.execute(
+                    """SELECT COUNT(*) FROM tasks
+                       WHERE is_active=1 AND status NOT IN ('done','cancelled')
+                         AND deadline IS NOT NULL AND deadline < datetime('now')"""
+                ).fetchone()[0]
+
+                topic_rows = conn.execute(
+                    """SELECT COALESCE(tt.name,'Без темы'), COUNT(t.id)
+                       FROM tasks t LEFT JOIN task_topics tt ON t.topic_id=tt.id
+                       WHERE t.is_active=1 GROUP BY COALESCE(tt.name,'Без темы')
+                       ORDER BY 2 DESC LIMIT 10"""
+                ).fetchall()
+
+                assignee_rows = conn.execute(
+                    """SELECT COALESCE(u.first_name||CASE WHEN u.last_name IS NOT NULL THEN ' '||u.last_name ELSE '' END, 'Без назначения'),
+                              COUNT(t.id)
+                       FROM tasks t LEFT JOIN users u ON t.assigned_to=u.id
+                       WHERE t.is_active=1 GROUP BY t.assigned_to ORDER BY 2 DESC LIMIT 10"""
+                ).fetchall()
+
+                priority_rows = conn.execute(
+                    "SELECT priority, COUNT(*) FROM tasks WHERE is_active=1 GROUP BY priority ORDER BY 2 DESC"
+                ).fetchall()
+
+                created_rows = conn.execute(
+                    """SELECT DATE(created_at), COUNT(*) FROM tasks
+                       WHERE is_active=1 AND created_at >= datetime('now','-30 days')
+                       GROUP BY DATE(created_at) ORDER BY 1"""
+                ).fetchall()
+
+                completed_rows = conn.execute(
+                    """SELECT DATE(updated_at), COUNT(*) FROM tasks
+                       WHERE is_active=1 AND status='done'
+                         AND updated_at >= datetime('now','-30 days')
+                       GROUP BY DATE(updated_at) ORDER BY 1"""
+                ).fetchall()
+
+                rating_row = conn.execute(
+                    "SELECT AVG(CAST(rating AS REAL)), COUNT(*) FROM tasks WHERE is_active=1 AND rating IS NOT NULL"
+                ).fetchone()
+
+                avg_time_row = conn.execute(
+                    """SELECT AVG(CAST((julianday(updated_at)-julianday(created_at))*24 AS REAL))
+                       FROM tasks WHERE is_active=1 AND status='done'
+                         AND updated_at IS NOT NULL AND created_at IS NOT NULL"""
+                ).fetchone()
+
+                return {
+                    'total': total,
+                    'by_status': by_status,
+                    'overdue': overdue,
+                    'by_topic': [(r[0], r[1]) for r in topic_rows],
+                    'by_assignee': [(r[0], r[1]) for r in assignee_rows],
+                    'by_priority': [(r[0], r[1]) for r in priority_rows],
+                    'created_daily': [(r[0], r[1]) for r in created_rows],
+                    'completed_daily': [(r[0], r[1]) for r in completed_rows],
+                    'avg_rating': round(rating_row[0], 1) if rating_row[0] else None,
+                    'rated_count': rating_row[1] or 0,
+                    'avg_time_to_done': round(avg_time_row[0], 1) if avg_time_row and avg_time_row[0] else None,
+                }
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("get_tasks_analytics: %s", e)
+            return empty
+
     def get_tasks_with_deadline_today(self) -> list:
         """Задачи с дедлайном сегодня (для APScheduler напоминаний)."""
         try:

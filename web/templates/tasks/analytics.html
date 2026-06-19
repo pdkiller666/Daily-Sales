@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Аналитика задач{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-sm">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">Аналитика</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-5">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">📊 Аналитика задач</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Статистика и динамика выполнения поручений</p>
+  </div>
+  <a href="/tasks" class="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-colors">
+    ← Список задач
+  </a>
+</div>
+
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ error }}
+</div>
+{% endif %}
+
+{% set total = stats.get('total', 0) %}
+{% set by_status = stats.get('by_status', {}) %}
+{% set done_count = by_status.get('done', 0) %}
+{% set active_count = by_status.get('new', 0) + by_status.get('in_progress', 0) + by_status.get('review', 0) %}
+{% set overdue = stats.get('overdue', 0) %}
+{% set avg_rating = stats.get('avg_rating') %}
+{% set avg_time = stats.get('avg_time_to_done') %}
+
+<!-- KPI cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">Всего задач</p>
+    <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ total }}</p>
+    <p class="text-xs text-slate-500 mt-1">в базе</p>
+  </div>
+  <div class="card p-4 dark:bg-slate-900 {{ 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950' if total > 0 else '' }}">
+    <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">Выполнено</p>
+    <p class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{{ done_count }}</p>
+    <p class="text-xs text-slate-500 mt-1">
+      {% if total > 0 %}{{ "%.0f" | format(done_count / total * 100) }}% от всех{% endif %}
+    </p>
+  </div>
+  <div class="card p-4 dark:bg-slate-900 {{ 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950' if overdue > 0 else '' }}">
+    <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">Просрочено</p>
+    <p class="text-3xl font-bold {{ 'text-red-600 dark:text-red-400' if overdue > 0 else 'text-slate-600 dark:text-slate-400' }}">{{ overdue }}</p>
+    <p class="text-xs text-slate-500 mt-1">активных с дедлайном</p>
+  </div>
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-xs text-slate-400 uppercase tracking-wide mb-1">В работе</p>
+    <p class="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{{ active_count }}</p>
+    <p class="text-xs text-slate-500 mt-1">новых + в работе + на проверке</p>
+  </div>
+</div>
+
+<!-- Second row KPIs -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+  {% if avg_rating %}
+  <div class="card p-4 dark:bg-slate-900 flex items-center gap-4">
+    <div class="text-4xl">⭐</div>
+    <div>
+      <p class="text-xs text-slate-400 uppercase tracking-wide mb-0.5">Средняя оценка</p>
+      <p class="text-2xl font-bold text-amber-500">{{ avg_rating }}/5</p>
+      <p class="text-xs text-slate-500">по {{ stats.get('rated_count', 0) }} выполненным</p>
+    </div>
+  </div>
+  {% endif %}
+  {% if avg_time %}
+  <div class="card p-4 dark:bg-slate-900 flex items-center gap-4">
+    <div class="text-4xl">⏱</div>
+    <div>
+      <p class="text-xs text-slate-400 uppercase tracking-wide mb-0.5">Среднее время выполнения</p>
+      {% if avg_time < 24 %}
+      <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ "%.1f" | format(avg_time) }} ч</p>
+      {% else %}
+      <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ "%.1f" | format(avg_time / 24) }} дн</p>
+      {% endif %}
+      <p class="text-xs text-slate-500">от создания до выполнения</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Charts row 1: Status donut + Priority bar -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Распределение по статусу</p>
+    <div class="h-56">
+      <canvas id="chartStatus"></canvas>
+    </div>
+  </div>
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Распределение по приоритету</p>
+    <div class="h-56">
+      <canvas id="chartPriority"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row 2: By topic + By assignee -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  {% if stats.get('by_topic') %}
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Задачи по темам</p>
+    <div class="h-56">
+      <canvas id="chartTopics"></canvas>
+    </div>
+  </div>
+  {% endif %}
+  {% if stats.get('by_assignee') %}
+  <div class="card p-4 dark:bg-slate-900">
+    <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Нагрузка по сотрудникам</p>
+    <div class="h-56">
+      <canvas id="chartAssignee"></canvas>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Trend chart -->
+<div class="card p-4 dark:bg-slate-900 mb-4">
+  <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">Динамика задач за 30 дней</p>
+  <p class="text-xs text-slate-400 mb-3">Создано и выполнено</p>
+  <div class="h-64">
+    <canvas id="chartTrend"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const dark = document.documentElement.classList.contains('dark');
+  const textColor = dark ? '#94a3b8' : '#64748b';
+  const gridColor = dark ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.1)';
+
+  Chart.defaults.color = textColor;
+  Chart.defaults.borderColor = gridColor;
+
+  const statusData = {{ chart_status | safe }};
+  const statusLabels = Object.keys(statusData);
+  const statusValues = Object.values(statusData);
+  const statusColors = statusLabels.map(l => {
+    if (l.includes('Новые')) return '#6366f1';
+    if (l.includes('работе')) return '#f59e0b';
+    if (l.includes('проверке')) return '#3b82f6';
+    if (l.includes('Выполнен')) return '#10b981';
+    if (l.includes('Отменен')) return '#94a3b8';
+    return '#e2e8f0';
+  });
+
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: { labels: statusLabels, datasets: [{ data: statusValues, backgroundColor: statusColors, borderWidth: 2, borderColor: dark ? '#1e293b' : '#fff' }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } } } }
+  });
+
+  const priorityLabels = {{ chart_priority_labels | safe }};
+  const priorityData = {{ chart_priority_data | safe }};
+  const priorityColors = priorityLabels.map(l => {
+    if (l.includes('Крит')) return '#ef4444';
+    if (l.includes('Высок')) return '#f59e0b';
+    if (l.includes('Средн')) return '#6366f1';
+    if (l.includes('Низк')) return '#10b981';
+    return '#94a3b8';
+  });
+
+  new Chart(document.getElementById('chartPriority'), {
+    type: 'bar',
+    data: { labels: priorityLabels, datasets: [{ label: 'Задач', data: priorityData, backgroundColor: priorityColors, borderRadius: 6, borderSkipped: false }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  const topicLabels = {{ chart_topics_labels | safe }};
+  const topicData = {{ chart_topics_data | safe }};
+  if (topicLabels.length && document.getElementById('chartTopics')) {
+    new Chart(document.getElementById('chartTopics'), {
+      type: 'bar',
+      data: { labels: topicLabels, datasets: [{ label: 'Задач', data: topicData, backgroundColor: '#6366f1', borderRadius: 6, borderSkipped: false }] },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { grid: { display: false } } }
+      }
+    });
+  }
+
+  const assigneeLabels = {{ chart_assignee_labels | safe }};
+  const assigneeData = {{ chart_assignee_data | safe }};
+  if (assigneeLabels.length && document.getElementById('chartAssignee')) {
+    const palette = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#14b8a6','#f97316','#84cc16','#06b6d4'];
+    new Chart(document.getElementById('chartAssignee'), {
+      type: 'bar',
+      data: { labels: assigneeLabels, datasets: [{ label: 'Задач', data: assigneeData, backgroundColor: palette, borderRadius: 6, borderSkipped: false }] },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { grid: { display: false } } }
+      }
+    });
+  }
+
+  const trendLabels = {{ chart_trend_labels | safe }};
+  const createdData = {{ chart_created_data | safe }};
+  const completedData = {{ chart_completed_data | safe }};
+  new Chart(document.getElementById('chartTrend'), {
+    type: 'line',
+    data: {
+      labels: trendLabels,
+      datasets: [
+        { label: 'Создано', data: createdData, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.3, pointRadius: 3 },
+        { label: 'Выполнено', data: completedData, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.3, pointRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 45, maxTicksLimit: 15, font: { size: 10 } } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+      }
+    }
+  });
+
+  // Dark mode observer
+  const obs = new MutationObserver(() => {
+    const isDark = document.documentElement.classList.contains('dark');
+    Chart.defaults.color = isDark ? '#94a3b8' : '#64748b';
+    Chart.defaults.borderColor = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.1)';
+  });
+  obs.observe(document.documentElement, { attributeFilter: ['class'] });
+})();
+</script>
+{% endblock %}

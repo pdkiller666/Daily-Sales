@@ -1177,6 +1177,82 @@ def tasks_export_excel(request: Request, status: str = "", topic_id: int = 0,
         return RedirectResponse(url="/tasks?msg=error", status_code=303)
 
 
+# ─── ANALYTICS ───────────────────────────────────────────────────────────────
+
+@router.get("/tasks/analytics")
+def tasks_analytics(request: Request):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": is_admin,
+        "stats": {}, "error": None,
+        "chart_status": "{}",
+        "chart_topics_labels": "[]", "chart_topics_data": "[]",
+        "chart_assignee_labels": "[]", "chart_assignee_data": "[]",
+        "chart_priority_labels": "[]", "chart_priority_data": "[]",
+        "chart_trend_labels": "[]",
+        "chart_created_data": "[]", "chart_completed_data": "[]",
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        stats = db.get_tasks_analytics()
+        ctx["stats"] = stats
+
+        STATUS_RU = {
+            'new': 'Новые', 'in_progress': 'В работе',
+            'review': 'На проверке', 'done': 'Выполнены', 'cancelled': 'Отменены'
+        }
+        ctx["chart_status"] = _json.dumps(
+            {STATUS_RU.get(k, k): v for k, v in stats.get('by_status', {}).items()}
+        )
+
+        by_topic = stats.get('by_topic', [])
+        ctx["chart_topics_labels"] = _json.dumps([r[0] for r in by_topic])
+        ctx["chart_topics_data"] = _json.dumps([r[1] for r in by_topic])
+
+        by_assignee = stats.get('by_assignee', [])
+        ctx["chart_assignee_labels"] = _json.dumps([r[0] for r in by_assignee])
+        ctx["chart_assignee_data"] = _json.dumps([r[1] for r in by_assignee])
+
+        PRIORITY_RU = {'urgent': '🔴 Критичный', 'high': '🟠 Высокий',
+                       'medium': '🔵 Средний', 'low': '🟢 Низкий'}
+        by_priority = stats.get('by_priority', [])
+        ctx["chart_priority_labels"] = _json.dumps([PRIORITY_RU.get(r[0], r[0]) for r in by_priority])
+        ctx["chart_priority_data"] = _json.dumps([r[1] for r in by_priority])
+
+        # Trend: merge created + completed, fill gaps for last 30 days
+        from datetime import date, timedelta
+        all_days = [(date.today() - timedelta(days=i)).isoformat() for i in range(29, -1, -1)]
+        created_map = dict(stats.get('created_daily', []))
+        completed_map = dict(stats.get('completed_daily', []))
+        ctx["chart_trend_labels"] = _json.dumps([d[5:] for d in all_days])  # MM-DD
+        ctx["chart_created_data"] = _json.dumps([created_map.get(d, 0) for d in all_days])
+        ctx["chart_completed_data"] = _json.dumps([completed_map.get(d, 0) for d in all_days])
+
+    except Exception as e:
+        logger.error("tasks_analytics: %s", e)
+        ctx["error"] = "Ошибка загрузки аналитики."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/analytics.html", ctx
+    )
+
+
 # ─── DETAIL ──────────────────────────────────────────────────────────────────
 
 @router.get("/tasks/{task_id}")
