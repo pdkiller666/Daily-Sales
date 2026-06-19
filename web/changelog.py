@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.101.0"
+CURRENT_VERSION = "1.102.0"
 
 ENTRIES = [
+    {
+        "version": "1.102.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Add direct messaging shortcut to staff list",
+        ],
+    },
     {
         "version": "1.101.0",
         "date": "19 июня 2026",

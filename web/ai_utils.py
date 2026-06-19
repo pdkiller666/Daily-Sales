@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import threading
+import time
 
 import aiohttp
 
@@ -48,6 +49,49 @@ def _reload_keys() -> None:
     _DEEPSEEK_KEY   = os.getenv("DEEPSEEK_API_KEY", "")
     _GEMINI_KEY     = os.getenv("GEMINI_API_KEY", "")
     _OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+
+# ─── Circuit breaker ─────────────────────────────────────────────────────────
+# Если провайдер упал — пропускаем его на _CB_TTL секунд, не ждём 28с таймаут.
+# После успеха — немедленно сбрасываем состояние (half-open → closed).
+
+_CB_TTL  = 180.0  # секунд в открытом состоянии (провайдер пропускается)
+_CB_LOCK = threading.Lock()
+_circuit: dict[str, float] = {}  # provider_name → monotonic timestamp "открыт до"
+
+
+def _cb_is_open(name: str) -> bool:
+    """True если провайдер недавно падал и ещё в карантине."""
+    with _CB_LOCK:
+        return _circuit.get(name, 0.0) > time.monotonic()
+
+
+def _cb_failure(name: str) -> None:
+    """Зафиксировать сбой провайдера — откроет circuit на _CB_TTL секунд."""
+    with _CB_LOCK:
+        _circuit[name] = time.monotonic() + _CB_TTL
+    logger.warning("circuit_breaker: %s → OPEN for %.0fs", name, _CB_TTL)
+
+
+def _cb_success(name: str) -> None:
+    """Зафиксировать успех провайдера — закрыть circuit."""
+    with _CB_LOCK:
+        was_open = _circuit.pop(name, None)
+    if was_open:
+        logger.info("circuit_breaker: %s → CLOSED (recovered)", name)
+
+
+def get_circuit_state() -> dict[str, dict]:
+    """Вернуть текущее состояние circuit breaker (для /admin/ai-limits)."""
+    now = time.monotonic()
+    with _CB_LOCK:
+        return {
+            name: {
+                "open": ts > now,
+                "open_for_sec": max(0.0, round(ts - now, 1)),
+            }
+            for name, ts in _circuit.items()
+        }
 
 
 def is_configured() -> bool:
@@ -370,14 +414,20 @@ async def ask_llm(
         return None
 
     for name, fn in providers:
+        if _cb_is_open(name):
+            logger.debug("ask_llm: circuit OPEN for %s — skipping", name)
+            continue
         try:
             result = await fn(prompt, sys_prompt, max_tokens, temperature)  # type: ignore[operator]
             if result:
                 logger.info("ask_llm: OK from %s (%d chars)", name, len(result))
+                _cb_success(name)
                 return result
             logger.warning("ask_llm: %s returned empty string", name)
+            _cb_failure(name)
         except Exception as exc:
             logger.warning("ask_llm: provider %s failed — %s: %s", name, type(exc).__name__, exc)
+            _cb_failure(name)
 
     logger.warning("ask_llm: all %d provider(s) failed or returned empty", len(providers))
     return None
@@ -552,12 +602,17 @@ async def _ask_with_messages(
         return None
 
     for name, fn in providers:
+        if _cb_is_open(name):
+            logger.debug("_ask_with_messages: circuit OPEN for %s — skipping", name)
+            continue
         try:
             result = await fn(messages)  # type: ignore[operator]
             if result:
+                _cb_success(name)
                 return result
         except Exception as exc:
             logger.warning("_ask_with_messages: %s failed — %s", name, exc)
+            _cb_failure(name)
 
     return None
 
@@ -567,6 +622,53 @@ async def _ask_with_messages(
 _TOOL_CALL_RE = re.compile(
     r'TOOL_CALL:\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\})', re.DOTALL
 )
+# Fallback 1: TOOL_CALL с кавычками/обратными тиками или '=' вместо ':'
+_TOOL_CALL_LOOSE_RE = re.compile(
+    r'[`"\']?TOOL_CALL[`"\']?\s*[:=]\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\})',
+    re.DOTALL | re.IGNORECASE,
+)
+# Fallback 2: голый JSON-объект с ключом "tool" — когда модель не добавила префикс
+_TOOL_CALL_BARE_RE = re.compile(
+    r'\{\s*"tool"\s*:\s*"[^"]{1,64}"\s*,\s*"params"\s*:\s*(\{[^{}]*\})\s*\}',
+    re.DOTALL,
+)
+
+
+def _extract_tool_call(response: str) -> dict | None:
+    """Извлечь tool-call JSON из ответа LLM.
+
+    Порядок попыток:
+    1. Стандартный формат: ``TOOL_CALL: {...}``
+    2. Нестандартный разделитель / кавычки вокруг TOOL_CALL
+    3. Голый JSON-объект ``{"tool": "...", "params": {...}}``
+    Возвращает спарсенный dict или None если ничего не найдено.
+    """
+    # 1) стандарт
+    m = _TOOL_CALL_RE.search(response)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 2) loose prefix
+    m2 = _TOOL_CALL_LOOSE_RE.search(response)
+    if m2:
+        try:
+            return json.loads(m2.group(1))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 3) bare JSON — строим dict вручную из совпадения
+    m3 = _TOOL_CALL_BARE_RE.search(response)
+    if m3:
+        try:
+            # group(0) = весь объект, group(1) = params dict
+            return json.loads(m3.group(0))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return None
 
 _TOOL_SYSTEM_APPENDIX = """\
 
@@ -623,18 +725,13 @@ async def ask_llm_with_tools(
         if not response:
             return None
 
-        m = _TOOL_CALL_RE.search(response)
-        if not m or round_idx >= max_rounds:
+        call_data = _extract_tool_call(response)
+        if call_data is None or round_idx >= max_rounds:
             clean = _TOOL_CALL_RE.sub("", response).strip()
             return clean or response
 
-        try:
-            call_data  = json.loads(m.group(1))
-            tool_name  = str(call_data.get("tool", ""))
-            tool_params = dict(call_data.get("params", {}))
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            clean = _TOOL_CALL_RE.sub("", response).strip()
-            return clean or response
+        tool_name   = str(call_data.get("tool", ""))
+        tool_params = dict(call_data.get("params", {}))
 
         if not tool_name:
             clean = _TOOL_CALL_RE.sub("", response).strip()
