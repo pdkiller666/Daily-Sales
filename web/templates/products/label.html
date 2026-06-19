@@ -44,6 +44,33 @@
 .lbl-block { width:100%; display:flex; justify-content:center; }
 .lbl-block.hidden-elem { display:none !important; }
 
+/* ───── Drag-on-preview (editable label) ─────────────────────────────────── */
+.label.editable .lbl-block:not(.hidden-elem) {
+  cursor:grab; border-radius:4px;
+  transition:background .12s, box-shadow .12s;
+}
+.label.editable .lbl-block:not(.hidden-elem):hover {
+  background:rgba(37,99,235,.08);
+  box-shadow:inset 0 0 0 1px rgba(37,99,235,.35);
+}
+.label.editable .lbl-block.lbl-chosen {
+  cursor:grabbing; background:rgba(37,99,235,.14);
+  box-shadow:inset 0 0 0 1px rgba(37,99,235,.6);
+}
+.label.editable .lbl-block.lbl-ghost { opacity:.35; }
+.label.editable .lbl-block.lbl-drag  { opacity:.9; }
+.dark .label.editable .lbl-block:not(.hidden-elem):hover {
+  background:rgba(96,165,250,.14);
+  box-shadow:inset 0 0 0 1px rgba(96,165,250,.45);
+}
+
+.preview-edit-hint {
+  display:flex; align-items:center; gap:6px;
+  font-size:0.78em; color:#2563eb; font-weight:600;
+  margin:0 0 8px 4px;
+}
+.dark .preview-edit-hint { color:#60a5fa; }
+
 .label-badge {
   background:#e53935; color:#fff;
   font-size:0.7em; font-weight:700;
@@ -208,10 +235,12 @@
 /* Print */
 @media print {
   body, html { margin:0; padding:0; }
-  .no-print { display:none !important; }
+  .no-print, .preview-edit-hint { display:none !important; }
   #label-area { padding:4px; }
   .label-wrap { gap:4px; padding:0; }
   .label { break-inside:avoid; }
+  /* drag affordances must not print */
+  .label.editable .lbl-block { cursor:default !important; background:none !important; box-shadow:none !important; }
 }
 </style>
 {% endblock %}
@@ -456,6 +485,7 @@
 </div>{# /x-data #}
 
 {# ── Область ценников ──────────────────────────────────────────────────── #}
+<div class="preview-edit-hint">✋ Перетащите блоки прямо на ценнике, чтобы изменить порядок</div>
 <div id="label-area">
 <div class="label-wrap" id="label-wrap">
 {% for lb in labels %}
@@ -608,6 +638,8 @@ function labelDesigner() {
     ELEM_LABELS,
     NEW_ELEMS,
 
+    _previewSortables: [],
+
     init() {
       this.$nextTick(() => {
         this.applyVisibility();
@@ -615,6 +647,7 @@ function labelDesigner() {
         this.applyDesignVars();
         this.initBarcodes();
         this.initSortable();
+        this.initPreviewSortable();
       });
     },
 
@@ -679,6 +712,34 @@ function labelDesigner() {
         });
         order.forEach(key => { if(map[key]) label.appendChild(map[key]); });
       });
+    },
+
+    /* ── Drag directly on the preview label ── */
+    initPreviewSortable() {
+      if(typeof Sortable === 'undefined') return;
+      /* tear down previous instances (copies re-render) */
+      this._previewSortables.forEach(s => { try { s.destroy(); } catch(e){} });
+      this._previewSortables = [];
+      const first = document.querySelector('#label-wrap .label');
+      if(!first) return;
+      first.classList.add('editable');
+      const s = Sortable.create(first, {
+        animation:150,
+        draggable:'.lbl-block',
+        filter:'.hidden-elem',
+        delay:150, delayOnTouchOnly:true, touchStartThreshold:5,
+        chosenClass:'lbl-chosen', ghostClass:'lbl-ghost', dragClass:'lbl-drag',
+        onEnd: () => {
+          const order = [];
+          first.querySelectorAll('.lbl-block[data-block]').forEach(el => order.push(el.dataset.block));
+          /* keep any keys not present in DOM (safety) */
+          this.elemOrder.forEach(k => { if(!order.includes(k)) order.push(k); });
+          this.elemOrder = order;
+          this.applyOrder();
+          this.toast('✓ Порядок изменён — не забудьте «Сохранить дизайн»');
+        }
+      });
+      this._previewSortables.push(s);
     },
 
     /* ── Design ── */
@@ -784,6 +845,7 @@ function labelDesigner() {
         this.applyVisibility();
         this.applyOrder();
         this.applyDesignVars();
+        this.initPreviewSortable();
       });
     },
 
