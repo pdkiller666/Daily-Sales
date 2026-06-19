@@ -117,7 +117,10 @@ jobs:
           [ -f "${{ env.APK_FILE }}" ] || { echo "APK file not found: ${{ env.APK_FILE }}"; exit 1; }
           VERSION="v1.0.${{ github.run_number }}"
           echo "Uploading $(du -h "${{ env.APK_FILE }}" | cut -f1) APK to server..."
+          # --retry handles the deploy race: a same-push code deploy may be
+          # restarting Amvera (transient 503/connrefused) when this step runs.
           STATUS=$(curl -s -o /tmp/apk_upload_resp.txt -w "%{http_code}" \
+            --retry 6 --retry-delay 10 --retry-all-errors --retry-connrefused \
             -X POST "https://dailysalesdeploy-pdkiller666.amvera.io/webhook/apk-binary" \
             -H "Authorization: Bearer ${APK_WEBHOOK_SECRET}" \
             -H "X-APK-Version: ${VERSION}" \
@@ -125,7 +128,7 @@ jobs:
             --data-binary "@${{ env.APK_FILE }}" --max-time 120 || echo "000")
           echo "APK binary upload HTTP status: ${STATUS}"
           cat /tmp/apk_upload_resp.txt || true
-          [ "${STATUS}" = "200" ] || echo "::warning::APK binary upload did not return 200"
+          [ "${STATUS}" = "200" ] || { echo "::error::APK binary upload failed (HTTP ${STATUS})"; exit 1; }
 
       - name: Notify server about new APK release
         env:

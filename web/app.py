@@ -1139,7 +1139,19 @@ def create_web_app() -> FastAPI:
         if not secret or not hmac.compare_digest(token.encode(), secret.encode()):
             return JSONResponse({"error": "Unauthorized"}, status_code=401)
         version = request.headers.get("X-APK-Version", "").strip()
+        _APK_MAX_SIZE = 50 * 1024 * 1024  # 50 MB hard cap — guard against OOM
+        try:
+            _clen = int(request.headers.get("content-length", "0"))
+        except (TypeError, ValueError):
+            _clen = 0
+        if _clen > _APK_MAX_SIZE:
+            return JSONResponse(
+                {"error": f"file too large ({_clen} bytes)"},
+                status_code=413,
+            )
         body = await request.body()
+        if len(body) > _APK_MAX_SIZE:
+            return JSONResponse({"error": "file too large"}, status_code=413)
         if len(body) < _APK_MIN_SIZE:
             return JSONResponse(
                 {"error": f"file too small ({len(body)} bytes)"},
