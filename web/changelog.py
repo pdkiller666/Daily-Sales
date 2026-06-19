@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.112.0"
+CURRENT_VERSION = "1.113.0"
 
 ENTRIES = [
+    {
+        "version": "1.113.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Update plan creation and editing with AI-powered suggestions",
+            "auto-load AI plan hint on edit form open (task-77)",
+        ],
+    },
     {
         "version": "1.112.0",
         "date": "19 июня 2026",
