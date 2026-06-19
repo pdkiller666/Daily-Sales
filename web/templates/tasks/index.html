@@ -24,6 +24,11 @@
       Канбан
     </a>
     {% if is_admin %}
+    <a href="/tasks/export{% if status or topic_filter or assigned_filter or shop_filter or q %}?{% if status %}status={{ status }}&{% endif %}{% if topic_filter %}topic_id={{ topic_filter }}&{% endif %}{% if assigned_filter %}assigned_filter={{ assigned_filter }}&{% endif %}{% if shop_filter %}shop_filter={{ shop_filter }}&{% endif %}{% if q %}q={{ q }}{% endif %}{% endif %}"
+       title="Экспорт в Excel"
+       class="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition-colors">
+      📥 Excel
+    </a>
     <a href="/tasks/topics"
        class="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors">
       🏷 Темы

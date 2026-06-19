@@ -976,6 +976,120 @@ def tasks_topics_delete(
     return RedirectResponse(url="/tasks/topics?msg=deleted", status_code=303)
 
 
+# ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
+
+@router.get("/tasks/export")
+def tasks_export_excel(request: Request, status: str = "", topic_id: int = 0,
+                       assigned_filter: int = 0, shop_filter: str = "", q: str = ""):
+    from web.auth import get_session_user
+    from web.deps import get_web_db
+    from fastapi.responses import StreamingResponse
+    import io, datetime as _dt
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
+
+        tasks = db.get_tasks(
+            status=status or None,
+            topic_id=topic_id or None,
+            assigned_to=assigned_filter if assigned_filter else None,
+            shop_filter=shop_filter or None,
+            is_admin=True,
+            my_user_id=my_db_id,
+            my_shop=my_shop or None,
+            q=q.strip() or None,
+        )
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Задачи"
+
+        header_fill = PatternFill("solid", fgColor="4F46E5")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        headers = [
+            ("ID", 6), ("Название", 40), ("Статус", 14), ("Приоритет", 12),
+            ("Тема", 18), ("Исполнитель", 20), ("Магазин", 16),
+            ("Срок", 14), ("Создана", 14), ("Описание", 50),
+        ]
+        for col, (h, w) in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
+
+        ws.row_dimensions[1].height = 22
+
+        status_ru = {"new": "Новая", "in_progress": "В работе", "review": "Проверка",
+                     "done": "Выполнена", "cancelled": "Отменена"}
+        priority_ru = {"low": "Низкий", "normal": "Обычный", "high": "Высокий", "urgent": "Срочный"}
+
+        for i, t in enumerate(tasks, 2):
+            assigned = ""
+            if t.get("assign_all"):
+                assigned = "Вся команда"
+            elif t.get("assigned_shop"):
+                assigned = t["assigned_shop"]
+            elif t.get("assigned_name"):
+                assigned = t["assigned_name"]
+
+            deadline_str = t.get("deadline", "") or ""
+            created_str = (t.get("created_at") or "")[:10]
+
+            ws.cell(row=i, column=1, value=t.get("id"))
+            ws.cell(row=i, column=2, value=t.get("title", ""))
+            ws.cell(row=i, column=3, value=status_ru.get(t.get("status", ""), t.get("status", "")))
+            ws.cell(row=i, column=4, value=priority_ru.get(t.get("priority", ""), t.get("priority", "")))
+            ws.cell(row=i, column=5, value=t.get("topic_name") or "")
+            ws.cell(row=i, column=6, value=assigned)
+            ws.cell(row=i, column=7, value=t.get("assigned_shop") or "")
+            ws.cell(row=i, column=8, value=deadline_str[:10] if deadline_str else "")
+            ws.cell(row=i, column=9, value=created_str)
+            ws.cell(row=i, column=10, value=(t.get("description") or "")[:500])
+
+            if i % 2 == 0:
+                row_fill = PatternFill("solid", fgColor="F8F7FF")
+                for col in range(1, 11):
+                    ws.cell(row=i, column=col).fill = row_fill
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        fname = f"tasks_{_dt.date.today().isoformat()}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    except Exception as e:
+        logger.error("tasks_export_excel: %s", e)
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+
 # ─── DETAIL ──────────────────────────────────────────────────────────────────
 
 @router.get("/tasks/{task_id}")
