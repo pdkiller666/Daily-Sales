@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.99.0"
+CURRENT_VERSION = "1.100.0"
 
 ENTRIES = [
+    {
+        "version": "1.100.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Update dashboard to automatically filter sales by today's date",
+        ],
+    },
     {
         "version": "1.99.0",
         "date": "19 июня 2026",

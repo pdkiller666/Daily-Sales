@@ -146,6 +146,7 @@ def dashboard(request: Request, msg: str = ""):
         "month_vs_prev": None,
         "apk_new_version": apk_new_version,
         "apk_release_url": apk_release_url,
+        "user_shop": "",
     }
 
     try:
@@ -163,6 +164,15 @@ def dashboard(request: Request, msg: str = ""):
         ctx["today_iso"] = today_str
         ctx["curr_year"] = today.year
         ctx["curr_month"] = today.month
+
+        if not is_admin:
+            try:
+                from db_utils import get_user_org_scope
+                _stype, _svals = get_user_org_scope(telegram_id)
+                if _stype == "shop" and _svals and len(_svals) == 1:
+                    ctx["user_shop"] = _svals[0]
+            except Exception:
+                pass
 
         today_s = db.get_sales_summary(start_date=today_str, end_date=today_str) or (0, 0, 0, 0)
         month_s = db.get_sales_summary(start_date=month_str, end_date=today_str) or (0, 0, 0, 0)
