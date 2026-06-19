@@ -76,6 +76,21 @@
     }
   </script>
 
+  {% if not edit_task and tasks_pro|default(false) and templates %}
+  <div class="mb-4 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950 flex items-center gap-3 flex-wrap">
+    <span class="text-xs font-medium text-indigo-700 dark:text-indigo-300 shrink-0">📑 Шаблон:</span>
+    <div class="flex items-center gap-2 flex-wrap">
+      {% for tmpl in templates %}
+      <a href="/tasks/new?template_id={{ tmpl.id }}"
+         class="text-xs px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+        {{ tmpl.title | truncate(30, true, '…') }}
+      </a>
+      {% endfor %}
+      <a href="/tasks/templates" class="text-xs text-indigo-500 hover:underline dark:text-indigo-400 ml-1">Управление →</a>
+    </div>
+  </div>
+  {% endif %}
+
   <form method="POST" action="{{ '/tasks/' + (edit_task.id|string) + '/edit' if edit_task else '/tasks/new' }}"
         enctype="multipart/form-data"
         class="card p-6 dark:bg-slate-900 space-y-5"
@@ -88,7 +103,7 @@
         Название <span class="text-red-500">*</span>
       </label>
       <input type="text" name="title" required maxlength="200"
-             value="{{ edit_task.title if edit_task else '' }}"
+             value="{{ edit_task.title if edit_task else prefill_title|default('') }}"
              placeholder="Кратко опишите задачу"
              class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500">
     </div>
@@ -100,7 +115,7 @@
       </label>
       <textarea name="description" rows="4" maxlength="2000"
                 placeholder="Подробное описание, инструкции, ссылки…"
-                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ edit_task.description if edit_task else '' }}</textarea>
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ edit_task.description if edit_task else prefill_description|default('') }}</textarea>
     </div>
 
     <!-- Row: topic + priority -->
@@ -115,7 +130,10 @@
                 class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="">— Без темы —</option>
           {% for t in topics %}
-          <option value="{{ t.id }}" {{ 'selected' if edit_task and edit_task.topic_id == t.id else '' }}>{{ t.name }}</option>
+          <option value="{{ t.id }}"
+            {{ 'selected' if (edit_task and edit_task.topic_id == t.id) or (not edit_task and prefill_topic_id|default(0)|int == t.id) else '' }}>
+            {{ t.name }}
+          </option>
           {% endfor %}
         </select>
       </div>
@@ -124,7 +142,10 @@
         <select name="priority"
                 class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
           {% for pk, pv in priority_labels.items() %}
-          <option value="{{ pk }}" {{ 'selected' if (edit_task and edit_task.priority == pk) or (not edit_task and pk == 'normal') else '' }}>{{ pv }}</option>
+          <option value="{{ pk }}"
+            {{ 'selected' if (edit_task and edit_task.priority == pk) or (not edit_task and (prefill_priority|default('normal') == pk if prefill_priority|default('') else pk == 'normal')) else '' }}>
+            {{ pv }}
+          </option>
           {% endfor %}
         </select>
       </div>
@@ -259,7 +280,7 @@
       </label>
       <textarea name="checklist_items" rows="4"
                 placeholder="Пересчитать остатки&#10;Обновить ценники&#10;Сделать фото полки"
-                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"></textarea>
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ prefill_checklist|default('') }}</textarea>
     </div>
 
     <!-- Файлы (только при создании) -->

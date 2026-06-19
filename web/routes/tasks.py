@@ -376,8 +376,10 @@ def _chat_available(telegram_id: int) -> bool:
         return False
 
 
-@router.get("/tasks/new")
-def tasks_new_form(request: Request):
+# ─── TEMPLATES ───────────────────────────────────────────────────────────────
+
+@router.get("/tasks/templates")
+def tasks_templates_list(request: Request, msg: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -390,6 +392,188 @@ def tasks_new_form(request: Request):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "templates": [], "topics": [],
+        "priority_labels": PRIORITY_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "msg": msg, "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["templates"] = db.get_task_templates()
+        ctx["topics"] = db.get_task_topics()
+    except Exception as e:
+        logger.error("tasks_templates_list: %s", e)
+        ctx["error"] = "Ошибка загрузки шаблонов."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/templates.html", ctx
+    )
+
+
+@router.post("/tasks/templates/new")
+def tasks_templates_new(request: Request, csrf_token: str = Form(""),
+                        title: str = Form(""), description: str = Form(""),
+                        priority: str = Form("normal"), topic_id: str = Form(""),
+                        checklist_items: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/templates?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=303)
+
+    title = title.strip()
+    if not title:
+        return RedirectResponse(url="/tasks/templates?msg=no_title", status_code=303)
+
+    checklist = []
+    for line in (checklist_items or "").splitlines():
+        line = line.strip()
+        if line:
+            checklist.append({"text": line, "done": False})
+    checklist_json = _json.dumps(checklist, ensure_ascii=False)
+
+    tid = int(topic_id) if topic_id and topic_id.isdigit() else None
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else None
+        db.create_task_template(
+            title=title, description=description.strip(),
+            priority=priority, checklist_json=checklist_json,
+            topic_id=tid, created_by=my_db_id
+        )
+        return RedirectResponse(url="/tasks/templates?msg=created", status_code=303)
+    except Exception as e:
+        logger.error("tasks_templates_new: %s", e)
+        return RedirectResponse(url="/tasks/templates?msg=error", status_code=303)
+
+
+@router.post("/tasks/templates/{tid}/delete")
+def tasks_template_delete(request: Request, tid: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/templates?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        db.delete_task_template(tid)
+    except Exception as e:
+        logger.error("tasks_template_delete: %s", e)
+
+    return RedirectResponse(url="/tasks/templates?msg=deleted", status_code=303)
+
+
+@router.post("/tasks/{task_id}/save_as_template")
+def task_save_as_template(request: Request, task_id: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=pro_required", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=302)
+
+        # Build checklist from existing checklist items
+        checklist_items = []
+        conn = db.get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT text FROM task_checklist WHERE task_id=? ORDER BY sort_order, id",
+                (task_id,)
+            ).fetchall()
+            checklist_items = [{"text": r[0], "done": False} for r in rows]
+        finally:
+            conn.close()
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute("SELECT id FROM users WHERE telegram_id=?", (telegram_id,)).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else None
+
+        db.create_task_template(
+            title=task['title'],
+            description=task.get('description', ''),
+            priority=task.get('priority', 'normal'),
+            checklist_json=_json.dumps(checklist_items, ensure_ascii=False),
+            topic_id=task.get('topic_id'),
+            created_by=my_db_id,
+        )
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=template_saved", status_code=303)
+    except Exception as e:
+        logger.error("task_save_as_template: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+
+@router.get("/tasks/new")
+def tasks_new_form(request: Request, template_id: int = 0):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    tasks_pro = _has_module(telegram_id, 'tasks_pro')
+
     ctx = {
         "request": request, "user": user, "is_admin": True,
         "topics": [], "staff_list": [], "shops_list": [],
@@ -398,6 +582,11 @@ def tasks_new_form(request: Request):
         "edit_task": None, "error": None,
         "chat_available": _chat_available(telegram_id),
         "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
+        "tasks_pro": tasks_pro, "templates": [],
+        "prefill_title": "", "prefill_description": "",
+        "prefill_priority": "normal", "prefill_topic_id": 0,
+        "prefill_checklist": "",
+        "msg": None,
     }
     try:
         db = get_web_db(telegram_id, org_db)
@@ -407,6 +596,18 @@ def tasks_new_form(request: Request):
         ctx["search_items_json"] = _build_search_items_json(ctx["staff_list"], ctx["shops_list"])
         ctx["init_selected_json"] = "[]"
         ctx["init_assign_all"] = "false"
+        if tasks_pro:
+            ctx["templates"] = db.get_task_templates()
+            if template_id:
+                tmpl = db.get_task_template(template_id)
+                if tmpl:
+                    ctx["prefill_title"] = tmpl['title']
+                    ctx["prefill_description"] = tmpl['description']
+                    ctx["prefill_priority"] = tmpl['priority']
+                    ctx["prefill_topic_id"] = tmpl['topic_id'] or 0
+                    ctx["prefill_checklist"] = "\n".join(
+                        item['text'] for item in tmpl.get('checklist', [])
+                    )
     except Exception as e:
         logger.error("tasks_new_form: %s", e)
 

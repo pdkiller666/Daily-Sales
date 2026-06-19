@@ -1416,6 +1416,19 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tr_remind ON task_reminders(sent, remind_at)')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_templates (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                title         TEXT    NOT NULL,
+                description   TEXT    DEFAULT '',
+                priority      TEXT    NOT NULL DEFAULT 'normal',
+                checklist_json TEXT   DEFAULT '[]',
+                topic_id      INTEGER DEFAULT NULL,
+                created_by    INTEGER DEFAULT NULL,
+                created_at    TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alerts_log (
@@ -14056,6 +14069,97 @@ class Database:
         except Exception as e:
             logger.error("get_tasks_analytics: %s", e)
             return empty
+
+    def create_task_template(self, title: str, description: str = '',
+                              priority: str = 'normal', checklist_json: str = '[]',
+                              topic_id: int | None = None, created_by: int | None = None) -> int | None:
+        """Создать шаблон задачи. Возвращает id."""
+        import json as _json
+        try:
+            conn = self.get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO task_templates (title, description, priority, checklist_json, topic_id, created_by)
+                   VALUES (?,?,?,?,?,?)""",
+                (title[:200], description[:2000], priority,
+                 checklist_json if checklist_json else '[]', topic_id, created_by)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception as e:
+            logger.error("create_task_template: %s", e)
+            return None
+        finally:
+            try: conn.close()
+            except: pass
+
+    def get_task_templates(self) -> list:
+        """Список всех шаблонов задач."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT tt.id, tt.title, tt.description, tt.priority, tt.checklist_json,
+                          tt.topic_id, top.name as topic_name, tt.created_at
+                   FROM task_templates tt
+                   LEFT JOIN task_topics top ON top.id = tt.topic_id
+                   ORDER BY tt.created_at DESC"""
+            ).fetchall()
+            conn.close()
+            import json as _json
+            result = []
+            for r in rows:
+                try:
+                    checklist = _json.loads(r[4] or '[]')
+                except Exception:
+                    checklist = []
+                result.append({
+                    'id': r[0], 'title': r[1], 'description': r[2] or '',
+                    'priority': r[3], 'checklist': checklist,
+                    'topic_id': r[5], 'topic_name': r[6] or '',
+                    'created_at': r[7] or '',
+                })
+            return result
+        except Exception as e:
+            logger.error("get_task_templates: %s", e)
+            return []
+
+    def get_task_template(self, template_id: int) -> dict | None:
+        """Одиночный шаблон задачи по id."""
+        try:
+            conn = self.get_connection()
+            r = conn.execute(
+                """SELECT id, title, description, priority, checklist_json, topic_id, created_at
+                   FROM task_templates WHERE id=?""",
+                (template_id,)
+            ).fetchone()
+            conn.close()
+            if not r:
+                return None
+            import json as _json
+            try:
+                checklist = _json.loads(r[4] or '[]')
+            except Exception:
+                checklist = []
+            return {
+                'id': r[0], 'title': r[1], 'description': r[2] or '',
+                'priority': r[3], 'checklist': checklist,
+                'topic_id': r[5], 'created_at': r[6] or '',
+            }
+        except Exception as e:
+            logger.error("get_task_template: %s", e)
+            return None
+
+    def delete_task_template(self, template_id: int) -> bool:
+        """Удалить шаблон задачи."""
+        try:
+            conn = self.get_connection()
+            conn.execute("DELETE FROM task_templates WHERE id=?", (template_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("delete_task_template: %s", e)
+            return False
 
     def get_tasks_with_deadline_today(self) -> list:
         """Задачи с дедлайном сегодня (для APScheduler напоминаний)."""
