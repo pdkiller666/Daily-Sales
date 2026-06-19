@@ -223,6 +223,7 @@ def products_page(
         ctx["base_url"] = base_url
         ctx["is_owner"] = user.get("role") in ("owner", "super_admin")
         ctx["label_settings"] = _get_label_settings_safe(db)
+        ctx["label_size_options"] = _label_size_options()
         ctx["first_product_id"] = all_products[0][0] if all_products else None
         try:
             from billing_utils import is_extension_denied as _ied
@@ -1362,14 +1363,44 @@ def _build_label_ctx(product, network: str = None, db=None, copies: int = 1) -> 
     }
 
 
-_VALID_LABEL_SIZES = {"58x40", "40x30", "a6"}
+# Единый каталог размеров ценников.
+# value: (w_mm, h_mm, h_gap_mm, v_gap_mm, margin_mm, подпись, подсказка)
+# Термоэтикетки тайлятся по A4; "a4-*" — готовые раскладки для лазерных
+# листов самоклейки (число столбцов/строк выводится из размеров автоматически).
+_LABEL_SIZE_DEFS: dict[str, tuple] = {
+    "30x20": (30, 20, 2, 2, 8, "30×20 мм", "Мини"),
+    "40x30": (40, 30, 3, 3, 10, "40×30 мм", "Маленький"),
+    "58x40": (58, 40, 4, 4, 10, "58×40 мм", "Стандарт"),
+    "60x40": (60, 40, 4, 4, 10, "60×40 мм", "Крупный"),
+    "a6":    (105, 74, 0, 5, 0, "A6 (105×148 мм)", "Большой"),
+    "a4-24": (63.5, 33.9, 2, 0, 6, "A4 · 24 шт/лист", "Лазерный лист"),
+    "a4-65": (38, 21.2, 2, 0, 5, "A4 · 65 шт/лист", "Лазерный лист"),
+}
+
+_VALID_LABEL_SIZES = set(_LABEL_SIZE_DEFS)
 
 # Per-size PDF layout params: (label_w_mm, label_h_mm, h_gap_mm, v_gap_mm, margin_mm)
 _LABEL_PDF_PARAMS: dict[str, tuple] = {
-    "58x40": (58, 40, 4, 4, 10),
-    "40x30": (40, 30, 3, 3, 10),
-    "a6":    (105, 74, 0, 5, 0),  # zero h_gap/margin → exactly 2 cols on A4
+    k: v[:5] for k, v in _LABEL_SIZE_DEFS.items()
 }
+
+
+def _label_size_options() -> list[tuple]:
+    """Список (value, подпись, подсказка) для UI-переключателей размера."""
+    return [(k, v[5], v[6]) for k, v in _LABEL_SIZE_DEFS.items()]
+
+
+def _grid_for_size(size: str) -> tuple[int, int, int]:
+    """Сколько ценников данного размера помещается на A4: (cols, rows, per_page).
+    Та же формула упаковки, что и в _generate_labels_pdf — единый источник,
+    чтобы UI/тесты и реальная генерация не расходились."""
+    # A4 в мм; работаем в мм (масштаб одинаков с точками reportlab).
+    page_w, page_h = 210.0, 297.0
+    lw, lh, hg, vg, mg = _LABEL_PDF_PARAMS.get(size, _LABEL_PDF_PARAMS["58x40"])
+    denom = (lw + hg) if (lw + hg) > 0 else lw
+    cols = max(1, int((page_w - 2 * mg + hg) / denom))
+    rows = max(1, int((page_h - 2 * mg + vg) / (lh + vg)))
+    return cols, rows, cols * rows
 
 
 def _hex_to_rgb_color(hex_color: str):
@@ -1541,13 +1572,9 @@ def _generate_labels_pdf(labels: list, size: str = "58x40",
     v_gap   = vg_mm * mm
     margin  = mg_mm * mm
 
-    denominator = label_w + h_gap if (label_w + h_gap) > 0 else label_w
-    cols = max(1, int((page_w - 2 * margin + h_gap) / denominator))
+    cols, rows_per_page, labels_per_page = _grid_for_size(size)
     grid_w = cols * label_w + (cols - 1) * h_gap
     left_margin = (page_w - grid_w) / 2
-
-    rows_per_page = max(1, int((page_h - 2 * margin + v_gap) / (label_h + v_gap)))
-    labels_per_page = cols * rows_per_page
 
     _ensure_pdf_fonts()
     reg_font, bold_font = _resolve_pdf_fonts(ls.get("font_family", ""))
@@ -1965,6 +1992,7 @@ def product_label(request: Request, product_id: int, print: str = "",
             "selected_network": network,
             "single_product_id": product_id,
             "label_presets": _list_label_presets_safe(db, user),
+            "label_size_options": _label_size_options(),
         }
     )
 
@@ -2083,6 +2111,7 @@ async def products_labels_bulk(request: Request):
             "trade_networks": trade_networks,
             "selected_network": network,
             "label_presets": _list_label_presets_safe(db, user),
+            "label_size_options": _label_size_options(),
         }
     )
 

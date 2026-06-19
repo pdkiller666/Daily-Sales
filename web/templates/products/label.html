@@ -39,6 +39,10 @@
 .label.size-58x40 { width:220px; min-height:152px; }
 .label.size-40x30 { width:152px; min-height:114px; font-size:0.85em; }
 .label.size-a6    { width:397px; min-height:280px; font-size:1.1em; }
+.label.size-30x20 { width:114px; min-height:76px;  font-size:0.72em; gap:2px; }
+.label.size-60x40 { width:228px; min-height:152px; }
+.label.size-a4-24 { width:241px; min-height:129px; font-size:0.9em; }
+.label.size-a4-65 { width:144px; min-height:80px;  font-size:0.74em; gap:2px; }
 
 /* ───── Label blocks ─────────────────────────────────────────────────────── */
 .lbl-block { width:100%; display:flex; justify-content:center; }
@@ -80,6 +84,8 @@
 .label-logo { max-height:36px; max-width:80%; object-fit:contain; }
 .label.size-40x30 .label-logo { max-height:26px; }
 .label.size-a6    .label-logo { max-height:52px; }
+.label.size-30x20 .label-logo,
+.label.size-a4-65 .label-logo { max-height:20px; }
 
 .label-category {
   font-size:0.6em; color:#888; letter-spacing:0.1em;
@@ -105,10 +111,14 @@
 .label-qr { width:56px; height:56px; object-fit:contain; }
 .label.size-40x30 .label-qr { width:40px; height:40px; }
 .label.size-a6    .label-qr { width:80px; height:80px; }
+.label.size-30x20 .label-qr,
+.label.size-a4-65 .label-qr { width:32px; height:32px; }
 
 .label-barcode-svg { max-width:90%; height:36px; }
 .label.size-40x30 .label-barcode-svg { height:26px; }
 .label.size-a6    .label-barcode-svg { height:52px; }
+.label.size-30x20 .label-barcode-svg,
+.label.size-a4-65 .label-barcode-svg { height:20px; }
 
 .label-article {
   font-size:0.65em; color:#777; font-family:monospace;
@@ -305,7 +315,7 @@
     {# ── Размер ── #}
     <div class="tab-panel active" id="tab-size">
       <div class="flex gap-4 flex-wrap">
-        {% for sz, label, hint in [('58x40','58×40 мм','Стандарт'),('40x30','40×30 мм','Маленький'),('a6','A6','Большой')] %}
+        {% for sz, label, hint in label_size_options %}
         <label class="flex items-center gap-2 cursor-pointer select-none">
           <input type="radio" name="label-size" value="{{ sz }}"
                  x-model="curSize" @change="applySize()"
@@ -714,7 +724,7 @@ function labelDesigner() {
     applySize() {
       const sz = this.curSize;
       document.querySelectorAll('.label').forEach(el => {
-        el.classList.remove('size-58x40','size-40x30','size-a6');
+        el.className = el.className.replace(/\bsize-\S+/g, '').trim();
         el.classList.add('size-'+sz);
       });
       const fd = new FormData(); fd.append('size', sz);

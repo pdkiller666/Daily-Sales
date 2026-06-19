@@ -4,7 +4,7 @@
 названию/категории/артикулу/штрихкоду, .strip() и регистронезависимость.
 Гарантирует, что список товаров (products_page) и набор для печати совпадают.
 """
-from web.routes.products import _filter_products
+from web.routes.products import _filter_products, _grid_for_size, _label_size_options
 
 PASS, FAIL = "✅", "❌"
 results = []
@@ -47,6 +47,21 @@ def main():
     check("несовпадение → пусто", _filter_products(prods, q="неттакого") == [])
     check("пустой вход → пусто", _filter_products([]) == [])
     check("None вход → пусто", _filter_products(None) == [])
+
+    # ── Раскладка листа: вместимость A4 для каждого размера ──
+    expected_per_page = {
+        "30x20": (6, 12, 72), "40x30": (4, 8, 32), "58x40": (3, 6, 18),
+        "60x40": (3, 6, 18), "a6": (2, 3, 6),
+        "a4-24": (3, 8, 24), "a4-65": (5, 13, 65),
+    }
+    for sz, (ec, er, ep) in expected_per_page.items():
+        cols, rows, per = _grid_for_size(sz)
+        check(f"раскладка {sz} = {ec}×{er}={ep}", (cols, rows, per) == (ec, er, ep),
+              f"получено {cols}×{rows}={per}")
+    check("a4-24 строго 24 на лист", _grid_for_size("a4-24")[2] == 24)
+    check("a4-65 строго 65 на лист", _grid_for_size("a4-65")[2] == 65)
+    check("каждый размер вмещает ≥1", all(_grid_for_size(o[0])[2] >= 1 for o in _label_size_options()))
+    check("опций размеров = 7", len(_label_size_options()) == 7)
 
     fails = sum(1 for s, _, _ in results if s == FAIL)
     print("=" * 50)

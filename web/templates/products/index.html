@@ -220,8 +220,9 @@
     filteredCount: {{ total_count|int }},
     fltQ: {{ q|tojson }},
     fltCategory: {{ selected_category|tojson }},
+    sizeOpts: {{ label_size_options|tojson }},
     get selArr() { return Array.from(this.sel); },
-    get previewSzLabel() { return {'58x40':'58×40 мм','40x30':'40×30 мм','a6':'A6 (105×148)'}[this.previewSz] || this.previewSz; },
+    get previewSzLabel() { const o = this.sizeOpts.find(o => o[0] === this.previewSz); return o ? o[1] : this.previewSz; },
     get printCount() { return this.printMode === 'filtered' ? Math.min(this.filteredCount, 200) : this.sel.size; },
     openPrintPreview(sz) { this.printMode='sel'; this.previewSz = sz; this.showPrintPreview = true; this.showLabelSz = false; },
     openFilteredPreview(sz) { this.printMode='filtered'; this.previewSz = sz; this.showPrintPreview = true; this.showFiltSz = false; },
@@ -272,11 +273,11 @@
         <div x-show="showFiltSz" x-cloak @click.outside="showFiltSz=false"
              class="absolute top-full mt-2 left-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-20 min-w-[150px]">
             <p class="text-[10px] font-semibold text-slate-400 uppercase px-1 mb-1.5">Размер ценника</p>
-            <template x-for="sz in ['58x40','40x30','a6']">
+            <template x-for="sz in sizeOpts" :key="sz[0]">
                 <button type="button"
-                        @click="openFilteredPreview(sz)"
+                        @click="openFilteredPreview(sz[0])"
                         class="w-full text-left px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded-lg transition-colors"
-                        x-text="sz === 'a6' ? 'A6 (105×148 мм)' : sz + ' мм'"></button>
+                        x-text="sz[1]"></button>
             </template>
             {% if total_count > 200 %}
             <p class="text-[10px] text-amber-600 px-1 mt-1.5 leading-tight">⚠ Максимум 200 за раз</p>
@@ -447,11 +448,11 @@
         <div x-show="showLabelSz" x-cloak @click.outside="showLabelSz=false"
              class="absolute bottom-full mb-2 left-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-10 min-w-[140px]">
             <p class="text-[10px] font-semibold text-slate-400 uppercase px-1 mb-1.5">Размер ценника</p>
-            <template x-for="sz in ['58x40','40x30','a6']">
+            <template x-for="sz in sizeOpts" :key="sz[0]">
                 <button type="button"
-                        @click="openPrintPreview(sz)"
+                        @click="openPrintPreview(sz[0])"
                         class="w-full text-left px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded-lg transition-colors"
-                        x-text="sz === 'a6' ? 'A6 (105×148 мм)' : sz + ' мм'"></button>
+                        x-text="sz[1]"></button>
             </template>
         </div>
     </div>
