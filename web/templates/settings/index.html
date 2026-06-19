@@ -267,6 +267,14 @@
                                class="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[120px]">
                     </div>
 
+                    {% if tasks_pro|default(false) %}
+                    <div class="border-t border-slate-100 pt-4">
+                      {{ toggle('auto_tasks_low_stock', '📑 Авто-задача при низком остатке',
+                                'Создаёт задачу «Пополнить остаток» когда товар ниже порога',
+                                notif_settings.auto_tasks_low_stock|default(false)) }}
+                    </div>
+                    {% endif %}
+
                     <div class="border-t border-slate-100 pt-4">
                         {{ toggle('sales_alerts', 'Оповещения о продажах',
                                   'Уведомление при каждой продаже', notif_settings.sales_alerts) }}

@@ -506,6 +506,21 @@ async def send_personalized_notifications(bot: Bot):
                                 pass
                         except Exception as _send_err:
                             logging.warning(f"send_personalized_notifications: skip {telegram_id}: {_send_err}")
+
+                        # Авто-задачи при низком остатке (tasks_pro, если включено)
+                        try:
+                            from billing_utils import has_module as _has_module
+                            ns = await asyncio.to_thread(current_db.get_notification_settings, user_id)
+                            if ns.get('auto_tasks_low_stock') and _has_module(telegram_id, 'tasks_pro'):
+                                for item in low_stock_items[:20]:
+                                    _pname, _qty = item[0], item[1]
+                                    _shop = item[2] if len(item) > 2 else (shop_name or '')
+                                    await asyncio.to_thread(
+                                        current_db.create_auto_low_stock_task,
+                                        _pname, _shop or '', int(_qty or 0), user_id
+                                    )
+                        except Exception as _at_err:
+                            logging.debug("auto_tasks_low_stock: %s", _at_err)
             except Exception: continue
     except Exception as e:
         logging.error(f"Error in send_personalized_notifications: {e}")

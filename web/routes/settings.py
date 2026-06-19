@@ -112,6 +112,8 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         # AI weekly digest prefs (owners with ai_network_insights)
         "has_network_insights": False,
         "digest_prefs": {"weekday": 0, "hour_msk": 12},
+        # tasks_pro — для показа авто-задача переключателя
+        "tasks_pro": False,
     }
 
     try:
@@ -197,6 +199,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         if is_owner:
             try:
                 from billing_utils import has_extension as _has_ext, has_module as _has_mod
+                ctx["tasks_pro"] = _has_mod(telegram_id, "tasks_pro")
                 ctx["has_network_insights"] = (
                     _has_mod(telegram_id, "ai_assistant") and
                     _has_ext(telegram_id, "ai_network_insights")
@@ -431,6 +434,7 @@ async def settings_save(
     shift_sale_alerts: str = Form(default=""),
     stock_threshold: int = Form(default=5),
     notification_time: str = Form(default="09:00"),
+    auto_tasks_low_stock: str = Form(default=""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -458,6 +462,7 @@ async def settings_save(
                 shift_sale_alerts=1 if shift_sale_alerts == "on" else 0,
                 stock_threshold=max(0, stock_threshold),
                 notification_time=notification_time or "09:00",
+                auto_tasks_low_stock=1 if auto_tasks_low_stock == "on" else 0,
             )
     except Exception:
         pass

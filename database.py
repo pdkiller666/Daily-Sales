@@ -636,6 +636,12 @@ class Database:
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # Миграция: авто-создание задач при низком остатке (tasks_pro, opt-in)
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN auto_tasks_low_stock BOOLEAN DEFAULT FALSE")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
+
         # Миграция: контекстные блоки AI-дайджеста
         try:
             cursor.execute(
@@ -5061,6 +5067,8 @@ class Database:
                 'plan_coeff_cap': bool(settings[13]) if len(settings) > 13 else True,
                 # shift_reminders — индекс 14, добавлен миграцией (opt-out, дефолт True)
                 'shift_reminders': bool(settings[14]) if len(settings) > 14 else True,
+                # auto_tasks_low_stock — индекс 15, добавлен миграцией (opt-in, дефолт False)
+                'auto_tasks_low_stock': bool(settings[15]) if len(settings) > 15 else False,
             }
         else:
             self.create_default_notification_settings(user_id)
@@ -5076,6 +5084,7 @@ class Database:
                 'plan_coeff_enabled': False,
                 'plan_coeff_cap': True,
                 'shift_reminders': True,
+                'auto_tasks_low_stock': False,
             }
 
     def create_default_notification_settings(self, user_id):
@@ -14069,6 +14078,48 @@ class Database:
         except Exception as e:
             logger.error("get_tasks_analytics: %s", e)
             return empty
+
+    def create_auto_low_stock_task(self, product_name: str, shop_name: str,
+                                    quantity: int, created_by_user_id: int = 0) -> int:
+        """Создать авто-задачу «Пополнить остаток» с anti-duplicate за 7 дней.
+        Возвращает task_id или 0 если задача уже существует."""
+        try:
+            conn = self.get_connection()
+            title = f"📦 Пополнить остаток: {product_name}"
+            if shop_name:
+                title += f" ({shop_name})"
+            title = title[:200]
+            # Anti-duplicate: open task с тем же названием за последние 7 дней
+            dup = conn.execute(
+                """SELECT id FROM tasks
+                   WHERE title = ?
+                     AND status NOT IN ('done', 'cancelled')
+                     AND created_at >= datetime('now', '-7 days')
+                   LIMIT 1""",
+                (title,)
+            ).fetchone()
+            if dup:
+                conn.close()
+                return 0
+            description = (
+                f"Автоматически создано: остаток товара «{product_name}» "
+                f"в магазине «{shop_name}» составляет {quantity} шт.\n"
+                f"Пополните запасы как можно скорее."
+            )
+            cur = conn.execute(
+                """INSERT INTO tasks
+                       (title, description, priority, created_by, assign_all,
+                        created_at)
+                   VALUES (?, ?, 'high', ?, 1, datetime('now'))""",
+                (title, description, created_by_user_id)
+            )
+            task_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+            return task_id
+        except Exception as e:
+            logger.error("create_auto_low_stock_task: %s", e)
+            return 0
 
     def create_task_template(self, title: str, description: str = '',
                               priority: str = 'normal', checklist_json: str = '[]',
