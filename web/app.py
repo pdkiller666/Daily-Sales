@@ -802,25 +802,69 @@ def create_web_app() -> FastAPI:
     _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB
 
     async def _download_apk_to_local(apk_url: str) -> None:
-        """Скачивает APK из GitHub Releases на persistent volume Amvera."""
+        """Скачивает APK из GitHub Releases на persistent volume Amvera.
+
+        ВАЖНО: для ПРИВАТНОГО репозитория `browser_download_url`
+        (github.com/.../releases/download/TAG/NAME) отдаёт HTTP 404 даже с
+        Bearer-токеном. Нужно резолвить его в API-URL ассета
+        (api.github.com/.../releases/assets/ID) и качать с заголовком
+        `Accept: application/octet-stream`.
+        """
         import logging as _log
         import aiohttp
+        import re as _re
         dest = _APK_LOCAL
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")
+        _gh_token = os.environ.get("GITHUB_TOKEN", "")
         try:
-            _headers = {"User-Agent": "DailySales-Server/1.0"}
-            _gh_token = os.environ.get("GITHUB_TOKEN", "")
-            if _gh_token and "github.com" in apk_url:
-                _headers["Authorization"] = f"Bearer {_gh_token}"
-            async with aiohttp.ClientSession(headers=_headers) as session:
+            async with aiohttp.ClientSession() as session:
+                # 1) Резолвим browser_download_url → API-URL ассета (приватный репо).
+                download_url = apk_url
+                if _gh_token and "github.com" in apk_url and "/releases/assets/" not in apk_url:
+                    m = _re.search(
+                        r"github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/(.+)$",
+                        apk_url,
+                    )
+                    if m:
+                        owner, repo, tag, name = m.groups()
+                        api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+                        try:
+                            async with session.get(
+                                api_url,
+                                headers={
+                                    "Authorization": f"Bearer {_gh_token}",
+                                    "Accept": "application/vnd.github+json",
+                                    "X-GitHub-Api-Version": "2022-11-28",
+                                    "User-Agent": "DailySales-Server/1.0",
+                                },
+                                timeout=aiohttp.ClientTimeout(total=20),
+                            ) as r:
+                                if r.status == 200:
+                                    rel = await r.json()
+                                    for a in rel.get("assets", []):
+                                        if a.get("name") == name:
+                                            download_url = a.get("url") or download_url
+                                            break
+                                else:
+                                    _log.warning(f"APK asset resolve HTTP {r.status} for tag {tag}")
+                        except Exception as _re_err:
+                            _log.warning(f"APK asset resolve failed: {_re_err}")
+
+                # 2) Качаем. Для API-URL ассета обязателен Accept: application/octet-stream.
+                _headers = {"User-Agent": "DailySales-Server/1.0"}
+                if _gh_token and "github.com" in download_url:
+                    _headers["Authorization"] = f"Bearer {_gh_token}"
+                    if "/releases/assets/" in download_url:
+                        _headers["Accept"] = "application/octet-stream"
                 async with session.get(
-                    apk_url,
+                    download_url,
+                    headers=_headers,
                     timeout=aiohttp.ClientTimeout(total=180),
                     allow_redirects=True,
                 ) as resp:
                     if resp.status != 200:
-                        _log.error(f"APK download HTTP {resp.status}: {apk_url}")
+                        _log.error(f"APK download HTTP {resp.status}: {download_url}")
                         return
                     with open(tmp, "wb") as f:
                         async for chunk in resp.content.iter_chunked(65536):

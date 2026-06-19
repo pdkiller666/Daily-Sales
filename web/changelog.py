@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.78.0"
+CURRENT_VERSION = "1.79.0"
 
 ENTRIES = [
+    {
+        "version": "1.79.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Update APK download to exclusively use Amvera links",
+        ],
+    },
     {
         "version": "1.78.0",
         "date": "18 июня 2026",
