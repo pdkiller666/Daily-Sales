@@ -215,10 +215,24 @@
     lastIds: JSON.parse(localStorage.getItem('ds_label_last_ids') || '[]'),
     showPrintPreview: false,
     previewSz: '58x40',
+    printMode: 'sel',
+    showFiltSz: false,
+    filteredCount: {{ total_count|int }},
+    fltQ: {{ q|tojson }},
+    fltCategory: {{ selected_category|tojson }},
     get selArr() { return Array.from(this.sel); },
     get previewSzLabel() { return {'58x40':'58×40 мм','40x30':'40×30 мм','a6':'A6 (105×148)'}[this.previewSz] || this.previewSz; },
-    openPrintPreview(sz) { this.previewSz = sz; this.showPrintPreview = true; this.showLabelSz = false; },
-    confirmPrint() { dsPrintLabels(this.selArr, '{{ csrf_token_for(request) }}', this.previewSz); this.showPrintPreview = false; },
+    get printCount() { return this.printMode === 'filtered' ? Math.min(this.filteredCount, 200) : this.sel.size; },
+    openPrintPreview(sz) { this.printMode='sel'; this.previewSz = sz; this.showPrintPreview = true; this.showLabelSz = false; },
+    openFilteredPreview(sz) { this.printMode='filtered'; this.previewSz = sz; this.showPrintPreview = true; this.showFiltSz = false; },
+    confirmPrint() {
+        if (this.printMode === 'filtered') {
+            dsPrintLabelsFiltered('{{ csrf_token_for(request) }}', this.previewSz, this.fltQ, this.fltCategory);
+        } else {
+            dsPrintLabels(this.selArr, '{{ csrf_token_for(request) }}', this.previewSz);
+        }
+        this.showPrintPreview = false;
+    },
     restoreLastIds() { if (this.lastIds.length) { this.sel = new Set(this.lastIds.map(Number).filter(Boolean)); } },
     toggle(id) { if(this.sel.has(id)) this.sel.delete(id); else this.sel.add(id); this.sel = new Set(this.sel); },
     clear() { this.sel = new Set(); this.showDel=false; this.showCat=false; this.showPct=false; this.showLabelSz=false; this.showPrintPreview=false; },
@@ -238,6 +252,37 @@
     </button>
     <button @click="lastIds=[];localStorage.removeItem('ds_label_last_ids')"
             class="text-slate-400 hover:text-slate-600 transition-colors ml-1 text-lg leading-none">×</button>
+</div>
+{% endif %}
+
+{% if is_admin and not labels_locked and products %}
+<div class="mb-3 flex items-center gap-2 flex-wrap" x-show="sel.size === 0" x-cloak>
+    <span class="text-xs text-slate-400">
+        {% if q or selected_category %}По фильтру{% else %}Всего{% endif %}:
+        <strong class="text-slate-600">{{ total_count }}</strong>
+        товар{{ 'а' if 1 < total_count % 10 < 5 and not (11 <= total_count % 100 <= 14) else ('' if total_count % 10 == 1 and total_count % 100 != 11 else 'ов') }}
+    </span>
+    <div class="relative">
+        <button type="button"
+                @click="showFiltSz=!showFiltSz"
+                :class="showFiltSz ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'"
+                class="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+            🖨 Печать всех по фильтру
+        </button>
+        <div x-show="showFiltSz" x-cloak @click.outside="showFiltSz=false"
+             class="absolute top-full mt-2 left-0 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-20 min-w-[150px]">
+            <p class="text-[10px] font-semibold text-slate-400 uppercase px-1 mb-1.5">Размер ценника</p>
+            <template x-for="sz in ['58x40','40x30','a6']">
+                <button type="button"
+                        @click="openFilteredPreview(sz)"
+                        class="w-full text-left px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded-lg transition-colors"
+                        x-text="sz === 'a6' ? 'A6 (105×148 мм)' : sz + ' мм'"></button>
+            </template>
+            {% if total_count > 200 %}
+            <p class="text-[10px] text-amber-600 px-1 mt-1.5 leading-tight">⚠ Максимум 200 за раз</p>
+            {% endif %}
+        </div>
+    </div>
 </div>
 {% endif %}
 
@@ -512,8 +557,9 @@
         </div>
         <div class="text-center mb-5 space-y-1">
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200"
-               x-text="`${sel.size} ценник${sel.size===1?'':sel.size>1&&sel.size<5?'а':'ов'}`"></p>
+               x-text="`${printCount} ценник${printCount===1?'':printCount>1&&printCount<5?'а':'ов'}`"></p>
             <p class="text-xs text-slate-500" x-text="`Размер: ${previewSzLabel}`"></p>
+            <p x-show="printMode==='filtered'" class="text-[11px] text-violet-500" x-text="fltCategory ? `Категория: ${fltCategory}` : (fltQ ? `Поиск: ${fltQ}` : 'Все товары')"></p>
         </div>
         <div class="flex gap-3">
             <button @click="showPrintPreview=false"
@@ -617,6 +663,29 @@ window.dsPrintLabels = async function(ids, csrf, sizeOverride) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({csrf_token: csrf, product_ids: ids, size: size}),
+        });
+        if (!resp.ok) { alert('Ошибка при формировании ценников'); return; }
+        const html = await resp.text();
+        const w = window.open('', '_blank');
+        if (!w) { alert('Разрешите всплывающие окна для этого сайта'); return; }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+    } catch(e) {
+        alert('Ошибка соединения');
+    }
+};
+window.dsPrintLabelsFiltered = async function(csrf, size, q, category) {
+    try {
+        const sz = size || localStorage.getItem('ds_label_size') || '58x40';
+        localStorage.setItem('ds_label_size', sz);
+        const resp = await fetch('/products/labels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                csrf_token: csrf, all_filtered: true,
+                q: q || '', category: category || '', size: sz,
+            }),
         });
         if (!resp.ok) { alert('Ошибка при формировании ценников'); return; }
         const html = await resp.text();

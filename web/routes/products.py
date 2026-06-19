@@ -117,6 +117,28 @@ def _cleanup_article_sessions() -> None:
         _article_sessions.pop(k, None)
 
 
+def _filter_products(all_products: list, q: str = "", category: str = "") -> list:
+    """Фильтрация списка товаров по категории и поисковому запросу.
+    Общий источник правды для списка товаров и «печати всех по фильтру»,
+    чтобы счётчик и фактический набор для печати совпадали 1:1.
+    """
+    q = (q or "").strip()
+    category = (category or "").strip()
+    products = list(all_products or [])
+    if category:
+        products = [p for p in products if p[2] == category]
+    if q:
+        ql = q.lower()
+        products = [
+            p for p in products
+            if ql in (p[1] or "").lower()
+            or ql in (p[2] or "").lower()
+            or ql in (p[7] if len(p) > 7 and p[7] else "").lower()
+            or ql in (p[8] if len(p) > 8 and p[8] else "").lower()
+        ]
+    return products
+
+
 @router.get("/products")
 def products_page(
     request: Request,
@@ -163,18 +185,7 @@ def products_page(
         categories = sorted({p[2] for p in all_products if p[2]})
 
         # products: id[0] name[1] category[2] price[3] created_at[4]
-        products = list(all_products)
-        if category:
-            products = [p for p in products if p[2] == category]
-        if q:
-            ql = q.lower()
-            products = [
-                p for p in products
-                if ql in (p[1] or "").lower()
-                or ql in (p[2] or "").lower()
-                or ql in (p[7] if len(p) > 7 and p[7] else "").lower()
-                or ql in (p[8] if len(p) > 8 and p[8] else "").lower()
-            ]
+        products = _filter_products(all_products, q=q, category=category)
 
         # Apply user-requested sort
         rev = (sort_order == "desc")
@@ -1988,6 +1999,9 @@ async def products_labels_bulk(request: Request):
         fmt = fmt_qp or body.get("format", "")
         network = str(body.get("network", "") or "").strip()
         copies_map: dict = body.get("copies_map") or {}
+        all_filtered = body.get("all_filtered") is True
+        flt_q = str(body.get("q", "") or "").strip()
+        flt_category = str(body.get("category", "") or "").strip()
     except Exception:
         from fastapi.responses import Response
         return Response(content="Bad request", status_code=400)
@@ -2002,7 +2016,7 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="CSRF error", status_code=403)
 
-    if not product_ids:
+    if not product_ids and not all_filtered:
         from fastapi.responses import Response
         return Response(content="No products selected", status_code=400)
 
@@ -2010,6 +2024,16 @@ async def products_labels_bulk(request: Request):
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     label_settings = _get_label_settings_safe(db)
+
+    # «Печать всех по фильтру»: резолвим id серверно той же фильтрацией, что и
+    # список товаров (категория + поиск по названию/категории/артикулу/штрихкоду).
+    if all_filtered:
+        try:
+            matched = _filter_products(db.get_all_products(), q=flt_q, category=flt_category)
+            matched.sort(key=lambda p: (p[1] or "").lower())
+            product_ids = [p[0] for p in matched]
+        except Exception:
+            product_ids = []
 
     trade_networks: list[str] = []
     try:
