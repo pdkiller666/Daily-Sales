@@ -703,6 +703,7 @@ async def ask_llm_with_tools(
     max_rounds: int = 3,
     max_tokens: int = 450,
     history: list[dict] | None = None,
+    temperature: float = 0.3,
 ) -> str | None:
     """Multi-turn tool-calling loop for the chat AI assistant.
 
@@ -730,7 +731,7 @@ async def ask_llm_with_tools(
     messages.append({"role": "user", "content": user_question})
 
     for round_idx in range(max_rounds + 1):
-        response = await _ask_with_messages(messages, max_tokens=max_tokens)
+        response = await _ask_with_messages(messages, max_tokens=max_tokens, temperature=temperature)
         if not response:
             return None
 

@@ -215,7 +215,9 @@ async def ai_explain_report(request: Request):
             "Опирайся строго на предоставленные данные — не придумывай числа и факты, которых нет. "
             "Называй конкретные цифры из запроса. Пиши по-русски, без markdown, без заголовков."
         )
-        result = await ask_llm(prompt, system=_REPORT_SYSTEM, max_tokens=450, feature="report")
+        _focus_tokens = {"summary": 380, "products": 460, "risks": 420, "actions": 530}
+        _adaptive_tokens = min(_focus_tokens.get(focus, 420) + len(top_items) * 12, 600)
+        result = await ask_llm(prompt, system=_REPORT_SYSTEM, max_tokens=_adaptive_tokens, feature="report")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
