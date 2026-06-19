@@ -276,6 +276,22 @@
     </div>
     {% endif %}
 
+    {% if cost_by_feature %}
+    <div class="border-t border-slate-100 dark:border-slate-700 pt-3 mb-4">
+        <p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">По функциям (всё время)</p>
+        {% set _feat_labels = {"report": "Отчёты", "prodesc": "Описания товаров", "forecast": "Прогноз продаж", "plan": "Анализ плана", "chat": "AI-чат", "summary": "Сжатие контекста", "alerts": "Smart-алерты", "digest": "Дайджест"} %}
+        <div class="space-y-1.5">
+            {% for feat in cost_by_feature %}
+            <div class="flex items-center gap-3 text-xs">
+                <span class="w-36 shrink-0 text-slate-600 dark:text-slate-300">{{ _feat_labels.get(feat.feature, feat.feature) }}</span>
+                <span class="text-slate-400">{{ "{:,}".format(feat.prompt_tokens + feat.completion_tokens) }} ток.</span>
+                <span class="ml-auto text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">≈ ${{ "%.6f"|format(feat.cost_usd) }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- 30-day cost chart -->
     {% set _cost_chart_has_data = cost_chart | selectattr("cost_usd", "gt", 0) | list | length > 0 %}
     {% if _cost_chart_has_data %}

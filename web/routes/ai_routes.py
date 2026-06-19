@@ -210,7 +210,7 @@ async def ai_explain_report(request: Request):
             prev_revenue=prev_revenue,
         )
 
-        result = await ask_llm(prompt, max_tokens=450)
+        result = await ask_llm(prompt, max_tokens=450, feature="report")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
@@ -281,7 +281,7 @@ async def ai_product_description(request: Request):
         }
         system = system_by_style.get(style, system_by_style["technical"])
         prompt = build_product_description_prompt(name, category, price, style=style)
-        result = await ask_llm(prompt, system=system, max_tokens=400)
+        result = await ask_llm(prompt, system=system, max_tokens=400, feature="prodesc")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["prodesc"])
@@ -400,7 +400,7 @@ async def ai_sales_forecast(request: Request):
             f"Пиши на русском, без markdown, цифры в рублях. "
             f"Строго 3 предложения: 1) диапазон выручки на {horizon_str}, 2) на какие дни акцент, 3) главный риск."
         )
-        result = await ask_llm(prompt, system=system, max_tokens=350)
+        result = await ask_llm(prompt, system=system, max_tokens=350, feature="forecast")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось построить прогноз."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["forecast"])
@@ -563,7 +563,7 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
             f"Отвечай по-русски, конкретно, без воды."
         )
 
-        answer = await ask_llm(prompt, max_tokens=600)
+        answer = await ask_llm(prompt, max_tokens=600, feature="plan")
         if not answer:
             return JSONResponse({"ok": False, "error": "AI не смог построить анализ. Попробуйте позже."})
 

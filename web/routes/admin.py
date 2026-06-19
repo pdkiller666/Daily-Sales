@@ -1090,6 +1090,7 @@ async def admin_ai_limits(request: Request):
         get_ai_chat_daily_limit as _get_chat_lim,
         get_ai_cost_history, get_ai_cost_totals,
         get_ai_total_today, get_all_custom_limits,
+        get_ai_cost_by_feature,
     )
     from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
     from web.ai_utils import get_token_stats
@@ -1104,6 +1105,7 @@ async def admin_ai_limits(request: Request):
     custom_limits = get_all_custom_limits()
     cost_history = get_ai_cost_history(30)
     cost_totals = get_ai_cost_totals()
+    cost_by_feature = get_ai_cost_by_feature()
 
     # Агрегируем cost_history по дням для 30-дневного чарта
     _cost_by_date: dict = {}
@@ -1257,6 +1259,7 @@ async def admin_ai_limits(request: Request):
             "cost_history": cost_history,
             "cost_totals": cost_totals,
             "cost_chart": cost_chart,
+            "cost_by_feature": cost_by_feature,
         }),
     )
 

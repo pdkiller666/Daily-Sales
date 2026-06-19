@@ -128,13 +128,14 @@ _PROVIDER_RATES: dict[str, tuple[float, float]] = {
 }
 
 
-def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None:
+def _accumulate_tokens(prompt: int, completion: int, provider: str = "", feature: str = "") -> None:
     """Накапливает токены в module-level счётчике (thread-safe) и персистирует в БД.
 
     Args:
         prompt:     число prompt-токенов
         completion: число completion-токенов
         provider:   имя провайдера ('deepseek', 'gemini', 'openrouter')
+        feature:    функция ('report', 'prodesc', 'forecast', 'plan', 'chat', 'summary', 'alerts', ...)
     """
     key = provider.lower() if provider.lower() in _PROVIDER_RATES else ""
     rate_p, rate_c = _PROVIDER_RATES.get(key or "deepseek", _PROVIDER_RATES["deepseek"])
@@ -155,6 +156,9 @@ def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None
         _date_str = _dt_acc.datetime.utcnow().strftime("%Y-%m-%d")
         from web.rate_store import persist_token_cost as _persist_cost
         _persist_cost(_date_str, key or "unknown", prompt, completion, cost_usd)
+        if feature:
+            from web.rate_store import persist_token_cost_feature as _persist_feat
+            _persist_feat(_date_str, feature, prompt, completion, cost_usd)
     except Exception:
         pass
 
@@ -215,7 +219,7 @@ def get_token_stats() -> dict:
 
 # ─── Provider implementations ────────────────────────────────────────────────
 
-async def _ask_deepseek(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
+async def _ask_deepseek(prompt: str, system: str, max_tokens: int, temperature: float = 0.2, feature: str = "") -> str:
     url = "https://api.deepseek.com/v1/chat/completions"
     messages = []
     if system:
@@ -246,11 +250,11 @@ async def _ask_deepseek(prompt: str, system: str, max_tokens: int, temperature: 
             ct = int(usage.get("completion_tokens", 0))
             logger.debug("DeepSeek usage: prompt=%d completion=%d", pt, ct)
             if pt or ct:
-                _accumulate_tokens(pt, ct, provider="deepseek")
+                _accumulate_tokens(pt, ct, provider="deepseek", feature=feature)
             return content
 
 
-async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
+async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: float = 0.2, feature: str = "") -> str:
     """
     Gemini REST API v1beta.
     Рабочая модель: gemini-flash-latest (alias → всегда актуальная Flash-версия).
@@ -290,7 +294,7 @@ async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: fl
                     ct = int(usage.get("candidatesTokenCount", 0))
                     logger.debug("Gemini usage: prompt=%d completion=%d", pt, ct)
                     if pt or ct:
-                        _accumulate_tokens(pt, ct, provider="gemini")
+                        _accumulate_tokens(pt, ct, provider="gemini", feature=feature)
                     return content
         except (aiohttp.ClientResponseError, ValueError):
             raise
@@ -300,7 +304,7 @@ async def _ask_gemini(prompt: str, system: str, max_tokens: int, temperature: fl
     raise RuntimeError("All Gemini model aliases exhausted")
 
 
-async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature: float = 0.2) -> str:
+async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature: float = 0.2, feature: str = "") -> str:
     """
     OpenRouter API — пробует модели по порядку внутри провайдера.
     Платные (дешёвые): deepseek/deepseek-chat, openai/gpt-4o-mini.
@@ -353,7 +357,7 @@ async def _ask_openrouter(prompt: str, system: str, max_tokens: int, temperature
                     ct = int(usage.get("completion_tokens", 0))
                     logger.debug("OpenRouter usage: prompt=%d completion=%d", pt, ct)
                     if pt or ct:
-                        _accumulate_tokens(pt, ct, provider="openrouter")
+                        _accumulate_tokens(pt, ct, provider="openrouter", feature=feature)
                     return content
         except aiohttp.ClientResponseError as exc:
             last_err = exc
@@ -383,6 +387,7 @@ async def ask_llm(
     system: str = "",
     max_tokens: int = 500,
     temperature: float = 0.2,
+    feature: str = "",
 ) -> str | None:
     """Попробовать DeepSeek → Gemini → OpenRouter.
 
@@ -418,7 +423,7 @@ async def ask_llm(
             logger.debug("ask_llm: circuit OPEN for %s — skipping", name)
             continue
         try:
-            result = await fn(prompt, sys_prompt, max_tokens, temperature)  # type: ignore[operator]
+            result = await fn(prompt, sys_prompt, max_tokens, temperature, feature)  # type: ignore[operator]
             if result:
                 logger.info("ask_llm: OK from %s (%d chars)", name, len(result))
                 _cb_success(name)

@@ -63,6 +63,16 @@ def _ensure_tables() -> None:
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_cost_by_feature (
+                date              TEXT NOT NULL,
+                feature           TEXT NOT NULL,
+                prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd          REAL    NOT NULL DEFAULT 0.0,
+                PRIMARY KEY (date, feature)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_org_usage_log (
                 org_key    TEXT NOT NULL,
                 usage_date TEXT NOT NULL,
@@ -327,6 +337,55 @@ def persist_token_cost(date: str, provider: str, prompt: int, completion: int, c
                 _lg.warning("persist_token_cost: %s", e)
             except Exception:
                 pass
+
+
+def persist_token_cost_feature(date: str, feature: str, prompt: int, completion: int, cost_usd: float) -> None:
+    """Накапливает токены и стоимость по функции в ai_cost_by_feature (upsert по date+feature)."""
+    if not feature or (not prompt and not completion):
+        return
+    with _lock:
+        try:
+            conn = _get_conn()
+            conn.execute(
+                """INSERT INTO ai_cost_by_feature (date, feature, prompt_tokens, completion_tokens, cost_usd)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(date, feature) DO UPDATE SET
+                       prompt_tokens     = prompt_tokens     + excluded.prompt_tokens,
+                       completion_tokens = completion_tokens + excluded.completion_tokens,
+                       cost_usd          = cost_usd          + excluded.cost_usd""",
+                (date, feature, prompt, completion, cost_usd),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            try:
+                import logging as _lg
+                _lg.warning("persist_token_cost_feature: %s", e)
+            except Exception:
+                pass
+
+
+def get_ai_cost_by_feature() -> list:
+    """Суммарный расход AI по функциям за всё время. [{feature, prompt_tokens, completion_tokens, cost_usd}]."""
+    with _lock:
+        try:
+            conn = _get_conn()
+            rows = conn.execute(
+                """SELECT feature, SUM(prompt_tokens), SUM(completion_tokens), SUM(cost_usd)
+                   FROM ai_cost_by_feature GROUP BY feature ORDER BY SUM(cost_usd) DESC"""
+            ).fetchall()
+            conn.close()
+            return [
+                {
+                    "feature":           r[0],
+                    "prompt_tokens":     int(r[1] or 0),
+                    "completion_tokens": int(r[2] or 0),
+                    "cost_usd":          round(float(r[3] or 0), 8),
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
 
 
 def get_ai_cost_history(days: int = 30) -> list:

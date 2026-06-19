@@ -1790,7 +1790,7 @@ async def main():
                     + "\n\nСоставь краткий недельный дайджест (3-4 предложения): лидеры, аутсайдеры, главный вывод."
                 )
                 system = "Пиши по-русски, кратко, без markdown. Ссылайся на названия магазинов."
-                ai_text = await ask_llm(prompt, system=system, max_tokens=400)
+                ai_text = await ask_llm(prompt, system=system, max_tokens=400, feature="digest")
                 if not ai_text:
                     continue
 
@@ -1992,7 +1992,7 @@ async def main():
                             )
                             if extra_lines:
                                 prompt += "\nДополнительно: " + " ".join(extra_lines)
-                            ai_text = await ask_llm(prompt, max_tokens=350)
+                            ai_text = await ask_llm(prompt, max_tokens=350, feature="alerts")
                         except Exception as _ai_err:
                             logging.warning(f"ai_smart_alerts LLM error: {_ai_err}")
 
@@ -2270,7 +2270,7 @@ async def main():
                                 category_breakdown=_category_breakdown or None,
                                 daily_revenues=_daily_revenues or None,
                             )
-                            ai_text = await ask_llm(prompt, max_tokens=400)
+                            ai_text = await ask_llm(prompt, max_tokens=400, feature="digest")
                         except Exception as _ai_err:
                             logging.warning(f"ai_weekly_digest LLM error: {_ai_err}")
 

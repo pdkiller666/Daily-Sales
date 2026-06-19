@@ -559,6 +559,7 @@ async def _maybe_compress_dm_session(db, user_db_id: int,
             f"Сожми следующий диалог:\n\n{dialog_text}",
             system=system_compress,
             max_tokens=300,
+            feature="summary",
         )
         if summary:
             await anyio.to_thread.run_sync(
@@ -607,6 +608,7 @@ async def _maybe_compress_chat_session(db, topic_id: int,
             f"Сожми:\n\n{dialog_text}",
             system=system_compress,
             max_tokens=300,
+            feature="summary",
         )
         if summary:
             await anyio.to_thread.run_sync(
