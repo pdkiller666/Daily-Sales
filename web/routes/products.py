@@ -1352,18 +1352,37 @@ def _hex_to_rgb_color(hex_color: str):
         return _rlc.black
 
 
+def _barcode_format(code: str) -> str:
+    """Pick a barcode symbology from the value: retail EAN-13/EAN-8 for pure
+    digit codes of the right length, otherwise generic Code-128."""
+    d = (code or "").strip()
+    if d.isdigit():
+        if len(d) in (12, 13):
+            return "ean13"
+        if len(d) in (7, 8):
+            return "ean8"
+    return "code128"
+
+
 def _make_barcode_img(code: str) -> "io.BytesIO | None":
-    """Generate Code-128 barcode PNG bytes using python-barcode + Pillow."""
+    """Generate a barcode PNG (EAN-13/EAN-8 when valid, else Code-128).
+    Falls back to Code-128 if EAN validation (checksum/length) fails."""
     if not code:
         return None
     try:
         import barcode as _bc
         from barcode.writer import ImageWriter as _IW
-        buf = io.BytesIO()
-        _bc.get("code128", code, writer=_IW()).write(
-            buf, options={"write_text": False, "module_height": 6.0,
-                          "quiet_zone": 2.0, "font_size": 0}
-        )
+        opts = {"write_text": False, "module_height": 6.0,
+                "quiet_zone": 2.0, "font_size": 0}
+        fmt = _barcode_format(code)
+        val = code.strip() if fmt != "code128" else code
+        try:
+            buf = io.BytesIO()
+            _bc.get(fmt, val, writer=_IW()).write(buf, options=opts)
+        except Exception:
+            # invalid EAN (bad checksum/length) → generic Code-128
+            buf = io.BytesIO()
+            _bc.get("code128", code, writer=_IW()).write(buf, options=opts)
         buf.seek(0)
         return buf
     except Exception:

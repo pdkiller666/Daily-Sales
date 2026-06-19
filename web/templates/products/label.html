@@ -327,7 +327,7 @@
                    @change="toggleElem(key, $event.target.checked)">
             <label :for="'chk-'+key" x-text="ELEM_LABELS[key]||key"></label>
             <span class="elem-badge" x-show="NEW_ELEMS[key]"
-                  x-text="key==='barcode'?'Code-128':'NEW'"></span>
+                  x-text="key==='barcode'?'EAN-13':'NEW'"></span>
           </div>
         </template>
       </div>
@@ -854,15 +854,24 @@ function labelDesigner() {
       if(typeof JsBarcode === 'undefined') return;
       const lineColor = getComputedStyle(document.documentElement)
                           .getPropertyValue('--lbl-text').trim() || '#000000';
+      const pickFmt = (c) => {
+        if(/^\d+$/.test(c)){
+          if(c.length===12 || c.length===13) return 'EAN13';
+          if(c.length===7  || c.length===8)  return 'EAN8';
+        }
+        return 'CODE128';
+      };
       document.querySelectorAll('svg.label-barcode-svg[data-barcode]').forEach(svg => {
         const code = svg.dataset.barcode;
         if(!code) return;
+        const opts = { lineColor, background:'transparent',
+                       width:1.2, height:30, displayValue:false, margin:2 };
         try {
-          JsBarcode(svg, code, {
-            format:'CODE128', lineColor, background:'transparent',
-            width:1.2, height:30, displayValue:false, margin:2,
-          });
-        } catch(e) { svg.style.display='none'; }
+          JsBarcode(svg, code, { ...opts, format:pickFmt(code) });
+        } catch(e) {
+          try { JsBarcode(svg, code, { ...opts, format:'CODE128' }); }
+          catch(e2) { svg.style.display='none'; }
+        }
       });
     },
 
