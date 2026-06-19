@@ -137,6 +137,7 @@
                     <th class="text-right px-5 py-3 text-xs font-semibold uppercase hidden lg:table-cell">
                         <a href="{{ stf_href('month_revenue') }}" class="inline-flex items-center justify-end gap-1 {{ stf_cls('month_revenue') }} transition-colors group">Выручка/мес.{{ stf_icon('month_revenue') }}</a>
                     </th>
+                    {% if chat_available %}<th class="w-10 px-3 py-3"></th>{% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-50" id="stf-tbody">
@@ -185,6 +186,19 @@
                     <td class="px-5 py-3 text-right hidden lg:table-cell">
                         <span class="font-semibold text-emerald-600">{{ s.month_revenue|int|fmt_currency }}</span>
                     </td>
+                    {% if chat_available %}
+                    <td class="px-3 py-3 text-center" onclick="event.stopPropagation()">
+                        {% if s.telegram_id != current_tg_id and s.telegram_id > 0 %}
+                        <a href="/chat?dm=1&peer={{ s.id }}"
+                           title="Написать в ЛС"
+                           class="inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                            </svg>
+                        </a>
+                        {% endif %}
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>

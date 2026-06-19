@@ -336,6 +336,8 @@ def staff_page(
 
         ctx["staff"] = staff
         ctx["total_count"] = len(staff)
+        ctx["chat_available"] = has_module(telegram_id, "chat")
+        ctx["current_tg_id"] = telegram_id
 
         # Invite code
         try:
