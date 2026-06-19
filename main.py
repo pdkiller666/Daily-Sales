@@ -1325,11 +1325,20 @@ async def main():
                 (f'-{_retention_days} days',)
             )
             _deleted = _cur.rowcount
+            # Также чистим ai_org_usage_log (per-org chat quota) — тот же период
+            try:
+                _cur2 = _conn.execute(
+                    "DELETE FROM ai_org_usage_log WHERE usage_date < date('now', ?)",
+                    (f'-{_retention_days} days',)
+                )
+                _deleted_org = _cur2.rowcount
+            except Exception:
+                _deleted_org = 0
             _conn.commit()
             _conn.close()
             logging.info(
-                "prune_ai_usage_log: удалено %d строк старше %d дней",
-                _deleted, _retention_days,
+                "prune_ai_usage_log: удалено %d строк (usage_log) + %d (org_usage_log) старше %d дней",
+                _deleted, _deleted_org, _retention_days,
             )
         except Exception as _e:
             logging.error("prune_ai_usage_log_job error: %s", _e)

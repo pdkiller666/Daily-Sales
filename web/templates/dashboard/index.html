@@ -249,6 +249,30 @@
 </div>
 {% endif %}
 
+<!-- ══ AI QUOTA WIDGET ══ -->
+{% if ai_quota_widget %}
+<div class="card p-4 mb-5 ds-card-anim" style="animation-delay:.30s">
+    <div class="flex items-center justify-between gap-2 mb-2">
+        <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">🤖 AI-запросы сегодня</span>
+        <span class="text-xs font-mono {% if ai_quota_widget.pct >= 100 %}text-red-600 dark:text-red-400{% elif ai_quota_widget.pct >= 80 %}text-amber-600 dark:text-amber-400{% else %}text-slate-500 dark:text-slate-400{% endif %}">
+            {{ ai_quota_widget.used }} / {{ ai_quota_widget.limit }}
+        </span>
+    </div>
+    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 mb-1.5">
+        <div class="h-2 rounded-full transition-all
+            {% if ai_quota_widget.pct >= 100 %}bg-red-500{% elif ai_quota_widget.pct >= 80 %}bg-amber-400{% else %}bg-blue-500{% endif %}"
+             style="width: {{ ai_quota_widget.pct }}%"></div>
+    </div>
+    <p class="text-[11px] text-slate-400">
+        {% if ai_quota_widget.remaining == 0 %}
+        Лимит исчерпан — обновится в полночь UTC
+        {% else %}
+        Осталось {{ ai_quota_widget.remaining }} запр. · Сброс в полночь UTC
+        {% endif %}
+    </p>
+</div>
+{% endif %}
+
 <!-- ══ AI NETWORK INSIGHTS WIDGET ══ -->
 {% if ai_network_widget %}
 <div class="card p-5 mb-5 ds-card-anim" style="animation-delay:.32s">

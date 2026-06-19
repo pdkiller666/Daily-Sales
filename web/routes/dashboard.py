@@ -340,6 +340,24 @@ def dashboard(request: Request, msg: str = ""):
         logging.error("dashboard error tg=%s: %s", telegram_id, exc)
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."
 
+    # ── AI Quota widget ──────────────────────────────────────────────────────────
+    ctx["ai_quota_widget"] = None
+    try:
+        from web.rate_store import get_ai_enabled, get_ai_daily_usage
+        from web.routes.ai_routes import _get_limits
+        if get_ai_enabled() and telegram_id > 0:
+            _ai_limit, _ai_is_high = _get_limits(telegram_id)
+            if _ai_limit > 0:
+                _ai_used = get_ai_daily_usage(telegram_id)
+                ctx["ai_quota_widget"] = {
+                    "used": _ai_used,
+                    "limit": _ai_limit,
+                    "remaining": max(0, _ai_limit - _ai_used),
+                    "pct": min(100, int(_ai_used / _ai_limit * 100)) if _ai_limit > 0 else 0,
+                }
+    except Exception:
+        pass
+
     # ── AI Network Insights widget (owners with ai_network_insights + ≥2 orgs) ──
     ctx["ai_network_widget"] = None
     if role == "owner":
