@@ -226,12 +226,14 @@ def products_page(
         ctx["label_size_options"] = _label_size_options()
         ctx["first_product_id"] = all_products[0][0] if all_products else None
         try:
-            from billing_utils import is_extension_denied as _ied
+            from billing_utils import is_extension_denied as _ied, has_module as _hm
             ctx["barcode_locked"] = _ied(telegram_id, "barcodes")
             ctx["labels_locked"] = _ied(telegram_id, "labels")
+            ctx["ai_assistant_ok"] = _hm(telegram_id, "ai_assistant")
         except Exception:
             ctx["barcode_locked"] = False
             ctx["labels_locked"] = False
+            ctx["ai_assistant_ok"] = False
 
         # ── ABC-анализ: выручка по товарам за 90 дней ────────────────────────
         try:
@@ -2704,6 +2706,12 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
         except Exception:
             ctx["chart_labels"] = []
             ctx["chart_data"] = []
+
+        try:
+            from billing_utils import has_module as _hm
+            ctx["ai_assistant_ok"] = _hm(telegram_id, "ai_assistant")
+        except Exception:
+            ctx["ai_assistant_ok"] = False
 
     except Exception as exc:
         ctx["error"] = "Произошла внутренняя ошибка. Попробуйте позже."

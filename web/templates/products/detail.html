@@ -200,6 +200,68 @@
 </div>
 {% endif %}
 
+{% if ai_assistant_ok and is_admin %}
+<!-- AI Price Advice -->
+<div class="card p-4 mb-5" x-data="{
+    paLoading: false,
+    paResult: null,
+    paError: '',
+    paDone: false,
+    async load() {
+        if (this.paLoading || this.paDone) return;
+        this.paLoading = true;
+        this.paError = '';
+        try {
+            const r = await fetch('/api/ai/price-advice', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                body: JSON.stringify({product_id: {{ product[0] }}})
+            });
+            const d = await r.json();
+            if (d.ok) { this.paResult = d; this.paDone = true; }
+            else { this.paError = d.error || 'Ошибка'; }
+        } catch(e) { this.paError = 'Ошибка сети'; }
+        finally { this.paLoading = false; }
+    }
+}">
+    <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+            <span class="text-lg">💡</span>
+            <div>
+                <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">AI: рекомендация по цене</p>
+                <p class="text-xs text-slate-400">Скорость продаж → поднять / снизить / оставить</p>
+            </div>
+        </div>
+        <button @click="load()"
+                :disabled="paLoading || paDone"
+                class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-700 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap font-medium">
+            <span x-show="paLoading" class="inline-block w-3 h-3 border-2 border-amber-300 border-t-amber-600 rounded-full animate-spin"></span>
+            <span x-show="!paLoading && !paDone">✨ Анализ цены</span>
+            <span x-show="paLoading">Анализирую…</span>
+            <span x-show="paDone && !paLoading">✓ Готово</span>
+        </button>
+    </div>
+    <div x-show="paError" class="mt-3 text-xs text-red-500 flex items-center gap-1.5">
+        <span>⚠️</span><span x-text="paError"></span>
+    </div>
+    <div x-show="paResult" x-cloak class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed" x-text="paResult && paResult.text"></p>
+        <template x-if="paResult && paResult.sales_30">
+            <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                <div class="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+                    <p class="font-medium text-slate-600 dark:text-slate-300 mb-1">За 30 дней</p>
+                    <p x-text="(paResult.sales_30.total_qty || 0) + ' шт. · ' + (paResult.sales_30.avg_per_day || 0).toFixed(1) + ' шт./день'"></p>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+                    <p class="font-medium text-slate-600 dark:text-slate-300 mb-1">За 90 дней</p>
+                    <p x-text="(paResult.sales_90.total_qty || 0) + ' шт. · ' + (paResult.sales_90.avg_per_day || 0).toFixed(1) + ' шт./день'"></p>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+{% endif %}
+
 <!-- Month scope nav (shown when year/month params are active) -->
 {% if is_scoped %}
 <div class="flex items-center justify-between mb-4 px-1">

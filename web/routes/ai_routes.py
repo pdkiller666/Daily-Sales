@@ -595,3 +595,351 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
     except Exception as exc:
         logger.error("ai_analyze_plan error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── 5. Семантический поиск товаров ──────────────────────────────────────────
+
+_SEARCH_CACHE_TTL = 1800  # 30 мин
+
+@router.post("/product-search")
+async def ai_product_search(request: Request):
+    """Семантический поиск товаров по запросу на естественном языке."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, build_product_search_prompt, is_configured
+    from web.rate_store import check_and_increment_ai
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
+
+    query = str(body.get("query", "")).strip()
+    if not query or len(query) < 2:
+        return JSONResponse({"ok": False, "error": "Введите запрос (минимум 2 символа)"}, status_code=400)
+    if len(query) > 200:
+        query = query[:200]
+
+    org_db = user.get("org_db")
+
+    # Кэш по (org_db, query) — не расходует квоту
+    _ck = f"prodsearch:{_body_hash({'o': org_db or '', 'q': query.lower()})}"
+    _cached = _resp_cache_get(_ck)
+    if _cached:
+        import json as _j
+        try:
+            return JSONResponse({"ok": True, **_j.loads(_cached)})
+        except Exception:
+            pass
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
+
+    try:
+        db = get_web_db(tg_id, org_db)
+        # Загружаем каталог (не более 80 позиций чтобы не переполнить контекст)
+        products = db.get_all_products() or []
+        if not products:
+            return JSONResponse({"ok": False, "error": "В каталоге нет товаров"})
+
+        # products: id[0] name[1] category[2] price[3] ...
+        catalog_lines = []
+        for p in products[:80]:
+            catalog_lines.append(f"{p[0]}|{p[1]}|{p[2]}|{int(p[3] or 0)} ₽")
+        products_text = "\n".join(catalog_lines)
+
+        prompt = build_product_search_prompt(query, products_text)
+        _SEARCH_SYSTEM = (
+            "Ты — помощник по поиску товаров в каталоге розничного магазина. "
+            "Отвечай строго JSON. Без markdown. Без пояснений вне JSON."
+        )
+        raw = await ask_llm(prompt, system=_SEARCH_SYSTEM, max_tokens=300, temperature=0.0, feature="prodsearch")
+        if not raw:
+            return JSONResponse({"ok": False, "error": "Не удалось выполнить поиск. Попробуйте позже."})
+
+        # Парсим JSON ответ LLM
+        import json as _j
+        import re as _re
+        _json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        parsed = {}
+        if _json_match:
+            try:
+                parsed = _j.loads(_json_match.group())
+            except Exception:
+                pass
+        ids = [int(x) for x in (parsed.get("ids") or []) if str(x).isdigit()]
+        note = str(parsed.get("note") or "")
+
+        # Обогащаем ответ данными о найденных товарах
+        id_set = set(ids)
+        found_products = [
+            {"id": p[0], "name": p[1], "category": p[2], "price": float(p[3] or 0)}
+            for p in products if p[0] in id_set
+        ]
+        # Сохраняем порядок из ids
+        id_order = {pid: i for i, pid in enumerate(ids)}
+        found_products.sort(key=lambda p: id_order.get(p["id"], 999))
+
+        result_data = {"ids": ids, "products": found_products, "note": note}
+        _resp_cache_set(_ck, _j.dumps(result_data, ensure_ascii=False), _SEARCH_CACHE_TTL)
+        return JSONResponse({"ok": True, **result_data})
+
+    except Exception as exc:
+        logger.error("ai_product_search error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── 6. Анализ совместных покупок (cross-sell) ───────────────────────────────
+
+_CROSS_SELL_CACHE: dict[str, dict] = {}
+_CROSS_SELL_TTL = 3600  # 1 час
+
+
+def _cross_sell_cache_get(key: str) -> str | None:
+    entry = _CROSS_SELL_CACHE.get(key)
+    if not entry:
+        return None
+    if _dt.datetime.utcnow() > entry["expires_at"]:
+        _CROSS_SELL_CACHE.pop(key, None)
+        return None
+    return entry["text"]
+
+
+def _cross_sell_cache_set(key: str, text: str) -> None:
+    _CROSS_SELL_CACHE[key] = {
+        "text": text,
+        "expires_at": _dt.datetime.utcnow() + _dt.timedelta(seconds=_CROSS_SELL_TTL),
+    }
+
+
+@router.post("/cross-sell")
+async def ai_cross_sell(request: Request):
+    """Анализ совместных покупок и рекомендации по допродаже."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, build_cross_sell_prompt, is_configured
+    from web.rate_store import check_and_increment_ai
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
+
+    org_db = user.get("org_db")
+    _ck = f"crosssell:{org_db or 'default'}:{_dt.date.today().isoformat()}"
+
+    cached = _cross_sell_cache_get(_ck)
+    if cached:
+        return JSONResponse({"ok": True, "text": cached, "cached": True})
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
+
+    try:
+        db = get_web_db(tg_id, org_db)
+        conn = db.get_connection()
+        try:
+            # Товары, купленные одним пользователем в один день
+            rows = conn.execute("""
+                SELECT p1.name, p2.name, COUNT(*) AS freq
+                FROM sales s1
+                JOIN sales s2
+                    ON s1.user_id = s2.user_id
+                    AND date(s1.sale_date) = date(s2.sale_date)
+                    AND s1.product_id < s2.product_id
+                JOIN products p1 ON s1.product_id = p1.id
+                JOIN products p2 ON s2.product_id = p2.id
+                WHERE s1.sale_date >= date('now', '-60 days')
+                GROUP BY s1.product_id, s2.product_id
+                ORDER BY freq DESC
+                LIMIT 15
+            """).fetchall()
+        finally:
+            conn.close()
+
+        pairs = [(r[0], r[1], r[2]) for r in rows]
+
+        prompt = build_cross_sell_prompt(pairs)
+        _CS_SYSTEM = (
+            "Ты — эксперт по мерчандайзингу и розничным продажам. "
+            "Анализируй данные о совместных покупках и давай конкретные практические советы. "
+            "Пиши по-русски. Без markdown и заголовков."
+        )
+        result = await ask_llm(prompt, system=_CS_SYSTEM, max_tokens=450, temperature=0.2, feature="crosssell")
+        if not result:
+            return JSONResponse({"ok": False, "error": "Не удалось выполнить анализ. Попробуйте позже."})
+
+        _cross_sell_cache_set(_ck, result)
+        return JSONResponse({"ok": True, "text": result, "pairs": pairs[:10], "cached": False})
+
+    except Exception as exc:
+        logger.error("ai_cross_sell error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── 7. AI-рекомендация по цене товара ───────────────────────────────────────
+
+_PRICE_ADVICE_CACHE: dict[str, dict] = {}
+_PRICE_ADVICE_TTL = 14400  # 4 часа
+
+
+def _price_cache_get(key: str) -> str | None:
+    entry = _PRICE_ADVICE_CACHE.get(key)
+    if not entry:
+        return None
+    if _dt.datetime.utcnow() > entry["expires_at"]:
+        _PRICE_ADVICE_CACHE.pop(key, None)
+        return None
+    return entry["text"]
+
+
+def _price_cache_set(key: str, text: str) -> None:
+    _PRICE_ADVICE_CACHE[key] = {
+        "text": text,
+        "expires_at": _dt.datetime.utcnow() + _dt.timedelta(seconds=_PRICE_ADVICE_TTL),
+    }
+
+
+@router.post("/price-advice")
+async def ai_price_advice(request: Request):
+    """AI-рекомендация по оптимизации цены товара (поднять / снизить / оставить)."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, build_price_advice_prompt, is_configured
+    from web.rate_store import check_and_increment_ai
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    from billing_utils import has_module
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
+
+    product_id = int(body.get("product_id", 0))
+    if not product_id:
+        return JSONResponse({"ok": False, "error": "Укажите product_id"}, status_code=400)
+
+    org_db = user.get("org_db")
+    _ck = f"priceadvice:{org_db or 'default'}:{product_id}:{_dt.date.today().isoformat()}"
+    cached = _price_cache_get(_ck)
+    if cached:
+        return JSONResponse({"ok": True, "text": cached, "cached": True})
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
+
+    try:
+        db = get_web_db(tg_id, org_db)
+        product = db.get_product(product_id)
+        if not product:
+            return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+        # products: id[0] name[1] category[2] price[3] created_at[4] ... old_price[9]
+        p_name = product[1]
+        p_cat = product[2]
+        p_price = float(product[3] or 0)
+        p_old_price = float(product[9]) if len(product) > 9 and product[9] else None
+
+        def _get_sales_stats(days: int) -> dict:
+            try:
+                conn = db.get_connection()
+                try:
+                    row = conn.execute("""
+                        SELECT
+                            COALESCE(SUM(quantity_sold), 0),
+                            COALESCE(SUM(quantity_sold * sale_price), 0),
+                            COUNT(DISTINCT date(sale_date)),
+                            COUNT(*)
+                        FROM sales
+                        WHERE product_id = ?
+                          AND sale_date >= date('now', '-' || ? || ' days')
+                    """, (product_id, days)).fetchone()
+                finally:
+                    conn.close()
+                total_qty = int(row[0] or 0)
+                total_rev = float(row[1] or 0)
+                days_with_sales = int(row[2] or 0)
+                transactions = int(row[3] or 0)
+                avg_per_day = round(total_qty / days, 2) if days > 0 else 0
+                return {
+                    "total_qty": total_qty,
+                    "total_rev": total_rev,
+                    "days_with_sales": days_with_sales,
+                    "avg_per_day": avg_per_day,
+                    "transactions": transactions,
+                }
+            except Exception:
+                return {"total_qty": 0, "total_rev": 0, "days_with_sales": 0, "avg_per_day": 0, "transactions": 0}
+
+        sales_30 = _get_sales_stats(30)
+        sales_90 = _get_sales_stats(90)
+
+        prompt = build_price_advice_prompt(
+            product_name=p_name,
+            category=p_cat,
+            current_price=p_price,
+            old_price=p_old_price,
+            sales_30=sales_30,
+            sales_90=sales_90,
+        )
+        _PRICE_SYSTEM = (
+            "Ты — консультант по ценообразованию в розничном магазине. "
+            "Анализируй скорость продаж и давай конкретную рекомендацию по цене. "
+            "Если данных мало — скажи об этом, но всё равно дай осторожный вывод. "
+            "Пиши по-русски. Без markdown. Без заголовков."
+        )
+        result = await ask_llm(prompt, system=_PRICE_SYSTEM, max_tokens=300, temperature=0.1, feature="priceadvice")
+        if not result:
+            return JSONResponse({"ok": False, "error": "Не удалось получить рекомендацию. Попробуйте позже."})
+
+        _price_cache_set(_ck, result)
+        return JSONResponse({
+            "ok": True, "text": result, "cached": False,
+            "product": {"name": p_name, "price": p_price, "old_price": p_old_price},
+            "sales_30": sales_30, "sales_90": sales_90,
+        })
+
+    except Exception as exc:
+        logger.error("ai_price_advice error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

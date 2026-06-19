@@ -153,7 +153,61 @@
 {% endif %}
 
 <!-- Search + category filter -->
-<div class="card p-4 mb-5">
+<div class="card p-4 mb-5" x-data="{
+    aiMode: false,
+    aiQuery: '',
+    aiLoading: false,
+    aiResult: null,
+    aiError: '',
+    aiIds: null,
+    async runAiSearch() {
+        const q = this.aiQuery.trim();
+        if (!q) return;
+        this.aiLoading = true;
+        this.aiError = '';
+        this.aiResult = null;
+        this.aiIds = null;
+        try {
+            const r = await fetch('/api/ai/product-search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                body: JSON.stringify({query: q})
+            });
+            const d = await r.json();
+            if (d.ok) {
+                this.aiResult = d;
+                this.aiIds = new Set(d.ids || []);
+                this.$nextTick(() => this.applyAiFilter());
+            } else {
+                this.aiError = d.error || 'Ошибка AI поиска';
+            }
+        } catch(e) {
+            this.aiError = 'Ошибка сети';
+        } finally {
+            this.aiLoading = false;
+        }
+    },
+    applyAiFilter() {
+        const tbody = document.getElementById('prod-tbody');
+        if (!tbody) return;
+        const rows = tbody.querySelectorAll('tr');
+        let vis = 0;
+        rows.forEach(r => {
+            const pid = parseInt(r.dataset.pid || '0');
+            const show = !this.aiIds || this.aiIds.size === 0 || this.aiIds.has(pid);
+            r.style.display = show ? '' : 'none';
+            if (show) vis++;
+        });
+    },
+    clearAiFilter() {
+        this.aiIds = null;
+        this.aiResult = null;
+        this.aiError = '';
+        this.aiQuery = '';
+        const tbody = document.getElementById('prod-tbody');
+        if (tbody) tbody.querySelectorAll('tr').forEach(r => r.style.display = '');
+    }
+}">
     <form method="get" action="/products" class="flex flex-wrap gap-3 items-end">
         <div class="flex flex-col gap-1 flex-1 min-w-[200px]">
             <label class="text-xs font-medium text-slate-500">Поиск</label>
@@ -182,7 +236,42 @@
         {% if q or selected_category %}
         <a href="/products" class="text-sm text-slate-400 hover:text-slate-600 py-2">× Сбросить</a>
         {% endif %}
+        {% if ai_assistant_ok %}
+        <button type="button" @click="aiMode = !aiMode; if(!aiMode) clearAiFilter()"
+                class="flex items-center gap-1.5 border border-violet-200 text-violet-600 bg-violet-50 hover:bg-violet-100 dark:bg-violet-900/20 dark:border-violet-700 dark:text-violet-300 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap">
+            ✨ AI поиск
+        </button>
+        {% endif %}
     </form>
+
+    {% if ai_assistant_ok %}
+    <!-- AI Semantic Search Panel -->
+    <div x-show="aiMode" x-cloak class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+        <div class="flex gap-2 items-center">
+            <input type="text" x-model="aiQuery"
+                   @keydown.enter.prevent="runAiSearch()"
+                   placeholder="Например: «беспроводные наушники до 3000» или «подарок для ребёнка»"
+                   class="flex-1 border border-violet-200 dark:border-violet-700 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400">
+            <button @click="runAiSearch()"
+                    :disabled="aiLoading || aiQuery.trim().length < 2"
+                    class="flex items-center gap-1.5 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap">
+                <span x-show="aiLoading" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                <span x-show="!aiLoading">Найти</span>
+                <span x-show="aiLoading">Ищу…</span>
+            </button>
+            <button x-show="aiResult || aiError" @click="clearAiFilter()"
+                    class="text-xs text-slate-400 hover:text-slate-600 px-2 py-2 whitespace-nowrap">× сбросить</button>
+        </div>
+        <div x-show="aiError" class="mt-2 text-xs text-red-500" x-text="aiError"></div>
+        <div x-show="aiResult" class="mt-2 flex items-start gap-2">
+            <span class="text-violet-500 text-sm mt-0.5">✨</span>
+            <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Найдено <strong x-text="(aiResult && aiResult.ids) ? aiResult.ids.length : 0"></strong> товаров.
+                <span x-show="aiResult && aiResult.note" x-text="aiResult && aiResult.note ? '  ' + aiResult.note : ''"></span>
+            </p>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Category tab pills -->
@@ -331,6 +420,7 @@
                 {% set web_photo = p[5] if p|length > 5 and p[5] and p[5].startswith('/static/') else '' %}
                 <tr class="hover:bg-slate-50/70 transition-colors cursor-pointer"
                     data-pst="{{ ((p[1] or '') ~ ' ' ~ (p[2] or '') ~ ' ' ~ (p[7] if p|length > 7 and p[7] else '') ~ ' ' ~ (p[8] if p|length > 8 and p[8] else ''))|lower }}"
+                    data-pid="{{ p[0] }}"
                     onclick="if(!event.target.closest('[data-noclk]')) window.location='/products/{{ p[0] }}'">
                     {% if is_admin %}
                     <td class="px-3 py-3 w-8" data-noclk @click.stop>
@@ -603,6 +693,69 @@
     </a>
 </div>
 {% endif %}
+
+{% if ai_assistant_ok %}
+<!-- ── Cross-sell AI block ── -->
+<div class="mt-6 card p-4" x-data="{
+    csLoading: false,
+    csResult: null,
+    csError: '',
+    csDone: false,
+    async load() {
+        if (this.csLoading || this.csDone) return;
+        this.csLoading = true;
+        this.csError = '';
+        try {
+            const r = await fetch('/api/ai/cross-sell', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                body: JSON.stringify({})
+            });
+            const d = await r.json();
+            if (d.ok) { this.csResult = d; this.csDone = true; }
+            else { this.csError = d.error || 'Ошибка'; }
+        } catch(e) { this.csError = 'Ошибка сети'; }
+        finally { this.csLoading = false; }
+    }
+}">
+    <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+            <span class="text-lg">🔗</span>
+            <div>
+                <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Часто покупают вместе</p>
+                <p class="text-xs text-slate-400">AI-анализ совместных покупок и советы по допродаже</p>
+            </div>
+        </div>
+        <button @click="load()"
+                :disabled="csLoading || csDone"
+                class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-300 border border-violet-200 dark:border-violet-700 hover:bg-violet-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap font-medium">
+            <span x-show="csLoading" class="inline-block w-3 h-3 border-2 border-violet-300 border-t-violet-600 rounded-full animate-spin"></span>
+            <span x-show="!csLoading && !csDone">✨ Анализировать</span>
+            <span x-show="csLoading">Загрузка…</span>
+            <span x-show="csDone && !csLoading">✓ Готово</span>
+        </button>
+    </div>
+    <div x-show="csError" class="mt-3 text-xs text-red-500 flex items-center gap-1.5">
+        <span>⚠️</span><span x-text="csError"></span>
+    </div>
+    <div x-show="csResult" x-cloak class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line" x-text="csResult && csResult.text"></p>
+        <template x-if="csResult && csResult.pairs && csResult.pairs.length > 0">
+            <div class="mt-3 flex flex-wrap gap-2">
+                <template x-for="pair in (csResult.pairs || []).slice(0, 6)" :key="pair[0]+pair[1]">
+                    <span class="inline-flex items-center gap-1 text-xs bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-700 px-2.5 py-1 rounded-full">
+                        <span x-text="pair[0]"></span>
+                        <span class="text-violet-400">+</span>
+                        <span x-text="pair[1]"></span>
+                        <span class="text-violet-400 ml-1" x-text="'×' + pair[2]"></span>
+                    </span>
+                </template>
+            </div>
+        </template>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block footer_info %}{{ total_count }} товаров · стр. {{ page }}/{{ total_pages }}{% endblock %}
