@@ -244,13 +244,24 @@ async def _build_ai_system_prompt(db, user_db_id: int) -> tuple[str, str]:
     Детальные данные (остатки, зарплата, задачи, рейтинги и т.д.) AI запрашивает
     через инструменты по мере необходимости.
     """
+    import asyncio
     import anyio
 
-    sales_today    = await anyio.to_thread.run_sync(db.get_sales_summary_today)
-    sales_month    = await anyio.to_thread.run_sync(db.get_sales_summary_month)
-    user_row       = await anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id))
-    org_name       = await anyio.to_thread.run_sync(db.get_org_name)
-    plans_progress = await anyio.to_thread.run_sync(db.get_plans_with_progress)
+    # Все 5 DB-вызовов — read-only, запускаем параллельно через asyncio.gather.
+    # SQLite thread-safe (check_same_thread=False + threading.local pool в deps.py).
+    results = await asyncio.gather(
+        anyio.to_thread.run_sync(db.get_sales_summary_today),
+        anyio.to_thread.run_sync(db.get_sales_summary_month),
+        anyio.to_thread.run_sync(lambda: db.get_user_by_id(user_db_id)),
+        anyio.to_thread.run_sync(db.get_org_name),
+        anyio.to_thread.run_sync(db.get_plans_with_progress),
+        return_exceptions=True,
+    )
+    sales_today    = results[0] if not isinstance(results[0], Exception) else ""
+    sales_month    = results[1] if not isinstance(results[1], Exception) else ""
+    user_row       = results[2] if not isinstance(results[2], Exception) else None
+    org_name       = results[3] if not isinstance(results[3], Exception) else ""
+    plans_progress = results[4] if not isinstance(results[4], Exception) else []
 
     user_name = "сотрудник"
     if user_row:

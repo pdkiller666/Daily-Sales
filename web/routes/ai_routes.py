@@ -1,4 +1,6 @@
 """AI/LLM API endpoints — explain report, product description, sales forecast, plan analysis, quota."""
+import hashlib as _hashlib
+import json as _json
 import logging
 import datetime as _dt
 from fastapi import APIRouter, Request, Form
@@ -39,6 +41,41 @@ def set_plan_analysis_cache(org_db: str, plan_id: int, text: str) -> None:
 def invalidate_plan_analysis_cache(org_db: str, plan_id: int) -> None:
     """Remove a cached entry (e.g. after plan edit)."""
     _plan_analysis_cache.pop((org_db, plan_id), None)
+
+
+# ─── Generic AI response cache (report / product-desc / forecast) ──────────
+# Кэш хранит детерминированные ответы LLM в памяти с TTL.
+# Попадание в кэш → ответ без вызова LLM и без расхода квоты.
+
+_AI_RESPONSE_CACHE: dict[str, dict] = {}
+
+_CACHE_TTL_SEC: dict[str, int] = {
+    "report":   7_200,   # 2 ч — отчёт стабилен в течение дня
+    "prodesc":  86_400,  # 24 ч — описание товара почти не меняется
+    "forecast": 3_600,   # 1 ч  — прогноз достаточно свеж
+}
+
+
+def _resp_cache_get(key: str) -> str | None:
+    entry = _AI_RESPONSE_CACHE.get(key)
+    if not entry:
+        return None
+    if _dt.datetime.utcnow() > entry["expires_at"]:
+        _AI_RESPONSE_CACHE.pop(key, None)
+        return None
+    return entry["text"]
+
+
+def _resp_cache_set(key: str, text: str, ttl: int) -> None:
+    _AI_RESPONSE_CACHE[key] = {
+        "text": text,
+        "expires_at": _dt.datetime.utcnow() + _dt.timedelta(seconds=ttl),
+    }
+
+
+def _body_hash(body: dict) -> str:
+    """Стабильный MD5-хэш тела запроса (sort_keys для стабильности)."""
+    return _hashlib.md5(_json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def _api_csrf_ok(request: Request) -> bool:
@@ -130,17 +167,23 @@ async def ai_explain_report(request: Request):
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
 
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
+
+    # Кэш — попадание не расходует квоту
+    _ck = f"report:{_body_hash(body)}"
+    _cached = _resp_cache_get(_ck)
+    if _cached:
+        return JSONResponse({"ok": True, "text": _cached})
+
     limit, _ = _get_limits(tg_id)
     if not check_and_increment_ai(tg_id, limit):
         return JSONResponse({
             "ok": False,
             "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
         }, status_code=429)
-
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
 
     try:
         period_label = body.get("period_label", "текущий период")
@@ -171,6 +214,7 @@ async def ai_explain_report(request: Request):
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
+        _resp_cache_set(_ck, result, _CACHE_TTL_SEC["report"])
         return JSONResponse({"ok": True, "text": result})
 
     except Exception as exc:
@@ -198,13 +242,6 @@ async def ai_product_description(request: Request):
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
 
-    limit, _ = _get_limits(tg_id)
-    if not check_and_increment_ai(tg_id, limit):
-        return JSONResponse({
-            "ok": False,
-            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
-        }, status_code=429)
-
     try:
         body = await request.json()
     except Exception:
@@ -217,6 +254,19 @@ async def ai_product_description(request: Request):
     category = str(body.get("category", "")).strip()
     price = float(body.get("price", 0) or 0)
     style = str(body.get("style", "technical"))
+
+    # Кэш — попадание не расходует квоту
+    _ck = f"prodesc:{_body_hash({'n': name, 'c': category, 'p': price, 's': style})}"
+    _cached = _resp_cache_get(_ck)
+    if _cached:
+        return JSONResponse({"ok": True, "text": _cached})
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
 
     try:
         system_by_style = {
@@ -234,6 +284,7 @@ async def ai_product_description(request: Request):
         result = await ask_llm(prompt, system=system, max_tokens=400)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
+        _resp_cache_set(_ck, result, _CACHE_TTL_SEC["prodesc"])
         return JSONResponse({"ok": True, "text": result})
     except Exception as exc:
         logger.error("ai_product_description error: %s", exc)
@@ -262,17 +313,23 @@ async def ai_sales_forecast(request: Request):
     if not is_configured():
         return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
 
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
+
+    # Кэш — попадание не расходует квоту
+    _ck = f"forecast:{_body_hash(body)}"
+    _cached = _resp_cache_get(_ck)
+    if _cached:
+        return JSONResponse({"ok": True, "text": _cached})
+
     limit, _ = _get_limits(tg_id)
     if not check_and_increment_ai(tg_id, limit):
         return JSONResponse({
             "ok": False,
             "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
         }, status_code=429)
-
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
 
     try:
         import datetime as _dt
@@ -346,6 +403,7 @@ async def ai_sales_forecast(request: Request):
         result = await ask_llm(prompt, system=system, max_tokens=350)
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось построить прогноз."})
+        _resp_cache_set(_ck, result, _CACHE_TTL_SEC["forecast"])
         return JSONResponse({"ok": True, "text": result})
     except Exception as exc:
         logger.error("ai_sales_forecast error: %s", exc)
