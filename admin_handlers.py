@@ -1850,7 +1850,7 @@ async def adm_title_entered(message, state: FSMContext):
     if telegram_id:
         tenant_manager.set_user_title(telegram_id, title)
 
-    await fsm_edit(message, state, status_text, parse_mode="HTML")
+    await fsm_edit(state, message, status_text)
     await clear_state_keep_org(state)
 
 @admin_router.callback_query(F.data == "admin_edit_user_final_confirm")

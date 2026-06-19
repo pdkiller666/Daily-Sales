@@ -392,6 +392,9 @@ async def set_motivation_type_selected(callback: CallbackQuery, state: FSMContex
 @commission_router.message(MotivationStates.waiting_for_motivation_value)
 async def process_motivation_value(message: Message, state: FSMContext):
     """Обработка введенного значения мотивации — переходим к выбору месяца"""
+    if not is_any_admin(message.from_user.id):
+        await clear_state_keep_org(state)
+        return
     from datetime import date as _date
     try:
         value = float(message.text.replace(',', '.'))

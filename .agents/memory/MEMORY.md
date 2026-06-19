@@ -23,6 +23,7 @@
 - [Competitive analysis](../COMPETITIVE_ANALYSIS.md) — DailySales vs МойСклад/RetailCRM/Bitrix24/Poster/1С; USP: Telegram-native, цена, зарплатная прозрачность; слабые места: ОФД, штрихкоды, API, SQLite-потолок
 - [Session workflow rules](session-workflow.md) — после каждой большой сессии: аудит+тест → обновить md → deploy.sh; каждые 5 деплоев: актуализация кода по трём репо (local/GitHub/Amvera)
 - [Tasks module architecture](tasks-module.md) — 4 таблицы в org_*.db; sidebar counter via open_tasks_count(request) global; APScheduler job check_task_deadlines (9:10); bot router tasks_router; Disallow /tasks в robots.txt
+- [Tasks bot handler API rules](tasks-bot-api-rules.md) — get_db(tg_id, state) НЕ get_db(state); is_any_admin(tg_id) SYNC НЕ await; fsm_edit(state, msg, text, kb) — state ПЕРВЫЙ аргумент; tg_id извлекать ДО вызова get_db
 - [Web analytics features](web-analytics.md) — dark mode Chart.js (MutationObserver), drill-down, ABC, heatmap, turnover/dead-stock/seller-card reports; DB cols: inventory_turnover[0-8], dead_stock[0-7], seller_card_* methods
 - [Proposed improvements backlog](proposed-improvements.md) — 14 улучшений: безопасность (CSRF/TOCTOU/secrets), продукт (ABC, тренд, bulk), UX (inline-edit, history), инфра (тесты, кэш)
 - [Chat plan check bug](chat-plan-bug.md) — _get_org_active_plan() в chat.py: org plan из main.db должен быть ПЕРЕД shop_bot.db; иначе вечный 'Бесплатный' ряд блокирует Премиум у приглашённых членов
