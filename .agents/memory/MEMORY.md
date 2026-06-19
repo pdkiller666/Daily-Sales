@@ -64,3 +64,4 @@
 - [Label drag-on-preview](label-drag-preview.md) — перетаскивание блоков ценника на макете; elemOrder=единый источник, sync с панелью; свободный холст отклонён; drag-affordance скрывать в @media print
 - [Product network variants](product-network-variants.md) — один товар → разные артикул/штрихкод по сети; lookup variants→fallback на products.*; barcode-конфликт проверять и vs products.barcode; FSM set_state(None) не clear
 - [APK private-repo download](apk-private-repo-download.md) — приватный репо: browser_download_url=404 даже с токеном; качать API-URL ассета + Accept:octet-stream; _APK_MIN_SIZE<555KB
+- [AI billing rate_store](ai-billing-rate-store.md) — ai_cost_log/ai_org_usage_log в rate_limits.db; custom_limit_{tg_id} в ai_rate_config; chat quota per-org через check_and_increment_ai_for_org(org_db, limit)

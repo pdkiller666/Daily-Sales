@@ -160,6 +160,7 @@ def dashboard(request: Request, msg: str = ""):
         today_str = today.isoformat()
         month_str = month_start.isoformat()
         ctx["today_label"] = today.strftime('%d.%m.%Y')
+        ctx["today_iso"] = today_str
         ctx["curr_year"] = today.year
         ctx["curr_month"] = today.month
 
