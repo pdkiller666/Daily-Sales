@@ -430,6 +430,40 @@
           </label>
         </div>
       </div>
+
+      {# Пресеты оформления #}
+      <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
+          🎚 Пресеты оформления
+        </p>
+        <p class="text-[11px] text-slate-400 mb-2">
+          Сохраните текущее оформление под именем и переключайтесь между наборами.
+        </p>
+
+        {# Список сохранённых пресетов #}
+        <div class="space-y-1.5 mb-3" x-show="presets.length">
+          <template x-for="p in presets" :key="p.id">
+            <div class="flex items-center gap-2 text-sm bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2.5 py-1.5">
+              <span class="flex-1 truncate font-medium" x-text="p.name"></span>
+              <button @click="applyPreset(p)" class="btn-secondary text-xs py-1 px-2" title="Применить">Применить</button>
+              <button @click="renamePreset(p)" class="btn-secondary text-xs py-1 px-2" title="Переименовать">✏️</button>
+              <button @click="deletePreset(p)" class="btn-danger text-xs py-1 px-2" title="Удалить">🗑</button>
+            </div>
+          </template>
+        </div>
+        <p class="text-[11px] text-slate-400 mb-2" x-show="!presets.length">
+          Пока нет сохранённых пресетов.
+        </p>
+
+        {# Сохранить текущее как новый пресет #}
+        <div class="flex gap-2 items-center flex-wrap">
+          <input type="text" x-model="newPresetName" maxlength="60"
+                 placeholder="Название пресета"
+                 class="flex-1 min-w-[140px] text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5"
+                 @keydown.enter.prevent="savePreset()">
+          <button @click="savePreset()" class="btn-primary text-xs py-1.5 px-3">💾 Сохранить как пресет</button>
+        </div>
+      </div>
     </div>
 
     {# ── Копии ── #}
@@ -634,6 +668,7 @@ const FF_MAP = {
   rounded: "'Trebuchet MS', Verdana, sans-serif",
 };
 const FS_MAP = { small:0.85, medium:1, large:1.15 };
+const PRESETS_INIT = {{ (label_presets | default([])) | tojson }};
 
 /* ─── Alpine component ──────────────────────────────────────────────────── */
 function labelDesigner() {
@@ -645,6 +680,8 @@ function labelDesigner() {
     labelsData: LABELS_RAW.map(l => Object.assign({},l)),
     ELEM_LABELS,
     NEW_ELEMS,
+    presets:       Array.isArray(PRESETS_INIT) ? [...PRESETS_INIT] : [],
+    newPresetName: '',
 
     _previewSortables: [],
 
@@ -800,6 +837,83 @@ function labelDesigner() {
       try {
         const r = await fetch('/products/label-settings', {method:'POST', body:fd});
         this.toast(r.ok ? '✓ Дизайн сохранён' : '⚠ Ошибка сохранения');
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+
+    /* ── Presets ── */
+    _designFields() {
+      return {
+        bg_color:         this.d.bg_color,
+        text_color:       this.d.text_color,
+        price_color:      this.d.price_color,
+        font_size:        this.d.font_size,
+        border_color:     this.d.border_color,
+        border_width:     this.d.border_width,
+        label_theme:      this.d.theme || 'standard',
+        font_family:      this.d.font_family,
+        element_order:    JSON.stringify(this.elemOrder),
+        visible_elements: JSON.stringify(this.visElems),
+        sale_badge:       this.d.sale_badge || '',
+      };
+    },
+    async savePreset() {
+      const name = (this.newPresetName || '').trim();
+      if(!name) { this.toast('⚠ Введите название пресета'); return; }
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      fd.append('name', name);
+      const f = this._designFields();
+      for(const k in f) fd.append(k, f[k]);
+      try {
+        const r = await fetch('/products/label-presets', {method:'POST', body:fd});
+        if(r.ok) {
+          const j = await r.json();
+          this.presets.push({id:j.id, name:j.name});
+          this.presets.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+          this.newPresetName = '';
+          this.toast('✓ Пресет сохранён');
+        } else if(r.status === 400) {
+          const j = await r.json().catch(()=>({}));
+          this.toast(j.error === 'limit' ? '⚠ Достигнут лимит пресетов (30)' : '⚠ Введите название');
+        } else { this.toast('⚠ Ошибка сохранения'); }
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+    async applyPreset(p) {
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      try {
+        const r = await fetch('/products/label-presets/'+p.id+'/apply', {method:'POST', body:fd});
+        if(r.ok) {
+          this.toast('✓ Пресет применён');
+          setTimeout(()=>location.reload(), 600);
+        } else { this.toast('⚠ Не удалось применить'); }
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+    async renamePreset(p) {
+      const name = (prompt('Новое название пресета:', p.name) || '').trim();
+      if(!name || name === p.name) return;
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      fd.append('name', name);
+      try {
+        const r = await fetch('/products/label-presets/'+p.id+'/rename', {method:'POST', body:fd});
+        if(r.ok) {
+          p.name = name;
+          this.presets.sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+          this.toast('✓ Переименовано');
+        } else { this.toast('⚠ Не удалось переименовать'); }
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+    async deletePreset(p) {
+      if(!confirm('Удалить пресет «'+p.name+'»?')) return;
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      try {
+        const r = await fetch('/products/label-presets/'+p.id+'/delete', {method:'POST', body:fd});
+        if(r.ok) {
+          this.presets = this.presets.filter(x => x.id !== p.id);
+          this.toast('✓ Пресет удалён');
+        } else { this.toast('⚠ Не удалось удалить'); }
       } catch { this.toast('⚠ Ошибка сети'); }
     },
 

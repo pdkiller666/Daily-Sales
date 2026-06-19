@@ -1776,6 +1776,16 @@ def _get_label_settings_safe(db) -> dict:
         return dict(_DEFAULT_LABEL_SETTINGS)
 
 
+def _list_label_presets_safe(db, user) -> list:
+    """Return saved presets for owners only; [] for everyone else or on error."""
+    try:
+        if user.get("role") not in ("owner", "super_admin"):
+            return []
+        return db.list_label_presets()
+    except Exception:
+        return []
+
+
 def _effective_logo(label_settings: dict) -> str:
     """Return the logo to actually show on labels: label-specific logo, then org logo fallback."""
     return label_settings.get("logo_path") or label_settings.get("org_logo_path") or ""
@@ -1943,6 +1953,7 @@ def product_label(request: Request, product_id: int, print: str = "",
             "trade_networks": trade_networks,
             "selected_network": network,
             "single_product_id": product_id,
+            "label_presets": _list_label_presets_safe(db, user),
         }
     )
 
@@ -2047,6 +2058,7 @@ async def products_labels_bulk(request: Request):
             "bulk_product_ids": product_ids,
             "trade_networks": trade_networks,
             "selected_network": network,
+            "label_presets": _list_label_presets_safe(db, user),
         }
     )
 
@@ -2158,6 +2170,190 @@ async def save_label_settings(
         element_order=element_order, visible_elements=visible_elements,
         sale_badge=sale_badge,
     )
+    return JSONResponse({"ok": True})
+
+
+def _clean_label_design(raw: dict) -> dict:
+    """Validate/normalise a label design dict (shared by preset routes)."""
+    import re as _re
+    import json as _json
+    _color_re = _re.compile(r'^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$')
+
+    def _color(v, dflt):
+        v = (v or "").strip()
+        return v if _color_re.match(v) else dflt
+
+    def _safe_json(v):
+        v = v or ""
+        try:
+            _json.loads(v)
+            return v
+        except Exception:
+            return ""
+
+    try:
+        bw = str(max(0, min(5, int(raw.get("border_width", "1")))))
+    except Exception:
+        bw = "1"
+
+    font_size = raw.get("font_size", "medium")
+    if font_size not in {"small", "medium", "large"}:
+        font_size = "medium"
+    label_theme = raw.get("label_theme", "standard")
+    if label_theme not in {"standard", "dark", "accent", "minimal"}:
+        label_theme = "standard"
+
+    _FONT_MAP = {
+        "sans": "Arial, Helvetica, sans-serif",
+        "serif": "Georgia, 'Times New Roman', serif",
+        "mono": "'Courier New', Courier, monospace",
+        "rounded": "'Trebuchet MS', Verdana, sans-serif",
+    }
+    ff = raw.get("font_family", "") or ""
+    ff = _FONT_MAP.get(ff, ff or "Arial, Helvetica, sans-serif")
+
+    return {
+        "bg_color":         _color(raw.get("bg_color"), "#ffffff"),
+        "text_color":       _color(raw.get("text_color"), "#000000"),
+        "price_color":      _color(raw.get("price_color"), "#000000"),
+        "logo_path":        (raw.get("logo_path") or "")[:300],
+        "font_size":        font_size,
+        "font_family":      ff,
+        "border_color":     _color(raw.get("border_color"), "#cccccc"),
+        "border_width":     bw,
+        "label_theme":      label_theme,
+        "element_order":    _safe_json(raw.get("element_order")),
+        "visible_elements": _safe_json(raw.get("visible_elements")),
+        "sale_badge":       (raw.get("sale_badge") or "")[:30].strip(),
+    }
+
+
+def _label_presets_guard(request: Request):
+    """Shared auth/CSRF/billing guard for preset routes.
+    Returns (db, telegram_id, form) on success or a Response on failure."""
+    from web.auth import get_session_user
+    from fastapi.responses import Response
+    from billing_utils import is_extension_denied
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return Response(content="Unauthorized", status_code=401)
+    if user.get("role") not in ("owner", "super_admin"):
+        return Response(content="Forbidden", status_code=403)
+    if is_extension_denied(int(user["sub"]), "labels"):
+        return Response(content="Subscription required", status_code=403)
+    telegram_id = int(user["sub"])
+    db = get_web_db(telegram_id, user.get("org_db"))
+    return db, telegram_id, user
+
+
+@router.post("/products/label-presets")
+async def create_label_preset(request: Request):
+    """Save the current design as a new named preset (owner only)."""
+    from web.auth import verify_csrf_token
+    from fastapi.responses import Response
+
+    guard = _label_presets_guard(request)
+    if isinstance(guard, Response):
+        return guard
+    db, telegram_id, _user = guard
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return Response(content="CSRF error", status_code=403)
+
+    name = (form.get("name") or "").strip()[:60]
+    if not name:
+        return JSONResponse({"ok": False, "error": "empty_name"}, status_code=400)
+
+    if len(db.list_label_presets()) >= 30:
+        return JSONResponse({"ok": False, "error": "limit"}, status_code=400)
+
+    design = _clean_label_design(dict(form))
+    # The design form omits logo_path (it is an uploaded server path), so the
+    # preset captures whatever logo is active at save time → lossless roundtrip.
+    if not design.get("logo_path"):
+        try:
+            design["logo_path"] = _get_label_settings_safe(db).get("logo_path", "") or ""
+        except Exception:
+            design["logo_path"] = ""
+    new_id = db.create_label_preset(name, design)
+    if not new_id:
+        return JSONResponse({"ok": False, "error": "db"}, status_code=500)
+    return JSONResponse({"ok": True, "id": new_id, "name": name})
+
+
+@router.post("/products/label-presets/{preset_id}/apply")
+async def apply_label_preset(request: Request, preset_id: int):
+    """Load a preset into the active label settings (owner only)."""
+    from web.auth import verify_csrf_token
+    from fastapi.responses import Response
+
+    guard = _label_presets_guard(request)
+    if isinstance(guard, Response):
+        return guard
+    db, telegram_id, _user = guard
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return Response(content="CSRF error", status_code=403)
+
+    preset = db.get_label_preset(preset_id)
+    if not preset:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+    db.save_label_settings(
+        preset["bg_color"], preset["text_color"], preset["price_color"],
+        preset.get("logo_path") or "", preset["font_size"],
+        font_family=preset["font_family"], border_color=preset["border_color"],
+        border_width=preset["border_width"], label_theme=preset["label_theme"],
+        element_order=preset["element_order"], visible_elements=preset["visible_elements"],
+        sale_badge=preset["sale_badge"],
+    )
+    return JSONResponse({"ok": True})
+
+
+@router.post("/products/label-presets/{preset_id}/rename")
+async def rename_label_preset(request: Request, preset_id: int):
+    """Rename a preset (owner only)."""
+    from web.auth import verify_csrf_token
+    from fastapi.responses import Response
+
+    guard = _label_presets_guard(request)
+    if isinstance(guard, Response):
+        return guard
+    db, telegram_id, _user = guard
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return Response(content="CSRF error", status_code=403)
+
+    name = (form.get("name") or "").strip()[:60]
+    if not name:
+        return JSONResponse({"ok": False, "error": "empty_name"}, status_code=400)
+    if not db.get_label_preset(preset_id):
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    db.rename_label_preset(preset_id, name)
+    return JSONResponse({"ok": True, "name": name})
+
+
+@router.post("/products/label-presets/{preset_id}/delete")
+async def delete_label_preset(request: Request, preset_id: int):
+    """Delete a preset (owner only)."""
+    from web.auth import verify_csrf_token
+    from fastapi.responses import Response
+
+    guard = _label_presets_guard(request)
+    if isinstance(guard, Response):
+        return guard
+    db, telegram_id, _user = guard
+
+    form = await request.form()
+    if not verify_csrf_token(request, form.get("csrf_token", "")):
+        return Response(content="CSRF error", status_code=403)
+
+    db.delete_label_preset(preset_id)
     return JSONResponse({"ok": True})
 
 

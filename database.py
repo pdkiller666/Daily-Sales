@@ -1821,6 +1821,28 @@ class Database:
             except Exception as _exc:
                 logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # ── Именованные пресеты дизайна ценника (per-org, много строк) ────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS org_label_presets (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                name             TEXT    NOT NULL,
+                bg_color         TEXT    DEFAULT '#ffffff',
+                text_color       TEXT    DEFAULT '#000000',
+                price_color      TEXT    DEFAULT '#000000',
+                logo_path        TEXT    DEFAULT '',
+                font_size        TEXT    DEFAULT 'medium',
+                font_family      TEXT    DEFAULT 'Arial, Helvetica, sans-serif',
+                border_color     TEXT    DEFAULT '#cccccc',
+                border_width     TEXT    DEFAULT '1',
+                label_theme      TEXT    DEFAULT 'standard',
+                element_order    TEXT    DEFAULT '',
+                visible_elements TEXT    DEFAULT '',
+                sale_badge       TEXT    DEFAULT '',
+                created_at       TEXT    DEFAULT (datetime('now')),
+                updated_at       TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
 
@@ -3255,6 +3277,98 @@ class Database:
             )
         conn.commit()
         conn.close()
+
+    # ── Именованные пресеты дизайна ценника ──────────────────────────────────
+    _LABEL_PRESET_FIELDS = (
+        'bg_color', 'text_color', 'price_color', 'logo_path', 'font_size',
+        'font_family', 'border_color', 'border_width', 'label_theme',
+        'element_order', 'visible_elements', 'sale_badge',
+    )
+
+    def list_label_presets(self) -> list:
+        """Return saved label design presets (lightweight: id, name, updated_at)."""
+        conn = self.get_connection()
+        try:
+            rows = conn.execute(
+                'SELECT id, name, updated_at FROM org_label_presets ORDER BY name COLLATE NOCASE'
+            ).fetchall()
+            return [{'id': r[0], 'name': r[1], 'updated_at': r[2]} for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def get_label_preset(self, preset_id: int) -> dict:
+        """Return one preset's full design dict, or {} if not found."""
+        conn = self.get_connection()
+        try:
+            cols = ', '.join(self._LABEL_PRESET_FIELDS)
+            row = conn.execute(
+                f'SELECT id, name, {cols} FROM org_label_presets WHERE id=?',
+                (preset_id,),
+            ).fetchone()
+        except Exception:
+            row = None
+        finally:
+            conn.close()
+        if not row:
+            return {}
+        out = {'id': row[0], 'name': row[1]}
+        for i, key in enumerate(self._LABEL_PRESET_FIELDS, start=2):
+            out[key] = row[i]
+        return out
+
+    def create_label_preset(self, name: str, design: dict) -> int:
+        """Insert a new named preset from a design dict. Returns new id (0 on error)."""
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cols = ', '.join(self._LABEL_PRESET_FIELDS)
+            ph = ', '.join('?' for _ in self._LABEL_PRESET_FIELDS)
+            vals = [design.get(k, '') or '' for k in self._LABEL_PRESET_FIELDS]
+            cur.execute(
+                f'INSERT INTO org_label_presets (name, {cols}) VALUES (?, {ph})',
+                (name, *vals),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
+    def rename_label_preset(self, preset_id: int, name: str) -> None:
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "UPDATE org_label_presets SET name=?, updated_at=datetime('now') WHERE id=?",
+                (name, preset_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def update_label_preset(self, preset_id: int, design: dict) -> None:
+        """Overwrite an existing preset's design with the given dict."""
+        conn = self.get_connection()
+        try:
+            sets = ', '.join(f'{k}=?' for k in self._LABEL_PRESET_FIELDS)
+            vals = [design.get(k, '') or '' for k in self._LABEL_PRESET_FIELDS]
+            conn.execute(
+                f"UPDATE org_label_presets SET {sets}, updated_at=datetime('now') WHERE id=?",
+                (*vals, preset_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete_label_preset(self, preset_id: int) -> None:
+        conn = self.get_connection()
+        try:
+            conn.execute('DELETE FROM org_label_presets WHERE id=?', (preset_id,))
+            conn.commit()
+        finally:
+            conn.close()
 
     # Методы для работы с товарами
     def get_product_count(self) -> int:

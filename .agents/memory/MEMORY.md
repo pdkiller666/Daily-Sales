@@ -1,6 +1,7 @@
 - [UX hub pattern](ux-hub-pattern.md) — консолидация кнопок в хаб-меню: 3→1 кнопка + промежуточный экран; back из хаба → родительское меню
 - [Dashboard в главном меню](menu-dashboard.md) — `_quick_menu_summary()` в handlers.py: sync DB-методы в async OK (SQLite fast), всё в try/except, пустая строка при любой ошибке
-- [Product photo/description columns](product-photo-desc.md) — products table full: id[0] name[1] category[2] price[3] created_at[4] photo_file_id[5] description[6] article[7] barcode[8]; barcode added 2026-06-15
+- [Product photo/description columns](product-photo-desc.md) — products: id[0] name[1] category[2] price[3] created_at[4] photo[5] description[6] article[7] barcode[8] old_price[9]; all extras via ALTER; old_price (struck sale price) added 2026-06-19
+- [Label barcode EAN format](label-barcode-ean.md) — ценник: 12/13 цифр→EAN-13, 7/8→EAN-8 иначе Code-128; full-length ОБЯЗАН пройти checksum иначе python-barcode молча пересчитает → fallback Code-128; фронт/PDF симметричны
 - [Camera Permissions-Policy block](twa-camera-permission.md) — camera=() in Permissions-Policy silently blocks getUserMedia with no prompt/entry; must use camera=(self)
 - [Addon limits use shop_bot.db](addon-limits.md) — subscription_addons always stored in shop_bot.db; _get_addon_totals_for_user() reads SHOP_BOT_DB directly regardless of org context
 - [Money-grant paths idempotent+tested](money-grant-paths.md) — оплата→выдача: идемпотентность по payment_request_id + регресс-тест; внешний except глотает ошибки выдачи (был инцидент: addon в несуществующую колонку)
