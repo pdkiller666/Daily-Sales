@@ -85,7 +85,7 @@ _PROVIDER_RATES: dict[str, tuple[float, float]] = {
 
 
 def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None:
-    """Накапливает токены в module-level счётчике (thread-safe).
+    """Накапливает токены в module-level счётчике (thread-safe) и персистирует в БД.
 
     Args:
         prompt:     число prompt-токенов
@@ -93,6 +93,9 @@ def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None
         provider:   имя провайдера ('deepseek', 'gemini', 'openrouter')
     """
     key = provider.lower() if provider.lower() in _PROVIDER_RATES else ""
+    rate_p, rate_c = _PROVIDER_RATES.get(key or "deepseek", _PROVIDER_RATES["deepseek"])
+    cost_usd = (prompt * rate_p + completion * rate_c) / 1_000_000
+
     with _token_lock:
         _token_stats["prompt_tokens"] += prompt
         _token_stats["completion_tokens"] += completion
@@ -101,6 +104,15 @@ def _accumulate_tokens(prompt: int, completion: int, provider: str = "") -> None
             _token_stats["by_provider"][key]["prompt_tokens"] += prompt
             _token_stats["by_provider"][key]["completion_tokens"] += completion
             _token_stats["by_provider"][key]["calls"] += 1
+
+    # Persist to DB — survives server restarts; errors are non-critical and swallowed
+    try:
+        import datetime as _dt_acc
+        _date_str = _dt_acc.datetime.utcnow().strftime("%Y-%m-%d")
+        from web.rate_store import persist_token_cost as _persist_cost
+        _persist_cost(_date_str, key or "unknown", prompt, completion, cost_usd)
+    except Exception:
+        pass
 
 
 def get_token_stats() -> dict:

@@ -19,6 +19,11 @@ _SHOP_BOT_DB = "data/shop_bot.db"
 
 _db_tables_created = False
 
+# ─── Rate-limits in-memory cache (TTL 60 s) ───────────────────────────────────
+_rl_cache: dict = {}
+_rl_cache_lock = threading.Lock()
+_RL_CACHE_TTL = 60  # seconds
+
 
 def _ensure_tables() -> None:
     """Create tables once per process lifetime. No-op on subsequent calls."""
@@ -47,6 +52,16 @@ def _ensure_tables() -> None:
                 PRIMARY KEY (tg_id, usage_date)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_cost_log (
+                date              TEXT NOT NULL,
+                provider          TEXT NOT NULL,
+                prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd          REAL    NOT NULL DEFAULT 0.0,
+                PRIMARY KEY (date, provider)
+            )
+        """)
         conn.commit()
         _db_tables_created = True
     finally:
@@ -69,8 +84,13 @@ def _today_utc() -> str:
 
 def get_ai_rate_limits() -> tuple[int, int]:
     """Возвращает (base_daily_limit, high_daily_limit) из ai_rate_config в shop_bot.db.
-    Fallback: (20, 200) если таблица/БД недоступны.
+    Результат кэшируется на 60 секунд. Fallback: (20, 200).
     """
+    now = time.time()
+    with _rl_cache_lock:
+        cached = _rl_cache.get("limits")
+        if cached and (now - cached["ts"]) < _RL_CACHE_TTL:
+            return cached["base"], cached["high"]
     try:
         conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -79,15 +99,24 @@ def get_ai_rate_limits() -> tuple[int, int]:
         ).fetchall()
         conn.close()
         cfg = {r[0]: int(r[1]) for r in rows}
-        return cfg.get("base_daily_limit", 20), cfg.get("high_daily_limit", 200)
+        base = cfg.get("base_daily_limit", 20)
+        high = cfg.get("high_daily_limit", 200)
     except Exception:
         return 20, 200
+    with _rl_cache_lock:
+        _rl_cache["limits"] = {"base": base, "high": high, "ts": now}
+    return base, high
 
 
 def get_ai_chat_daily_limit() -> int:
     """Возвращает chat_daily_limit из ai_rate_config в shop_bot.db.
-    Fallback: 50 если запись отсутствует или БД недоступна.
+    Результат кэшируется на 60 секунд. Fallback: 50.
     """
+    now = time.time()
+    with _rl_cache_lock:
+        cached = _rl_cache.get("chat_limit")
+        if cached and (now - cached["ts"]) < _RL_CACHE_TTL:
+            return cached["val"]
     try:
         conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -95,9 +124,18 @@ def get_ai_chat_daily_limit() -> int:
             "SELECT value FROM ai_rate_config WHERE key = 'chat_daily_limit'"
         ).fetchone()
         conn.close()
-        return int(row[0]) if row else 50
+        val = int(row[0]) if row else 50
     except Exception:
         return 50
+    with _rl_cache_lock:
+        _rl_cache["chat_limit"] = {"val": val, "ts": now}
+    return val
+
+
+def invalidate_rate_limits_cache() -> None:
+    """Сбрасывает кэш лимитов — вызывать после изменения ai_rate_config."""
+    with _rl_cache_lock:
+        _rl_cache.clear()
 
 
 def get_ai_daily_usage(tg_id: int) -> int:
@@ -251,6 +289,99 @@ def set_anomaly_threshold(threshold: int) -> None:
     except Exception:
         import logging as _lg
         _lg.error("set_anomaly_threshold: failed to write to shop_bot.db")
+
+
+# ─── Persistent token/cost tracking ──────────────────────────────────────────
+
+def persist_token_cost(date: str, provider: str, prompt: int, completion: int, cost_usd: float) -> None:
+    """Накапливает токены и стоимость в ai_cost_log (upsert по date+provider).
+    Данные выживают рестарты сервера. Non-critical: ошибки логируются, не пробрасываются.
+    """
+    if not prompt and not completion:
+        return
+    with _lock:
+        try:
+            conn = _get_conn()
+            conn.execute(
+                """INSERT INTO ai_cost_log (date, provider, prompt_tokens, completion_tokens, cost_usd)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(date, provider) DO UPDATE SET
+                       prompt_tokens     = prompt_tokens     + excluded.prompt_tokens,
+                       completion_tokens = completion_tokens + excluded.completion_tokens,
+                       cost_usd          = cost_usd          + excluded.cost_usd""",
+                (date, provider, prompt, completion, cost_usd),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            try:
+                import logging as _lg
+                _lg.warning("persist_token_cost: %s", e)
+            except Exception:
+                pass
+
+
+def get_ai_cost_history(days: int = 30) -> list:
+    """Возвращает историю расходов AI за последние N дней из ai_cost_log.
+    Каждый элемент: {date, provider, prompt_tokens, completion_tokens, cost_usd}.
+    Отсортировано по дате ASC.
+    """
+    cutoff = (datetime.datetime.utcnow() - datetime.timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _get_conn()
+            rows = conn.execute(
+                """SELECT date, provider, prompt_tokens, completion_tokens, cost_usd
+                   FROM ai_cost_log WHERE date >= ? ORDER BY date ASC, provider ASC""",
+                (cutoff,),
+            ).fetchall()
+            conn.close()
+            return [
+                {
+                    "date":              r[0],
+                    "provider":          r[1],
+                    "prompt_tokens":     int(r[2] or 0),
+                    "completion_tokens": int(r[3] or 0),
+                    "cost_usd":          round(float(r[4] or 0), 8),
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
+
+
+def get_ai_cost_totals() -> dict:
+    """Возвращает суммарную стоимость AI за всё время из ai_cost_log.
+    {total_prompt_tokens, total_completion_tokens, total_cost_usd, by_provider: [...]}
+    """
+    with _lock:
+        try:
+            conn = _get_conn()
+            rows = conn.execute(
+                """SELECT provider, SUM(prompt_tokens), SUM(completion_tokens), SUM(cost_usd)
+                   FROM ai_cost_log GROUP BY provider ORDER BY SUM(cost_usd) DESC"""
+            ).fetchall()
+            conn.close()
+            by_provider = [
+                {
+                    "provider":          r[0],
+                    "prompt_tokens":     int(r[1] or 0),
+                    "completion_tokens": int(r[2] or 0),
+                    "cost_usd":          round(float(r[3] or 0), 8),
+                }
+                for r in rows
+            ]
+            return {
+                "total_prompt_tokens":     sum(p["prompt_tokens"]     for p in by_provider),
+                "total_completion_tokens": sum(p["completion_tokens"] for p in by_provider),
+                "total_cost_usd":          round(sum(p["cost_usd"]    for p in by_provider), 8),
+                "by_provider":             by_provider,
+            }
+        except Exception:
+            return {
+                "total_prompt_tokens": 0, "total_completion_tokens": 0,
+                "total_cost_usd": 0.0, "by_provider": [],
+            }
 
 
 def get_ai_yesterday_total() -> int:

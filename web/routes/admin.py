@@ -1087,17 +1087,39 @@ async def admin_ai_limits(request: Request):
     from web.rate_store import (
         get_ai_rate_limits, get_ai_usage_stats_today,
         get_ai_enabled, get_anomaly_threshold,
+        get_ai_chat_daily_limit as _get_chat_lim,
+        get_ai_cost_history, get_ai_cost_totals,
     )
     from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
     from web.ai_utils import get_token_stats
 
-    from web.rate_store import get_ai_chat_daily_limit as _get_chat_lim
     base, high = get_ai_rate_limits()
     chat_lim = _get_chat_lim()
     ai_enabled = get_ai_enabled()
     anomaly_threshold = get_anomaly_threshold()
     token_stats = get_token_stats()
     top_users = get_ai_usage_stats_today(top_n=30)
+    cost_history = get_ai_cost_history(30)
+    cost_totals = get_ai_cost_totals()
+
+    # Агрегируем cost_history по дням для 30-дневного чарта
+    _cost_by_date: dict = {}
+    for _ce in cost_history:
+        _d = _ce["date"]
+        if _d not in _cost_by_date:
+            _cost_by_date[_d] = {"cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0}
+        _cost_by_date[_d]["cost_usd"]          += _ce["cost_usd"]
+        _cost_by_date[_d]["prompt_tokens"]     += _ce["prompt_tokens"]
+        _cost_by_date[_d]["completion_tokens"] += _ce["completion_tokens"]
+    cost_chart = [
+        {
+            "date":              (_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat(),
+            "cost_usd":          round(_cost_by_date.get((_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat(), {}).get("cost_usd", 0.0), 8),
+            "prompt_tokens":     _cost_by_date.get((_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat(), {}).get("prompt_tokens", 0),
+            "completion_tokens": _cost_by_date.get((_dt.date.today() - _dt.timedelta(days=29 - i)).isoformat(), {}).get("completion_tokens", 0),
+        }
+        for i in range(30)
+    ]
 
     today_str = _dt.date.today().isoformat()
     yesterday_str = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
@@ -1227,6 +1249,9 @@ async def admin_ai_limits(request: Request):
             "usage_log_oldest": _usage_log_oldest,
             "usage_log_retention": _usage_log_retention,
             "usage_log_size_kb": _usage_log_size_kb,
+            "cost_history": cost_history,
+            "cost_totals": cost_totals,
+            "cost_chart": cost_chart,
         }),
     )
 
@@ -1278,6 +1303,8 @@ async def admin_ai_limits_save(
         if conn:
             conn.close()
 
+    from web.rate_store import invalidate_rate_limits_cache
+    invalidate_rate_limits_cache()
     return RedirectResponse("/admin/ai-limits?msg=saved", 303)
 
 

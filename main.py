@@ -1343,6 +1343,42 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # Очистка старых записей ai_cost_log — ежедневно в 03:35 UTC (хранить 90 дней)
+    _AI_COST_LOG_RETENTION_DAYS = 90
+
+    async def prune_ai_cost_log_job():
+        try:
+            import sqlite3 as _sqlite3
+            _db_path = 'data/rate_limits.db'
+            if not os.path.exists(_db_path):
+                return
+            _conn = _sqlite3.connect(_db_path, timeout=5, check_same_thread=False)
+            _conn.execute("PRAGMA journal_mode=WAL")
+            # ai_cost_log может не существовать на старых инстансах — игнорируем
+            try:
+                _cur = _conn.execute(
+                    "DELETE FROM ai_cost_log WHERE date < date('now', ?)",
+                    (f'-{_AI_COST_LOG_RETENTION_DAYS} days',)
+                )
+                _deleted = _cur.rowcount
+                _conn.commit()
+                logging.info("prune_ai_cost_log: удалено %d строк старше %d дней", _deleted, _AI_COST_LOG_RETENTION_DAYS)
+            except Exception:
+                pass
+            finally:
+                _conn.close()
+        except Exception as _e:
+            logging.error("prune_ai_cost_log_job error: %s", _e)
+
+    scheduler.add_job(
+        prune_ai_cost_log_job,
+        CronTrigger(hour=3, minute=35),
+        id='prune_ai_cost_log',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # Авто-архивация AI-сессий — ежедневно в 03:20 UTC
     AI_SESSION_ARCHIVE_DAYS = 30
 
