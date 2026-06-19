@@ -1247,3 +1247,128 @@ def build_morning_briefing_prompt(
         "3) Один чёткий приоритет на сегодня, вытекающий из вчерашних результатов. "
         "Тон деловой и бодрый. Без общих фраз. Опирайся только на данные выше."
     )
+
+
+def build_procurement_advisor_prompt(
+    org_name: str,
+    turnover_rows: list,
+    dead_stock_rows: list,
+) -> str:
+    """Промпт для советника по закупкам и неликвиду (еженедельно, суббота 09:00 МСК).
+
+    turnover_rows: из get_inventory_turnover() —
+        [0] product_id, [1] name, [2] category, [3] price,
+        [4] shop_name, [5] current_stock, [6] sold_qty, [7] avg_daily, [8] days_until_empty
+
+    dead_stock_rows: из get_dead_stock() —
+        [0] product_id, [1] name, [2] category, [3] price,
+        [4] shop_name, [5] current_stock, [6] last_updated, [7] last_sale_date
+    """
+    lines: list[str] = [f"Магазин «{org_name}»."]
+
+    # Критические позиции — скоро закончатся (≤7 дней)
+    critical = [r for r in turnover_rows if r[8] is not None and r[8] <= 7]
+    if critical:
+        parts = []
+        for r in critical[:5]:
+            days = r[8]
+            parts.append(f"{r[1]} (остаток {r[5]} шт., ~{days} дн., {int(r[3]):,} ₽/шт.)")
+        lines.append("Критический запас (менее 7 дней): " + "; ".join(parts) + ".")
+
+    # Быстро расходуемые позиции — ≤14 дней
+    warning = [r for r in turnover_rows if r[8] is not None and 7 < r[8] <= 14]
+    if warning:
+        parts = []
+        for r in warning[:4]:
+            parts.append(f"{r[1]} (~{r[8]} дн.)")
+        lines.append("Скоро потребуется пополнение (7–14 дней): " + "; ".join(parts) + ".")
+
+    # Товары без продаж — скачать и пустить в оборот
+    if dead_stock_rows:
+        dead_parts = []
+        for r in dead_stock_rows[:5]:
+            frozen = int(r[5] * r[3])
+            last_sale = r[7] or "никогда"
+            if last_sale != "никогда":
+                last_sale = last_sale[:10]
+            dead_parts.append(f"{r[1]} (склад {r[5]} шт., заморожено ≈{frozen:,} ₽, посл. продажа: {last_sale})")
+        lines.append("Залежалые товары (нет продаж 30+ дней): " + "; ".join(dead_parts) + ".")
+        total_frozen = sum(int(r[5] * r[3]) for r in dead_stock_rows)
+        lines.append(f"Итого заморожено в неликвиде: ≈{total_frozen:,} ₽.")
+
+    if not critical and not warning and not dead_stock_rows:
+        lines.append("Критических запасов и неликвида не обнаружено — всё в норме.")
+
+    data_block = " ".join(lines)
+
+    return (
+        f"{data_block}\n\n"
+        "Напиши краткий отчёт для владельца магазина (3–5 предложений) в формате:\n"
+        "1) Какие позиции нужно срочно заказать (критический запас) — назови конкретные товары и срок.\n"
+        "2) Что нужно распродать или уценить из залежалых — назови сумму замороженных денег.\n"
+        "3) Один конкретный совет по оптимизации закупок или ликвидации неликвида.\n"
+        "Тон деловой, без лишних слов. Опирайся только на данные выше. "
+        "Если данных по какому-то разделу нет — пропусти его."
+    )
+
+
+def build_seller_coach_prompt(
+    seller_name: str,
+    rank: int,
+    total_sellers: int,
+    week_revenue: float,
+    team_avg_revenue: float,
+    avg_check: float,
+    team_avg_check: float,
+    total_transactions: int,
+    top_product_name: str | None = None,
+) -> str:
+    """Промпт для персонального коуча продавцу (еженедельно, суббота 09:00 МСК).
+
+    Args:
+        seller_name: имя продавца
+        rank: место в рейтинге (1 = лучший)
+        total_sellers: всего продавцов в оргн
+        week_revenue: выручка продавца за неделю
+        team_avg_revenue: средняя выручка по команде за ту же неделю
+        avg_check: средний чек продавца
+        team_avg_check: средний чек по команде
+        total_transactions: количество транзакций за неделю
+        top_product_name: самый продаваемый товар (опционально)
+    """
+    rev_vs_avg = ""
+    if team_avg_revenue > 0:
+        diff_pct = (week_revenue - team_avg_revenue) / team_avg_revenue * 100
+        direction = "выше" if diff_pct >= 0 else "ниже"
+        rev_vs_avg = f" ({abs(diff_pct):.0f}% {direction} среднего по команде)"
+
+    check_vs_avg = ""
+    if team_avg_check > 0:
+        check_diff = (avg_check - team_avg_check) / team_avg_check * 100
+        check_dir = "выше" if check_diff >= 0 else "ниже"
+        check_vs_avg = f" ({abs(check_diff):.0f}% {check_dir} среднего)"
+
+    lines: list[str] = [
+        f"Продавец {seller_name}.",
+        f"Итоги недели: {int(week_revenue):,} ₽{rev_vs_avg}, место в рейтинге — {rank} из {total_sellers}.",
+        f"Транзакций: {total_transactions}, средний чек: {int(avg_check):,} ₽{check_vs_avg}.",
+    ]
+    if top_product_name:
+        lines.append(f"Лучший товар недели: {top_product_name}.")
+
+    data_block = " ".join(lines)
+
+    position_context = "лидирует в команде" if rank == 1 else (
+        f"занимает {rank}-е место из {total_sellers}"
+    )
+
+    return (
+        f"{data_block}\n\n"
+        f"Напиши персональный коучинг-совет для продавца (2–3 предложения):\n"
+        f"1) Кратко оцени результат недели — продавец {position_context}.\n"
+        f"2) Назови 1 конкретную точку роста: если средний чек ниже команды — совет по up-sell/cross-sell; "
+        f"если выручка ниже среднего — совет по активности или количеству сделок; "
+        f"если всё хорошо — мотивирующий совет для сохранения результата.\n"
+        "Тон позитивный, личный, конкретный. Обращайся к продавцу по имени. "
+        "Без общих фраз. Опирайся только на данные выше."
+    )

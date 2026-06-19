@@ -2530,6 +2530,363 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # ── AI-советник по закупкам/неликвиду (суббота 09:00 МСК = 06:00 UTC) ───
+    async def ai_procurement_advisor():
+        """Еженедельный AI-отчёт по закупкам и залежалым товарам — владельцам."""
+        import os as _os, json as _json, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        import datetime as _dt
+        _now_utc = _dt.datetime.utcnow()
+        # Суббота = 5, 06:xx UTC = 09:xx МСК
+        if _now_utc.weekday() != 5 or _now_utc.hour != 6:
+            return
+
+        def _send_tg(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]}
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                import threading as _th
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from web.ai_utils import ask_llm, build_procurement_advisor_prompt, is_configured
+        except Exception as _imp_err:
+            logging.warning(f"ai_procurement_advisor: import error: {_imp_err}")
+            return
+
+        try:
+            from database import Database
+            db_paths = _get_scheduler_db_paths()
+
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+
+                    # Gate: ai_smart_alerts extension required
+                    try:
+                        admin_ids = db.get_all_admins_telegram_ids()
+                    except Exception:
+                        continue
+                    if not admin_ids:
+                        continue
+
+                    try:
+                        from billing_utils import has_extension as _hex_ext
+                        if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        pass
+
+                    org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
+
+                    # Собираем данные склада
+                    try:
+                        turnover_rows = await asyncio.to_thread(db.get_inventory_turnover, None, 30)
+                    except Exception:
+                        turnover_rows = []
+                    try:
+                        dead_stock_rows = await asyncio.to_thread(db.get_dead_stock, None, 30)
+                    except Exception:
+                        dead_stock_rows = []
+
+                    # Пропускаем если нет никаких данных по складу
+                    if not turnover_rows and not dead_stock_rows:
+                        continue
+
+                    ai_text: str | None = None
+                    if is_configured():
+                        try:
+                            prompt = build_procurement_advisor_prompt(
+                                org_name=org_name,
+                                turnover_rows=turnover_rows,
+                                dead_stock_rows=dead_stock_rows,
+                            )
+                            ai_text = await ask_llm(prompt, max_tokens=350, feature="procurement")
+                        except Exception as _ai_err:
+                            logging.warning(f"ai_procurement_advisor LLM error: {_ai_err}")
+
+                    if ai_text:
+                        msg = f"📦 <b>Советник по закупкам</b>\n\n{ai_text}"
+                    else:
+                        # Fallback без LLM
+                        _crit = [r for r in turnover_rows if r[8] is not None and r[8] <= 7]
+                        _warn = [r for r in turnover_rows if r[8] is not None and 7 < r[8] <= 14]
+                        lines_fb = ["📦 <b>Советник по закупкам</b>"]
+                        if _crit:
+                            lines_fb.append(f"🔴 Критический запас: " + ", ".join(r[1] for r in _crit[:3]))
+                        if _warn:
+                            lines_fb.append(f"🟡 Пополнить в ближайшие 2 недели: " + ", ".join(r[1] for r in _warn[:3]))
+                        if dead_stock_rows:
+                            total_frozen = sum(int(r[5] * r[3]) for r in dead_stock_rows)
+                            lines_fb.append(f"📉 Неликвид: {len(dead_stock_rows)} позиций, заморожено ≈{total_frozen:,} ₽")
+                        if not _crit and not _warn and not dead_stock_rows:
+                            lines_fb.append("✅ Критических запасов и неликвида нет — всё в норме.")
+                        msg = "\n".join(lines_fb)
+
+                    import re as _re
+                    _plain = _re.sub(r"<[^>]+>", "", msg).strip()
+
+                    # Лог в историю орг
+                    try:
+                        db.add_ai_alert_log('procurement', _plain)
+                    except Exception:
+                        pass
+
+                    # Telegram — владельцам/администраторам
+                    for tg_id in admin_ids[:3]:
+                        if tg_id and tg_id > 0:
+                            _send_tg(tg_id, msg)
+
+                    # Email — при включённом email-дайджесте
+                    try:
+                        _cfg = db.get_ai_alert_settings()
+                    except Exception:
+                        _cfg = {}
+                    if _cfg.get("digest_email_enabled", False):
+                        try:
+                            from web.email_utils import send_procurement_advisor_email as _send_proc_email, is_configured as _email_ok
+                            import sqlite3 as _sq3pr
+                            if _email_ok():
+                                _sdb_pr = _sq3pr.connect("data/shop_bot.db")
+                                for _tid in admin_ids[:3]:
+                                    if not _tid or int(_tid) <= 0:
+                                        continue
+                                    _wc = _sdb_pr.execute(
+                                        "SELECT email FROM web_credentials WHERE telegram_id=? AND is_verified=1 LIMIT 1",
+                                        (int(_tid),)
+                                    ).fetchone()
+                                    if _wc and _wc[0]:
+                                        import anyio as _anyio
+                                        await _anyio.to_thread.run_sync(
+                                            lambda _e=_wc[0]: _send_proc_email(_e, _plain)
+                                        )
+                                _sdb_pr.close()
+                        except Exception as _email_err:
+                            logging.debug(f"ai_procurement_advisor email: {_email_err}")
+
+                except Exception as _db_err:
+                    logging.warning(f"ai_procurement_advisor db={db_path}: {_db_err}")
+        except Exception as _e:
+            logging.error(f"ai_procurement_advisor: {_e}")
+
+    scheduler.add_job(
+        ai_procurement_advisor,
+        CronTrigger(minute=15),
+        id='ai_procurement_advisor',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # ── Персональный коуч продавцу (суббота 09:10 МСК = 06:10 UTC) ──────────
+    async def ai_seller_coach():
+        """Еженедельный персональный коуч-совет каждому продавцу."""
+        import os as _os, json as _json, urllib.request as _ureq
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        import datetime as _dt
+        _now_utc = _dt.datetime.utcnow()
+        # Суббота = 5, 06:xx UTC = 09:xx МСК
+        if _now_utc.weekday() != 5 or _now_utc.hour != 6:
+            return
+
+        def _send_tg(tg_id, text):
+            if not tg_id:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                import threading as _th
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            from web.ai_utils import ask_llm, build_seller_coach_prompt, is_configured
+        except Exception as _imp_err:
+            logging.warning(f"ai_seller_coach: import error: {_imp_err}")
+            return
+
+        try:
+            from database import Database
+            db_paths = _get_scheduler_db_paths()
+
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+
+                    # Gate: ai_smart_alerts extension required у владельца
+                    try:
+                        admin_ids = db.get_all_admins_telegram_ids()
+                    except Exception:
+                        continue
+                    if not admin_ids:
+                        continue
+
+                    try:
+                        from billing_utils import has_extension as _hex_ext
+                        if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        pass
+
+                    # Выручка за прошедшую неделю
+                    week_start = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+                    week_end = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+
+                    try:
+                        ranking = await asyncio.to_thread(
+                            db.get_sales_ranking, week_start, week_end
+                        )
+                    except Exception:
+                        continue
+
+                    if not ranking:
+                        continue
+
+                    total_sellers = len(ranking)
+                    # Средняя выручка по команде
+                    team_total_rev = sum(float(r[4] or 0) for r in ranking)
+                    team_avg_rev = team_total_rev / total_sellers if total_sellers > 0 else 0.0
+                    # Средний чек по команде
+                    team_total_trans = sum(int(r[5] or 0) for r in ranking)
+                    team_avg_check = team_total_rev / team_total_trans if team_total_trans > 0 else 0.0
+
+                    # Карта user_db_id → telegram_id из users
+                    try:
+                        all_users = await asyncio.to_thread(db.get_all_users)
+                        uid_to_tgid = {u[0]: u[1] for u in (all_users or [])}
+                    except Exception:
+                        uid_to_tgid = {}
+
+                    # Топ-продукт за неделю (один для всей орги)
+                    try:
+                        _top_prods = await asyncio.to_thread(db.get_top_products_month, 1)
+                        top_product_name = _top_prods[0][0] if _top_prods else None
+                    except Exception:
+                        top_product_name = None
+
+                    for rank_idx, seller_row in enumerate(ranking, 1):
+                        # ranking cols: [0]first_name [1]last_name [2]shop_name [3]total_sold
+                        # [4]total_revenue [5]total_sales [6]total_earnings [7]user_db_id [8]username
+                        user_db_id = seller_row[7]
+                        tg_id = uid_to_tgid.get(user_db_id)
+                        if not tg_id or int(tg_id) <= 0:
+                            continue  # email-only (tg_id < 0) или нет TG
+
+                        fn = (seller_row[0] or "").strip()
+                        ln = (seller_row[1] or "").strip()
+                        seller_name = f"{fn} {ln}".strip() or seller_row[2] or f"Продавец {rank_idx}"
+
+                        seller_rev = float(seller_row[4] or 0)
+                        seller_trans = int(seller_row[5] or 0)
+                        seller_avg_check = seller_rev / seller_trans if seller_trans > 0 else 0.0
+
+                        ai_text: str | None = None
+                        if is_configured():
+                            try:
+                                prompt = build_seller_coach_prompt(
+                                    seller_name=fn or seller_name,
+                                    rank=rank_idx,
+                                    total_sellers=total_sellers,
+                                    week_revenue=seller_rev,
+                                    team_avg_revenue=team_avg_rev,
+                                    avg_check=seller_avg_check,
+                                    team_avg_check=team_avg_check,
+                                    total_transactions=seller_trans,
+                                    top_product_name=top_product_name,
+                                )
+                                ai_text = await ask_llm(prompt, max_tokens=250, feature="seller_coach")
+                            except Exception as _ai_err:
+                                logging.warning(f"ai_seller_coach LLM error seller={user_db_id}: {_ai_err}")
+
+                        if ai_text:
+                            msg = f"⭐ <b>Твои итоги недели, {fn or seller_name}!</b>\n\n{ai_text}"
+                        else:
+                            # Fallback без LLM
+                            diff_str = ""
+                            if team_avg_rev > 0:
+                                diff_pct = (seller_rev - team_avg_rev) / team_avg_rev * 100
+                                arrow = "▲" if diff_pct >= 0 else "▼"
+                                diff_str = f" {arrow}{abs(diff_pct):.0f}% к средней"
+                            msg = (
+                                f"⭐ <b>Итоги недели, {fn or seller_name}!</b>\n\n"
+                                f"Выручка: {int(seller_rev):,} ₽{diff_str}\n"
+                                f"Место в рейтинге: {rank_idx} из {total_sellers}\n"
+                                f"Транзакций: {seller_trans}, средний чек: {int(seller_avg_check):,} ₽"
+                            )
+
+                        import re as _re
+                        _plain = _re.sub(r"<[^>]+>", "", msg).strip()
+
+                        _send_tg(tg_id, msg)
+
+                        # Уведомление в историю
+                        try:
+                            _nc2 = db.get_connection()
+                            _nr2 = _nc2.execute("SELECT id FROM users WHERE id = ?", (user_db_id,)).fetchone()
+                            _nc2.close()
+                            if _nr2:
+                                db.add_notification_to_history(_nr2[0], 'personal', _plain[:500])
+                        except Exception:
+                            pass
+
+                        # Web Push продавцу
+                        try:
+                            from web.push_utils import apush as _apush
+                            await _apush(int(tg_id), "⭐ Твои итоги недели", _plain[:120], "/dashboard")
+                        except Exception:
+                            pass
+
+                        # Email — если есть верифицированный email
+                        try:
+                            from web.email_utils import send_seller_coach_email as _send_coach_email, is_configured as _email_ok
+                            import sqlite3 as _sq3sc
+                            if _email_ok():
+                                _sdb_sc = _sq3sc.connect("data/shop_bot.db")
+                                _wc_sc = _sdb_sc.execute(
+                                    "SELECT email FROM web_credentials WHERE telegram_id=? AND is_verified=1 LIMIT 1",
+                                    (int(tg_id),)
+                                ).fetchone()
+                                _sdb_sc.close()
+                                if _wc_sc and _wc_sc[0]:
+                                    import anyio as _anyio
+                                    await _anyio.to_thread.run_sync(
+                                        lambda _e=_wc_sc[0], _n=fn or seller_name: _send_coach_email(_e, _n, _plain)
+                                    )
+                        except Exception as _coach_email_err:
+                            logging.debug(f"ai_seller_coach email tg={tg_id}: {_coach_email_err}")
+
+                except Exception as _db_err:
+                    logging.warning(f"ai_seller_coach db={db_path}: {_db_err}")
+        except Exception as _e:
+            logging.error(f"ai_seller_coach: {_e}")
+
+    scheduler.add_job(
+        ai_seller_coach,
+        CronTrigger(minute=20),
+        id='ai_seller_coach',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
 
     # Регистрируем cron-задачи из интеграций Google Sheets

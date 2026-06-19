@@ -175,6 +175,49 @@ def send_weekly_digest_email(to_email: str, plain_text: str) -> bool:
     return _send(to_email, subject, html)
 
 
+def send_procurement_advisor_email(to_email: str, plain_text: str) -> bool:
+    """Отправляет еженедельный AI-советник по закупкам/неликвиду на email администратора."""
+    subject = "📦 AI-советник по закупкам — DailySales"
+    safe_text = plain_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+    html = f"""{_BASE_STYLE}
+<body><div class="wrap">
+  <div class="hdr">
+    <div class="hdr-logo">DS</div>
+    <h1>DailySales</h1><p>Советник по закупкам</p>
+  </div>
+  <div class="body">
+    <p style="font-size:15px;font-weight:600;color:#1e293b">{safe_text}</p>
+    <div style="text-align:center;margin-top:8px">
+      <a href="https://dailysales.ru/inventory" class="btn">📦 Открыть склад</a>
+    </div>
+    <p class="note">Это автоматический еженедельный отчёт от DailySales. Настроить уведомления можно в разделе AI-инсайты.</p>
+  </div>
+</div></body>"""
+    return _send(to_email, subject, html)
+
+
+def send_seller_coach_email(to_email: str, seller_name: str, plain_text: str) -> bool:
+    """Отправляет персональный коуч-совет продавцу на email."""
+    subject = f"⭐ Твои итоги недели — DailySales"
+    safe_text = plain_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+    html = f"""{_BASE_STYLE}
+<body><div class="wrap">
+  <div class="hdr">
+    <div class="hdr-logo">DS</div>
+    <h1>DailySales</h1><p>Личный коуч</p>
+  </div>
+  <div class="body">
+    <p>Привет, <strong>{seller_name}</strong>!</p>
+    <p style="font-size:15px;font-weight:600;color:#1e293b">{safe_text}</p>
+    <div style="text-align:center;margin-top:8px">
+      <a href="https://dailysales.ru/dashboard" class="btn">📊 Открыть дашборд</a>
+    </div>
+    <p class="note">Это автоматический еженедельный коуч-отчёт от DailySales.</p>
+  </div>
+</div></body>"""
+    return _send(to_email, subject, html)
+
+
 def is_configured() -> bool:
     from_email, password = _yandex_creds()
     return bool(from_email and password)
