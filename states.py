@@ -243,3 +243,8 @@ class GSImportStates(StatesGroup):
     waiting_sheet_name  = State()
     waiting_header_row  = State()
     confirming_import   = State()
+
+class TaskCreateStates(StatesGroup):
+    waiting_title    = State()
+    waiting_desc     = State()
+    waiting_deadline = State()

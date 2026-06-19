@@ -29,6 +29,50 @@ def _free_port(port: int) -> None:
     except FileNotFoundError:
         pass  # fuser not available
 
+def _kill_stale_python() -> None:
+    """Kill any lingering python main.py / start.py processes (except self) to release DB locks."""
+    my_pid = os.getpid()
+    my_pgid = os.getpgid(my_pid)
+    for target in ["main.py", "start.py"]:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", target],
+                capture_output=True, text=True
+            )
+            for pid_str in result.stdout.strip().splitlines():
+                try:
+                    pid = int(pid_str)
+                    if pid == my_pid:
+                        continue
+                    try:
+                        pgid = os.getpgid(pid)
+                        if pgid == my_pgid:
+                            continue
+                    except OSError:
+                        pass
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass
+        except FileNotFoundError:
+            pass
+
+def _release_db_locks() -> None:
+    """Run WAL checkpoint on FSM storage to release any stale locks."""
+    import sqlite3, time
+    db_path = "data/fsm_storage.db"
+    if not os.path.exists(db_path):
+        return
+    # Remove stale WAL/SHM files if they exist without a running writer
+    for ext in ("-wal", "-shm", "-journal"):
+        try:
+            if os.path.exists(db_path + ext):
+                os.remove(db_path + ext)
+        except OSError:
+            pass
+
+_kill_stale_python()
+import time as _time; _time.sleep(0.5)
+_release_db_locks()
 _free_port(5000)
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')

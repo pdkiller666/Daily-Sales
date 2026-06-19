@@ -20,10 +20,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 
-from keyboards import InlineKeyboardBuilder, back_button, home_button
+from keyboards import InlineKeyboardBuilder, back_button, home_button, safe_cb, resolve_cb_name
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
+from states import TaskCreateStates
 
 tasks_router = Router()
 logger = logging.getLogger(__name__)
@@ -93,6 +94,8 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
         nav_row.append(InlineKeyboardButton(text="Далее ▶", callback_data=f"tsk_page_{page+1}"))
     if nav_row:
         kb.row(*nav_row)
+    if is_admin:
+        kb.row(InlineKeyboardButton(text="➕ Создать задачу", callback_data="tsk_create"))
     try:
         from bot_holder import get_username as _get_uname
         _un = _get_uname() or ""
@@ -746,3 +749,593 @@ async def tasks_list_cb(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
     await callback.answer()
     await _show_tasks_list(callback, state, page=page)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# СОЗДАНИЕ ЗАДАЧИ ИЗ БОТА (FSM-визард, только для admin)
+# Шаги: название → описание → исполнитель → приоритет → дедлайн → подтверждение
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _tc_cancel_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_desc_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⏭ Пропустить", callback_data="tsk_c_skip_desc"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_who_kb(db) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="👥 Всей команде", callback_data="tsk_c_who_all"))
+    try:
+        conn = db.get_connection()
+        shops = conn.execute(
+            "SELECT DISTINCT shop_name FROM users "
+            "WHERE shop_name IS NOT NULL AND shop_name != '' ORDER BY shop_name"
+        ).fetchall()
+        conn.close()
+        for (sh,) in shops[:8]:
+            kb.row(InlineKeyboardButton(
+                text=f"🏪 {sh}",
+                callback_data=safe_cb("tsk_csh_", sh)
+            ))
+    except Exception:
+        pass
+    kb.row(InlineKeyboardButton(text="👤 Конкретный сотрудник", callback_data="tsk_c_who_users"))
+    kb.row(InlineKeyboardButton(text="📋 Без назначения", callback_data="tsk_c_who_none"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_users_kb(db, page: int = 0) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    try:
+        rows = db.get_all_users()
+        PAGE = 8
+        start = page * PAGE
+        chunk = rows[start:start + PAGE]
+        for r in chunk:
+            uid = r[0]
+            name = f"{r[2] or ''} {r[3] or ''}".strip() or r[12] or f"User#{uid}"
+            shop = f" ({r[8]})" if r[8] else ""
+            kb.row(InlineKeyboardButton(
+                text=f"👤 {name}{shop}",
+                callback_data=f"tsk_cu_{uid}"
+            ))
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="◀", callback_data=f"tsk_c_upg_{page-1}"))
+        if start + PAGE < len(rows):
+            nav.append(InlineKeyboardButton(text="▶", callback_data=f"tsk_c_upg_{page+1}"))
+        if nav:
+            kb.row(*nav)
+    except Exception:
+        pass
+    kb.row(InlineKeyboardButton(text="◀ Назад", callback_data="tsk_c_back_who"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_prio_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="🟢 Низкий",  callback_data="tsk_c_prio_low"),
+        InlineKeyboardButton(text="🔵 Обычный", callback_data="tsk_c_prio_normal"),
+    )
+    kb.row(
+        InlineKeyboardButton(text="🟡 Высокий", callback_data="tsk_c_prio_high"),
+        InlineKeyboardButton(text="🔴 Срочно",  callback_data="tsk_c_prio_urgent"),
+    )
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_dl_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="⏭ Без дедлайна", callback_data="tsk_c_skip_dl"))
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
+    return kb.as_markup()
+
+
+def _tc_confirm_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="✅ Создать", callback_data="tsk_c_ok"),
+        InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"),
+    )
+    return kb.as_markup()
+
+
+def _tc_summary(data: dict) -> str:
+    title    = he(data.get('tsk_c_title', '—'))
+    desc     = he(data.get('tsk_c_desc', '')) or '<i>нет</i>'
+    atype    = data.get('tsk_c_assign_type', 'none')
+    priority = data.get('tsk_c_priority', 'normal')
+    deadline = data.get('tsk_c_deadline', '') or '<i>нет</i>'
+
+    if atype == 'all':
+        assignee = '👥 Вся команда'
+    elif atype == 'shop':
+        assignee = f"🏪 {he(data.get('tsk_c_assign_shop', ''))}"
+    elif atype == 'user':
+        assignee = f"👤 {he(data.get('tsk_c_assign_uname', ''))}"
+    else:
+        assignee = '📋 Без назначения'
+
+    prio_map = {'low': '🟢 Низкий', 'normal': '🔵 Обычный',
+                'high': '🟡 Высокий', 'urgent': '🔴 Срочно'}
+    prio_label = prio_map.get(priority, priority)
+
+    return (
+        f"📋 <b>Новая задача — подтверждение</b>\n\n"
+        f"<b>Название:</b> {title}\n"
+        f"<b>Описание:</b> {desc}\n"
+        f"<b>Исполнитель:</b> {assignee}\n"
+        f"<b>Приоритет:</b> {prio_label}\n"
+        f"<b>Дедлайн:</b> {deadline}"
+    )
+
+
+def _tc_parse_deadline(text: str) -> str | None:
+    """Парсит дедлайн из текста. Форматы: 25.06, 25.06.2026, 25.06 14:00, 25.06.2026 14:00"""
+    from datetime import date as _date, datetime as _dt
+    text = text.strip()
+    formats = [
+        ("%d.%m.%Y %H:%M", True),
+        ("%d.%m %H:%M",    True),
+        ("%d.%m.%Y",       False),
+        ("%d.%m",          False),
+    ]
+    today = _date.today()
+    for fmt, has_time in formats:
+        try:
+            if not has_time:
+                d = _dt.strptime(text, fmt).date()
+                if fmt == "%d.%m":
+                    d = d.replace(year=today.year)
+                    if d < today:
+                        d = d.replace(year=today.year + 1)
+                return d.isoformat()
+            else:
+                dt = _dt.strptime(text, fmt)
+                if fmt == "%d.%m %H:%M":
+                    dt = dt.replace(year=today.year)
+                    if dt.date() < today:
+                        dt = dt.replace(year=today.year + 1)
+                return dt.strftime("%Y-%m-%dT%H:%M")
+        except ValueError:
+            continue
+    return None
+
+
+# ── Шаг 0: Вход в визард ──────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data == "tsk_create")
+async def tsk_create_entry(callback: CallbackQuery, state: FSMContext):
+    admin = await is_any_admin(state)
+    if not admin:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(TaskCreateStates.waiting_title)
+    await callback.message.edit_text(
+        "📋 <b>Создание задачи</b> — шаг 1/5\n\n"
+        "Введите <b>название</b> задачи:",
+        reply_markup=_tc_cancel_kb(),
+        parse_mode="HTML"
+    )
+
+
+# ── Шаг 1: Название ───────────────────────────────────────────────────────────
+
+@tasks_router.message(TaskCreateStates.waiting_title)
+async def tsk_c_title_msg(message: Message, state: FSMContext):
+    title = message.text.strip() if message.text else ""
+    if not title:
+        await message.answer("⚠️ Название не может быть пустым. Введите название задачи:")
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+    await state.update_data(tsk_c_title=title)
+    await state.set_state(TaskCreateStates.waiting_desc)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    await fsm_edit(
+        message,
+        f"📋 <b>Создание задачи</b> — шаг 2/5\n\n"
+        f"<b>Название:</b> {he(title)}\n\n"
+        f"Введите <b>описание</b> задачи или нажмите «Пропустить»:",
+        _tc_desc_kb()
+    )
+
+
+# ── Шаг 2: Описание ───────────────────────────────────────────────────────────
+
+@tasks_router.message(TaskCreateStates.waiting_desc)
+async def tsk_c_desc_msg(message: Message, state: FSMContext):
+    desc = message.text.strip() if message.text else ""
+    await state.update_data(tsk_c_desc=desc)
+    await state.set_state(None)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    data = await state.get_data()
+    db = await get_db(state)
+    await fsm_edit(
+        message,
+        f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
+        f"<b>Название:</b> {he(data.get('tsk_c_title', ''))}\n\n"
+        f"Выберите <b>исполнителя</b>:",
+        _tc_who_kb(db) if db else _tc_cancel_kb()
+    )
+
+
+@tasks_router.callback_query(F.data == "tsk_c_skip_desc")
+async def tsk_c_skip_desc(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(tsk_c_desc='')
+    await state.set_state(None)
+    await callback.answer()
+    data = await state.get_data()
+    db = await get_db(state)
+    await callback.message.edit_text(
+        f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
+        f"<b>Название:</b> {he(data.get('tsk_c_title', ''))}\n\n"
+        f"Выберите <b>исполнителя</b>:",
+        reply_markup=_tc_who_kb(db) if db else _tc_cancel_kb(),
+        parse_mode="HTML"
+    )
+
+
+# ── Шаг 3: Исполнитель ────────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data == "tsk_c_who_all")
+async def tsk_c_who_all(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(tsk_c_assign_type='all')
+    await callback.answer()
+    await callback.message.edit_text(
+        "📋 <b>Создание задачи</b> — шаг 4/5\n\n"
+        "<b>Исполнитель:</b> 👥 Вся команда\n\n"
+        "Выберите <b>приоритет</b>:",
+        reply_markup=_tc_prio_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data == "tsk_c_who_none")
+async def tsk_c_who_none(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(tsk_c_assign_type='none')
+    await callback.answer()
+    await callback.message.edit_text(
+        "📋 <b>Создание задачи</b> — шаг 4/5\n\n"
+        "<b>Исполнитель:</b> 📋 Без назначения\n\n"
+        "Выберите <b>приоритет</b>:",
+        reply_markup=_tc_prio_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data == "tsk_c_who_users")
+async def tsk_c_who_users(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    db = await get_db(state)
+    await callback.message.edit_text(
+        "📋 <b>Создание задачи</b> — шаг 3/5\n\n"
+        "Выберите <b>сотрудника</b>:",
+        reply_markup=_tc_users_kb(db) if db else _tc_cancel_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_c_upg_"))
+async def tsk_c_users_page(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split("_")[-1])
+    await callback.answer()
+    db = await get_db(state)
+    await callback.message.edit_text(
+        "📋 <b>Создание задачи</b> — шаг 3/5\n\n"
+        "Выберите <b>сотрудника</b>:",
+        reply_markup=_tc_users_kb(db, page) if db else _tc_cancel_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data == "tsk_c_back_who")
+async def tsk_c_back_who(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    db = await get_db(state)
+    data = await state.get_data()
+    await callback.message.edit_text(
+        f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
+        f"<b>Название:</b> {he(data.get('tsk_c_title', ''))}\n\n"
+        f"Выберите <b>исполнителя</b>:",
+        reply_markup=_tc_who_kb(db) if db else _tc_cancel_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_csh_"))
+async def tsk_c_shop_selected(callback: CallbackQuery, state: FSMContext):
+    shop_raw = callback.data[len("tsk_csh_"):]
+    db = await get_db(state)
+    shop = shop_raw
+    if db:
+        try:
+            conn = db.get_connection()
+            shops = [r[0] for r in conn.execute(
+                "SELECT DISTINCT shop_name FROM users WHERE shop_name IS NOT NULL AND shop_name != ''"
+            ).fetchall()]
+            conn.close()
+            shop = resolve_cb_name(shop_raw, shops)
+        except Exception:
+            pass
+    await state.update_data(tsk_c_assign_type='shop', tsk_c_assign_shop=shop)
+    await callback.answer()
+    await callback.message.edit_text(
+        f"📋 <b>Создание задачи</b> — шаг 4/5\n\n"
+        f"<b>Исполнитель:</b> 🏪 {he(shop)}\n\n"
+        f"Выберите <b>приоритет</b>:",
+        reply_markup=_tc_prio_kb(),
+        parse_mode="HTML"
+    )
+
+
+@tasks_router.callback_query(F.data.startswith("tsk_cu_"))
+async def tsk_c_user_selected(callback: CallbackQuery, state: FSMContext):
+    try:
+        uid = int(callback.data[len("tsk_cu_"):])
+    except ValueError:
+        await callback.answer("Ошибка")
+        return
+    db = await get_db(state)
+    uname = f"User#{uid}"
+    if db:
+        try:
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT first_name, last_name, username FROM users WHERE id = ?", (uid,)
+            ).fetchone()
+            conn.close()
+            if row:
+                uname = f"{row[0] or ''} {row[1] or ''}".strip() or row[2] or uname
+        except Exception:
+            pass
+    await state.update_data(tsk_c_assign_type='user', tsk_c_assign_uid=uid,
+                            tsk_c_assign_uname=uname)
+    await callback.answer()
+    await callback.message.edit_text(
+        f"📋 <b>Создание задачи</b> — шаг 4/5\n\n"
+        f"<b>Исполнитель:</b> 👤 {he(uname)}\n\n"
+        f"Выберите <b>приоритет</b>:",
+        reply_markup=_tc_prio_kb(),
+        parse_mode="HTML"
+    )
+
+
+# ── Шаг 4: Приоритет ──────────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data.startswith("tsk_c_prio_"))
+async def tsk_c_prio_selected(callback: CallbackQuery, state: FSMContext):
+    priority = callback.data[len("tsk_c_prio_"):]
+    if priority not in ('low', 'normal', 'high', 'urgent'):
+        await callback.answer("Ошибка")
+        return
+    await state.update_data(tsk_c_priority=priority)
+    await state.set_state(TaskCreateStates.waiting_deadline)
+    await callback.answer()
+    prio_map = {'low': '🟢 Низкий', 'normal': '🔵 Обычный',
+                'high': '🟡 Высокий', 'urgent': '🔴 Срочно'}
+    await callback.message.edit_text(
+        f"📋 <b>Создание задачи</b> — шаг 5/5\n\n"
+        f"<b>Приоритет:</b> {prio_map.get(priority, priority)}\n\n"
+        f"Введите <b>срок выполнения</b> или нажмите «Без дедлайна».\n"
+        f"<i>Форматы: 25.06 · 25.06.2026 · 25.06 14:00 · 25.06.2026 14:00</i>",
+        reply_markup=_tc_dl_kb(),
+        parse_mode="HTML"
+    )
+
+
+# ── Шаг 5: Дедлайн ────────────────────────────────────────────────────────────
+
+@tasks_router.message(TaskCreateStates.waiting_deadline)
+async def tsk_c_dl_msg(message: Message, state: FSMContext):
+    text = message.text.strip() if message.text else ""
+    deadline = _tc_parse_deadline(text) if text else None
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if text and not deadline:
+        await fsm_edit(
+            message,
+            "⚠️ Не распознан формат даты.\n\n"
+            "Используйте: <code>25.06</code> · <code>25.06.2026</code> · "
+            "<code>25.06 14:00</code>\n\n"
+            "Попробуйте ещё раз или нажмите «Без дедлайна»:",
+            _tc_dl_kb()
+        )
+        return
+    await state.update_data(tsk_c_deadline=deadline or '')
+    await state.set_state(None)
+    data = await state.get_data()
+    dl_display = ""
+    if deadline:
+        try:
+            from datetime import datetime as _dt, date as _date
+            has_time = "T" in deadline
+            if has_time:
+                dl_display = _dt.fromisoformat(deadline).strftime("%d.%m.%Y %H:%M")
+            else:
+                dl_display = _date.fromisoformat(deadline).strftime("%d.%m.%Y")
+        except Exception:
+            dl_display = deadline
+    data['tsk_c_deadline'] = dl_display or ''
+    await fsm_edit(message, _tc_summary(data), _tc_confirm_kb())
+
+
+@tasks_router.callback_query(F.data == "tsk_c_skip_dl")
+async def tsk_c_skip_dl(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(tsk_c_deadline='')
+    await state.set_state(None)
+    await callback.answer()
+    data = await state.get_data()
+    await callback.message.edit_text(
+        _tc_summary(data),
+        reply_markup=_tc_confirm_kb(),
+        parse_mode="HTML"
+    )
+
+
+# ── Шаг 6: Подтверждение и создание ──────────────────────────────────────────
+
+@tasks_router.callback_query(F.data == "tsk_c_ok")
+async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
+    admin = await is_any_admin(state)
+    if not admin:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    db = await get_db(state)
+    if db is None:
+        await callback.answer("Нет активной org", show_alert=True)
+        return
+
+    data = await state.get_data()
+    title    = data.get('tsk_c_title', '').strip()
+    desc     = data.get('tsk_c_desc', '').strip()
+    atype    = data.get('tsk_c_assign_type', 'none')
+    priority = data.get('tsk_c_priority', 'normal')
+    deadline_raw = data.get('tsk_c_deadline', '')
+
+    if not title:
+        await callback.answer("Ошибка: название не заполнено", show_alert=True)
+        return
+
+    # Восстановить ISO-дедлайн из отформатированной строки
+    deadline_iso = None
+    if deadline_raw:
+        try:
+            from datetime import datetime as _dt, date as _date
+            for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y"):
+                try:
+                    parsed = _dt.strptime(deadline_raw, fmt)
+                    deadline_iso = (
+                        parsed.strftime("%Y-%m-%dT%H:%M") if "%H" in fmt
+                        else parsed.date().isoformat()
+                    )
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+
+    assigned_to   = None
+    assigned_shop = None
+    assign_all    = 0
+    if atype == 'all':
+        assign_all = 1
+    elif atype == 'shop':
+        assigned_shop = data.get('tsk_c_assign_shop')
+    elif atype == 'user':
+        assigned_to = data.get('tsk_c_assign_uid')
+
+    tg_id = callback.from_user.id
+    try:
+        conn = db.get_connection()
+        row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
+        conn.close()
+        created_by = row[0] if row else 0
+    except Exception:
+        created_by = 0
+
+    try:
+        task_id = db.create_task(
+            title=title,
+            description=desc,
+            created_by=created_by,
+            assigned_to=assigned_to,
+            assigned_shop=assigned_shop,
+            assign_all=assign_all,
+            priority=priority,
+            deadline=deadline_iso,
+        )
+    except Exception as e:
+        logger.error("tsk_c_ok create_task: %s", e)
+        await callback.answer("⚠️ Ошибка создания задачи", show_alert=True)
+        return
+
+    # Уведомить исполнителей
+    try:
+        notify_text = (
+            f"📋 <b>Новая задача</b>\n\n"
+            f"<b>{he(title)}</b>\n"
+            f"{PRIORITY_LABELS.get(priority, priority)}\n"
+            + (f"📅 Срок: {deadline_raw}" if deadline_raw else "")
+        )
+        if assign_all:
+            conn_all = db.get_connection()
+            members = [(r[0], r[1]) for r in conn_all.execute(
+                "SELECT id, telegram_id FROM users WHERE telegram_id IS NOT NULL"
+            ).fetchall()]
+            conn_all.close()
+        elif assigned_shop:
+            conn3 = db.get_connection()
+            members = [(r[0], r[1]) for r in conn3.execute(
+                "SELECT id, telegram_id FROM users "
+                "WHERE shop_name = ? AND telegram_id IS NOT NULL", (assigned_shop,)
+            ).fetchall()]
+            conn3.close()
+        elif assigned_to:
+            conn4 = db.get_connection()
+            row4 = conn4.execute(
+                "SELECT id, telegram_id FROM users WHERE id = ?", (assigned_to,)
+            ).fetchone()
+            conn4.close()
+            members = [(row4[0], row4[1])] if row4 and row4[1] else []
+        else:
+            members = []
+
+        for _uid, _tgid in members:
+            if _tgid and _tgid != tg_id:
+                try:
+                    await callback.bot.send_message(
+                        _tgid, notify_text, parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+                try:
+                    db.add_notification_to_history(
+                        _uid, 'task_assigned', f"📋 Новая задача: {title}"
+                    )
+                except Exception:
+                    pass
+    except Exception as _ne:
+        logger.warning("tsk_c_ok notify: %s", _ne)
+
+    await clear_state_keep_org(state)
+    await callback.answer("✅ Задача создана!")
+    await callback.message.edit_text(
+        f"✅ <b>Задача создана!</b>\n\n<b>{he(title)}</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📋 К списку задач", callback_data="tsk_list_0")
+        ]])
+    )
+
+
+# ── Отмена визарда ────────────────────────────────────────────────────────────
+
+@tasks_router.callback_query(F.data == "tsk_c_cancel")
+async def tsk_c_cancel(callback: CallbackQuery, state: FSMContext):
+    await clear_state_keep_org(state)
+    await callback.answer("Отменено")
+    await _show_tasks_list(callback, state, page=0)
