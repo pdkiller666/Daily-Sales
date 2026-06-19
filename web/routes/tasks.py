@@ -303,6 +303,9 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
+    from billing_utils import has_module as _has_module
+    tasks_pro = _has_module(telegram_id, 'tasks_pro')
+
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
         "tasks": [], "topics": [], "staff_list": [], "shops_list": [],
@@ -315,6 +318,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
         "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
+        "tasks_pro": tasks_pro,
     }
 
     try:
@@ -706,6 +710,10 @@ def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
         "columns": [],
@@ -998,6 +1006,10 @@ def tasks_bulk(request: Request, action: str = Form(""),
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=303)
+
     STATUS_MAP = {
         "status_new": "new",
         "status_in_progress": "in_progress",
@@ -1065,6 +1077,10 @@ def tasks_export_excel(request: Request, status: str = "", topic_id: int = 0,
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
 
     try:
         import openpyxl
@@ -1176,6 +1192,9 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
+    from billing_utils import has_module as _has_module
+    tasks_pro = _has_module(telegram_id, 'tasks_pro')
+
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
         "task": None, "comments": [], "my_db_id": 0,
@@ -1190,6 +1209,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "chat_available": _chat_available(telegram_id),
         "task_history": [],
         "my_reminders": [],
+        "tasks_pro": tasks_pro,
     }
 
     try:

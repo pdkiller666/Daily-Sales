@@ -19,16 +19,28 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
       Список
     </span>
+    {% if tasks_pro %}
     <a href="/tasks/kanban{% if topic_filter %}?topic_id={{ topic_filter }}{% endif %}" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Канбан">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
       Канбан
     </a>
+    {% else %}
+    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-600 bg-white dark:bg-slate-800 cursor-default" title="Требуется Задачи Pro">
+      🔒 Канбан
+    </span>
+    {% endif %}
     {% if is_admin %}
+    {% if tasks_pro %}
     <a href="/tasks/export{% if status or topic_filter or assigned_filter or shop_filter or q %}?{% if status %}status={{ status }}&{% endif %}{% if topic_filter %}topic_id={{ topic_filter }}&{% endif %}{% if assigned_filter %}assigned_filter={{ assigned_filter }}&{% endif %}{% if shop_filter %}shop_filter={{ shop_filter }}&{% endif %}{% if q %}q={{ q }}{% endif %}{% endif %}"
        title="Экспорт в Excel"
        class="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition-colors">
       📥 Excel
     </a>
+    {% else %}
+    <span class="inline-flex items-center gap-1 text-xs font-medium text-slate-400 dark:text-slate-600 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-default" title="Требуется Задачи Pro">
+      🔒 Excel
+    </span>
+    {% endif %}
     <a href="/tasks/topics"
        class="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors">
       🏷 Темы
@@ -49,6 +61,7 @@
   'not_found':    '⚠️ Задача не найдена.',
   'csrf_error':   '⚠️ Ошибка безопасности. Попробуйте снова.',
   'error':        '⚠️ Произошла ошибка.',
+  'pro_required': '🔒 Эта функция доступна в модуле «Задачи Pro» (249 ₽/мес). Обратитесь к владельцу организации.',
 } %}
 {% if msg and msg.startswith('bulk_ok_') %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300">
@@ -172,8 +185,8 @@
   <!-- RIGHT: Tasks list -->
   <div class="flex-1 min-w-0" x-data="bulkTasks()" x-init="init()">
 
-    <!-- Bulk action bar -->
-    {% if is_admin %}
+    <!-- Bulk action bar (Pro) -->
+    {% if is_admin and tasks_pro %}
     <div x-show="selected.size > 0" x-cloak
          class="mb-3 flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-xl">
       <span class="text-sm font-medium text-indigo-700 dark:text-indigo-300" x-text="selected.size + ' выбрано'"></span>
@@ -213,7 +226,7 @@
       <div class="card p-4 hover:shadow-md dark:bg-slate-900 transition-shadow group relative"
            :class="selected.has({{ t.id }}) ? 'ring-2 ring-indigo-500' : ''">
         <div class="flex items-start gap-3">
-          {% if is_admin %}
+          {% if is_admin and tasks_pro %}
           <input type="checkbox" :checked="selected.has({{ t.id }})"
                  @click.stop="toggleSelect({{ t.id }})"
                  class="mt-1 w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer">

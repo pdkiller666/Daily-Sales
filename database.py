@@ -2031,6 +2031,8 @@ class Database:
              'Подразделения, регионы, кастомные роли, гранулярный доступ сотрудников', 349, 8),
             ('pos_retail', '🖥️ Касса и ценники', '🖥️',
              'POS-касса, штрихкоды, дизайн и печать ценников', 0, 9),
+            ('tasks_pro', '📋 Задачи Pro', '📋',
+             'Kanban-доска, аналитика, шаблоны, bulk-операции, Excel-экспорт, история', 249, 10),
         ]
         for key, name, icon, description, price, sort in EXTRA_MODULES:
             cursor.execute(
@@ -2064,6 +2066,11 @@ class Database:
             ('ai_assistant', 'ai_network_insights', '🌐', 'AI-инсайты сети',
              'Сравнительный AI-анализ по всем магазинам сети — тренды, возможности, риски',
              149, 6),
+            # tasks_pro extensions
+            ('tasks_pro', 'tasks_ai', '🤖', 'AI для задач',
+             'AI-чеклист, AI-описание задачи, AI-декомпозиция цели, создание из бота на естественном языке', 199, 1),
+            ('tasks_pro', 'tasks_digest', '📰', 'AI-дайджест задач',
+             'Еженедельный AI-дайджест прогресса команды + предиктор просрочки', 149, 2),
         ]
         for module_key, key, icon, name, description, price, sort in EXTRA_EXTENSIONS:
             cursor.execute(
@@ -2071,11 +2078,42 @@ class Database:
                 (module_key, key, name, icon, description, price, sort)
             )
 
+    def _ensure_billing_extra_bundles(self, cursor):
+        """Идемпотентно добавляет новые модули в существующие пакеты."""
+        import json as _json
+        BUNDLE_EXTRAS = {
+            'team_bundle': ['tasks_pro'],
+            'all_in_one':  ['tasks_pro'],
+        }
+        for bundle_key, extra_modules in BUNDLE_EXTRAS.items():
+            try:
+                row = cursor.execute(
+                    'SELECT includes_json FROM billing_bundles WHERE key=?', (bundle_key,)
+                ).fetchone()
+                if not row:
+                    continue
+                includes = _json.loads(row[0])
+                modules = includes.get('modules', [])
+                changed = False
+                for m in extra_modules:
+                    if m not in modules:
+                        modules.append(m)
+                        changed = True
+                if changed:
+                    includes['modules'] = modules
+                    cursor.execute(
+                        'UPDATE billing_bundles SET includes_json=? WHERE key=?',
+                        (_json.dumps(includes), bundle_key)
+                    )
+            except Exception:
+                pass
+
     def _init_billing_defaults(self, cursor):
         """Заполнить billing_modules, billing_extensions, billing_bundles дефолтными данными."""
         # Сначала всегда докатываем «поздние» модули/расширения на существующих установках
         self._ensure_billing_extra_modules(cursor)
         self._ensure_billing_extra_extensions(cursor)
+        self._ensure_billing_extra_bundles(cursor)
 
         cursor.execute('SELECT COUNT(*) FROM billing_modules')
         if cursor.fetchone()[0] > 2:
