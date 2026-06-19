@@ -198,6 +198,12 @@
             done: false,
             result: null,
             error: '',
+            async init() {
+                {% if is_edit and (cur_seller_id or cur_shop_val) %}
+                await new Promise(r => setTimeout(r, 400));
+                this.load();
+                {% endif %}
+            },
             async load() {
                 if (this.loading || this.done) return;
                 const tt = document.querySelector('input[name=target_type]:checked')?.value || '';
