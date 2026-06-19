@@ -1814,6 +1814,7 @@ class Database:
             "ALTER TABLE org_label_settings ADD COLUMN element_order    TEXT DEFAULT ''",
             "ALTER TABLE org_label_settings ADD COLUMN visible_elements TEXT DEFAULT ''",
             "ALTER TABLE org_label_settings ADD COLUMN sale_badge       TEXT DEFAULT ''",
+            "ALTER TABLE org_label_settings ADD COLUMN qr_content       TEXT DEFAULT ''",
         ]
         for _sql in _label_alters:
             try:
@@ -1838,10 +1839,18 @@ class Database:
                 element_order    TEXT    DEFAULT '',
                 visible_elements TEXT    DEFAULT '',
                 sale_badge       TEXT    DEFAULT '',
+                qr_content       TEXT    DEFAULT '',
                 created_at       TEXT    DEFAULT (datetime('now')),
                 updated_at       TEXT    DEFAULT (datetime('now'))
             )
         ''')
+        # Бэкфилл колонки для старых БД, где таблица уже существовала без qr_content
+        # (для новых БД колонка уже есть в CREATE выше → ALTER подавляется)
+        try:
+            cursor.execute(
+                "ALTER TABLE org_label_presets ADD COLUMN qr_content TEXT DEFAULT ''")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -3161,7 +3170,7 @@ class Database:
         cursor.execute(
             'SELECT bg_color, text_color, price_color, logo_path, font_size, org_logo_path,'
             '       font_family, border_color, border_width, label_theme,'
-            '       element_order, visible_elements, sale_badge '
+            '       element_order, visible_elements, sale_badge, qr_content '
             'FROM org_label_settings WHERE id=1'
         )
         row = cursor.fetchone()
@@ -3186,6 +3195,7 @@ class Database:
                 'element_order':    _parse_json(row[10], _ORDER_DEFAULT),
                 'visible_elements': _parse_json(row[11], _ELEM_DEFAULT),
                 'sale_badge':       row[12] or '',
+                'qr_content':       (row[13] if len(row) > 13 else '') or '',
             }
         return {
             'bg_color': '#ffffff', 'text_color': '#000000',
@@ -3197,6 +3207,7 @@ class Database:
             'element_order': _ORDER_DEFAULT,
             'visible_elements': _ELEM_DEFAULT,
             'sale_badge': '',
+            'qr_content': '',
         }
 
     def save_org_logo(self, org_logo_path: str) -> None:
@@ -3219,7 +3230,7 @@ class Database:
                             font_family: str = '', border_color: str = '#cccccc',
                             border_width: str = '1', label_theme: str = 'standard',
                             element_order: str = '', visible_elements: str = '',
-                            sale_badge: str = '') -> None:
+                            sale_badge: str = '', qr_content: str = '') -> None:
         """Upsert label design settings (singleton row id=1).
         Pass logo_path=None to preserve the existing logo; '' to clear it.
         """
@@ -3231,8 +3242,8 @@ class Database:
                 '''INSERT INTO org_label_settings
                        (id, bg_color, text_color, price_color, font_size,
                         font_family, border_color, border_width, label_theme,
-                        element_order, visible_elements, sale_badge)
-                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        element_order, visible_elements, sale_badge, qr_content)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        bg_color=excluded.bg_color,
                        text_color=excluded.text_color,
@@ -3245,18 +3256,19 @@ class Database:
                        element_order=excluded.element_order,
                        visible_elements=excluded.visible_elements,
                        sale_badge=excluded.sale_badge,
+                       qr_content=excluded.qr_content,
                        updated_at=datetime('now')''',
                 (bg_color, text_color, price_color, font_size,
                  ff, border_color, border_width, label_theme,
-                 element_order, visible_elements, sale_badge),
+                 element_order, visible_elements, sale_badge, qr_content),
             )
         else:
             cursor.execute(
                 '''INSERT INTO org_label_settings
                        (id, bg_color, text_color, price_color, logo_path, font_size,
                         font_family, border_color, border_width, label_theme,
-                        element_order, visible_elements, sale_badge)
-                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        element_order, visible_elements, sale_badge, qr_content)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        bg_color=excluded.bg_color,
                        text_color=excluded.text_color,
@@ -3270,10 +3282,11 @@ class Database:
                        element_order=excluded.element_order,
                        visible_elements=excluded.visible_elements,
                        sale_badge=excluded.sale_badge,
+                       qr_content=excluded.qr_content,
                        updated_at=datetime('now')''',
                 (bg_color, text_color, price_color, logo_path, font_size,
                  ff, border_color, border_width, label_theme,
-                 element_order, visible_elements, sale_badge),
+                 element_order, visible_elements, sale_badge, qr_content),
             )
         conn.commit()
         conn.close()
@@ -3282,7 +3295,7 @@ class Database:
     _LABEL_PRESET_FIELDS = (
         'bg_color', 'text_color', 'price_color', 'logo_path', 'font_size',
         'font_family', 'border_color', 'border_width', 'label_theme',
-        'element_order', 'visible_elements', 'sale_badge',
+        'element_order', 'visible_elements', 'sale_badge', 'qr_content',
     )
 
     def list_label_presets(self) -> list:

@@ -1323,13 +1323,36 @@ _DEFAULT_LABEL_SETTINGS = {
                          "sep":True,"qr":True,"barcode":False,"article":True,
                          "category":False,"description":False},
     'sale_badge': '',
+    'qr_content': '',
 }
 
 
-def _build_label_ctx(product, network: str = None, db=None, copies: int = 1) -> dict:
+def _build_qr_payload(template: str, *, name: str, price, article: str,
+                      barcode: str, product_id) -> str:
+    """Подставляет плейсхолдеры в шаблон содержимого QR.
+    Поддерживает {article} {barcode} {name} {price} {id}; пустой шаблон → ''."""
+    t = (template or "").strip()
+    if not t:
+        return ""
+    repl = {
+        "{article}": str(article or ""),
+        "{barcode}": str(barcode or ""),
+        "{name}":    str(name or ""),
+        "{price}":   str(price if price is not None else ""),
+        "{id}":      str(product_id if product_id is not None else ""),
+    }
+    for k, v in repl.items():
+        t = t.replace(k, v)
+    return t.strip()
+
+
+def _build_label_ctx(product, network: str = None, db=None, copies: int = 1,
+                     qr_content: str = "") -> dict:
     """Build context dict for a single product label.
     If network is given and db is provided, resolves effective article/barcode
     from product_network_variants (variant-aware ценники).
+    qr_content (если задан) — шаблон содержимого QR с плейсхолдерами; иначе QR
+    кодирует артикул или штрихкод (прежнее поведение).
     """
     base_article = product[7] if len(product) > 7 else ""
     base_barcode = product[8] if len(product) > 8 else ""
@@ -1342,11 +1365,17 @@ def _build_label_ctx(product, network: str = None, db=None, copies: int = 1) -> 
             barcode = codes.get("barcode") or base_barcode
         except Exception:
             pass
-    qr_code = article or barcode
+    name = product[1] or ""
+    price_val = int(product[3]) if product[3] is not None else 0
+    if (qr_content or "").strip():
+        qr_code = _build_qr_payload(qr_content, name=name, price=price_val,
+                                    article=article, barcode=barcode,
+                                    product_id=product[0])
+    else:
+        qr_code = article or barcode
     qr_b64 = _make_qr_b64(qr_code) if qr_code else ""
     category = product[2] or "" if len(product) > 2 else ""
     description = (product[6] or "")[:80] if len(product) > 6 else ""
-    price_val = int(product[3]) if product[3] is not None else 0
     raw_old = product[9] if len(product) > 9 else None
     old_price_val = int(raw_old) if (raw_old not in (None, 0) and raw_old > price_val) else 0
     return {
@@ -1961,7 +1990,8 @@ def product_label(request: Request, product_id: int, print: str = "",
         pass
 
     label_settings = _get_label_settings_safe(db)
-    label = _build_label_ctx(product, network=network or None, db=db)
+    label = _build_label_ctx(product, network=network or None, db=db,
+                             qr_content=label_settings.get("qr_content", ""))
 
     if format == "pdf":
         from fastapi.responses import Response
@@ -2075,8 +2105,9 @@ async def products_labels_bulk(request: Request):
             product = db.get_product(pid)
             if product:
                 copies = max(1, min(99, int(copies_map.get(str(pid), 1))))
-                labels.append(_build_label_ctx(product, network=network or None,
-                                               db=db, copies=copies))
+                labels.append(_build_label_ctx(
+                    product, network=network or None, db=db, copies=copies,
+                    qr_content=label_settings.get("qr_content", "")))
         except Exception:
             pass
 
@@ -2132,6 +2163,7 @@ async def save_label_settings(
     element_order: str = Form(""),
     visible_elements: str = Form(""),
     sale_badge: str = Form(""),
+    qr_content: str = Form(""),
 ):
     """Save label design settings (owner only). Accepts multipart/form-data."""
     from web.auth import get_session_user, verify_csrf_token
@@ -2221,7 +2253,7 @@ async def save_label_settings(
         font_family=font_family, border_color=border_color,
         border_width=border_width, label_theme=label_theme,
         element_order=element_order, visible_elements=visible_elements,
-        sale_badge=sale_badge,
+        sale_badge=sale_badge, qr_content=_clean_qr_content(qr_content),
     )
     return JSONResponse({"ok": True})
 
@@ -2278,7 +2310,17 @@ def _clean_label_design(raw: dict) -> dict:
         "element_order":    _safe_json(raw.get("element_order")),
         "visible_elements": _safe_json(raw.get("visible_elements")),
         "sale_badge":       (raw.get("sale_badge") or "")[:30].strip(),
+        "qr_content":       _clean_qr_content(raw.get("qr_content")),
     }
+
+
+def _clean_qr_content(raw: str) -> str:
+    """Нормализует шаблон содержимого QR: режет длину, убирает переводы строк."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    s = s.replace("\r", " ").replace("\n", " ").strip()
+    return s[:300]
 
 
 def _label_presets_guard(request: Request):
@@ -2362,7 +2404,7 @@ async def apply_label_preset(request: Request, preset_id: int):
         font_family=preset["font_family"], border_color=preset["border_color"],
         border_width=preset["border_width"], label_theme=preset["label_theme"],
         element_order=preset["element_order"], visible_elements=preset["visible_elements"],
-        sale_badge=preset["sale_badge"],
+        sale_badge=preset["sale_badge"], qr_content=preset.get("qr_content") or "",
     )
     return JSONResponse({"ok": True})
 

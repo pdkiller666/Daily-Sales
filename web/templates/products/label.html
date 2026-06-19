@@ -407,6 +407,17 @@
           <input type="text" x-model="d.sale_badge" @input="applyDesign()"
                  maxlength="30" placeholder="напр. СКИДКА 20%">
         </div>
+        <div class="ctrl-group" style="grid-column:1/-1">
+          <label>Содержимое QR-кода</label>
+          <input type="text" x-model="d.qr_content" @input="applyDesign()"
+                 maxlength="300"
+                 placeholder="напр. https://shop.ru/p/{article} — пусто = артикул/штрихкод">
+          <p class="text-xs text-slate-400 mt-1">
+            Плейсхолдеры: <code>{article}</code> <code>{barcode}</code>
+            <code>{name}</code> <code>{price}</code> <code>{id}</code>.
+            Если пусто — QR кодирует артикул или штрихкод.
+          </p>
+        </div>
       </div>
 
       {# Темы #}
@@ -630,6 +641,7 @@ const D_INIT = {
   border_width: String({{ ls.border_width | tojson }}),
   font_size:    {{ ls.font_size    | tojson }},
   sale_badge:   {{ ls.sale_badge   | tojson }},
+  qr_content:   {{ ls.qr_content   | default('') | tojson }},
   font_family:  'sans',
   theme:        {{ ls.label_theme  | tojson }},
 };
@@ -844,6 +856,7 @@ function labelDesigner() {
       fd.append('element_order',    JSON.stringify(this.elemOrder));
       fd.append('visible_elements', JSON.stringify(this.visElems));
       fd.append('sale_badge',       this.d.sale_badge || '');
+      fd.append('qr_content',       this.d.qr_content || '');
       try {
         const r = await fetch('/products/label-settings', {method:'POST', body:fd});
         this.toast(r.ok ? '✓ Дизайн сохранён' : '⚠ Ошибка сохранения');
@@ -864,6 +877,7 @@ function labelDesigner() {
         element_order:    JSON.stringify(this.elemOrder),
         visible_elements: JSON.stringify(this.visElems),
         sale_badge:       this.d.sale_badge || '',
+        qr_content:       this.d.qr_content || '',
       };
     },
     async savePreset() {

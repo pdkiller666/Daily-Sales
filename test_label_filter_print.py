@@ -4,7 +4,10 @@
 названию/категории/артикулу/штрихкоду, .strip() и регистронезависимость.
 Гарантирует, что список товаров (products_page) и набор для печати совпадают.
 """
-from web.routes.products import _filter_products, _grid_for_size, _label_size_options
+from web.routes.products import (
+    _filter_products, _grid_for_size, _label_size_options,
+    _build_qr_payload, _build_label_ctx, _clean_qr_content,
+)
 
 PASS, FAIL = "✅", "❌"
 results = []
@@ -62,6 +65,41 @@ def main():
     check("a4-65 строго 65 на лист", _grid_for_size("a4-65")[2] == 65)
     check("каждый размер вмещает ≥1", all(_grid_for_size(o[0])[2] >= 1 for o in _label_size_options()))
     check("опций размеров = 7", len(_label_size_options()) == 7)
+
+    # ── QR-содержимое: плейсхолдеры и нормализация ──
+    pq = lambda t: _build_qr_payload(t, name="Кофе", price=100,
+                                     article="ART-1", barcode="460", product_id=7)
+    check("qr пусто → пусто", pq("") == "")
+    check("qr {article}", pq("{article}") == "ART-1")
+    check("qr {barcode}", pq("{barcode}") == "460")
+    check("qr {name}", pq("{name}") == "Кофе")
+    check("qr {price}", pq("{price}") == "100")
+    check("qr {id}", pq("{id}") == "7")
+    check("qr URL c плейсхолдером",
+          pq("https://shop.ru/p/{article}") == "https://shop.ru/p/ART-1")
+    check("qr несколько плейсхолдеров",
+          pq("{name}-{price}") == "Кофе-100")
+    check("qr неизвестный плейсхолдер не трогается",
+          pq("{unknown}") == "{unknown}")
+
+    check("clean qr trim", _clean_qr_content("  abc  ") == "abc")
+    check("clean qr убирает переводы строк", _clean_qr_content("a\nb\rc") == "a b c")
+    check("clean qr лимит 300", len(_clean_qr_content("x" * 500)) == 300)
+    check("clean qr пусто", _clean_qr_content("") == "")
+    check("clean qr None", _clean_qr_content(None) == "")
+
+    # ── _build_label_ctx: QR fallback vs шаблон ──
+    prod = _p(5, "Молоко", "Молочка", article="ART-MLK", barcode="999")
+    ctx_default = _build_label_ctx(prod)
+    check("ctx без шаблона → есть qr_b64", bool(ctx_default["qr_b64"]))
+    ctx_tmpl = _build_label_ctx(prod, qr_content="https://s.ru/{article}")
+    check("ctx с шаблоном → есть qr_b64", bool(ctx_tmpl["qr_b64"]))
+    # товар без кодов: fallback пустой, но шаблон с {name} всё равно даёт QR
+    prod_nocode = _p(6, "Хлеб", "Выпечка")
+    check("ctx без кодов и без шаблона → qr пуст",
+          _build_label_ctx(prod_nocode)["qr_b64"] == "")
+    check("ctx без кодов но с шаблоном {name} → qr есть",
+          bool(_build_label_ctx(prod_nocode, qr_content="{name}")["qr_b64"]))
 
     fails = sum(1 for s, _, _ in results if s == FAIL)
     print("=" * 50)
