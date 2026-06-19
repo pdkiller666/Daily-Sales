@@ -419,6 +419,8 @@ class Database:
             cursor.execute("ALTER TABLE products ADD COLUMN article TEXT")
         if 'barcode' not in _prod_cols:
             cursor.execute("ALTER TABLE products ADD COLUMN barcode TEXT")
+        if 'old_price' not in _prod_cols:
+            cursor.execute("ALTER TABLE products ADD COLUMN old_price REAL")
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode "
             "ON products(barcode) WHERE barcode IS NOT NULL AND barcode != ''"
@@ -3314,11 +3316,16 @@ class Database:
             return 'PRD'
         return prefix.ljust(3, 'X')
 
-    def add_product(self, name, category, price, photo_file_id=None, description=None, article=None, barcode=None):
-        """Добавление нового товара. Если article=None — генерируется автоматически."""
+    def add_product(self, name, category, price, photo_file_id=None, description=None, article=None, barcode=None, old_price=None):
+        """Добавление нового товара. Если article=None — генерируется автоматически.
+        old_price — старая (зачёркнутая) цена для акции; None/<=0 → не сохраняется."""
         conn = self.get_connection()
         cursor = conn.cursor()
         barcode_val = barcode.strip() if barcode and barcode.strip() else None
+        try:
+            old_price_val = float(old_price) if old_price not in (None, "") and float(old_price) > 0 else None
+        except (TypeError, ValueError):
+            old_price_val = None
         try:
             if article:
                 cursor.execute(
@@ -3341,6 +3348,8 @@ class Database:
                         auto_art = cand
                         break
                 cursor.execute("UPDATE products SET article=? WHERE id=?", (auto_art, product_id))
+            if old_price_val is not None:
+                cursor.execute("UPDATE products SET old_price=? WHERE id=?", (old_price_val, product_id))
             conn.commit()
             return product_id
         except Exception:
@@ -3385,9 +3394,11 @@ class Database:
         return added, skipped
 
     def update_product(self, product_id, name=None, category=None, price=None,
-                       photo_file_id=None, description=None, article=None, barcode=None):
+                       photo_file_id=None, description=None, article=None, barcode=None,
+                       old_price=None):
         """Обновление товара. article='' → оставить без изменений; article='XXX' → установить.
-        barcode=None → не трогать; barcode='' → очистить; barcode='...' → установить."""
+        barcode=None → не трогать; barcode='' → очистить; barcode='...' → установить.
+        old_price=None → не трогать; old_price<=0 или '' → очистить (NULL); >0 → установить."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -3415,6 +3426,13 @@ class Database:
         if barcode is not None:
             updates.append('barcode = ?')
             params.append(barcode.strip() if barcode.strip() else None)
+        if old_price is not None:
+            try:
+                _op = float(old_price)
+            except (TypeError, ValueError):
+                _op = 0
+            updates.append('old_price = ?')
+            params.append(_op if _op > 0 else None)
 
         if updates:
             params.append(product_id)

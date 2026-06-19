@@ -545,6 +545,7 @@ async def products_create(
     name: str = Form(...),
     category: str = Form(default=""),
     price: str = Form(default="0"),
+    old_price: str = Form(default=""),
     description: str = Form(default=""),
     article: str = Form(default=""),
     barcode: str = Form(default=""),
@@ -592,6 +593,7 @@ async def products_create(
             "categories": categories,
             "network_variants": _variant_inputs,
             "form_data": fd or {"name": name, "category": category, "price": price,
+                                "old_price": old_price,
                                 "description": description, "article": article,
                                 "barcode": barcode, "existing_photos": []},
             "error": err, "is_edit": False,
@@ -649,6 +651,12 @@ async def products_create(
     try:
         article_clean = article.strip().upper() if article and article.strip() else None
         barcode_clean = barcode.strip() or None
+        try:
+            old_price_val = float(old_price.replace(",", ".").strip()) if old_price.strip() else None
+            if old_price_val is not None and old_price_val <= 0:
+                old_price_val = None
+        except ValueError:
+            old_price_val = None
         new_id = db.add_product(
             name=name_clean,
             category=category.strip() or None,
@@ -657,6 +665,7 @@ async def products_create(
             photo_file_id=first_photo,
             article=article_clean,
             barcode=barcode_clean,
+            old_price=old_price_val,
         )
         if not new_id:
             for u in saved_urls:
@@ -740,6 +749,8 @@ def products_edit_form(request: Request, product_id: int):
             "name": product[1] or "",
             "category": product[2] or "",
             "price": str(int(product[3]) if product[3] == int(product[3]) else product[3]),
+            "old_price": ("" if (len(product) <= 9 or product[9] in (None, 0))
+                          else str(int(product[9]) if product[9] == int(product[9]) else product[9])),
             "description": product[6] if len(product) > 6 else "",
             "article": product[7] if len(product) > 7 else "",
             "barcode": product[8] if len(product) > 8 else "",
@@ -760,6 +771,7 @@ async def products_update(
     name: str = Form(...),
     category: str = Form(default=""),
     price: str = Form(default="0"),
+    old_price: str = Form(default=""),
     description: str = Form(default=""),
     article: str = Form(default=""),
     barcode: str = Form(default=""),
@@ -808,7 +820,8 @@ async def products_update(
             "csrf_token": get_csrf_token(request),
             "categories": categories,
             "network_variants": _variant_inputs,
-            "form_data": {"name": name, "category": category, "price": price, "description": description,
+            "form_data": {"name": name, "category": category, "price": price, "old_price": old_price,
+                          "description": description,
                           "article": article, "barcode": barcode, "existing_photos": existing_photos},
             "error": err, "is_edit": True,
             "edit_id": product_id, "product_name": name,
@@ -874,6 +887,10 @@ async def products_update(
         first_photo_url = all_photos[0][2] if all_photos else (saved_urls[0] if saved_urls else None)
         article_clean = article.strip().upper() if article and article.strip() else ""
         barcode_clean = barcode.strip() or ""
+        try:
+            old_price_val = float(old_price.replace(",", ".").strip()) if old_price.strip() else 0
+        except ValueError:
+            old_price_val = 0
         kwargs: dict = dict(
             name=name_clean,
             category=category.strip() or "",
@@ -881,6 +898,7 @@ async def products_update(
             description=description.strip() or "",
             article=article_clean or None,
             barcode=barcode_clean or None,
+            old_price=old_price_val,
         )
         if first_photo_url is not None:
             kwargs["photo_file_id"] = first_photo_url
@@ -1316,10 +1334,14 @@ def _build_label_ctx(product, network: str = None, db=None, copies: int = 1) -> 
     qr_b64 = _make_qr_b64(qr_code) if qr_code else ""
     category = product[2] or "" if len(product) > 2 else ""
     description = (product[6] or "")[:80] if len(product) > 6 else ""
+    price_val = int(product[3]) if product[3] is not None else 0
+    raw_old = product[9] if len(product) > 9 else None
+    old_price_val = int(raw_old) if (raw_old not in (None, 0) and raw_old > price_val) else 0
     return {
         "id":          product[0],
         "name":        product[1] or "",
-        "price":       int(product[3]) if product[3] is not None else 0,
+        "price":       price_val,
+        "old_price":   old_price_val,
         "article":     article or "",
         "barcode":     barcode or "",
         "qr_b64":      qr_b64,
@@ -1352,15 +1374,37 @@ def _hex_to_rgb_color(hex_color: str):
         return _rlc.black
 
 
+def _ean_checksum_ok(code: str) -> bool:
+    """Validate the EAN check digit (last digit) for full-length codes.
+    Weights alternate 3,1 from the rightmost body digit (works for EAN-13 and
+    EAN-8). Only meaningful for 8- or 13-digit numeric codes."""
+    d = (code or "").strip()
+    if not d.isdigit() or len(d) not in (8, 13):
+        return False
+    digits = [int(x) for x in d]
+    body, check = digits[:-1], digits[-1]
+    s = 0
+    for i, dig in enumerate(body):
+        from_right = len(body) - 1 - i
+        s += dig * (3 if from_right % 2 == 0 else 1)
+    return (10 - (s % 10)) % 10 == check
+
+
 def _barcode_format(code: str) -> str:
     """Pick a barcode symbology from the value: retail EAN-13/EAN-8 for pure
-    digit codes of the right length, otherwise generic Code-128."""
+    digit codes of the right length, otherwise generic Code-128. Full-length
+    codes (13/8 digits) must pass the EAN check digit, else fall back to
+    Code-128 (python-barcode would silently recompute a wrong check digit)."""
     d = (code or "").strip()
     if d.isdigit():
-        if len(d) in (12, 13):
+        if len(d) == 12:                     # check digit auto-computed
             return "ean13"
-        if len(d) in (7, 8):
+        if len(d) == 13:
+            return "ean13" if _ean_checksum_ok(d) else "code128"
+        if len(d) == 7:                      # check digit auto-computed
             return "ean8"
+        if len(d) == 8:
+            return "ean8" if _ean_checksum_ok(d) else "code128"
     return "code128"
 
 
@@ -1612,6 +1656,19 @@ def _generate_labels_pdf(labels: list, size: str = "58x40",
             if not vis.get("price", True):
                 return
             price = lb.get("price", 0)
+            old_price = lb.get("old_price", 0)
+            if old_price and old_price > price:
+                old_pt = max(6, price_pt * 0.6)
+                old_str = f"{int(old_price):,}".replace(",", "\u202f") + " \u20bd"
+                c.setFillColor(text_color)
+                c.setFont(reg_font, old_pt)
+                old_y = st["y"] - old_pt - 0.3 * mm
+                c.drawCentredString(cx, old_y, old_str)
+                ow = c.stringWidth(old_str, reg_font, old_pt)
+                c.setLineWidth(max(0.4, old_pt * 0.07))
+                c.line(cx - ow / 2, old_y + old_pt * 0.32,
+                       cx + ow / 2, old_y + old_pt * 0.32)
+                st["y"] -= old_pt + 1.0 * mm
             price_str = f"{int(price):,}".replace(",", "\u202f") + " \u20bd"
             c.setFillColor(price_color)
             c.setFont(bold_font, price_pt)

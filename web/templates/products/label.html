@@ -93,6 +93,11 @@
   font-size:1.4em; font-weight:900; color:var(--lbl-price);
   text-align:center; letter-spacing:-0.5px;
 }
+.label-old-price {
+  font-size:0.8em; font-weight:600; color:var(--lbl-text);
+  text-align:center; text-decoration:line-through;
+  opacity:0.6; line-height:1.1;
+}
 .label-sep {
   border:none; border-top:1px solid var(--lbl-border);
   width:90%; margin:1px 0;
@@ -515,6 +520,9 @@
   </div>
 
   <div class="lbl-block" data-block="price">
+    {% if lb.old_price and lb.old_price > lb.price %}
+    <div class="label-old-price">{{ '{:,}'.format(lb.old_price).replace(',', '\u202f') }} ₽</div>
+    {% endif %}
     <div class="label-price">{{ '{:,}'.format(lb.price).replace(',', '\u202f') }} ₽</div>
   </div>
 
@@ -854,10 +862,23 @@ function labelDesigner() {
       if(typeof JsBarcode === 'undefined') return;
       const lineColor = getComputedStyle(document.documentElement)
                           .getPropertyValue('--lbl-text').trim() || '#000000';
+      const eanOk = (c) => {
+        if(!/^\d+$/.test(c) || (c.length!==8 && c.length!==13)) return false;
+        const ds = c.split('').map(Number);
+        const body = ds.slice(0,-1), check = ds[ds.length-1];
+        let s = 0;
+        for(let i=0;i<body.length;i++){
+          const fr = body.length-1-i;
+          s += body[i]*((fr%2===0)?3:1);
+        }
+        return (10-(s%10))%10 === check;
+      };
       const pickFmt = (c) => {
         if(/^\d+$/.test(c)){
-          if(c.length===12 || c.length===13) return 'EAN13';
-          if(c.length===7  || c.length===8)  return 'EAN8';
+          if(c.length===12) return 'EAN13';
+          if(c.length===13) return eanOk(c) ? 'EAN13' : 'CODE128';
+          if(c.length===7)  return 'EAN8';
+          if(c.length===8)  return eanOk(c) ? 'EAN8' : 'CODE128';
         }
         return 'CODE128';
       };
