@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.102.0"
+CURRENT_VERSION = "1.103.0"
 
 ENTRIES = [
+    {
+        "version": "1.103.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Add cost tracking for AI features and improve reliability",
+        ],
+    },
     {
         "version": "1.102.0",
         "date": "19 июня 2026",

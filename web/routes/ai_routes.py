@@ -210,7 +210,12 @@ async def ai_explain_report(request: Request):
             prev_revenue=prev_revenue,
         )
 
-        result = await ask_llm(prompt, max_tokens=450, feature="report")
+        _REPORT_SYSTEM = (
+            "Ты — аналитик продаж розничного магазина. "
+            "Опирайся строго на предоставленные данные — не придумывай числа и факты, которых нет. "
+            "Называй конкретные цифры из запроса. Пиши по-русски, без markdown, без заголовков."
+        )
+        result = await ask_llm(prompt, system=_REPORT_SYSTEM, max_tokens=450, feature="report")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось получить ответ от AI. Попробуйте позже."})
 
@@ -270,18 +275,24 @@ async def ai_product_description(request: Request):
 
     try:
         system_by_style = {
-            "technical":  ("Ты — эксперт по товарным карточкам. Знаешь технические характеристики популярных товаров. "
-                           "Пиши конкретно: называй точные цифры и параметры. Без markdown, без эмодзи, без заголовков. "
-                           "Только русский язык."),
-            "marketing":  ("Ты — опытный копирайтер розничного магазина. Пишешь убедительные, "
-                           "живые описания товаров, которые побуждают к покупке. "
+            "technical":  ("Ты — эксперт по товарным карточкам. "
+                           "Пиши точно и фактически: называй реальные диапазоны характеристик, "
+                           "вытекающие из названия и категории. "
+                           "Не придумывай конкретные цифры, если они не следуют из названия. "
                            "Без markdown, без эмодзи, без заголовков. Только русский язык."),
-            "short":      ("Ты — редактор ценников. Пишешь очень краткие, чёткие описания. "
+            "marketing":  ("Ты — опытный копирайтер розничного магазина. "
+                           "Пишешь живые, убеждающие описания товаров — с эмоцией и выгодой для покупателя. "
+                           "Избегай канцелярита и штампов. "
+                           "Без markdown, без эмодзи, без заголовков. Только русский язык."),
+            "short":      ("Ты — редактор ценников. Пишешь предельно краткие, ёмкие описания: "
+                           "тип товара + 1–2 главных параметра + ключевое преимущество. "
                            "Без markdown, без эмодзи. Только русский язык."),
         }
+        temperature_by_style = {"technical": 0.2, "marketing": 0.5, "short": 0.3}
         system = system_by_style.get(style, system_by_style["technical"])
+        temperature = temperature_by_style.get(style, 0.2)
         prompt = build_product_description_prompt(name, category, price, style=style)
-        result = await ask_llm(prompt, system=system, max_tokens=400, feature="prodesc")
+        result = await ask_llm(prompt, system=system, max_tokens=400, temperature=temperature, feature="prodesc")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось сгенерировать описание."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["prodesc"])
@@ -396,11 +407,14 @@ async def ai_sales_forecast(request: Request):
         horizon_str = {7: "неделю", 14: "14 дней", 30: "месяц"}.get(horizon, "неделю")
         system = (
             "Ты — аналитик продаж розничного магазина. "
-            "Дай конкретный прогноз на основе предоставленных данных. "
-            f"Пиши на русском, без markdown, цифры в рублях. "
-            f"Строго 3 предложения: 1) диапазон выручки на {horizon_str}, 2) на какие дни акцент, 3) главный риск."
+            "Дай конкретный прогноз строго на основе предоставленных данных — не придумывай. "
+            f"Пиши по-русски, без markdown, суммы в рублях. "
+            f"Формат — ровно 3 предложения: "
+            f"1) диапазон выручки на {horizon_str} с числовым обоснованием; "
+            f"2) на какие дни недели сделать акцент и почему; "
+            f"3) главный риск или фактор неопределённости."
         )
-        result = await ask_llm(prompt, system=system, max_tokens=350, feature="forecast")
+        result = await ask_llm(prompt, system=system, max_tokens=350, temperature=0.1, feature="forecast")
         if not result:
             return JSONResponse({"ok": False, "error": "Не удалось построить прогноз."})
         _resp_cache_set(_ck, result, _CACHE_TTL_SEC["forecast"])
@@ -546,8 +560,14 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
         elif plan.get("filter_type") == "product" and plan.get("filter_value"):
             scope_note += f" | Фильтр по товарам"
 
+        _PLAN_SYSTEM = (
+            "Ты — бизнес-аналитик розничного магазина. "
+            "Опирайся строго на данные ниже — называй конкретные цифры, дни, продавцов. "
+            "Не придумывай. Пиши по-русски, без markdown, без заголовков."
+        )
+
         prompt = (
-            f"Ты бизнес-аналитик розничного магазина. Проанализируй невыполнение плана продаж.\n\n"
+            f"Проанализируй невыполнение плана продаж.\n\n"
             f"Метрика: {metric_label}\n"
             f"План: {plan_target:,.0f} {unit} | Факт: {actual_total:,.0f} {unit} | "
             f"Выполнение: {achievement}% | Разрыв: {gap:,.0f} {unit}\n"
@@ -556,14 +576,14 @@ async def ai_analyze_plan(request: Request, plan_id: int = Form(...)):
             + f"\nПродажи по дням:\n{_format_daily(daily_sales, is_revenue)}\n"
             f"\nПо продавцам (топ):\n{_format_by_seller(by_seller, is_revenue)}\n"
             f"\nПо категориям:\n{_format_by_category(by_category, is_revenue)}\n\n"
-            f"Напиши разбор в формате:\n"
-            f"1. Главная причина невыполнения (1-2 предложения)\n"
-            f"2. Проблемные зоны (дни / продавцы / категории)\n"
-            f"3. Конкретные рекомендации (2-3 пункта)\n\n"
-            f"Отвечай по-русски, конкретно, без воды."
+            f"Напиши разбор строго по этим данным:\n"
+            f"1. Главная причина невыполнения — назови конкретный день, продавца или категорию с цифрой.\n"
+            f"2. Проблемные зоны — укажи 2–3 конкретные точки провала из данных выше.\n"
+            f"3. Рекомендации — 2–3 действия, каждое с конкретным числовым ориентиром.\n\n"
+            f"Не упоминай данные, которых нет выше."
         )
 
-        answer = await ask_llm(prompt, max_tokens=600, feature="plan")
+        answer = await ask_llm(prompt, system=_PLAN_SYSTEM, max_tokens=600, temperature=0.1, feature="plan")
         if not answer:
             return JSONResponse({"ok": False, "error": "AI не смог построить анализ. Попробуйте позже."})
 
