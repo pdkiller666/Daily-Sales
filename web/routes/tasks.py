@@ -976,6 +976,77 @@ def tasks_topics_delete(
     return RedirectResponse(url="/tasks/topics?msg=deleted", status_code=303)
 
 
+# ─── BULK OPERATIONS ─────────────────────────────────────────────────────────
+
+@router.post("/tasks/bulk")
+def tasks_bulk(request: Request, action: str = Form(""),
+               task_ids: list[int] = Form(default=[]),
+               csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks?msg=csrf_error", status_code=303)
+    if not task_ids or not action:
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    STATUS_MAP = {
+        "status_new": "new",
+        "status_in_progress": "in_progress",
+        "status_review": "review",
+        "status_done": "done",
+        "status_cancelled": "cancelled",
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else None
+
+        ok = 0
+        if action in STATUS_MAP:
+            new_status = STATUS_MAP[action]
+            for tid in task_ids:
+                try:
+                    db.update_task_status(tid, new_status)
+                    try:
+                        db.add_task_history(tid, my_db_id, 'status', None, new_status)
+                    except Exception:
+                        pass
+                    ok += 1
+                except Exception:
+                    pass
+        elif action == "delete":
+            for tid in task_ids:
+                try:
+                    db.delete_task(tid)
+                    ok += 1
+                except Exception:
+                    pass
+        else:
+            return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+        return RedirectResponse(url=f"/tasks?msg=bulk_ok_{ok}", status_code=303)
+    except Exception as e:
+        logger.error("tasks_bulk: %s", e)
+        return RedirectResponse(url="/tasks?msg=error", status_code=303)
+
+
 # ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
 
 @router.get("/tasks/export")

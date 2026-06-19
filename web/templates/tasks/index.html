@@ -50,7 +50,11 @@
   'csrf_error':   '⚠️ Ошибка безопасности. Попробуйте снова.',
   'error':        '⚠️ Произошла ошибка.',
 } %}
-{% if msg and msg in msg_map %}
+{% if msg and msg.startswith('bulk_ok_') %}
+<div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300">
+  <span>✅ Действие применено к {{ msg[8:] }} задачам.</span>
+</div>
+{% elif msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
   {% if 'error' in msg or msg == 'not_found' %}bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300
   {% else %}bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-300{% endif %}">
@@ -166,14 +170,54 @@
   {% endif %}
 
   <!-- RIGHT: Tasks list -->
-  <div class="flex-1 min-w-0">
+  <div class="flex-1 min-w-0" x-data="bulkTasks()" x-init="init()">
+
+    <!-- Bulk action bar -->
+    {% if is_admin %}
+    <div x-show="selected.size > 0" x-cloak
+         class="mb-3 flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+      <span class="text-sm font-medium text-indigo-700 dark:text-indigo-300" x-text="selected.size + ' выбрано'"></span>
+      <select x-model="bulkAction"
+              class="text-sm rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <option value="">— Действие —</option>
+        <option value="status_new">🆕 Статус: Новая</option>
+        <option value="status_in_progress">🔄 Статус: В работе</option>
+        <option value="status_review">🔍 Статус: На проверке</option>
+        <option value="status_done">✅ Статус: Выполнена</option>
+        <option value="status_cancelled">🚫 Статус: Отменена</option>
+        <option value="delete">🗑 Удалить выбранные</option>
+      </select>
+      <button @click="applyBulk()"
+              :disabled="!bulkAction"
+              class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+        Применить
+      </button>
+      <button @click="selected.clear(); selected = new Set()"
+              class="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 ml-auto">
+        Сбросить
+      </button>
+    </div>
+    <form id="bulk-form" method="POST" action="/tasks/bulk" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" x-bind:value="bulkAction">
+      <template x-for="id in Array.from(selected)" :key="id">
+        <input type="hidden" name="task_ids" :value="id">
+      </template>
+    </form>
+    {% endif %}
+
     {% if tasks %}
     <div class="space-y-3">
       {% for t in tasks %}
       {% set overdue = is_overdue(t.get('deadline'), t.get('status', '')) %}
-      <a href="/tasks/{{ t.id }}"
-         class="card block p-4 hover:shadow-md dark:bg-slate-900 transition-shadow group">
+      <div class="card p-4 hover:shadow-md dark:bg-slate-900 transition-shadow group relative"
+           :class="selected.has({{ t.id }}) ? 'ring-2 ring-indigo-500' : ''">
         <div class="flex items-start gap-3">
+          {% if is_admin %}
+          <input type="checkbox" :checked="selected.has({{ t.id }})"
+                 @click.stop="toggleSelect({{ t.id }})"
+                 class="mt-1 w-4 h-4 shrink-0 rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+          {% endif %}
           <!-- Priority dot -->
           <div class="mt-1 w-2 h-2 rounded-full shrink-0
             {% if t.priority == 'urgent' %}bg-red-500
@@ -181,7 +225,7 @@
             {% elif t.priority == 'low' %}bg-emerald-500
             {% else %}bg-blue-400{% endif %}"></div>
 
-          <div class="flex-1 min-w-0">
+          <a href="/tasks/{{ t.id }}" class="flex-1 min-w-0 block">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate">
                 {{ t.title }}
@@ -226,13 +270,13 @@
               <span>✓ {{ t.checklist_done }}/{{ t.checklist_total }}</span>
               {% endif %}
             </div>
-          </div>
+          </a>
 
           <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0 mt-0.5 group-hover:text-indigo-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
           </svg>
         </div>
-      </a>
+      </div>
       {% endfor %}
     </div>
     {% else %}
@@ -256,4 +300,31 @@
   </div>
 
 </div>
+
+{% block extra_js %}
+<script>
+function bulkTasks() {
+  return {
+    selected: new Set(),
+    bulkAction: '',
+    init() {},
+    toggleSelect(id) {
+      if (this.selected.has(id)) {
+        this.selected.delete(id);
+      } else {
+        this.selected.add(id);
+      }
+      this.selected = new Set(this.selected);
+    },
+    applyBulk() {
+      if (!this.bulkAction || this.selected.size === 0) return;
+      if (this.bulkAction === 'delete') {
+        if (!confirm('Удалить ' + this.selected.size + ' задач? Это нельзя отменить.')) return;
+      }
+      document.getElementById('bulk-form').submit();
+    }
+  };
+}
+</script>
+{% endblock %}
 {% endblock %}
