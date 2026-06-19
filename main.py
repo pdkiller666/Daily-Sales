@@ -2586,7 +2586,7 @@ async def main():
                         if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
                             continue
                     except Exception:
-                        pass
+                        continue  # fail-closed: при ошибке биллинга — пропускаем орг
 
                     org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
 
@@ -2744,7 +2744,7 @@ async def main():
                         if not any(_hex_ext(int(tid), "ai_smart_alerts") for tid in admin_ids[:3] if tid and int(tid) > 0):
                             continue
                     except Exception:
-                        pass
+                        continue  # fail-closed: при ошибке биллинга — пропускаем орг
 
                     # Выручка за прошедшую неделю
                     week_start = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
@@ -2755,25 +2755,28 @@ async def main():
                             db.get_sales_ranking, week_start, week_end
                         )
                     except Exception:
-                        continue
+                        ranking = []
 
-                    if not ranking:
-                        continue
-
-                    total_sellers = len(ranking)
-                    # Средняя выручка по команде
+                    # Статистика команды (только по тем, кто имел продажи)
+                    total_sellers_with_sales = len(ranking)
                     team_total_rev = sum(float(r[4] or 0) for r in ranking)
-                    team_avg_rev = team_total_rev / total_sellers if total_sellers > 0 else 0.0
-                    # Средний чек по команде
+                    team_avg_rev = team_total_rev / total_sellers_with_sales if total_sellers_with_sales > 0 else 0.0
                     team_total_trans = sum(int(r[5] or 0) for r in ranking)
                     team_avg_check = team_total_rev / team_total_trans if team_total_trans > 0 else 0.0
 
-                    # Карта user_db_id → telegram_id из users
+                    # Карта user_db_id → (rank, row) для быстрого поиска
+                    ranking_by_uid: dict = {}
+                    for _rank_i, _r in enumerate(ranking, 1):
+                        ranking_by_uid[_r[7]] = (_rank_i, _r)
+
+                    # Все пользователи орги — коуч идёт каждому, не только продававшим
                     try:
                         all_users = await asyncio.to_thread(db.get_all_users)
-                        uid_to_tgid = {u[0]: u[1] for u in (all_users or [])}
                     except Exception:
-                        uid_to_tgid = {}
+                        all_users = []
+
+                    if not all_users:
+                        continue
 
                     # Топ-продукт за неделю (один для всей орги)
                     try:
@@ -2782,20 +2785,28 @@ async def main():
                     except Exception:
                         top_product_name = None
 
-                    for rank_idx, seller_row in enumerate(ranking, 1):
-                        # ranking cols: [0]first_name [1]last_name [2]shop_name [3]total_sold
-                        # [4]total_revenue [5]total_sales [6]total_earnings [7]user_db_id [8]username
-                        user_db_id = seller_row[7]
-                        tg_id = uid_to_tgid.get(user_db_id)
+                    # users cols: id[0] telegram_id[1] first_name[2] last_name[3] ... shop_name[8]
+                    total_all_sellers = len(all_users)
+                    for u in all_users:
+                        user_db_id = u[0]
+                        tg_id = u[1]
                         if not tg_id or int(tg_id) <= 0:
                             continue  # email-only (tg_id < 0) или нет TG
 
-                        fn = (seller_row[0] or "").strip()
-                        ln = (seller_row[1] or "").strip()
-                        seller_name = f"{fn} {ln}".strip() or seller_row[2] or f"Продавец {rank_idx}"
+                        fn = (u[2] or "").strip()
+                        ln = (u[3] or "").strip()
+                        seller_name = f"{fn} {ln}".strip() or (u[8] or "") or f"Сотрудник"
 
-                        seller_rev = float(seller_row[4] or 0)
-                        seller_trans = int(seller_row[5] or 0)
+                        if user_db_id in ranking_by_uid:
+                            rank_idx, seller_row = ranking_by_uid[user_db_id]
+                            seller_rev = float(seller_row[4] or 0)
+                            seller_trans = int(seller_row[5] or 0)
+                        else:
+                            # Продавец не имел продаж за неделю — показываем нуль
+                            rank_idx = total_sellers_with_sales + 1
+                            seller_rev = 0.0
+                            seller_trans = 0
+
                         seller_avg_check = seller_rev / seller_trans if seller_trans > 0 else 0.0
 
                         ai_text: str | None = None
@@ -2804,7 +2815,7 @@ async def main():
                                 prompt = build_seller_coach_prompt(
                                     seller_name=fn or seller_name,
                                     rank=rank_idx,
-                                    total_sellers=total_sellers,
+                                    total_sellers=total_all_sellers,
                                     week_revenue=seller_rev,
                                     team_avg_revenue=team_avg_rev,
                                     avg_check=seller_avg_check,
@@ -2824,12 +2835,17 @@ async def main():
                             if team_avg_rev > 0:
                                 diff_pct = (seller_rev - team_avg_rev) / team_avg_rev * 100
                                 arrow = "▲" if diff_pct >= 0 else "▼"
-                                diff_str = f" {arrow}{abs(diff_pct):.0f}% к средней"
+                                diff_str = f" {arrow}{abs(diff_pct):.0f}% к средней по команде"
+                            elif seller_rev == 0:
+                                diff_str = " — продаж на этой неделе не было"
+                            rank_str = f"{rank_idx} из {total_all_sellers}" if seller_rev > 0 else f"вне рейтинга (нет продаж)"
+                            check_str = f"{int(seller_avg_check):,} ₽" if seller_avg_check > 0 else "—"
                             msg = (
                                 f"⭐ <b>Итоги недели, {fn or seller_name}!</b>\n\n"
                                 f"Выручка: {int(seller_rev):,} ₽{diff_str}\n"
-                                f"Место в рейтинге: {rank_idx} из {total_sellers}\n"
-                                f"Транзакций: {seller_trans}, средний чек: {int(seller_avg_check):,} ₽"
+                                f"Место в рейтинге: {rank_str}\n"
+                                f"Транзакций: {seller_trans}, средний чек: {check_str}"
+                                + (f"\n💡 Средний чек команды: {int(team_avg_check):,} ₽" if team_avg_check > 0 else "")
                             )
 
                         import re as _re
