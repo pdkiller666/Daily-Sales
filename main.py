@@ -1976,6 +1976,16 @@ async def main():
                     else:
                         _plans = []
 
+                    # Root-cause: разбивка за вчера по категориям и продавцам
+                    try:
+                        _cat_breakdown_y = db.get_sales_by_category_for_period(yesterday, yesterday)
+                    except Exception:
+                        _cat_breakdown_y = []
+                    try:
+                        _sel_breakdown_y = db.get_sales_by_seller_for_period(yesterday, yesterday)
+                    except Exception:
+                        _sel_breakdown_y = []
+
                     ai_text: str | None = None
                     if is_configured():
                         try:
@@ -1989,6 +1999,8 @@ async def main():
                                 top_sellers=_top_sellers,
                                 plans=_plans,
                                 digest_context=_digest_context,
+                                category_breakdown=_cat_breakdown_y or None,
+                                seller_breakdown=_sel_breakdown_y or None,
                             )
                             if extra_lines:
                                 prompt += "\nДополнительно: " + " ".join(extra_lines)
@@ -2072,6 +2084,130 @@ async def main():
         ai_smart_alerts,
         CronTrigger(hour='7,19', minute=5),   # 2 раза в день: 07:05 и 19:05 UTC (10:05 и 22:05 МСК)
         id='ai_smart_alerts',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # Утренний AI-брифинг в чат — ежедневно в 07:00 UTC (10:00 МСК)
+    async def ai_morning_briefing():
+        """Постит утренний брифинг за вчера в AI-тему чата каждой орги (расширение ai_chat_assistant)."""
+        try:
+            from web.ai_utils import ask_llm, build_morning_briefing_prompt, is_configured
+            from billing_utils import has_extension as _hex_ext
+            from database import Database
+            import datetime as _dt
+        except Exception as _imp_err:
+            logging.warning(f"ai_morning_briefing: import error: {_imp_err}")
+            return
+
+        yesterday = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+        week_ago  = (_dt.date.today() - _dt.timedelta(days=7)).isoformat()
+
+        db_paths = _get_scheduler_db_paths()
+        for db_path in db_paths:
+            try:
+                db = Database(db_path)
+
+                # Gate: требует расширения ai_chat_assistant у любого из первых 3 админов
+                try:
+                    admin_ids = db.get_all_admins_telegram_ids()
+                except Exception:
+                    continue
+                if not admin_ids:
+                    continue
+                try:
+                    if not any(_hex_ext(int(tid), "ai_chat_assistant") for tid in admin_ids[:3] if tid and int(tid) > 0):
+                        continue
+                except Exception as _gate_err:
+                    logging.warning(f"ai_morning_briefing billing gate: {_gate_err}")
+                    continue
+
+                # Данные за вчера и среднее за 7 дней
+                try:
+                    y_summary = db.get_sales_summary(start_date=yesterday, end_date=yesterday) or (0, 0, 0, 0)
+                    w_summary = db.get_sales_summary(start_date=week_ago, end_date=yesterday)  or (0, 0, 0, 0)
+                    y_rev  = float(y_summary[2] or 0)
+                    w_rev  = float(w_summary[2] or 0)
+                    avg_7d = w_rev / 7 if w_rev > 0 else 0
+                except Exception:
+                    continue
+
+                if y_rev == 0 and avg_7d == 0:
+                    continue  # нет данных — не постим
+
+                # Вспомогательные данные для контекста
+                try:
+                    _top_products = db.get_top_products_month(3)
+                except Exception:
+                    _top_products = []
+                try:
+                    _top_sellers = db.get_active_sellers_month(3)
+                except Exception:
+                    _top_sellers = []
+                try:
+                    _cat_breakdown = db.get_sales_by_category_for_period(yesterday, yesterday)
+                except Exception:
+                    _cat_breakdown = []
+
+                org_name = db.db_file.replace("\\", "/").split("/")[-1].replace(".db", "").replace("org_", "")
+
+                # Генерируем текст брифинга через LLM
+                briefing_text: str | None = None
+                if is_configured():
+                    try:
+                        prompt = build_morning_briefing_prompt(
+                            org_name=org_name,
+                            yesterday_revenue=y_rev,
+                            avg_7d=avg_7d,
+                            top_products=_top_products or None,
+                            top_sellers=_top_sellers or None,
+                            category_breakdown=_cat_breakdown or None,
+                        )
+                        briefing_text = await ask_llm(prompt, max_tokens=300, feature="briefing")
+                    except Exception as _ai_err:
+                        logging.warning(f"ai_morning_briefing LLM error: {_ai_err}")
+
+                # Fallback без LLM
+                if not briefing_text:
+                    import datetime as _dt2
+                    _yd_str = _dt2.date.fromisoformat(yesterday).strftime("%d.%m.%Y")
+                    if y_rev > 0:
+                        _diff = f" ({(y_rev - avg_7d) / avg_7d * 100:+.0f}% к среднему)" if avg_7d > 0 else ""
+                        briefing_text = f"📅 Итоги {_yd_str}: {int(y_rev):,} ₽{_diff}."
+                        if _cat_breakdown:
+                            top_cat = _cat_breakdown[0]
+                            if isinstance(top_cat, dict):
+                                briefing_text += f" Топ категория: {top_cat.get('category','—')} — {int(top_cat.get('revenue',0)):,} ₽."
+                    else:
+                        briefing_text = f"📅 {_yd_str}: продаж не зафиксировано. Средняя за неделю: {int(avg_7d):,} ₽."
+
+                # Получаем или создаём AI-тему чата
+                try:
+                    ai_topic_id = await asyncio.to_thread(db.ensure_ai_topic)
+                except Exception:
+                    continue
+
+                # Постим брифинг в чат (user_id=0 = AI-бот)
+                try:
+                    _date_prefix = _dt.date.today().strftime("%d.%m")
+                    full_text = f"☀️ <b>Утренний брифинг {_date_prefix}</b>\n\n{briefing_text}"
+                    await asyncio.to_thread(
+                        db.add_chat_message, 0, full_text, '', '', '', 0, ai_topic_id
+                    )
+                    logging.info(f"ai_morning_briefing: posted to org={db_path} topic={ai_topic_id}")
+                except Exception as _post_err:
+                    logging.warning(f"ai_morning_briefing: post error org={db_path}: {_post_err}")
+
+            except Exception as _org_err:
+                logging.warning(f"ai_morning_briefing: org={db_path}: {_org_err}")
+
+        logging.info("ai_morning_briefing: done")
+
+    scheduler.add_job(
+        ai_morning_briefing,
+        CronTrigger(hour=7, minute=0),   # 07:00 UTC = 10:00 МСК
+        id='ai_morning_briefing',
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,

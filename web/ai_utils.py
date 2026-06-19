@@ -1054,6 +1054,8 @@ def build_smart_alert_prompt(
     top_sellers: list | None = None,
     plans: list | None = None,
     digest_context: list | None = None,
+    category_breakdown: list | None = None,
+    seller_breakdown: list | None = None,
 ) -> str:
     # digest_context controls which supplementary blocks to include;
     # None means all blocks are enabled (backward-compatible default)
@@ -1086,7 +1088,40 @@ def build_smart_alert_prompt(
             plan_parts.append(f"{label} — {pct}%")
         ctx_lines.append("Планы: " + "; ".join(plan_parts) + ".")
 
+    # Root-cause data: yesterday's breakdown by category and seller
+    if category_breakdown:
+        cat_parts = []
+        for item in category_breakdown[:3]:
+            if isinstance(item, dict):
+                cat_name = item.get("category") or "—"
+                cat_rev = item.get("revenue", 0)
+            else:
+                cat_name, cat_rev = item[0], item[1]
+            if cat_rev > 0:
+                cat_parts.append(f"{cat_name} — {int(cat_rev):,} ₽")
+        if cat_parts:
+            ctx_lines.append("Вчера по категориям: " + "; ".join(cat_parts) + ".")
+
+    if seller_breakdown:
+        sel_parts = []
+        for item in seller_breakdown[:3]:
+            if isinstance(item, dict):
+                sel_name = item.get("name") or "—"
+                sel_rev = item.get("amount", 0)
+            else:
+                sel_name, sel_rev = item[0], item[1]
+            if sel_rev > 0:
+                sel_parts.append(f"{sel_name} — {int(sel_rev):,} ₽")
+        if sel_parts:
+            ctx_lines.append("Вчера по продавцам: " + "; ".join(sel_parts) + ".")
+
     ctx_block = ("\nКонтекст: " + " ".join(ctx_lines)) if ctx_lines else ""
+
+    has_root_cause = bool(category_breakdown or seller_breakdown)
+    root_cause_instruction = (
+        " Если в контексте есть разбивка по категориям или продавцам — явно назови,"
+        " кто или что внёс наибольший вклад в падение."
+    ) if has_root_cause else ""
 
     if zero_yesterday:
         return (
@@ -1095,15 +1130,85 @@ def build_smart_alert_prompt(
             "Напиши короткое уведомление для владельца (ровно 2 предложения): "
             "1) Констатируй факт нулевых продаж и сумму потенциально упущенной выручки (от средней). "
             "2) Предложи 1 конкретный первый шаг: позвонить продавцу / проверить расписание / "
-            "проверить работу кассы. Без паники, деловой тон."
+            f"проверить работу кассы.{root_cause_instruction} Без паники, деловой тон."
         )
     return (
         f"Магазин «{org_name}»: вчерашняя выручка {int(yesterday_revenue):,} ₽ "
         f"на {abs(drop_pct):.0f}% ниже средней за 7 дней ({int(avg_7d):,} ₽). "
         f"Разрыв: {int(avg_7d - yesterday_revenue):,} ₽.{ctx_block}\n\n"
         "Напиши уведомление для владельца (ровно 2 предложения): "
-        "1) Назови конкретную сумму падения и процент отклонения от нормы. "
+        "1) Назови конкретную сумму падения и процент отклонения от нормы."
+        f"{root_cause_instruction} "
         "2) Предложи 1 конкретное действие для диагностики — сравни с аналогичным днём прошлой недели, "
-        "проверь конкретную категорию или поговори с продавцами. "
-        "Не придумывай данные, которых нет выше."
+        "проверь конкретную категорию или поговори с конкретным продавцом. "
+        "Опирайся только на данные выше — не придумывай виновников, которых нет в контексте."
+    )
+
+
+def build_morning_briefing_prompt(
+    org_name: str,
+    yesterday_revenue: float,
+    avg_7d: float,
+    top_products: list | None = None,
+    top_sellers: list | None = None,
+    category_breakdown: list | None = None,
+) -> str:
+    """Промпт для утреннего брифинга в AI-тему чата.
+
+    Краткая сводка за вчера с акцентом на конкретные цифры и 1 приоритет на сегодня.
+    """
+    lines: list[str] = []
+
+    if avg_7d > 0:
+        diff_pct = (yesterday_revenue - avg_7d) / avg_7d * 100
+        direction = "выше" if diff_pct >= 0 else "ниже"
+        lines.append(
+            f"Магазин «{org_name}». Вчера: {int(yesterday_revenue):,} ₽ "
+            f"({abs(diff_pct):.0f}% {direction} среднего за 7 дней — {int(avg_7d):,} ₽)."
+        )
+    else:
+        lines.append(f"Магазин «{org_name}». Вчера: {int(yesterday_revenue):,} ₽.")
+
+    if category_breakdown:
+        cat_parts = []
+        for item in category_breakdown[:3]:
+            if isinstance(item, dict):
+                cat_name = item.get("category") or "—"
+                cat_rev = item.get("revenue", 0)
+            else:
+                cat_name, cat_rev = item[0], item[1]
+            if cat_rev > 0:
+                cat_parts.append(f"{cat_name} — {int(cat_rev):,} ₽")
+        if cat_parts:
+            lines.append("По категориям: " + "; ".join(cat_parts) + ".")
+
+    if top_sellers:
+        sel_parts = []
+        for row in top_sellers[:3]:
+            fn, ln, shop = row[0] or "", row[1] or "", row[2] or ""
+            seller = f"{fn} {ln}".strip() or shop or "—"
+            rev = row[3]
+            if rev > 0:
+                sel_parts.append(f"{seller} — {int(rev):,} ₽")
+        if sel_parts:
+            lines.append("Продавцы (месяц): " + "; ".join(sel_parts) + ".")
+
+    if top_products:
+        parts = []
+        for row in top_products[:2]:
+            name, qty, rev = row[0], row[1], row[2]
+            if rev > 0:
+                parts.append(f"{name} — {int(qty)} шт., {int(rev):,} ₽")
+        if parts:
+            lines.append("Топ товары (месяц): " + "; ".join(parts) + ".")
+
+    data_block = " ".join(lines)
+
+    return (
+        f"{data_block}\n\n"
+        "Напиши утренний брифинг для команды магазина (3 предложения): "
+        "1) Как прошёл вчерашний день — конкретные цифры и сравнение с нормой. "
+        "2) Что сработало хорошо — назови лидирующую категорию или продавца, если данные есть. "
+        "3) Один чёткий приоритет на сегодня, вытекающий из вчерашних результатов. "
+        "Тон деловой и бодрый. Без общих фраз. Опирайся только на данные выше."
     )
