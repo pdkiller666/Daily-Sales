@@ -24,7 +24,7 @@ from keyboards import InlineKeyboardBuilder, back_button, home_button, safe_cb, 
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
-from states import TaskCreateStates
+from states import TaskCreateStates, AiTaskCreateStates
 
 tasks_router = Router()
 logger = logging.getLogger(__name__)
@@ -95,7 +95,24 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
     if nav_row:
         kb.row(*nav_row)
     if is_admin:
-        kb.row(InlineKeyboardButton(text="➕ Создать задачу", callback_data="tsk_create"))
+        try:
+            from billing_utils import has_module as _hm, has_extension as _he
+            _tg_id = None
+            # detect tg_id from calling context not easily available here; deferred check in handler
+            _tasks_ai_ok = False
+            try:
+                import threading
+                _tg_id = getattr(threading.current_thread(), '_tasks_ai_tg_id', None)
+            except Exception:
+                pass
+            if _tg_id:
+                _tasks_ai_ok = _hm(_tg_id, 'tasks_pro') and _he(_tg_id, 'tasks_ai')
+        except Exception:
+            _tasks_ai_ok = False
+        row_btns = [InlineKeyboardButton(text="➕ Создать задачу", callback_data="tsk_create")]
+        if _tasks_ai_ok:
+            row_btns.append(InlineKeyboardButton(text="✨ AI-задача", callback_data="tsk_ai_create"))
+        kb.row(*row_btns)
     try:
         from bot_holder import get_username as _get_uname
         _un = _get_uname() or ""
@@ -1336,6 +1353,186 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
 
 @tasks_router.callback_query(F.data == "tsk_c_cancel")
 async def tsk_c_cancel(callback: CallbackQuery, state: FSMContext):
+    await clear_state_keep_org(state)
+    await callback.answer("Отменено")
+    await _show_tasks_list(callback, state, page=0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Phase 3.4: AI-создание задачи (бот) ────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _ai_tc_cancel_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_ai_cancel"))
+    return kb.as_markup()
+
+
+def _ai_tc_confirm_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="✅ Создать", callback_data="tsk_ai_ok"),
+        InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_ai_cancel"),
+    )
+    return kb.as_markup()
+
+
+@tasks_router.callback_query(F.data == "tsk_ai_create")
+async def tsk_ai_create_entry(callback: CallbackQuery, state: FSMContext):
+    """Вход в AI-визард создания задачи."""
+    admin = await is_any_admin(state)
+    if not admin:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    # Billing gate: tasks_ai extension required
+    try:
+        from billing_utils import has_module as _hm, has_extension as _he
+        tg_id = callback.from_user.id
+        if not _hm(tg_id, 'tasks_pro') or not _he(tg_id, 'tasks_ai'):
+            await callback.answer("Требуется расширение «AI для задач».", show_alert=True)
+            return
+    except Exception:
+        await callback.answer("Расширение «AI для задач» недоступно.", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(anchor_msg_id=callback.message.message_id)
+    await state.set_state(AiTaskCreateStates.waiting_goal)
+    await callback.message.edit_text(
+        "✨ <b>AI-создание задачи</b>\n\n"
+        "Опишите цель или задачу в свободной форме — AI сформирует готовую задачу.\n\n"
+        "<i>Пример: «Провести инвентаризацию склада и обновить остатки в системе»</i>",
+        reply_markup=_ai_tc_cancel_kb(),
+        parse_mode="HTML",
+    )
+
+
+@tasks_router.message(AiTaskCreateStates.waiting_goal)
+async def tsk_ai_goal_msg(message: Message, state: FSMContext):
+    """Получаем цель и генерируем задачу через AI."""
+    goal = message.text.strip() if message.text else ""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if not goal:
+        await fsm_edit(message, "⚠️ Введите описание задачи или нажмите «Отменить»:",
+                       _ai_tc_cancel_kb())
+        return
+
+    await fsm_edit(message, "⏳ AI генерирует задачу…", _ai_tc_cancel_kb())
+
+    try:
+        import aiohttp as _ahttp
+        import json as _json
+
+        # Попытка вызвать LLM через web.ai_utils
+        from web.ai_utils import ask_llm, is_configured
+        if not is_configured():
+            await fsm_edit(message, "⚠️ AI не настроен. Используйте обычное создание задачи.",
+                           _ai_tc_cancel_kb())
+            await clear_state_keep_org(state)
+            return
+
+        prompt = (
+            f"Задача: {goal}\n\n"
+            "Сформируй JSON-объект задачи для розничного магазина: "
+            "{\"title\": \"...\", \"description\": \"...\", \"priority\": \"normal|high|urgent|low\"}. "
+            "title — до 80 символов, конкретное и ёмкое название. "
+            "description — 2-3 предложения, что нужно сделать. "
+            "Только JSON без пояснений."
+        )
+        system = (
+            "Ты — менеджер розничного магазина. "
+            "Возвращай ТОЛЬКО валидный JSON. Пиши по-русски."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=200, temperature=0.3,
+                               feature="bot_task_create")
+        if not result:
+            await fsm_edit(message, "⚠️ AI не ответил. Попробуйте позже.",
+                           _ai_tc_cancel_kb())
+            await clear_state_keep_org(state)
+            return
+
+        import re as _re
+        json_match = _re.search(r'\{.*\}', result, _re.DOTALL)
+        if not json_match:
+            raise ValueError("no JSON")
+        task_data = _json.loads(json_match.group())
+        title = str(task_data.get('title', goal))[:200].strip()
+        description = str(task_data.get('description', ''))[:1000].strip()
+        priority = task_data.get('priority', 'normal')
+        if priority not in ('low', 'normal', 'high', 'urgent'):
+            priority = 'normal'
+
+        prio_map = {'low': '🟢 Низкий', 'normal': '🔵 Обычный',
+                    'high': '🟡 Высокий', 'urgent': '🔴 Срочно'}
+
+        await state.update_data(ai_title=title, ai_desc=description, ai_prio=priority)
+        await state.set_state(AiTaskCreateStates.confirming)
+        await fsm_edit(
+            message,
+            f"✨ <b>AI создал задачу — подтвердите:</b>\n\n"
+            f"<b>Название:</b> {he(title)}\n"
+            f"<b>Описание:</b> {he(description) or '<i>нет</i>'}\n"
+            f"<b>Приоритет:</b> {prio_map.get(priority, priority)}",
+            _ai_tc_confirm_kb(),
+        )
+    except Exception as e:
+        logger.warning("tsk_ai_goal_msg AI error: %s", e)
+        await fsm_edit(message, "⚠️ Ошибка AI. Попробуйте ещё раз или отмените.",
+                       _ai_tc_cancel_kb())
+        await clear_state_keep_org(state)
+
+
+@tasks_router.callback_query(F.data == "tsk_ai_ok")
+async def tsk_ai_ok(callback: CallbackQuery, state: FSMContext):
+    """Создаём задачу из AI-результата."""
+    data = await state.get_data()
+    title = data.get('ai_title', '')
+    description = data.get('ai_desc', '')
+    priority = data.get('ai_prio', 'normal')
+    org_db = data.get('selected_org_db')
+
+    if not title or not org_db:
+        await callback.answer("Ошибка данных.", show_alert=True)
+        await clear_state_keep_org(state)
+        return
+
+    try:
+        db = get_db(org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?",
+                (callback.from_user.id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        db.create_task(
+            title=title,
+            description=description,
+            created_by=my_db_id,
+            priority=priority,
+        )
+        await clear_state_keep_org(state)
+        await callback.answer("✅ Задача создана!")
+        await callback.message.edit_text(
+            f"✅ <b>Задача создана!</b>\n\n<b>{he(title)}</b>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📋 К списку задач", callback_data="tsk_list_0")
+            ]])
+        )
+    except Exception as e:
+        logger.error("tsk_ai_ok create: %s", e)
+        await callback.answer("Ошибка создания задачи.", show_alert=True)
+        await clear_state_keep_org(state)
+
+
+@tasks_router.callback_query(F.data == "tsk_ai_cancel")
+async def tsk_ai_cancel(callback: CallbackQuery, state: FSMContext):
     await clear_state_keep_org(state)
     await callback.answer("Отменено")
     await _show_tasks_list(callback, state, page=0)

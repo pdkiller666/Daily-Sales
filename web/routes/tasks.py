@@ -1646,8 +1646,9 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
-    from billing_utils import has_module as _has_module
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
+    tasks_ai = tasks_pro and _has_ext(telegram_id, 'tasks_ai')
 
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
@@ -1663,7 +1664,8 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "chat_available": _chat_available(telegram_id),
         "task_history": [],
         "my_reminders": [],
-        "tasks_pro": tasks_pro,
+        "tasks_pro": tasks_pro, "tasks_ai": tasks_ai,
+        "comments_text": "",
     }
 
     try:

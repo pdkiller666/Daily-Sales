@@ -1407,3 +1407,69 @@ async def ai_task_decompose(request: Request):
     except Exception as exc:
         logger.error("ai_task_decompose error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── Tasks AI: анализ выполнения (review) ─────────────────────────────────────
+
+@router.post("/task-review")
+async def ai_task_review(request: Request):
+    """AI-анализ выполнения задачи (tasks_ai extension)."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, is_configured
+    from web.rate_store import check_and_increment_ai
+    from billing_utils import has_extension, has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    tg_id = int(user["sub"])
+
+    if not has_module(tg_id, "tasks_pro") or not has_extension(tg_id, "tasks_ai"):
+        return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
+    if not check_and_increment_ai(tg_id):
+        return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
+
+    try:
+        body = await request.json()
+        title = (body.get("title") or "").strip()[:200]
+        description = (body.get("description") or "").strip()[:500]
+        comments = (body.get("comments") or "").strip()[:1000]
+        rating = body.get("rating")
+
+        if not title:
+            return JSONResponse({"ok": False, "error": "Нет данных о задаче."})
+
+        context = f"Задача: {title}"
+        if description:
+            context += f"\nОписание: {description}"
+        if comments:
+            context += f"\nОтчёт/комментарии исполнителя: {comments}"
+        if rating:
+            context += f"\nОценка выполнения: {rating}/5"
+
+        prompt = (
+            f"{context}\n\n"
+            "Проанализируй выполнение задачи. Дай краткую оценку (2-4 предложения): "
+            "что было сделано хорошо, что можно улучшить в следующий раз, "
+            "если есть комментарии — учти их в анализе. "
+            "Без markdown, по-русски."
+        )
+        system = (
+            "Ты — наставник в розничном магазине. "
+            "Давай конструктивную, конкретную обратную связь. "
+            "Пиши по-русски, без markdown."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=300, temperature=0.4,
+                               feature="task_review")
+        if not result:
+            return JSONResponse({"ok": False, "error": "AI не ответил. Попробуйте ещё раз."})
+
+        return JSONResponse({"ok": True, "text": result.strip()})
+
+    except Exception as exc:
+        logger.error("ai_task_review error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

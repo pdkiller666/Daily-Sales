@@ -2166,6 +2166,230 @@ async def main():
         misfire_grace_time=3600,
     )
 
+    # ─── Phase 3.5: AI-предиктор просрочки задач — ежедневно в 11:00 UTC ─────
+    async def ai_task_overdue_predictor():
+        """AI-анализ задач с близким дедлайном (48ч): шлёт предупреждение admin."""
+        try:
+            from web.ai_utils import ask_llm, is_configured
+            from billing_utils import has_module as _hm, has_extension as _he
+            from database import Database
+            import datetime as _dt, os as _os, json as _json, urllib.request as _ureq, threading as _th
+        except Exception as _ie:
+            logging.warning("ai_task_overdue_predictor: import error: %s", _ie)
+            return
+
+        if not is_configured():
+            return
+
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        def _push(tg_id, text):
+            if not tg_id or int(tg_id) <= 0:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]}
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            now = _dt.datetime.utcnow()
+            horizon = (now + _dt.timedelta(hours=48)).date().isoformat()
+            today = now.date().isoformat()
+            db_paths = _get_scheduler_db_paths()
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+                    admin_ids = db.get_all_admins_telegram_ids()
+                    if not admin_ids:
+                        continue
+                    # Billing gate: tasks_ai extension on any admin
+                    try:
+                        if not any(_hm(int(tid), 'tasks_pro') and _he(int(tid), 'tasks_ai')
+                                   for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        continue
+
+                    conn = db.get_connection()
+                    try:
+                        at_risk = conn.execute("""
+                            SELECT t.title, t.deadline, t.priority, u.first_name, u.last_name
+                            FROM tasks t
+                            LEFT JOIN users u ON u.id = t.assigned_to
+                            WHERE t.status NOT IN ('done','cancelled')
+                              AND t.deadline IS NOT NULL
+                              AND t.deadline <= ?
+                              AND t.deadline >= ?
+                            ORDER BY t.deadline ASC LIMIT 10
+                        """, (horizon, today)).fetchall()
+                    finally:
+                        conn.close()
+
+                    if not at_risk:
+                        continue
+
+                    task_lines = "\n".join(
+                        f"- {r[0]} (дедлайн: {r[1]}, приоритет: {r[2] or 'normal'}, "
+                        f"исполнитель: {((r[3] or '') + ' ' + (r[4] or '')).strip() or 'не назначен'})"
+                        for r in at_risk
+                    )
+                    prompt = (
+                        f"Следующие задачи должны быть выполнены в ближайшие 48 часов:\n{task_lines}\n\n"
+                        "Кратко (2-3 предложения) предупреди менеджера о риске просрочки "
+                        "и дай 1-2 конкретные рекомендации. Без markdown."
+                    )
+                    system = "Ты — менеджер проектов розничного магазина. Пиши чётко, по-русски, без markdown."
+                    ai_text = await ask_llm(prompt, system=system, max_tokens=200,
+                                           temperature=0.3, feature="task_overdue_predict")
+                    if not ai_text:
+                        ai_text = f"⚠️ Через 48 часов истекает срок {len(at_risk)} задач."
+
+                    msg = (
+                        f"🔮 <b>AI-предиктор задач</b>\n\n"
+                        f"Задач под риском просрочки: <b>{len(at_risk)}</b>\n\n"
+                        f"{ai_text}"
+                    )
+                    for tid in admin_ids[:5]:
+                        if tid and int(tid) > 0:
+                            _push(int(tid), msg)
+                            await asyncio.sleep(0.05)
+                except Exception as _de:
+                    logging.warning("ai_task_overdue_predictor db=%s: %s", db_path, _de)
+        except Exception as _e:
+            logging.error("ai_task_overdue_predictor: %s", _e)
+
+    scheduler.add_job(
+        ai_task_overdue_predictor,
+        CronTrigger(hour=11, minute=0),
+        id='ai_task_overdue_predictor',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    # ─── Phase 3.6: AI-дайджест задач — еженедельно по вторникам в 08:00 UTC ─
+    async def ai_task_digest():
+        """Еженедельный AI-дайджест: статистика задач + AI-резюме для admin (tasks_ai extension)."""
+        try:
+            from web.ai_utils import ask_llm, is_configured
+            from billing_utils import has_module as _hm, has_extension as _he
+            from database import Database
+            import datetime as _dt, os as _os, json as _json, urllib.request as _ureq, threading as _th
+        except Exception as _ie:
+            logging.warning("ai_task_digest: import error: %s", _ie)
+            return
+
+        if not is_configured():
+            return
+
+        _token = _os.environ.get("BOT_TOKEN", "")
+        if not _token:
+            return
+
+        def _push(tg_id, text):
+            if not tg_id or int(tg_id) <= 0:
+                return
+            try:
+                url = f"https://api.telegram.org/bot{_token}/sendMessage"
+                payload = _json.dumps({
+                    "chat_id": tg_id, "text": text, "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": [[{"text": "✅ Прочитано", "callback_data": "notif_read"}]]}
+                }).encode()
+                req = _ureq.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                _th.Thread(target=lambda: _ureq.urlopen(req, timeout=10), daemon=True).start()
+            except Exception:
+                pass
+
+        try:
+            today = _dt.date.today()
+            week_ago = (today - _dt.timedelta(days=7)).isoformat()
+            today_str = today.isoformat()
+            db_paths = _get_scheduler_db_paths()
+            for db_path in db_paths:
+                try:
+                    db = Database(db_path)
+                    admin_ids = db.get_all_admins_telegram_ids()
+                    if not admin_ids:
+                        continue
+                    try:
+                        if not any(_hm(int(tid), 'tasks_pro') and _he(int(tid), 'tasks_ai')
+                                   for tid in admin_ids[:3] if tid and int(tid) > 0):
+                            continue
+                    except Exception:
+                        continue
+
+                    conn = db.get_connection()
+                    try:
+                        total = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+                        new_this_week = conn.execute(
+                            "SELECT COUNT(*) FROM tasks WHERE created_at >= ?", (week_ago,)
+                        ).fetchone()[0]
+                        done_this_week = conn.execute(
+                            "SELECT COUNT(*) FROM tasks WHERE status='done' AND updated_at >= ?", (week_ago,)
+                        ).fetchone()[0]
+                        overdue = conn.execute(
+                            "SELECT COUNT(*) FROM tasks WHERE status NOT IN ('done','cancelled') "
+                            "AND deadline IS NOT NULL AND deadline < ?", (today_str,)
+                        ).fetchone()[0]
+                        in_progress = conn.execute(
+                            "SELECT COUNT(*) FROM tasks WHERE status='in_progress'"
+                        ).fetchone()[0]
+                    finally:
+                        conn.close()
+
+                    if total == 0:
+                        continue
+
+                    prompt = (
+                        f"Статистика задач за прошедшую неделю:\n"
+                        f"- Всего задач: {total}\n"
+                        f"- Новых за неделю: {new_this_week}\n"
+                        f"- Выполнено за неделю: {done_this_week}\n"
+                        f"- В работе сейчас: {in_progress}\n"
+                        f"- Просрочено: {overdue}\n\n"
+                        "Напиши краткое резюме (3-4 предложения) для менеджера: "
+                        "как прошла неделя, что вызывает беспокойство, 1 совет. "
+                        "Без markdown, по-русски."
+                    )
+                    system = "Ты — менеджер проектов розничного магазина. Пиши чётко, по-русски."
+                    ai_text = await ask_llm(prompt, system=system, max_tokens=250,
+                                           temperature=0.4, feature="task_digest")
+                    if not ai_text:
+                        ai_text = f"За неделю создано {new_this_week} задач, выполнено {done_this_week}."
+
+                    period = f"{(today - _dt.timedelta(days=7)).strftime('%d.%m')}–{today.strftime('%d.%m.%Y')}"
+                    msg = (
+                        f"📊 <b>AI-дайджест задач</b> | {period}\n\n"
+                        f"📋 Всего: <b>{total}</b>  ·  🆕 Новых: <b>{new_this_week}</b>\n"
+                        f"✅ Выполнено: <b>{done_this_week}</b>  ·  ⚠️ Просрочено: <b>{overdue}</b>\n\n"
+                        f"{ai_text}"
+                    )
+                    for tid in admin_ids[:5]:
+                        if tid and int(tid) > 0:
+                            _push(int(tid), msg)
+                            await asyncio.sleep(0.05)
+                except Exception as _de:
+                    logging.warning("ai_task_digest db=%s: %s", db_path, _de)
+        except Exception as _e:
+            logging.error("ai_task_digest: %s", _e)
+
+    scheduler.add_job(
+        ai_task_digest,
+        CronTrigger(day_of_week='tue', hour=8, minute=0),
+        id='ai_task_digest',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
     # Утренний AI-брифинг в чат — ежедневно в 07:00 UTC (10:00 МСК)
     async def ai_morning_briefing():
         """Постит утренний брифинг за вчера в AI-тему чата каждой орги (расширение ai_chat_assistant)."""
