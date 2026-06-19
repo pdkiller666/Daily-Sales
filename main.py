@@ -1976,7 +1976,7 @@ async def main():
                     else:
                         _plans = []
 
-                    # Root-cause: разбивка за вчера по категориям и продавцам
+                    # Root-cause: разбивка за вчера по категориям и продавцам + дневной тренд за 7 дней
                     try:
                         _cat_breakdown_y = db.get_sales_by_category_for_period(yesterday, yesterday)
                     except Exception:
@@ -1985,6 +1985,10 @@ async def main():
                         _sel_breakdown_y = db.get_sales_by_seller_for_period(yesterday, yesterday)
                     except Exception:
                         _sel_breakdown_y = []
+                    try:
+                        _daily_breakdown_7d = db.get_daily_sales_for_period(week_ago, yesterday)
+                    except Exception:
+                        _daily_breakdown_7d = []
 
                     ai_text: str | None = None
                     if is_configured():
@@ -2001,6 +2005,7 @@ async def main():
                                 digest_context=_digest_context,
                                 category_breakdown=_cat_breakdown_y or None,
                                 seller_breakdown=_sel_breakdown_y or None,
+                                daily_breakdown=_daily_breakdown_7d or None,
                             )
                             if extra_lines:
                                 prompt += "\nДополнительно: " + " ".join(extra_lines)

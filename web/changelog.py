@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.104.0"
+CURRENT_VERSION = "1.105.0"
 
 ENTRIES = [
+    {
+        "version": "1.105.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Root-cause алерты + утренний AI-брифинг в чат",
+        ],
+    },
     {
         "version": "1.104.0",
         "date": "19 июня 2026",

@@ -1056,7 +1056,17 @@ def build_smart_alert_prompt(
     digest_context: list | None = None,
     category_breakdown: list | None = None,
     seller_breakdown: list | None = None,
+    daily_breakdown: list | None = None,
 ) -> str:
+    """Промпт для AI-алерта при падении выручки.
+
+    daily_breakdown: list of dicts {date, amount, count} sorted by date asc (7 days).
+    category_breakdown: list of dicts {category, revenue, quantity} sorted by revenue desc.
+    seller_breakdown: list of dicts {name, amount} sorted by amount desc.
+    """
+    import datetime as _dt_
+    _DOW_RU = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+
     # digest_context controls which supplementary blocks to include;
     # None means all blocks are enabled (backward-compatible default)
     if digest_context is None:
@@ -1064,6 +1074,24 @@ def build_smart_alert_prompt(
 
     # Build rich context block from optional supplementary data
     ctx_lines: list[str] = []
+
+    # Day-level timeline for the 7-day window (most important for root-cause)
+    if daily_breakdown:
+        day_parts = []
+        for item in daily_breakdown:
+            if isinstance(item, dict):
+                d_str = item.get("date", "")
+                d_rev = float(item.get("amount", 0))
+            else:
+                d_str, d_rev = item[0], float(item[1])
+            try:
+                d_obj = _dt_.date.fromisoformat(d_str)
+                label = f"{d_obj.strftime('%d.%m')}({_DOW_RU[d_obj.weekday()]})"
+            except Exception:
+                label = d_str
+            day_parts.append(f"{label}: {int(d_rev):,} ₽")
+        if day_parts:
+            ctx_lines.append("Выручка за 7 дней: " + "; ".join(day_parts) + ".")
 
     if top_products and "products" in digest_context:
         parts = []
@@ -1115,32 +1143,39 @@ def build_smart_alert_prompt(
         if sel_parts:
             ctx_lines.append("Вчера по продавцам: " + "; ".join(sel_parts) + ".")
 
-    ctx_block = ("\nКонтекст: " + " ".join(ctx_lines)) if ctx_lines else ""
+    ctx_block = ("\nКонтекст:\n" + "\n".join(f"- {l}" for l in ctx_lines)) if ctx_lines else ""
 
-    has_root_cause = bool(category_breakdown or seller_breakdown)
-    root_cause_instruction = (
-        " Если в контексте есть разбивка по категориям или продавцам — явно назови,"
-        " кто или что внёс наибольший вклад в падение."
-    ) if has_root_cause else ""
+    # Build explicit attribution instruction from available data dimensions
+    rc_parts: list[str] = []
+    if daily_breakdown:
+        rc_parts.append("день недели с наибольшим провалом по таймлайну")
+    if category_breakdown:
+        rc_parts.append("категорию с наибольшим вкладом в спад")
+    if seller_breakdown:
+        rc_parts.append("продавца с наименьшим результатом вчера")
+    root_cause_str = (
+        " Явно назови " + ", ".join(rc_parts) + " — используй только цифры из контекста выше."
+    ) if rc_parts else ""
 
     if zero_yesterday:
         return (
             f"Магазин «{org_name}»: вчера не было ни одной продажи. "
             f"Средняя выручка за последние 7 дней: {int(avg_7d):,} ₽.{ctx_block}\n\n"
             "Напиши короткое уведомление для владельца (ровно 2 предложения): "
-            "1) Констатируй факт нулевых продаж и сумму потенциально упущенной выручки (от средней). "
+            "1) Констатируй факт нулевых продаж и сумму потенциально упущенной выручки (от средней)."
+            f"{root_cause_str} "
             "2) Предложи 1 конкретный первый шаг: позвонить продавцу / проверить расписание / "
-            f"проверить работу кассы.{root_cause_instruction} Без паники, деловой тон."
+            "проверить работу кассы. Без паники, деловой тон."
         )
     return (
         f"Магазин «{org_name}»: вчерашняя выручка {int(yesterday_revenue):,} ₽ "
         f"на {abs(drop_pct):.0f}% ниже средней за 7 дней ({int(avg_7d):,} ₽). "
         f"Разрыв: {int(avg_7d - yesterday_revenue):,} ₽.{ctx_block}\n\n"
         "Напиши уведомление для владельца (ровно 2 предложения): "
-        "1) Назови конкретную сумму падения и процент отклонения от нормы."
-        f"{root_cause_instruction} "
-        "2) Предложи 1 конкретное действие для диагностики — сравни с аналогичным днём прошлой недели, "
-        "проверь конкретную категорию или поговори с конкретным продавцом. "
+        "1) Назови конкретную сумму и процент падения."
+        f"{root_cause_str} "
+        "2) Предложи 1 конкретное действие для диагностики — сравни с тем же днём недели неделю назад, "
+        "проверь конкретную отстающую категорию или уточни у конкретного продавца. "
         "Опирайся только на данные выше — не придумывай виновников, которых нет в контексте."
     )
 
