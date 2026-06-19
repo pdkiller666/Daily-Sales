@@ -1089,6 +1089,7 @@ async def admin_ai_limits(request: Request):
         get_ai_enabled, get_anomaly_threshold,
         get_ai_chat_daily_limit as _get_chat_lim,
         get_ai_cost_history, get_ai_cost_totals,
+        get_ai_total_today, get_all_custom_limits,
     )
     from web.ai_tools import get_tool_stats, get_tool_stats_all_dates
     from web.ai_utils import get_token_stats
@@ -1099,6 +1100,8 @@ async def admin_ai_limits(request: Request):
     anomaly_threshold = get_anomaly_threshold()
     token_stats = get_token_stats()
     top_users = get_ai_usage_stats_today(top_n=30)
+    today_total = get_ai_total_today()
+    custom_limits = get_all_custom_limits()
     cost_history = get_ai_cost_history(30)
     cost_totals = get_ai_cost_totals()
 
@@ -1249,6 +1252,8 @@ async def admin_ai_limits(request: Request):
             "usage_log_oldest": _usage_log_oldest,
             "usage_log_retention": _usage_log_retention,
             "usage_log_size_kb": _usage_log_size_kb,
+            "today_total": today_total,
+            "custom_limits": custom_limits,
             "cost_history": cost_history,
             "cost_totals": cost_totals,
             "cost_chart": cost_chart,
@@ -1345,6 +1350,48 @@ async def admin_ai_limits_save_anomaly(
 
     from web.rate_store import set_anomaly_threshold
     set_anomaly_threshold(threshold_val)
+    return RedirectResponse("/admin/ai-limits?msg=saved", 303)
+
+
+@router.post("/ai-limits/set-custom")
+async def admin_ai_limits_set_custom(
+    request: Request,
+    csrf_token: str = Form(""),
+    tg_id: str = Form(""),
+    custom_limit: str = Form("0"),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/ai-limits?msg=csrf_error", 303)
+    try:
+        _tg_id = int(tg_id.strip())
+        _limit = max(0, min(100000, int(custom_limit.strip())))
+    except (ValueError, AttributeError):
+        return RedirectResponse("/admin/ai-limits?msg=invalid", 303)
+    from web.rate_store import set_custom_ai_limit
+    set_custom_ai_limit(_tg_id, _limit)
+    return RedirectResponse("/admin/ai-limits?msg=saved", 303)
+
+
+@router.post("/ai-limits/clear-custom")
+async def admin_ai_limits_clear_custom(
+    request: Request,
+    csrf_token: str = Form(""),
+    tg_id: str = Form(""),
+):
+    user = get_session_user(request)
+    if _guard(user):
+        return RedirectResponse("/dashboard", 303)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/admin/ai-limits?msg=csrf_error", 303)
+    try:
+        _tg_id = int(tg_id.strip())
+    except (ValueError, AttributeError):
+        return RedirectResponse("/admin/ai-limits?msg=invalid", 303)
+    from web.rate_store import clear_custom_ai_limit
+    clear_custom_ai_limit(_tg_id)
     return RedirectResponse("/admin/ai-limits?msg=saved", 303)
 
 

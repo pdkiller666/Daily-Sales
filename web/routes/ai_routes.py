@@ -62,9 +62,15 @@ def _api_csrf_ok(request: Request) -> bool:
 
 
 def _get_limits(tg_id: int) -> tuple[int, bool]:
-    """Возвращает (дневной_лимит, is_high_limit) для пользователя."""
+    """Возвращает (дневной_лимит, is_high_limit) для пользователя.
+
+    Приоритет: кастомный лимит super-admin > high_limit extension > base_daily_limit.
+    """
     from billing_utils import has_extension
-    from web.rate_store import get_ai_rate_limits
+    from web.rate_store import get_ai_rate_limits, get_custom_ai_limit
+    custom = get_custom_ai_limit(tg_id)
+    if custom is not None:
+        return custom, False
     base, high = get_ai_rate_limits()
     if has_extension(tg_id, "ai_high_limit"):
         return high, True

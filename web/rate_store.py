@@ -62,6 +62,14 @@ def _ensure_tables() -> None:
                 PRIMARY KEY (date, provider)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_org_usage_log (
+                org_key    TEXT NOT NULL,
+                usage_date TEXT NOT NULL,
+                count      INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (org_key, usage_date)
+            )
+        """)
         conn.commit()
         _db_tables_created = True
     finally:
@@ -382,6 +390,144 @@ def get_ai_cost_totals() -> dict:
                 "total_prompt_tokens": 0, "total_completion_tokens": 0,
                 "total_cost_usd": 0.0, "by_provider": [],
             }
+
+
+def get_ai_total_today() -> int:
+    """Возвращает суммарное число AI-запросов за сегодня (UTC) из ai_usage_log."""
+    today = _today_utc()
+    with _lock:
+        try:
+            conn = _get_conn()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(count), 0) FROM ai_usage_log WHERE usage_date = ?",
+                (today,),
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
+
+
+# ─── Per-org chat AI quota ────────────────────────────────────────────────────
+
+def _org_key(org_db: str) -> str:
+    """Возвращает короткий ключ для org_db — базовое имя файла без пути."""
+    import os as _os
+    return _os.path.basename(org_db)
+
+
+def check_and_increment_ai_for_org(org_db: str, limit: int) -> bool:
+    """Проверяет и инкрементирует дневной лимит AI-запросов на уровне организации.
+
+    Каждая орг имеет свой счётчик, не зависящий от других орг того же владельца.
+    Возвращает True если запрос разрешён, False если лимит превышен.
+    """
+    today = _today_utc()
+    key = _org_key(org_db)
+    with _lock:
+        try:
+            conn = _get_conn()
+            row = conn.execute(
+                "SELECT count FROM ai_org_usage_log WHERE org_key = ? AND usage_date = ?",
+                (key, today),
+            ).fetchone()
+            current = row[0] if row else 0
+            if current >= limit:
+                conn.close()
+                return False
+            conn.execute(
+                """INSERT INTO ai_org_usage_log (org_key, usage_date, count) VALUES (?, ?, 1)
+                   ON CONFLICT(org_key, usage_date) DO UPDATE SET count = count + 1""",
+                (key, today),
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            try:
+                import logging
+                logging.error("check_and_increment_ai_for_org(%s): %s — fail-closed", key, e)
+            except Exception:
+                pass
+            return False
+
+
+# ─── Custom per-user AI limits ────────────────────────────────────────────────
+
+def get_custom_ai_limit(tg_id: int) -> "int | None":
+    """Возвращает кастомный дневной лимит AI для пользователя или None если не задан."""
+    key = f"custom_limit_{tg_id}"
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        row = conn.execute(
+            "SELECT value FROM ai_rate_config WHERE key = ?", (key,)
+        ).fetchone()
+        conn.close()
+        if row is not None:
+            return max(0, int(row[0]))
+    except Exception:
+        pass
+    return None
+
+
+def set_custom_ai_limit(tg_id: int, limit: int) -> None:
+    """Сохраняет кастомный лимит AI для конкретного пользователя."""
+    key = f"custom_limit_{tg_id}"
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute(
+            "INSERT OR REPLACE INTO ai_rate_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (key, str(max(0, limit))),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        import logging as _lg
+        _lg.error("set_custom_ai_limit(%s): failed", tg_id)
+
+
+def clear_custom_ai_limit(tg_id: int) -> None:
+    """Удаляет кастомный лимит AI для пользователя (вернёт к стандартному)."""
+    key = f"custom_limit_{tg_id}"
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("DELETE FROM ai_rate_config WHERE key = ?", (key,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        import logging as _lg
+        _lg.error("clear_custom_ai_limit(%s): failed", tg_id)
+
+
+def get_all_custom_limits() -> list:
+    """Возвращает все кастомные лимиты пользователей.
+    Каждый элемент: {tg_id, limit, name}.
+    """
+    try:
+        conn = sqlite3.connect(_SHOP_BOT_DB, timeout=3, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        rows = conn.execute(
+            "SELECT key, value FROM ai_rate_config WHERE key LIKE 'custom_limit_%' ORDER BY key"
+        ).fetchall()
+        conn.close()
+        result = []
+        for k, v in rows:
+            try:
+                tg_id = int(k.replace("custom_limit_", ""))
+                result.append({
+                    "tg_id": tg_id,
+                    "limit": int(v),
+                    "name": _lookup_user_name(tg_id),
+                })
+            except (ValueError, TypeError):
+                pass
+        return result
+    except Exception:
+        return []
 
 
 def get_ai_yesterday_total() -> int:

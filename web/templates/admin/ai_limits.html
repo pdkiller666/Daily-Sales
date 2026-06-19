@@ -31,6 +31,25 @@
 </div>
 {% endif %}
 
+<!-- ── Intraday anomaly banner ────────────────────────────────────── -->
+{% if today_total > (anomaly_threshold * 0.8) | int %}
+<div class="mb-4 px-4 py-3 rounded-xl border-2
+    {% if today_total >= anomaly_threshold %}
+    bg-red-50 border-red-300 text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-300
+    {% else %}
+    bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-300
+    {% endif %}
+    text-sm">
+    {% if today_total >= anomaly_threshold %}
+    ⚠️ <strong>Порог аномалии превышен сегодня:</strong> уже <strong>{{ today_total | int }}</strong> AI-запросов (порог: {{ anomaly_threshold }}).
+    Рассмотрите включение kill-switch или повышение порога.
+    {% else %}
+    🔔 <strong>Приближение к порогу:</strong> сегодня <strong>{{ today_total | int }}</strong> из {{ anomaly_threshold }} AI-запросов
+    ({{ ((today_total / anomaly_threshold) * 100) | int }}%).
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- ── Kill-switch ──────────────────────────────────────────────── -->
 <div class="card p-5 mb-5 {% if not ai_enabled %}border-2 border-red-300 dark:border-red-700{% endif %}">
     <div class="flex items-center justify-between gap-4">
@@ -151,6 +170,66 @@
             </button>
         </div>
     </form>
+</div>
+
+<!-- ── Custom per-user AI limits ─────────────────────────────────── -->
+<div class="card p-5 mb-5">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-1">🎛 Индивидуальные лимиты</h2>
+    <p class="text-xs text-slate-400 mb-4">
+        Задайте кастомный дневной лимит AI-запросов для конкретного пользователя.
+        Приоритет: кастомный &gt; high_limit extension &gt; base_daily_limit.
+        Лимит 0 = полная блокировка.
+    </p>
+
+    <form method="POST" action="/admin/ai-limits/set-custom" class="flex items-end gap-2 flex-wrap mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div>
+            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Telegram ID</label>
+            <input type="number" name="tg_id" placeholder="123456789" required
+                   class="w-36 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
+                          bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
+                          focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Лимит (запросов/день)</label>
+            <input type="number" name="custom_limit" min="0" max="100000" placeholder="50" required
+                   class="w-32 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600
+                          bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100
+                          focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+        </div>
+        <div class="pb-0.5">
+            <button type="submit"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+                Задать лимит
+            </button>
+        </div>
+    </form>
+
+    {% if custom_limits %}
+    <div class="border-t border-slate-100 dark:border-slate-700 pt-3">
+        <p class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Активные кастомные лимиты</p>
+        <div class="space-y-2">
+            {% for cl in custom_limits %}
+            <div class="flex items-center gap-3 text-xs">
+                <span class="flex-1 min-w-0 font-medium text-slate-700 dark:text-slate-200 truncate">{{ cl.name }}</span>
+                <span class="text-slate-400 font-mono shrink-0">ID {{ cl.tg_id }}</span>
+                <span class="px-2 py-0.5 rounded-full font-bold shrink-0
+                    {% if cl.limit == 0 %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400
+                    {% else %}bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300{% endif %}">
+                    {{ cl.limit }} зап/день
+                </span>
+                <form method="POST" action="/admin/ai-limits/clear-custom" class="shrink-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="tg_id" value="{{ cl.tg_id }}">
+                    <button type="submit" class="text-slate-400 hover:text-red-500 transition-colors text-xs" title="Удалить кастомный лимит">✕</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <p class="text-xs text-slate-400">Кастомных лимитов нет — все пользователи работают по стандартным настройкам.</p>
+    {% endif %}
 </div>
 
 <!-- ── Persistent cost totals (DB, survives restarts) ───────────── -->

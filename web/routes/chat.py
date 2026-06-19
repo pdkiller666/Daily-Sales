@@ -307,7 +307,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         from billing_utils import has_extension
         from web.ai_utils import ask_llm_with_tools
         from web.deps import get_web_db
-        from web.rate_store import check_and_increment_ai
+        from web.rate_store import check_and_increment_ai_for_org
         import anyio
 
         db = await anyio.to_thread.run_sync(lambda: get_web_db(0, org_db))
@@ -326,7 +326,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
         _chat_lim = _get_ai_chat_daily_limit()
-        if not check_and_increment_ai(owner_tg_id, _chat_lim):
+        if not check_and_increment_ai_for_org(org_db, _chat_lim):
             await _post_status(
                 f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
                 f"({_chat_lim}/день). Попробуйте завтра."
@@ -373,7 +373,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
         from billing_utils import has_extension
         from web.ai_utils import ask_llm_with_tools
         from web.deps import get_web_db
-        from web.rate_store import check_and_increment_ai
+        from web.rate_store import check_and_increment_ai_for_org
         from web.ws_manager import dm_manager
         import anyio
 
@@ -410,7 +410,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
         if not has_extension(owner_tg_id, 'ai_chat_assistant'):
             return
         _chat_lim = _get_ai_chat_daily_limit()
-        if not check_and_increment_ai(owner_tg_id, _chat_lim):
+        if not check_and_increment_ai_for_org(org_db, _chat_lim):
             await _post_ai_dm(
                 f"{_AI_ERROR_PREFIX}Дневной лимит AI-запросов исчерпан "
                 f"({_chat_lim}/день). Попробуйте завтра."
