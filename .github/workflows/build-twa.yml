@@ -120,7 +120,8 @@ jobs:
           # --retry handles the deploy race: a same-push code deploy may be
           # restarting Amvera (transient 503/connrefused) when this step runs.
           STATUS=$(curl -s -o /tmp/apk_upload_resp.txt -w "%{http_code}" \
-            --retry 6 --retry-delay 10 --retry-all-errors --retry-connrefused \
+            --retry 12 --retry-delay 20 --retry-max-time 300 \
+            --retry-all-errors --retry-connrefused \
             -X POST "https://dailysalesdeploy-pdkiller666.amvera.io/webhook/apk-binary" \
             -H "Authorization: Bearer ${APK_WEBHOOK_SECRET}" \
             -H "X-APK-Version: ${VERSION}" \
