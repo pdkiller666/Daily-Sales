@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.80.0"
+CURRENT_VERSION = "1.81.0"
 
 ENTRIES = [
+    {
+        "version": "1.81.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Implement direct APK binary upload from GitHub Actions to server",
+        ],
+    },
     {
         "version": "1.80.0",
         "date": "19 июня 2026",
