@@ -250,11 +250,19 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         dl_str = ""
         if deadline:
             try:
-                from datetime import date
-                d = date.fromisoformat(deadline[:10])
-                today = date.today()
-                overdue = " ⚠️ Просрочена" if d < today and task.get('status') not in ('done', 'cancelled') else ""
-                dl_str = f"\n📅 Срок: {d.strftime('%d.%m.%Y')}{overdue}"
+                has_time = len(deadline) >= 13 and ("T" in deadline or " " in deadline[10:])
+                if has_time:
+                    from datetime import datetime as _dt
+                    dl_dt = _dt.fromisoformat(deadline[:16].replace("T", " "))
+                    overdue_flag = dl_dt < _dt.now() and task.get('status') not in ('done', 'cancelled')
+                    dl_str = f"\n📅 Срок: {dl_dt.strftime('%d.%m.%Y %H:%M')}"
+                else:
+                    from datetime import date as _date
+                    d = _date.fromisoformat(deadline[:10])
+                    overdue_flag = d < _date.today() and task.get('status') not in ('done', 'cancelled')
+                    dl_str = f"\n📅 Срок: {d.strftime('%d.%m.%Y')}"
+                if overdue_flag:
+                    dl_str += " ⚠️ Просрочена"
             except Exception:
                 dl_str = f"\n📅 Срок: {deadline}"
 
@@ -408,25 +416,52 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка изменения статуса")
 
 
+def _next_recurrence_date(base, recurrence: str):
+    """Вернуть следующую дату для повторяющейся задачи без сторонних зависимостей."""
+    from datetime import timedelta
+    import calendar
+    if recurrence == 'daily':
+        return base + timedelta(days=1)
+    if recurrence == 'weekly':
+        return base + timedelta(weeks=1)
+    if recurrence == 'monthly':
+        month = base.month + 1
+        year = base.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+        max_day = calendar.monthrange(year, month)[1]
+        return base.replace(year=year, month=month, day=min(base.day, max_day))
+    return None
+
+
 def _spawn_recurring_task(db, task: dict):
     """Создать следующую задачу для повторяющейся задачи."""
-    from datetime import date, timedelta
+    from datetime import date
     recurrence = task.get('recurrence') or ''
     if not recurrence or recurrence in ('none', ''):
         return
-    intervals = {'daily': 1, 'weekly': 7, 'monthly': 30}
-    days = intervals.get(recurrence)
-    if not days:
-        return
-    old_deadline = task.get('deadline')
-    if old_deadline:
-        try:
-            base = date.fromisoformat(old_deadline[:10])
-        except Exception:
-            base = date.today()
-    else:
+
+    old_deadline = task.get('deadline') or ''
+    try:
+        base = date.fromisoformat(old_deadline[:10]) if old_deadline else date.today()
+    except Exception:
         base = date.today()
-    new_deadline = (base + timedelta(days=days)).isoformat()
+
+    new_date = _next_recurrence_date(base, recurrence)
+    if new_date is None:
+        return
+
+    # Сохраняем время дедлайна если было задано
+    if old_deadline and len(old_deadline) >= 13 and ("T" in old_deadline or " " in old_deadline[10:]):
+        new_deadline = new_date.isoformat() + old_deadline[10:16]
+    else:
+        new_deadline = new_date.isoformat()
+
+    # Копируем пункты чеклиста из исходной задачи
+    checklist_items = None
+    old_checklist = task.get('checklist') or []
+    if old_checklist:
+        checklist_items = [item.get('text', '') for item in old_checklist if item.get('text', '').strip()]
+
     db.create_task(
         title=task['title'],
         description=task.get('description', ''),
@@ -438,8 +473,9 @@ def _spawn_recurring_task(db, task: dict):
         priority=task.get('priority', 'normal'),
         deadline=new_deadline,
         recurrence=recurrence,
+        checklist=checklist_items,
     )
-    logger.info("_spawn_recurring_task: created next task '%s' deadline=%s", task['title'], new_deadline)
+    logger.info("_spawn_recurring_task: '%s' → %s", task['title'], new_deadline)
 
 
 # ── Фото-отчёт: пропустить ────────────────────────────────────────────────────
@@ -581,6 +617,29 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
             return
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
+
+        # Авто-переход в «На проверку» когда все участники выполнили
+        try:
+            _assign_all = task.get('assign_all', False)
+            _assigned_shop = task.get('assigned_shop', '')
+            if (_assign_all or _assigned_shop) and task.get('status') not in ('done', 'cancelled', 'review'):
+                _conn_s = db.get_connection()
+                try:
+                    _staff_rows = _conn_s.execute(
+                        "SELECT id, shop_name FROM users"
+                    ).fetchall()
+                finally:
+                    _conn_s.close()
+                member_ids = (
+                    {r[0] for r in _staff_rows} if _assign_all
+                    else {r[0] for r in _staff_rows if (r[1] or '') == _assigned_shop}
+                )
+                if member_ids:
+                    _comps = db.get_task_user_completions(task_id)
+                    if member_ids.issubset({c['user_id'] for c in _comps}):
+                        db.update_task_status(task_id, 'review')
+        except Exception as _ae:
+            logger.error("task_mycomp_cb auto-advance: %s", _ae)
 
         creator_id = task.get('created_by')
         if creator_id and creator_id != my_db_id:

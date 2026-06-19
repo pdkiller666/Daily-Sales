@@ -1220,15 +1220,33 @@ def task_change_status(
         # Spawn next recurring task when done
         if status == 'done':
             try:
-                from datetime import date, timedelta
+                import calendar as _cal
+                from datetime import date as _date, timedelta as _td
                 _recurrence = task.get('recurrence') or ''
                 if _recurrence and _recurrence not in ('none', ''):
-                    _intervals = {'daily': 1, 'weekly': 7, 'monthly': 30}
-                    _days = _intervals.get(_recurrence)
-                    if _days:
-                        _old_dl = task.get('deadline')
-                        _base = date.fromisoformat(_old_dl[:10]) if _old_dl else date.today()
-                        _new_dl = (_base + timedelta(days=_days)).isoformat()
+                    _old_dl = task.get('deadline') or ''
+                    try:
+                        _base = _date.fromisoformat(_old_dl[:10]) if _old_dl else _date.today()
+                    except Exception:
+                        _base = _date.today()
+                    if _recurrence == 'daily':
+                        _new_date = _base + _td(days=1)
+                    elif _recurrence == 'weekly':
+                        _new_date = _base + _td(weeks=1)
+                    elif _recurrence == 'monthly':
+                        _m = _base.month + 1
+                        _y = _base.year + (_m - 1) // 12
+                        _m = ((_m - 1) % 12) + 1
+                        _md = _cal.monthrange(_y, _m)[1]
+                        _new_date = _base.replace(year=_y, month=_m, day=min(_base.day, _md))
+                    else:
+                        _new_date = None
+                    if _new_date:
+                        if _old_dl and len(_old_dl) >= 13 and ("T" in _old_dl or " " in _old_dl[10:]):
+                            _new_dl = _new_date.isoformat() + _old_dl[10:16]
+                        else:
+                            _new_dl = _new_date.isoformat()
+                        _cl_items = [i.get('text', '') for i in (task.get('checklist') or []) if i.get('text', '').strip()]
                         db.create_task(
                             title=task['title'], description=task.get('description', ''),
                             topic_id=task.get('topic_id'), created_by=task.get('created_by', 0),
@@ -1236,6 +1254,7 @@ def task_change_status(
                             assign_all=1 if task.get('assign_all') else 0,
                             priority=task.get('priority', 'normal'), deadline=_new_dl,
                             recurrence=_recurrence,
+                            checklist=_cl_items or None,
                         )
             except Exception as _re:
                 logger.warning("task_change_status spawn recurring: %s", _re)
