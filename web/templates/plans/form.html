@@ -95,7 +95,7 @@
         <!-- Seller select -->
         <div id="sellerSection" {% if cur_target_type == 'shop' %}class="hidden"{% endif %}>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">Продавец</label>
-            <select name="seller_id" id="sellerSelect" onchange="resetAiHint()"
+            <select name="seller_id" id="sellerSelect" onchange="triggerAiRefresh()"
                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
                 <option value="">— выберите продавца —</option>
                 {% for s in sellers %}
@@ -109,7 +109,7 @@
         <!-- Shop select -->
         <div id="shopSection" {% if cur_target_type != 'shop' %}class="hidden"{% endif %}>
             <label class="block text-xs font-medium text-slate-600 mb-1.5">Магазин</label>
-            <select name="shop_name_val" id="shopSelect" onchange="resetAiHint()"
+            <select name="shop_name_val" id="shopSelect" onchange="triggerAiRefresh()"
                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white">
                 <option value="">— выберите магазин —</option>
                 {% for sh in shops %}
@@ -199,6 +199,13 @@
             done: false,
             result: null,
             error: '',
+            async init() {
+                window._aiHint = this;
+                {% if is_edit and (cur_seller_id or cur_shop_val) %}
+                await new Promise(r => setTimeout(r, 400));
+                this.load();
+                {% endif %}
+            },
             async load() {
                 if (this.loading) return;
                 const tt = document.querySelector('input[name=target_type]:checked')?.value || '';
@@ -235,7 +242,6 @@
                 if (inp) { inp.value = Math.round(this.result.suggestion); inp.dispatchEvent(new Event('input')); }
             }
         }"
-        {% if is_edit and (cur_seller_id or cur_shop_val) %}x-init="$nextTick(() => load())"{% endif %}
         class="border-t border-slate-100 pt-3 mt-1">
             <div class="flex items-center justify-between gap-2">
                 <p class="text-xs text-slate-500 flex items-center gap-1">
@@ -357,11 +363,11 @@
 </form>
 
 <script>
-function resetAiHint() {
-    try {
-        const el = document.getElementById('aiHintBlock');
-        if (el && el._x_dataStack && el._x_dataStack[0]) el._x_dataStack[0].reset();
-    } catch(e) {}
+function triggerAiRefresh() {
+    const hint = window._aiHint;
+    if (!hint) return;
+    hint.reset();
+    hint.load();
 }
 
 function onTargetChange() {
@@ -374,7 +380,7 @@ function onTargetChange() {
         lbl.classList.toggle('bg-indigo-50', active);
         lbl.classList.toggle('border-slate-200', !active);
     });
-    resetAiHint();
+    triggerAiRefresh();
 }
 
 function onRadioHighlight(cls, name) {
@@ -390,7 +396,7 @@ function onRadioHighlight(cls, name) {
         const val = document.querySelector('input[name="metric_type"]:checked')?.value;
         if (unit) unit.textContent = val === 'quantity' ? 'шт.' : '₽';
     }
-    if (name === 'plan_type' || name === 'metric_type') resetAiHint();
+    if (name === 'plan_type' || name === 'metric_type') triggerAiRefresh();
 }
 
 function onFilterTypeChange() {

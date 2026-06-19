@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.113.0"
+CURRENT_VERSION = "1.114.0"
 
 ENTRIES = [
+    {
+        "version": "1.114.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Improve plan creation and editing with AI suggestions",
+            "Re-fetch AI hint when seller or period changes in the edit form",
+        ],
+    },
     {
         "version": "1.113.0",
         "date": "19 июня 2026",
