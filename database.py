@@ -1803,10 +1803,21 @@ class Database:
                 updated_at  TEXT    DEFAULT (datetime('now'))
             )
         ''')
-        try:
-            cursor.execute("ALTER TABLE org_label_settings ADD COLUMN org_logo_path TEXT DEFAULT ''")
-        except Exception as _exc:
-            logger.debug("create_tables: подавлено исключение: %s", _exc)
+        _label_alters = [
+            "ALTER TABLE org_label_settings ADD COLUMN org_logo_path   TEXT DEFAULT ''",
+            "ALTER TABLE org_label_settings ADD COLUMN font_family      TEXT DEFAULT 'Arial, Helvetica, sans-serif'",
+            "ALTER TABLE org_label_settings ADD COLUMN border_color     TEXT DEFAULT '#cccccc'",
+            "ALTER TABLE org_label_settings ADD COLUMN border_width     TEXT DEFAULT '1'",
+            "ALTER TABLE org_label_settings ADD COLUMN label_theme      TEXT DEFAULT 'standard'",
+            "ALTER TABLE org_label_settings ADD COLUMN element_order    TEXT DEFAULT ''",
+            "ALTER TABLE org_label_settings ADD COLUMN visible_elements TEXT DEFAULT ''",
+            "ALTER TABLE org_label_settings ADD COLUMN sale_badge       TEXT DEFAULT ''",
+        ]
+        for _sql in _label_alters:
+            try:
+                cursor.execute(_sql)
+            except Exception as _exc:
+                logger.debug("create_tables: подавлено исключение: %s", _exc)
 
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
@@ -3114,27 +3125,54 @@ class Database:
     # ── Настройки дизайна ценника ─────────────────────────────────────────────
     def get_label_settings(self) -> dict:
         """Return label design settings. Returns defaults if not set."""
+        import json as _json
+        _ELEM_DEFAULT = {
+            "logo": True, "badge": False, "name": True, "price": True,
+            "sep": True, "qr": True, "barcode": False,
+            "article": True, "category": False, "description": False,
+        }
+        _ORDER_DEFAULT = ["logo", "badge", "name", "price", "sep", "qr", "barcode", "article", "category", "description"]
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT bg_color, text_color, price_color, logo_path, font_size, org_logo_path '
+            'SELECT bg_color, text_color, price_color, logo_path, font_size, org_logo_path,'
+            '       font_family, border_color, border_width, label_theme,'
+            '       element_order, visible_elements, sale_badge '
             'FROM org_label_settings WHERE id=1'
         )
         row = cursor.fetchone()
         conn.close()
+        def _parse_json(raw, default):
+            try:
+                return _json.loads(raw) if raw else default
+            except Exception:
+                return default
         if row:
             return {
-                'bg_color':      row[0] or '#ffffff',
-                'text_color':    row[1] or '#000000',
-                'price_color':   row[2] or '#000000',
-                'logo_path':     row[3] or '',
-                'font_size':     row[4] or 'medium',
-                'org_logo_path': row[5] or '',
+                'bg_color':         row[0] or '#ffffff',
+                'text_color':       row[1] or '#000000',
+                'price_color':      row[2] or '#000000',
+                'logo_path':        row[3] or '',
+                'font_size':        row[4] or 'medium',
+                'org_logo_path':    row[5] or '',
+                'font_family':      row[6] or 'Arial, Helvetica, sans-serif',
+                'border_color':     row[7] or '#cccccc',
+                'border_width':     row[8] or '1',
+                'label_theme':      row[9] or 'standard',
+                'element_order':    _parse_json(row[10], _ORDER_DEFAULT),
+                'visible_elements': _parse_json(row[11], _ELEM_DEFAULT),
+                'sale_badge':       row[12] or '',
             }
         return {
             'bg_color': '#ffffff', 'text_color': '#000000',
             'price_color': '#000000', 'logo_path': '', 'font_size': 'medium',
             'org_logo_path': '',
+            'font_family': 'Arial, Helvetica, sans-serif',
+            'border_color': '#cccccc', 'border_width': '1',
+            'label_theme': 'standard',
+            'element_order': _ORDER_DEFAULT,
+            'visible_elements': _ELEM_DEFAULT,
+            'sale_badge': '',
         }
 
     def save_org_logo(self, org_logo_path: str) -> None:
@@ -3153,37 +3191,65 @@ class Database:
         conn.close()
 
     def save_label_settings(self, bg_color: str, text_color: str,
-                            price_color: str, logo_path: str, font_size: str) -> None:
+                            price_color: str, logo_path, font_size: str,
+                            font_family: str = '', border_color: str = '#cccccc',
+                            border_width: str = '1', label_theme: str = 'standard',
+                            element_order: str = '', visible_elements: str = '',
+                            sale_badge: str = '') -> None:
         """Upsert label design settings (singleton row id=1).
         Pass logo_path=None to preserve the existing logo; '' to clear it.
         """
         conn = self.get_connection()
         cursor = conn.cursor()
+        ff = font_family or 'Arial, Helvetica, sans-serif'
         if logo_path is None:
             cursor.execute(
-                '''INSERT INTO org_label_settings (id, bg_color, text_color, price_color, font_size)
-                   VALUES (1, ?, ?, ?, ?)
+                '''INSERT INTO org_label_settings
+                       (id, bg_color, text_color, price_color, font_size,
+                        font_family, border_color, border_width, label_theme,
+                        element_order, visible_elements, sale_badge)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        bg_color=excluded.bg_color,
                        text_color=excluded.text_color,
                        price_color=excluded.price_color,
                        font_size=excluded.font_size,
+                       font_family=excluded.font_family,
+                       border_color=excluded.border_color,
+                       border_width=excluded.border_width,
+                       label_theme=excluded.label_theme,
+                       element_order=excluded.element_order,
+                       visible_elements=excluded.visible_elements,
+                       sale_badge=excluded.sale_badge,
                        updated_at=datetime('now')''',
-                (bg_color, text_color, price_color, font_size),
+                (bg_color, text_color, price_color, font_size,
+                 ff, border_color, border_width, label_theme,
+                 element_order, visible_elements, sale_badge),
             )
         else:
             cursor.execute(
                 '''INSERT INTO org_label_settings
-                       (id, bg_color, text_color, price_color, logo_path, font_size)
-                   VALUES (1, ?, ?, ?, ?, ?)
+                       (id, bg_color, text_color, price_color, logo_path, font_size,
+                        font_family, border_color, border_width, label_theme,
+                        element_order, visible_elements, sale_badge)
+                   VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        bg_color=excluded.bg_color,
                        text_color=excluded.text_color,
                        price_color=excluded.price_color,
                        logo_path=excluded.logo_path,
                        font_size=excluded.font_size,
+                       font_family=excluded.font_family,
+                       border_color=excluded.border_color,
+                       border_width=excluded.border_width,
+                       label_theme=excluded.label_theme,
+                       element_order=excluded.element_order,
+                       visible_elements=excluded.visible_elements,
+                       sale_badge=excluded.sale_badge,
                        updated_at=datetime('now')''',
-                (bg_color, text_color, price_color, logo_path, font_size),
+                (bg_color, text_color, price_color, logo_path, font_size,
+                 ff, border_color, border_width, label_theme,
+                 element_order, visible_elements, sale_badge),
             )
         conn.commit()
         conn.close()

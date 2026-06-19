@@ -1,1227 +1,854 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ценники — DailySales</title>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+{% extends "base.html" %}
+{% block title %}Ценник — {{ labels[0].name if labels else 'Ценники' }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <style>
-/* ── Reset ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: Arial, Helvetica, sans-serif; background: #f0f0f0; }
-
-/* ── CSS vars — layout (updated by Alpine) + design (updated by JS/server) ── */
+/* ───── CSS переменные дизайна ──────────────────────────────────────────── */
 :root {
-    /* Layout vars — Alpine labelSizer() writes these */
-    --sheet-cols: repeat(4, 1fr);
-    --lbl-w: 58mm;
-    --lbl-h: 40mm;
-    --lbl-pad: 3mm 3mm 2mm;
-    --lbl-gap: 4mm;
-    --lbl-name-size: 7.5pt;
-    --lbl-price-size: 16pt;
-    --lbl-currency-size: 10pt;
-    --lbl-qr-size: 22mm;
-    --lbl-article-size: 6pt;
-    /* Design vars — set from saved org settings */
-    --label-bg:    {{ label_settings.bg_color }};
-    --label-text:  {{ label_settings.text_color }};
-    --label-price: {{ label_settings.price_color }};
+  --lbl-bg:     {{ label_settings.bg_color    | default('#ffffff') }};
+  --lbl-text:   {{ label_settings.text_color  | default('#000000') }};
+  --lbl-price:  {{ label_settings.price_color | default('#000000') }};
+  --lbl-border: {{ label_settings.border_color| default('#cccccc') }};
+  --lbl-bw:     {{ label_settings.border_width| default('1') }}px;
+  --lbl-font:   {{ label_settings.font_family | default('Arial, Helvetica, sans-serif') }};
 }
+{% if label_settings.label_theme == 'dark' %}
+:root { --lbl-bg:#1a1a2e; --lbl-text:#e2e2e2; --lbl-border:#444; }
+{% elif label_settings.label_theme == 'accent' %}
+:root { --lbl-bg:#fff8e7; --lbl-border:#f0a500; }
+{% elif label_settings.label_theme == 'minimal' %}
+:root { --lbl-bw:0px; }
+{% endif %}
 
-/* ── Screen toolbar ── */
-.toolbar {
-    display: flex; align-items: center; justify-content: space-between;
-    flex-wrap: wrap; gap: 10px; padding: 10px 16px;
-    background: #1e293b; color: #e2e8f0;
-    position: sticky; top: 0; z-index: 10;
-}
-.toolbar h1 { font-size: 14px; font-weight: 600; }
-.toolbar .meta { font-size: 12px; color: #94a3b8; }
-.toolbar-left  { display: flex; align-items: center; gap: 10px; }
-.toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* ───── Label grid ───────────────────────────────────────────────────────── */
+.label-wrap { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-start; padding:4px; }
 
-.btn-print {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: #2563eb; color: #fff; border: none; cursor: pointer;
-    font-size: 13px; font-weight: 600; padding: 7px 16px;
-    border-radius: 8px; text-decoration: none; transition: background .15s;
-    white-space: nowrap;
-}
-.btn-print:hover { background: #1d4ed8; }
-.btn-pdf {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: #16a34a; color: #fff; border: none; cursor: pointer;
-    font-size: 13px; font-weight: 600; padding: 7px 16px;
-    border-radius: 8px; text-decoration: none; transition: background .15s;
-    white-space: nowrap;
-}
-.btn-pdf:hover { background: #15803d; }
-.btn-pdf:disabled { background: #6b7280; cursor: not-allowed; }
-.btn-back {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: #94a3b8; border: 1px solid #334155; background: transparent;
-    cursor: pointer; font-size: 12px; padding: 6px 12px;
-    border-radius: 8px; text-decoration: none; transition: color .15s;
-    white-space: nowrap;
-}
-.btn-back:hover { color: #e2e8f0; border-color: #64748b; }
-
-/* ── Size switcher ── */
-.size-switcher {
-    display: inline-flex; align-items: center; gap: 2px;
-    background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px;
-}
-.size-btn {
-    font-size: 11px; font-weight: 600; padding: 4px 10px;
-    border: none; border-radius: 6px; cursor: pointer;
-    transition: background .12s, color .12s;
-    color: #94a3b8; background: transparent;
-    white-space: nowrap;
-}
-.size-btn.active { background: #2563eb; color: #fff; }
-.size-btn:not(.active):hover { color: #e2e8f0; }
-
-/* ── Design button ── */
-.btn-design {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: #e2e8f0; border: 1px solid #475569; background: #334155;
-    cursor: pointer; font-size: 12px; padding: 6px 12px;
-    border-radius: 8px; transition: background .15s; white-space: nowrap;
-}
-.btn-design:hover { background: #475569; }
-
-/* ── Design panel ── */
-.design-panel {
-    background: #0f172a;
-    border-bottom: 1px solid #1e293b;
-    padding: 16px 20px;
-    display: none;
-}
-.design-panel.open { display: block; }
-.design-panel h2 { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 14px; }
-.design-grid { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; }
-.design-field { display: flex; flex-direction: column; gap: 4px; }
-.design-field label { font-size: 11px; color: #94a3b8; }
-.design-field input[type=color] {
-    width: 52px; height: 32px; border: 1px solid #334155;
-    border-radius: 6px; cursor: pointer; padding: 2px; background: #1e293b;
-}
-.design-field select {
-    background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
-    border-radius: 6px; padding: 5px 8px; font-size: 12px; cursor: pointer;
-}
-.logo-preview { max-height: 36px; max-width: 80px; object-fit: contain; border-radius: 4px; }
-.logo-clear {
-    background: none; border: none; color: #ef4444; font-size: 11px;
-    cursor: pointer; padding: 2px 0; text-decoration: underline;
-}
-.design-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.btn-save-design {
-    background: #2563eb; color: #fff; border: none; cursor: pointer;
-    font-size: 12px; font-weight: 600; padding: 7px 18px;
-    border-radius: 8px; transition: background .15s;
-}
-.btn-save-design:hover { background: #1d4ed8; }
-.btn-save-design:disabled { background: #475569; cursor: not-allowed; }
-.btn-reset-design {
-    background: none; border: 1px solid #475569; color: #94a3b8;
-    cursor: pointer; font-size: 12px; padding: 7px 14px;
-    border-radius: 8px; transition: color .15s, border-color .15s;
-    white-space: nowrap;
-}
-.btn-reset-design:hover { color: #e2e8f0; border-color: #94a3b8; }
-.save-status { font-size: 11px; color: #4ade80; display: none; }
-
-/* ── Org logo section ── */
-.org-logo-section {
-    border-top: 1px solid #1e293b;
-    padding-top: 14px;
-    margin-top: 14px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px 24px;
-    align-items: flex-end;
-}
-.org-logo-section h3 { width: 100%; font-size: 11px; font-weight: 600; color: #64748b; margin: 0; text-transform: uppercase; letter-spacing: .5px; }
-.btn-use-org-logo {
-    display: inline-flex; align-items: center; gap: 5px;
-    background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb;
-    cursor: pointer; font-size: 11px; font-weight: 600; padding: 5px 11px;
-    border-radius: 7px; transition: background .15s; white-space: nowrap;
-}
-.btn-use-org-logo:hover { background: #1e40af; color: #bfdbfe; }
-.btn-use-org-logo:disabled { opacity: .45; cursor: not-allowed; }
-.org-logo-preview { max-height: 36px; max-width: 80px; object-fit: contain; border-radius: 4px; }
-.org-logo-note { font-size: 10px; color: #64748b; }
-
-/* ── A4 sheet ── */
-.sheet {
-    width: 210mm;
-    min-height: 297mm;
-    margin: 20px auto;
-    padding: 10mm;
-    background: #fff;
-    box-shadow: 0 2px 20px rgba(0,0,0,.15);
-    display: grid;
-    grid-template-columns: var(--sheet-cols);
-    grid-auto-rows: min-content;
-    gap: var(--lbl-gap);
-    align-content: start;
-}
-
-/* ── Single label ── */
 .label {
-    width: var(--lbl-w);
-    min-height: var(--lbl-h);
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    padding: var(--lbl-pad);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1.5mm;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    background: var(--label-bg);
+  position:relative; box-sizing:border-box;
+  width:220px; min-height:152px;
+  padding:8px 10px;
+  background:var(--lbl-bg); color:var(--lbl-text);
+  border:var(--lbl-bw) solid var(--lbl-border);
+  border-radius:8px;
+  font-family:var(--lbl-font);
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  overflow:hidden; break-inside:avoid; page-break-inside:avoid;
 }
+.label.size-58x40 { width:220px; min-height:152px; }
+.label.size-40x30 { width:152px; min-height:114px; font-size:0.85em; }
+.label.size-a6    { width:397px; min-height:280px; font-size:1.1em; }
 
-.label-logo {
-    max-height: 10mm;
-    max-width: 50mm;
-    object-fit: contain;
-    image-rendering: -webkit-optimize-contrast;
+/* ───── Label blocks ─────────────────────────────────────────────────────── */
+.lbl-block { width:100%; display:flex; justify-content:center; }
+.lbl-block.hidden-elem { display:none !important; }
+
+.label-badge {
+  background:#e53935; color:#fff;
+  font-size:0.7em; font-weight:700;
+  padding:2px 10px; border-radius:4px;
+  text-align:center; width:100%;
 }
+.label-logo { max-height:36px; max-width:80%; object-fit:contain; }
+.label.size-40x30 .label-logo { max-height:26px; }
+.label.size-a6    .label-logo { max-height:52px; }
 
+.label-category {
+  font-size:0.6em; color:#888; letter-spacing:0.1em;
+  text-transform:uppercase; text-align:center;
+}
 .label-name {
-    font-size: var(--lbl-name-size);
-    font-weight: 700;
-    text-align: center;
-    line-height: 1.25;
-    color: var(--label-text);
-    word-break: break-word;
-    hyphens: auto;
-    width: 100%;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  font-size:0.82em; font-weight:700; text-align:center;
+  line-height:1.25; word-break:break-word; color:var(--lbl-text);
 }
-
 .label-price {
-    font-size: var(--lbl-price-size);
-    font-weight: 900;
-    color: var(--label-price);
-    letter-spacing: -0.5px;
-    white-space: nowrap;
+  font-size:1.4em; font-weight:900; color:var(--lbl-price);
+  text-align:center; letter-spacing:-0.5px;
 }
-.label-price .currency {
-    font-size: var(--lbl-currency-size);
-    font-weight: 600;
-    margin-left: 1px;
+.label-sep {
+  border:none; border-top:1px solid var(--lbl-border);
+  width:90%; margin:1px 0;
 }
+.label-qr { width:56px; height:56px; object-fit:contain; }
+.label.size-40x30 .label-qr { width:40px; height:40px; }
+.label.size-a6    .label-qr { width:80px; height:80px; }
 
-.label-qr {
-    width: var(--lbl-qr-size);
-    height: var(--lbl-qr-size);
-    object-fit: contain;
-    image-rendering: pixelated;
-}
+.label-barcode-svg { max-width:90%; height:36px; }
+.label.size-40x30 .label-barcode-svg { height:26px; }
+.label.size-a6    .label-barcode-svg { height:52px; }
 
 .label-article {
-    font-size: var(--lbl-article-size);
-    font-family: 'Courier New', Courier, monospace;
-    color: var(--label-text);
-    opacity: 0.55;
-    text-align: center;
-    letter-spacing: .5px;
-    word-break: break-all;
+  font-size:0.65em; color:#777; font-family:monospace;
+  text-align:center; letter-spacing:0.04em;
 }
-.label-article-dash {
-    font-size: var(--lbl-article-size);
-    color: var(--label-text);
-    opacity: 0.25;
-    text-align: center;
+.label-description {
+  font-size:0.6em; color:#888; text-align:center;
+  font-style:italic; padding:0 4px;
 }
 
-.label-sep {
-    width: 100%;
-    border: none;
-    border-top: 0.5px solid currentColor;
-    opacity: 0.2;
-    margin: 0;
+/* ───── Control panel ────────────────────────────────────────────────────── */
+.ctrl-panel {
+  background:#f8fafc; border:1px solid #e2e8f0;
+  border-radius:12px; padding:16px; margin-bottom:20px;
+}
+.dark .ctrl-panel { background:#1e293b; border-color:#334155; }
+
+.panel-tabs {
+  display:flex; gap:2px; margin-bottom:14px;
+  border-bottom:1px solid #e2e8f0; flex-wrap:wrap;
+}
+.dark .panel-tabs { border-color:#334155; }
+.tab-btn {
+  padding:6px 12px; border:none; background:transparent;
+  font-size:0.78em; font-weight:600; color:#64748b; cursor:pointer;
+  border-bottom:2px solid transparent; margin-bottom:-1px; transition:all .15s;
+  white-space:nowrap;
+}
+.tab-btn.active { color:#2563eb; border-bottom-color:#2563eb; }
+.dark .tab-btn { color:#94a3b8; }
+.dark .tab-btn.active { color:#60a5fa; border-bottom-color:#60a5fa; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+/* Elem sortable list */
+.elem-item {
+  display:flex; align-items:center; gap:8px;
+  padding:6px 8px; border-radius:6px; margin-bottom:4px;
+  background:#fff; border:1px solid #e2e8f0; cursor:default;
+}
+.dark .elem-item { background:#0f172a; border-color:#334155; }
+.elem-item .drag-handle { color:#94a3b8; cursor:grab; font-size:1.1em; }
+.elem-item label { cursor:pointer; font-size:0.82em; flex:1; }
+.elem-badge {
+  font-size:0.65em; padding:1px 5px; border-radius:3px;
+  background:#dbeafe; color:#1d4ed8;
+}
+.dark .elem-badge { background:#1e3a5f; color:#93c5fd; }
+
+/* Design controls */
+.ctrl-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media(max-width:480px){ .ctrl-grid { grid-template-columns:1fr; } }
+.ctrl-group label { display:block; font-size:0.75em; font-weight:600; color:#475569; margin-bottom:3px; }
+.dark .ctrl-group label { color:#94a3b8; }
+.ctrl-group input, .ctrl-group select {
+  width:100%; border:1px solid #e2e8f0; border-radius:6px;
+  padding:5px 8px; font-size:0.82em; background:#fff; color:#0f172a;
+}
+.dark .ctrl-group input, .dark .ctrl-group select {
+  background:#0f172a; border-color:#334155; color:#e2e8f0;
+}
+.ctrl-color { display:flex; gap:6px; align-items:center; }
+.ctrl-color input[type=color] {
+  width:36px; height:32px; padding:1px; border-radius:5px; cursor:pointer; flex-shrink:0;
+}
+.ctrl-color input[type=text] { flex:1; }
+
+/* Themes */
+.theme-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:6px; }
+.theme-btn {
+  border:2px solid transparent; border-radius:7px; padding:5px 2px;
+  cursor:pointer; text-align:center; font-size:0.72em; font-weight:700; transition:border-color .15s;
+}
+.theme-btn.sel { border-color:#2563eb; }
+.theme-standard { background:#fff; color:#111; border:2px solid #e2e8f0; }
+.theme-dark     { background:#1a1a2e; color:#eee; }
+.theme-accent   { background:#fff8e7; color:#c77a00; border:2px solid #f0a500; }
+.theme-minimal  { background:#fafafa; color:#555; border:2px solid #ddd; }
+
+/* Copies */
+.copies-row {
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:6px 8px; border-radius:8px; margin-bottom:4px;
+  background:#fff; border:1px solid #e2e8f0;
+}
+.dark .copies-row { background:#0f172a; border-color:#334155; }
+.copies-num-wrap { display:flex; align-items:center; gap:4px; }
+.copies-btn {
+  width:26px; height:26px; border:1px solid #e2e8f0; border-radius:6px;
+  background:#f1f5f9; color:#334155; font-size:1em; font-weight:700;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.dark .copies-btn { background:#1e293b; border-color:#334155; color:#e2e8f0; }
+.copies-input {
+  width:46px; border:1px solid #e2e8f0; border-radius:6px;
+  padding:3px 4px; text-align:center; font-size:0.85em;
+}
+.dark .copies-input { background:#0f172a; border-color:#334155; color:#e2e8f0; }
+
+/* Action bar */
+.action-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.btn-primary {
+  background:#2563eb; color:#fff; border:none; border-radius:8px;
+  padding:8px 16px; font-size:0.84em; font-weight:600; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
+}
+.btn-primary:hover { background:#1d4ed8; }
+.btn-secondary {
+  background:#f1f5f9; color:#334155; border:1px solid #e2e8f0;
+  border-radius:8px; padding:8px 14px; font-size:0.84em; font-weight:600; cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
+}
+.dark .btn-secondary { background:#1e293b; color:#e2e8f0; border-color:#334155; }
+.btn-secondary:hover { background:#e2e8f0; }
+.dark .btn-secondary:hover { background:#334155; }
+.btn-danger {
+  background:#fef2f2; color:#dc2626; border:1px solid #fecaca;
+  border-radius:8px; padding:7px 12px; font-size:0.8em; font-weight:600; cursor:pointer;
+}
+.btn-danger:hover { background:#fee2e2; }
+
+/* Toast */
+#lbl-toast {
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  background:#1e293b; color:#fff; padding:8px 20px; border-radius:8px;
+  font-size:0.84em; opacity:0; transition:opacity .3s; pointer-events:none; z-index:9999;
 }
 
-/* ── Font density variants (multiplied on top of Alpine layout size) ── */
-.fs-small  .label-name    { font-size: calc(var(--lbl-name-size)  * 0.8); }
-.fs-large  .label-name    { font-size: calc(var(--lbl-name-size)  * 1.25); }
-.fs-small  .label-price   { font-size: calc(var(--lbl-price-size) * 0.8); }
-.fs-large  .label-price   { font-size: calc(var(--lbl-price-size) * 1.25); }
-.fs-small  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 0.8); }
-.fs-large  .label-price .currency { font-size: calc(var(--lbl-currency-size) * 1.25); }
-
-/* ── Sheet scroll wrapper (mobile horizontal scroll) ── */
-.sheet-scroll-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 0 16px;
-}
-
-/* ── Pinch-zoom reset pill (appears when user has zoomed in) ── */
-.btn-pinch-reset {
-    position: fixed;
-    bottom: 18px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 200;
-    background: rgba(15, 23, 42, .88);
-    color: #e2e8f0;
-    border: 1px solid rgba(255,255,255,.18);
-    border-radius: 24px;
-    padding: 8px 18px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    white-space: nowrap;
-    transition: opacity .2s ease, transform .2s ease;
-    touch-action: manipulation;
-}
-.btn-pinch-reset:active { background: rgba(37, 99, 235, .85); }
-/* Only show on touch devices (mobile) */
-@media (min-width: 641px) { .btn-pinch-reset { display: none; } }
-
-/* ── Zoom-to-fit button (mobile only) ── */
-.btn-zoom-fit {
-    display: none;
-    align-items: center; gap: 5px;
-    background: #334155; color: #e2e8f0;
-    border: 1px solid #475569; cursor: pointer;
-    font-size: 12px; font-weight: 600; padding: 6px 12px;
-    border-radius: 8px; transition: background .15s; white-space: nowrap;
-}
-.btn-zoom-fit:hover { background: #475569; }
-.btn-zoom-fit.active { background: #2563eb; border-color: #2563eb; color: #fff; }
-.btn-zoom-fit.pinch-paused { opacity: .6; }
-.btn-zoom-fit.pinch-paused .zoom-fit-dot {
-    display: inline-block;
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #facc15;
-    margin-left: 4px;
-    animation: zoom-pulse .8s ease-in-out infinite;
-}
-.zoom-fit-dot { display: none; }
-@keyframes zoom-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50%       { opacity: .4; transform: scale(.6); }
-}
-
-/* ── Pinch-zoom / browser-zoom percentage badge ── */
-.zoom-pct-badge {
-    position: fixed;
-    top: 62px;
-    right: 14px;
-    z-index: 100;
-    background: rgba(15, 23, 42, .82);
-    color: #e2e8f0;
-    font-size: 13px;
-    font-weight: 700;
-    padding: 4px 11px;
-    border-radius: 20px;
-    pointer-events: none;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border: 1px solid rgba(255,255,255,.12);
-    opacity: 0;
-    transition: opacity .25s ease;
-}
-.zoom-pct-badge.visible { opacity: 1; }
-
-/* ── Mobile breakpoints ── */
-@media (max-width: 640px) {
-    /* Show zoom-fit button only on mobile */
-    .btn-zoom-fit { display: inline-flex; }
-
-    /* Hide print button on mobile */
-    .btn-print { display: none !important; }
-
-    /* Toolbar stacks: left block + two-row right block */
-    .toolbar {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-        padding: 10px 12px;
-    }
-    .toolbar-left { width: 100%; }
-    .toolbar .meta { white-space: normal; word-break: break-word; }
-
-    .toolbar-right {
-        width: 100%;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-    }
-
-    /* Size switcher takes full row */
-    .size-switcher {
-        width: 100%;
-        justify-content: flex-start;
-        overflow-x: auto;
-    }
-
-    /* Minimum touch targets for all toolbar buttons */
-    .btn-back, .btn-pdf, .btn-zoom-fit, .btn-design, .size-btn {
-        min-height: 44px;
-        min-width: 44px;
-    }
-    .btn-pdf { width: 100%; justify-content: center; }
-    .btn-design { width: 100%; justify-content: center; }
-
-    /* Row with action buttons (pdf + design + zoom) side-by-side */
-    .toolbar-actions-row {
-        display: flex;
-        gap: 6px;
-        width: 100%;
-        flex-wrap: wrap;
-    }
-    .toolbar-actions-row .btn-pdf,
-    .toolbar-actions-row .btn-zoom-fit,
-    .toolbar-actions-row .btn-design {
-        flex: 1 1 auto;
-        width: auto;
-        justify-content: center;
-    }
-
-    /* Design panel: full-width fields, touch-friendly buttons */
-    .design-field {
-        width: 100%;
-    }
-    .design-field input[type=color] {
-        width: 64px;
-        height: 44px;
-    }
-    .design-field select {
-        width: 100%;
-        padding: 10px 8px;
-        font-size: 13px;
-        min-height: 44px;
-    }
-    .logo-clear {
-        min-height: 44px;
-        min-width: 44px;
-        font-size: 13px;
-        padding: 10px 14px;
-        display: inline-flex;
-        align-items: center;
-    }
-    .btn-use-org-logo {
-        min-height: 44px;
-        font-size: 13px;
-        padding: 10px 14px;
-        white-space: normal;
-    }
-    .btn-reset-design {
-        min-height: 44px;
-        font-size: 13px;
-        padding: 10px 14px;
-    }
-    .btn-save-design {
-        min-height: 44px;
-        font-size: 13px;
-        padding: 10px 18px;
-    }
-    .design-actions {
-        flex-wrap: wrap;
-    }
-    .design-grid { gap: 12px 16px; }
-
-    /* File inputs more readable on mobile */
-    .design-field input[type=file] {
-        max-width: 100% !important;
-        font-size: 12px;
-    }
-    #orgLogoInput { max-width: 100% !important; }
-}
-
-/* ── @media print ── */
+/* Print */
 @media print {
-    body { background: #fff; }
-    .toolbar { display: none !important; }
-    .design-panel { display: none !important; }
-    .sheet {
-        width: 100%;
-        min-height: unset;
-        margin: 0;
-        padding: 5mm;
-        box-shadow: none;
-        page-break-after: auto;
-    }
-    .label {
-        border-color: #bbb;
-        page-break-inside: avoid;
-        break-inside: avoid;
-    }
-    @page {
-        size: A4 portrait;
-        margin: 5mm;
-    }
+  body, html { margin:0; padding:0; }
+  .no-print { display:none !important; }
+  #label-area { padding:4px; }
+  .label-wrap { gap:4px; padding:0; }
+  .label { break-inside:avoid; }
 }
 </style>
-</head>
+{% endblock %}
 
-<body x-data="labelSizer()" x-init="init()" x-effect="applyVars()">
-
-<!-- Screen-only toolbar -->
-<div class="toolbar">
-    <div class="toolbar-left">
-        <a href="javascript:history.back()" class="btn-back">← Назад</a>
-        <div>
-            <h1>🏷 Ценники</h1>
-            <div class="meta" x-text="metaText()"></div>
-        </div>
-    </div>
-    <div class="toolbar-right">
-        <!-- Size switcher (always its own row on mobile) -->
-        <div class="size-switcher">
-            <template x-for="s in sizes" :key="s.key">
-                <button class="size-btn" :class="size === s.key ? 'active' : ''"
-                        @click="setSize(s.key)" x-text="s.label"></button>
-            </template>
-        </div>
-        <!-- Actions row: PDF, Design, Zoom-fit, Print -->
-        <div class="toolbar-actions-row">
-            {% if pdf_url %}
-            <a :href="'{{ pdf_url }}&size=' + size" class="btn-pdf" download
-               title="Сохраните файл и откройте на ПК для печати">⬇ Скачать PDF</a>
-            {% elif bulk_product_ids %}
-            <button class="btn-pdf" @click="downloadBulkPdf($el)"
-                    title="Сохраните файл и откройте на ПК для печати">⬇ Скачать PDF</button>
-            {% endif %}
-            {% if is_owner %}
-            <button class="btn-design" onclick="toggleDesignPanel()">🎨 Дизайн</button>
-            {% endif %}
-            <!-- Zoom-to-fit: visible only on mobile via CSS -->
-            <button class="btn-zoom-fit" :class="{ active: zoomed, 'pinch-paused': pinchActive }" @click="toggleZoom()" :title="pinchActive ? 'Fit-zoom приостановлен — идёт pinch-zoom' : 'Вписать в экран'">↔ Вписать<span class="zoom-fit-dot"></span></button>
-            <!-- Pinch-zoom percentage badge (mobile only, positioned fixed via CSS) -->
-            <div class="zoom-pct-badge" :class="{ visible: showZoomPct }" aria-hidden="true" x-text="zoomPct + '%'"></div>
-            <button class="btn-print" onclick="window.print()">🖨 Печать</button>
-        </div>
-    </div>
-</div>
-
-{% if is_owner %}
-<!-- Design settings panel (owner only) -->
-<div class="design-panel" id="designPanel">
-    <h2>🎨 Дизайн ценника</h2>
-    <form id="designForm" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="design-grid">
-            <div class="design-field">
-                <label>Фон ценника</label>
-                <input type="color" name="bg_color" id="bgColor" value="{{ label_settings.bg_color }}"
-                       oninput="applyDesignPreview()">
-            </div>
-            <div class="design-field">
-                <label>Цвет текста</label>
-                <input type="color" name="text_color" id="textColor" value="{{ label_settings.text_color }}"
-                       oninput="applyDesignPreview()">
-            </div>
-            <div class="design-field">
-                <label>Цвет цены</label>
-                <input type="color" name="price_color" id="priceColor" value="{{ label_settings.price_color }}"
-                       oninput="applyDesignPreview()">
-            </div>
-            <div class="design-field">
-                <label>Плотность текста</label>
-                <select name="font_size" id="fontSize" onchange="applyDesignPreview()">
-                    <option value="small"  {% if label_settings.font_size == 'small'  %}selected{% endif %}>Компактный</option>
-                    <option value="medium" {% if label_settings.font_size == 'medium' %}selected{% endif %}>Стандартный</option>
-                    <option value="large"  {% if label_settings.font_size == 'large'  %}selected{% endif %}>Крупный</option>
-                </select>
-            </div>
-            <div class="design-field">
-                <label>Логотип ценника</label>
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    {% if label_settings.logo_path %}
-                    <img src="{{ label_settings.logo_path }}" class="logo-preview" id="logoPreviewImg" alt="Лого">
-                    <button type="button" class="logo-clear" onclick="clearLogo()">✕ Убрать</button>
-                    {% else %}
-                    <img src="" class="logo-preview" id="logoPreviewImg" alt="" style="display:none">
-                    {% endif %}
-                    <input type="file" name="logo" id="logoInput" accept="image/*"
-                           style="font-size:11px;color:#94a3b8;max-width:160px"
-                           onchange="previewLogo(this)">
-                    <input type="hidden" name="clear_logo" id="clearLogoFlag" value="">
-                    {% if label_settings.org_logo_path and not label_settings.logo_path %}
-                    <span class="org-logo-note">↳ используется лого организации</span>
-                    {% endif %}
-                    {% if label_settings.org_logo_path %}
-                    <button type="button" class="btn-use-org-logo" onclick="useOrgLogo()"
-                            title="Установить лого организации как логотип ценника">
-                        🏢 Использовать лого организации
-                    </button>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        <div class="design-actions">
-            <button type="button" class="btn-save-design" id="saveBtn" onclick="saveDesign()">
-                💾 Сохранить дизайн
-            </button>
-            <button type="button" class="btn-reset-design" onclick="resetDesign()">
-                ↺ Сбросить к стандартному
-            </button>
-            <span class="save-status" id="saveStatus">✓ Сохранено</span>
-        </div>
-    </form>
-
-    <!-- Org logo management (separate form) -->
-    <div class="org-logo-section">
-        <h3>🏢 Лого организации</h3>
-        <div class="design-field">
-            <label>Текущее лого</label>
-            <div style="display:flex;align-items:center;gap:8px;">
-                {% if label_settings.org_logo_path %}
-                <img src="{{ label_settings.org_logo_path }}" class="org-logo-preview" id="orgLogoPreviewImg" alt="Лого орг.">
-                <button type="button" class="logo-clear" onclick="clearOrgLogo()">✕ Удалить</button>
-                {% else %}
-                <img src="" class="org-logo-preview" id="orgLogoPreviewImg" alt="" style="display:none">
-                <span class="org-logo-note">Не задано</span>
-                {% endif %}
-            </div>
-        </div>
-        <div class="design-field">
-            <label>Загрузить новое</label>
-            <input type="file" id="orgLogoInput" accept="image/*"
-                   style="font-size:11px;color:#94a3b8;max-width:160px"
-                   onchange="uploadOrgLogo(this)">
-        </div>
-        <span class="org-logo-note" style="width:100%">Автоматически появляется на ценниках, если логотип ценника не задан.</span>
-    </div>
-</div>
+{% block breadcrumb %}
+<a href="/products" class="text-slate-400 text-xs hover:text-blue-500">Товары</a>
+<span class="text-slate-300 text-xs">/</span>
+{% if single_product_id %}
+<a href="/products/{{ single_product_id }}"
+   class="text-slate-400 text-xs hover:text-blue-500">Карточка</a>
+<span class="text-slate-300 text-xs">/</span>
 {% endif %}
+<span class="font-medium text-slate-700 dark:text-slate-300 text-sm">Ценник</span>
+{% endblock %}
 
-<!-- Pinch-zoom reset pill — visible on mobile when user has zoomed in -->
-<button class="btn-pinch-reset" x-show="userZoomed" x-transition @click="resetPinch()"
-        aria-label="Сбросить масштаб">
-    ✕ Сбросить масштаб
-</button>
+{% block content %}
+{% set ls = label_settings %}
 
-<!-- A4 sheet with labels grid -->
-<div class="sheet-scroll-wrap" id="sheetScrollWrap">
-<div class="sheet" id="labelSheet">
-{% for lb in labels %}
-<div class="label">
-    {% if effective_logo %}
-    <img class="label-logo" src="{{ effective_logo }}" alt="Лого">
-    {% else %}
-    <img class="label-logo" src="" alt="" style="display:none">
-    {% endif %}
+{# ── Панель управления (скрыта при печати) ────────────────────────────── #}
+<div class="no-print" x-data="labelDesigner()" x-init="init()">
 
-    <div class="label-name">{{ lb.name }}</div>
-    <div class="label-price">
-        {{ "{:,}".format(lb.price).replace(",", "\u202f") }}<span class="currency">₽</span>
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100">🏷 Конструктор ценников</h1>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+        {{ labels|length }} позиц{{ 'ий' if labels|length != 1 else 'ия' }}
+        · изменения применяются мгновенно
+      </p>
     </div>
-    <hr class="label-sep">
-    {% if lb.qr_b64 %}
-    <img class="label-qr" src="data:image/png;base64,{{ lb.qr_b64 }}" alt="QR {{ lb.article }}">
+    <a href="/products" class="btn-secondary text-xs py-1.5 px-3">← Товары</a>
+  </div>
+
+  {# Action bar #}
+  <div class="action-bar">
+    <button onclick="window.print()" class="btn-primary">🖨 Печать</button>
+    <button @click="downloadPdf()" class="btn-secondary">📄 PDF</button>
+    <button @click="copyLink()" class="btn-secondary">🔗 Ссылка</button>
+    {% if is_owner %}
+    <button @click="saveDesign()" class="btn-primary">💾 Сохранить дизайн</button>
     {% endif %}
+  </div>
+
+  {# ── Панель вкладок ── #}
+  <div class="ctrl-panel">
+    <div class="panel-tabs">
+      <button class="tab-btn active" @click="setTab('size')">📐 Размер</button>
+      <button class="tab-btn" @click="setTab('elems')">🔲 Элементы</button>
+      {% if is_owner %}
+      <button class="tab-btn" @click="setTab('design')">🎨 Дизайн</button>
+      <button class="tab-btn" @click="setTab('copies')">📦 Копии</button>
+      {% if trade_networks %}
+      <button class="tab-btn" @click="setTab('network')">🏪 Сеть</button>
+      {% endif %}
+      {% endif %}
+    </div>
+
+    {# ── Размер ── #}
+    <div class="tab-panel active" id="tab-size">
+      <div class="flex gap-4 flex-wrap">
+        {% for sz, label, hint in [('58x40','58×40 мм','Стандарт'),('40x30','40×30 мм','Маленький'),('a6','A6','Большой')] %}
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="radio" name="label-size" value="{{ sz }}"
+                 x-model="curSize" @change="applySize()"
+                 {{ 'checked' if initial_size == sz else '' }}>
+          <span class="text-sm font-semibold">{{ label }}</span>
+          <span class="text-xs text-slate-400">{{ hint }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ── Элементы ── #}
+    <div class="tab-panel" id="tab-elems">
+      <p class="text-xs text-slate-400 mb-3">
+        ⠿ Перетащите для изменения порядка. Отметьте нужные элементы.
+      </p>
+      <div id="elem-sortable">
+        <template x-for="key in elemOrder" :key="key">
+          <div class="elem-item" :data-key="key">
+            <span class="drag-handle select-none">⠿</span>
+            <input type="checkbox"
+                   :id="'chk-'+key"
+                   :checked="!!visElems[key]"
+                   @change="toggleElem(key, $event.target.checked)">
+            <label :for="'chk-'+key" x-text="ELEM_LABELS[key]||key"></label>
+            <span class="elem-badge" x-show="NEW_ELEMS[key]"
+                  x-text="key==='barcode'?'Code-128':'NEW'"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    {% if is_owner %}
+    {# ── Дизайн ── #}
+    <div class="tab-panel" id="tab-design">
+      <div class="ctrl-grid">
+        <div class="ctrl-group">
+          <label>Фон ценника</label>
+          <div class="ctrl-color">
+            <input type="color" x-model="d.bg_color" @input="applyDesign()">
+            <input type="text"  x-model="d.bg_color" @input="applyDesign()" maxlength="7" placeholder="#ffffff">
+          </div>
+        </div>
+        <div class="ctrl-group">
+          <label>Цвет текста</label>
+          <div class="ctrl-color">
+            <input type="color" x-model="d.text_color" @input="applyDesign()">
+            <input type="text"  x-model="d.text_color" @input="applyDesign()" maxlength="7">
+          </div>
+        </div>
+        <div class="ctrl-group">
+          <label>Цвет цены</label>
+          <div class="ctrl-color">
+            <input type="color" x-model="d.price_color" @input="applyDesign()">
+            <input type="text"  x-model="d.price_color" @input="applyDesign()" maxlength="7">
+          </div>
+        </div>
+        <div class="ctrl-group">
+          <label>Рамка — цвет</label>
+          <div class="ctrl-color">
+            <input type="color" x-model="d.border_color" @input="applyDesign()">
+            <input type="text"  x-model="d.border_color" @input="applyDesign()" maxlength="7">
+          </div>
+        </div>
+        <div class="ctrl-group">
+          <label>Рамка — толщина (<span x-text="d.border_width"></span> px)</label>
+          <input type="range" min="0" max="5" step="1"
+                 x-model="d.border_width" @input="applyDesign()">
+        </div>
+        <div class="ctrl-group">
+          <label>Размер шрифта</label>
+          <select x-model="d.font_size" @change="applyDesign()">
+            <option value="small">Маленький</option>
+            <option value="medium">Средний</option>
+            <option value="large">Большой</option>
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label>Гарнитура</label>
+          <select x-model="d.font_family" @change="applyDesign()">
+            <option value="sans">Без засечек (Arial)</option>
+            <option value="serif">С засечками (Georgia)</option>
+            <option value="mono">Моноширинный (Courier)</option>
+            <option value="rounded">Округлый (Trebuchet)</option>
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label>Значок акции / скидки</label>
+          <input type="text" x-model="d.sale_badge" @input="applyDesign()"
+                 maxlength="30" placeholder="напр. СКИДКА 20%">
+        </div>
+      </div>
+
+      {# Темы #}
+      <div class="mt-4">
+        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Готовые темы</p>
+        <div class="theme-grid">
+          <button @click="applyTheme('standard')"
+                  :class="['theme-btn theme-standard', d.theme==='standard' && 'sel']">Стандарт</button>
+          <button @click="applyTheme('dark')"
+                  :class="['theme-btn theme-dark', d.theme==='dark' && 'sel']">Тёмная</button>
+          <button @click="applyTheme('accent')"
+                  :class="['theme-btn theme-accent', d.theme==='accent' && 'sel']">Акцент</button>
+          <button @click="applyTheme('minimal')"
+                  :class="['theme-btn theme-minimal', d.theme==='minimal' && 'sel']">Минимал</button>
+        </div>
+      </div>
+
+      {# Логотип #}
+      <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Логотип на ценнике</p>
+        <div class="flex gap-2 items-center flex-wrap">
+          {% if effective_logo %}
+          <img src="{{ effective_logo }}" alt="Логотип"
+               class="h-8 rounded border border-slate-200 dark:border-slate-600">
+          <button type="button" class="btn-danger" @click="clearLogo()">× Удалить</button>
+          {% endif %}
+          <label class="btn-secondary cursor-pointer">
+            📁 {{ 'Заменить' if effective_logo else 'Загрузить' }}
+            <input type="file" accept="image/*" class="hidden"
+                   @change="uploadLogo($event)">
+          </label>
+        </div>
+      </div>
+    </div>
+
+    {# ── Копии ── #}
+    <div class="tab-panel" id="tab-copies">
+      <p class="text-xs text-slate-400 mb-3">
+        Укажите количество копий ценника для каждого товара.
+      </p>
+      <div id="copies-list">
+        <template x-for="lb in labelsData" :key="lb.id">
+          <div class="copies-row">
+            <span class="text-sm truncate max-w-[55%]" x-text="lb.name"></span>
+            <div class="copies-num-wrap">
+              <button class="copies-btn" @click="lb.copies=Math.max(1,lb.copies-1); renderCopies()">−</button>
+              <input type="number" min="1" max="99"
+                     x-model.number="lb.copies"
+                     @change="lb.copies=Math.max(1,Math.min(99,lb.copies)); renderCopies()"
+                     class="copies-input">
+              <button class="copies-btn" @click="lb.copies=Math.min(99,lb.copies+1); renderCopies()">+</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button @click="allCopies(1)" class="btn-secondary text-xs">Все × 1</button>
+        <button @click="allCopies(2)" class="btn-secondary text-xs">Все × 2</button>
+        <button @click="allCopies(5)" class="btn-secondary text-xs">Все × 5</button>
+      </div>
+    </div>
+
+    {% if trade_networks %}
+    {# ── Торговая сеть ── #}
+    <div class="tab-panel" id="tab-network">
+      <p class="text-xs text-slate-400 mb-3">
+        Выберите сеть — подставятся её артикулы и штрих-коды.
+      </p>
+      <div class="flex gap-2 flex-wrap">
+        <a href="?{% if single_product_id %}{% else %}{% endif %}"
+           class="btn-secondary text-xs {{ 'ring-2 ring-blue-500' if not selected_network else '' }}">
+          Базовые коды
+        </a>
+        {% for tn in trade_networks %}
+        <a href="?network={{ tn | urlencode }}"
+           class="btn-secondary text-xs {{ 'ring-2 ring-blue-500' if selected_network == tn else '' }}">
+          {{ tn }}
+        </a>
+        {% endfor %}
+      </div>
+      {% if selected_network %}
+      <p class="mt-2 text-xs text-blue-600 dark:text-blue-400">
+        ✓ Коды для сети: <strong>{{ selected_network }}</strong>
+      </p>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}{# is_owner #}
+
+  </div>{# /ctrl-panel #}
+</div>{# /x-data #}
+
+{# ── Область ценников ──────────────────────────────────────────────────── #}
+<div id="label-area">
+<div class="label-wrap" id="label-wrap">
+{% for lb in labels %}
+{% set n_copies = lb.copies | default(1) %}
+{% for _ci in range(n_copies) %}
+<div class="label size-{{ initial_size }}" data-id="{{ lb.id }}" data-copies="{{ n_copies }}">
+
+  <div class="lbl-block" data-block="badge">
+    <div class="label-badge"
+         style="{{ 'display:none' if not ls.sale_badge else '' }}">{{ ls.sale_badge or '' }}</div>
+  </div>
+
+  <div class="lbl-block" data-block="logo">
+    {% if effective_logo %}
+    <img src="{{ effective_logo }}" alt="Лого" class="label-logo">
+    {% endif %}
+  </div>
+
+  <div class="lbl-block" data-block="category">
+    {% if lb.category %}
+    <div class="label-category">{{ lb.category }}</div>
+    {% endif %}
+  </div>
+
+  <div class="lbl-block" data-block="name">
+    <div class="label-name">{{ lb.name }}</div>
+  </div>
+
+  <div class="lbl-block" data-block="price">
+    <div class="label-price">{{ '{:,}'.format(lb.price).replace(',', '\u202f') }} ₽</div>
+  </div>
+
+  <div class="lbl-block" data-block="sep">
+    <hr class="label-sep">
+  </div>
+
+  <div class="lbl-block" data-block="qr">
+    {% if lb.qr_b64 %}
+    <img src="data:image/png;base64,{{ lb.qr_b64 }}" alt="QR" class="label-qr">
+    {% endif %}
+  </div>
+
+  <div class="lbl-block" data-block="barcode">
+    {% if lb.barcode or lb.article %}
+    <svg class="label-barcode-svg"
+         data-barcode="{{ lb.barcode or lb.article }}"></svg>
+    {% endif %}
+  </div>
+
+  <div class="lbl-block" data-block="article">
     {% if lb.article %}
     <div class="label-article">{{ lb.article }}</div>
+    {% elif lb.barcode %}
+    <div class="label-article">{{ lb.barcode }}</div>
     {% else %}
-    <div class="label-article-dash">— артикул не задан —</div>
+    <div class="label-article" style="color:#ccc">— артикул не задан —</div>
     {% endif %}
+  </div>
+
+  <div class="lbl-block" data-block="description">
+    {% if lb.description %}
+    <div class="label-description">{{ lb.description }}</div>
+    {% endif %}
+  </div>
+
 </div>
-{% endfor %}
+{% endfor %}{# copies #}
+{% endfor %}{# labels #}
 </div>
 </div>
 
-<!-- Alpine: label size switcher -->
+<div id="lbl-toast"></div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
-var _BULK_IDS = {{ (bulk_product_ids or []) | tojson }};
-var _CSRF = "{{ csrf_token_for(request) }}";
+/* ─── Данные из сервера ─────────────────────────────────────────────────── */
+const CSRF   = {{ csrf_token | tojson }};
+const IS_OWN = {{ 'true' if is_owner else 'false' }};
+const BULK   = {{ (bulk_product_ids | default([])) | tojson }};
+const SING   = {{ (single_product_id | default(None)) | tojson }};
+const NET    = {{ (selected_network  | default(''))  | tojson }};
 
-function labelSizer() {
-    const SIZES = [
-        {
-            key: '58x40', label: '58×40 мм', cols: 4,
-            vars: {
-                '--sheet-cols': 'repeat(4, 1fr)',
-                '--lbl-w': '58mm', '--lbl-h': '40mm',
-                '--lbl-pad': '3mm 3mm 2mm', '--lbl-gap': '4mm',
-                '--lbl-name-size': '7.5pt', '--lbl-price-size': '16pt',
-                '--lbl-currency-size': '10pt', '--lbl-qr-size': '22mm',
-                '--lbl-article-size': '6pt',
-            }
-        },
-        {
-            key: '40x30', label: '40×30 мм', cols: 4,
-            vars: {
-                '--sheet-cols': 'repeat(4, 1fr)',
-                '--lbl-w': '40mm', '--lbl-h': '30mm',
-                '--lbl-pad': '2mm 2mm 1.5mm', '--lbl-gap': '3mm',
-                '--lbl-name-size': '6pt', '--lbl-price-size': '11pt',
-                '--lbl-currency-size': '7pt', '--lbl-qr-size': '14mm',
-                '--lbl-article-size': '5pt',
-            }
-        },
-        {
-            key: 'a6', label: 'A6', cols: 2,
-            vars: {
-                '--sheet-cols': 'repeat(2, 1fr)',
-                '--lbl-w': '100%', '--lbl-h': '74mm',
-                '--lbl-pad': '5mm 5mm 4mm', '--lbl-gap': '5mm',
-                '--lbl-name-size': '11pt', '--lbl-price-size': '26pt',
-                '--lbl-currency-size': '15pt', '--lbl-qr-size': '34mm',
-                '--lbl-article-size': '8pt',
-            }
-        },
-    ];
+/* initial design from server */
+const D_INIT = {
+  bg_color:     {{ ls.bg_color     | tojson }},
+  text_color:   {{ ls.text_color   | tojson }},
+  price_color:  {{ ls.price_color  | tojson }},
+  border_color: {{ ls.border_color | tojson }},
+  border_width: String({{ ls.border_width | tojson }}),
+  font_size:    {{ ls.font_size    | tojson }},
+  sale_badge:   {{ ls.sale_badge   | tojson }},
+  font_family:  'sans',
+  theme:        {{ ls.label_theme  | tojson }},
+};
+/* reverse-map font CSS → key */
+(function(){
+  const ff = {{ ls.font_family | tojson }};
+  if(ff.includes('Georgia'))        D_INIT.font_family='serif';
+  else if(ff.includes('Courier'))   D_INIT.font_family='mono';
+  else if(ff.includes('Trebuchet')) D_INIT.font_family='rounded';
+  else                              D_INIT.font_family='sans';
+})();
 
-    return {
-        sizes: SIZES,
-        size: new URLSearchParams(location.search).get('size') || '{{ initial_size | default("58x40") }}',
-        zoomed: false,
-        pinchActive: false,
-        zoomPct: 100,
-        showZoomPct: false,
-        userZoomed: false,
-        _upScale: 1,
-        _upTx: 0,
-        _upTy: 0,
+const VIS_INIT = (function(){
+  try { return {{ (ls.visible_elements | tojson) if ls.visible_elements is mapping else '{}' }}; }
+  catch(e){ return {}; }
+})();
+const ORD_INIT = (function(){
+  try {
+    const o = {{ (ls.element_order | tojson) if ls.element_order is iterable and ls.element_order is not string else '[]' }};
+    return Array.isArray(o) && o.length ? o : null;
+  } catch(e){ return null; }
+})();
 
-        init() {
-            const saved = localStorage.getItem('ds_label_size');
-            const urlSize = new URLSearchParams(location.search).get('size');
-            if (!urlSize && saved && SIZES.some(s => s.key === saved)) {
-                this.size = saved;
-            }
-            /* Apply initial font-density class from saved design setting */
-            var fs = document.getElementById('fontSize') ? document.getElementById('fontSize').value : 'medium';
-            var sheet = document.getElementById('labelSheet');
-            if (sheet && fs !== 'medium') sheet.classList.add('fs-' + fs);
-            /* Auto-fit to viewport on mobile so the sheet is legible on first load */
-            if (window.innerWidth <= 640) {
-                this.$nextTick(() => this.toggleZoom());
-            }
-            /* Re-apply zoom when label size changes so fit stays active */
-            this.$watch('size', () => {
-                if (this.zoomed) {
-                    this.$nextTick(() => this._applyZoom());
-                }
-            });
+const DEFAULT_ORDER = ['logo','badge','name','price','sep','qr','barcode','article','category','description'];
+const DEFAULT_VIS   = {
+  logo:true, badge:false, name:true, price:true, sep:true,
+  qr:true, barcode:false, article:true, category:false, description:false
+};
+const ELEM_LABELS = {
+  logo:'🖼 Логотип', badge:'🔥 Значок акции', name:'📦 Название',
+  price:'💰 Цена', sep:'— Разделитель', qr:'⬛ QR-код',
+  barcode:'📊 Штрих-код', article:'🏷 Артикул',
+  category:'🗂 Категория', description:'📝 Описание'
+};
+const NEW_ELEMS = { badge:true, barcode:true, category:true, description:true };
 
-            /*
-             * Resize / rotation / pinch-zoom handling.
-             *
-             * Problem: window.innerWidth on mobile reflects the VISUAL viewport
-             * (shrinks when the user pinch-zooms), while our fit-factor must
-             * always be based on the LAYOUT viewport (clientWidth).  If we
-             * blindly call _applyZoom() during a pinch, the two zoom levels
-             * fight each other and produce unexpected results on rotation.
-             *
-             * Strategy:
-             *  1. Always use document.documentElement.clientWidth in _applyZoom
-             *     so pinch-zoom never distorts the fit factor.
-             *  2. Track whether the user is actively pinch-zooming via the
-             *     VisualViewport API.  Suppress auto-refit during a pinch so
-             *     the browser's own zoom gesture is not overridden.
-             *  3. On rotation (clientWidth changes, even while pinch-zoomed)
-             *     always refit — the sheet must adapt to the new orientation.
-             *  4. When the pinch returns to scale ≈ 1, refit once to snap back.
-             */
-            let _rzTimer = null;
-            let _pinchActive = false;
-            let _pctFadeTimer = null;
-            const _initialDPR = window.devicePixelRatio || 1;
+const LABELS_RAW = [
+  {% for lb in labels %}{"id":{{ lb.id }},"name":{{ lb.name|tojson }},"copies":{{ lb.copies|default(1) }}}{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
 
-            const scheduleRefit = () => {
-                if (!this.zoomed) return;
-                clearTimeout(_rzTimer);
-                _rzTimer = setTimeout(() => this._applyZoom(), 100);
-            };
+const FF_MAP = {
+  sans:    'Arial, Helvetica, sans-serif',
+  serif:   "Georgia, 'Times New Roman', serif",
+  mono:    "'Courier New', Courier, monospace",
+  rounded: "'Trebuchet MS', Verdana, sans-serif",
+};
+const FS_MAP = { small:0.85, medium:1, large:1.15 };
 
-            const showZoomBadge = (scale) => {
-                this.zoomPct = Math.round(scale * 100);
-                this.showZoomPct = true;
-                clearTimeout(_pctFadeTimer);
-            };
+/* ─── Alpine component ──────────────────────────────────────────────────── */
+function labelDesigner() {
+  return {
+    curSize:    {{ initial_size | tojson }},
+    d:          Object.assign({}, D_INIT),
+    elemOrder:  ORD_INIT ? [...ORD_INIT] : [...DEFAULT_ORDER],
+    visElems:   Object.assign({}, DEFAULT_VIS, VIS_INIT),
+    labelsData: LABELS_RAW.map(l => Object.assign({},l)),
+    ELEM_LABELS,
+    NEW_ELEMS,
 
-            const hideZoomBadgeDelayed = () => {
-                clearTimeout(_pctFadeTimer);
-                _pctFadeTimer = setTimeout(() => { this.showZoomPct = false; }, 900);
-            };
+    init() {
+      this.$nextTick(() => {
+        this.applyVisibility();
+        this.applyOrder();
+        this.applyDesignVars();
+        this.initBarcodes();
+        this.initSortable();
+      });
+    },
 
-            /* Read the current browser zoom level relative to initial DPR */
-            const getDesktopZoomScale = () => (window.devicePixelRatio || 1) / _initialDPR;
+    /* ── Tabs ── */
+    setTab(name) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      const panel = document.getElementById('tab-'+name);
+      if(panel) panel.classList.add('active');
+      /* find matching button by text prefix */
+      const prefixes = {size:'📐',elems:'🔲',design:'🎨',copies:'📦',network:'🏪'};
+      const pref = prefixes[name];
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        if(pref && b.textContent.trim().startsWith(pref)) b.classList.add('active');
+      });
+    },
 
-            if (window.visualViewport) {
-                let _lastScale = window.visualViewport.scale;
-                let _lastClientWidth = document.documentElement.clientWidth;
+    /* ── Size ── */
+    applySize() {
+      const sz = this.curSize;
+      document.querySelectorAll('.label').forEach(el => {
+        el.classList.remove('size-58x40','size-40x30','size-a6');
+        el.classList.add('size-'+sz);
+      });
+      const fd = new FormData(); fd.append('size', sz);
+      fetch('/api/label-size', {method:'POST', body:fd}).catch(()=>{});
+    },
 
-                window.visualViewport.addEventListener('resize', () => {
-                    const scale = window.visualViewport.scale;
-                    const cw = document.documentElement.clientWidth;
-                    const rotated = Math.abs(cw - _lastClientWidth) > 10;
+    /* ── Visibility ── */
+    toggleElem(key, val) {
+      this.visElems[key] = val;
+      this.applyVisibility();
+    },
+    applyVisibility() {
+      document.querySelectorAll('.label .lbl-block[data-block]').forEach(el => {
+        const key = el.dataset.block;
+        const show = this.visElems[key] !== false;
+        el.classList.toggle('hidden-elem', !show);
+      });
+    },
 
-                    _pinchActive = scale > 1.05;
-                    this.pinchActive = _pinchActive;
-
-                    /* Update zoom percentage badge */
-                    if (_pinchActive) {
-                        showZoomBadge(scale);
-                    } else if (_lastScale > 1.05) {
-                        /* Pinch just released — show final value then fade out */
-                        showZoomBadge(_lastScale);
-                        hideZoomBadgeDelayed();
-                    }
-
-                    if (rotated) {
-                        /* Orientation changed — always refit regardless of pinch */
-                        _lastClientWidth = cw;
-                        scheduleRefit();
-                    } else if (!_pinchActive && _lastScale > 1.05) {
-                        /* Pinch zoom released — snap fit back */
-                        scheduleRefit();
-                    }
-
-                    _lastScale = scale;
-                });
-            }
-
-            /* Fallback for browsers without VisualViewport: fire on layout resize only */
-            window.addEventListener('resize', () => {
-                if (_pinchActive) return;
-                scheduleRefit();
-            });
-
-            /*
-             * Desktop zoom badge — Ctrl+scroll and Ctrl+± keyboard shortcuts.
-             *
-             * The browser intercepts these before our handler so devicePixelRatio
-             * is already updated by the time our rAF callback fires.
-             */
-            const onDesktopZoom = () => {
-                requestAnimationFrame(() => {
-                    showZoomBadge(getDesktopZoomScale());
-                    hideZoomBadgeDelayed();
-                });
-            };
-
-            window.addEventListener('wheel', (e) => {
-                if (!e.ctrlKey) return;
-                onDesktopZoom();
-            }, { passive: true });
-
-            window.addEventListener('keydown', (e) => {
-                if (!e.ctrlKey) return;
-                const k = e.key;
-                if (k === '+' || k === '=' || k === '-' || k === '0') {
-                    onDesktopZoom();
-                }
-            });
-
-            /* ── Contained pinch-zoom & pan within the sheet scroll wrapper ──
-             *
-             * This intercepts 2-finger touch gestures on the sheet container and
-             * applies CSS transform scale/translate to the sheet element itself —
-             * independent of the browser's native viewport pinch-zoom.
-             * Single-finger scrolling (when not zoomed in) is passed through.
-             * When the user has zoomed in, single-finger drag also pans.
-             * Double-tap resets zoom to 1×.
-             */
-            var _wrap = document.getElementById('sheetScrollWrap');
-            if (_wrap && ('ontouchstart' in window)) {
-                var _self = this;
-                var _ptActive = false, _panActive = false;
-                var _ptDist = 0, _ptMx = 0, _ptMy = 0;
-                var _ptScale0 = 1, _ptTx0 = 0, _ptTy0 = 0;
-                var _panSX = 0, _panSY = 0, _panTx0 = 0, _panTy0 = 0;
-                var _lastTap = 0;
-
-                var _d2 = function(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); };
-
-                var _doApply = function() {
-                    if (_self.zoomed) _self._applyZoom();
-                    else _self._applyUserTransform();
-                    _self.userZoomed = _self._upScale > 1.05;
-                };
-
-                _wrap.addEventListener('touchstart', function(e) {
-                    if (e.touches.length === 2) {
-                        _ptActive = true; _panActive = false;
-                        _ptDist = _d2(e.touches[0], e.touches[1]);
-                        _ptMx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                        _ptMy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                        _ptScale0 = _self._upScale;
-                        _ptTx0 = _self._upTx;
-                        _ptTy0 = _self._upTy;
-                        e.preventDefault();
-                    } else if (e.touches.length === 1) {
-                        if (_self._upScale > 1.05) {
-                            _panActive = true;
-                            _panSX = e.touches[0].clientX; _panSY = e.touches[0].clientY;
-                            _panTx0 = _self._upTx; _panTy0 = _self._upTy;
-                        }
-                        /* Double-tap resets zoom */
-                        var now = Date.now();
-                        if (now - _lastTap < 300 && _self._upScale > 1) {
-                            _self.resetPinch();
-                            e.preventDefault();
-                        }
-                        _lastTap = now;
-                    }
-                }, { passive: false });
-
-                _wrap.addEventListener('touchmove', function(e) {
-                    if (_ptActive && e.touches.length === 2) {
-                        var d = _d2(e.touches[0], e.touches[1]);
-                        var newScale = Math.max(0.8, Math.min(5, _ptScale0 * (d / _ptDist)));
-                        /* Keep pinch midpoint fixed in screen space */
-                        _self._upTx = _ptMx - (_ptMx - _ptTx0) * (newScale / _ptScale0);
-                        _self._upTy = _ptMy - (_ptMy - _ptTy0) * (newScale / _ptScale0);
-                        _self._upScale = newScale;
-                        _doApply();
-                        e.preventDefault();
-                    } else if (_panActive && e.touches.length === 1 && _self._upScale > 1.05) {
-                        _self._upTx = _panTx0 + e.touches[0].clientX - _panSX;
-                        _self._upTy = _panTy0 + e.touches[0].clientY - _panSY;
-                        _doApply();
-                        e.preventDefault();
-                    }
-                }, { passive: false });
-
-                _wrap.addEventListener('touchend', function(e) {
-                    if (e.touches.length < 2) _ptActive = false;
-                    if (e.touches.length === 0) _panActive = false;
-                }, { passive: true });
-
-                _wrap.addEventListener('touchcancel', function() {
-                    _ptActive = false; _panActive = false;
-                }, { passive: true });
-            }
-        },
-
-        _applyZoom() {
-            var sheet = document.getElementById('labelSheet');
-            var wrap = document.getElementById('sheetScrollWrap');
-            if (!sheet) return;
-            /* Use layout-viewport width (clientWidth) — NOT window.innerWidth.
-               On mobile, innerWidth shrinks when the user pinch-zooms, which
-               would produce a wrong fit factor.  clientWidth is stable. */
-            var vw = document.documentElement.clientWidth;
-            var fit = (vw - 32) / 794;
-            var total = fit * this._upScale;
-            sheet.style.transformOrigin = '0 0';
-            sheet.style.transform = 'translate(' + this._upTx + 'px,' + this._upTy + 'px) scale(' + total + ')';
-            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - total)) + 'px';
-            if (wrap) { wrap.style.overflowX = 'hidden'; wrap.style.paddingLeft = '0'; wrap.style.paddingRight = '0'; }
-        },
-
-        _applyUserTransform() {
-            var sheet = document.getElementById('labelSheet');
-            if (!sheet) return;
-            if (this._upScale <= 1.01 && this._upTx === 0 && this._upTy === 0) return;
-            sheet.style.transformOrigin = '0 0';
-            sheet.style.transform = 'translate(' + this._upTx + 'px,' + this._upTy + 'px) scale(' + this._upScale + ')';
-            sheet.style.marginBottom = '-' + (sheet.offsetHeight * (1 - this._upScale)) + 'px';
-        },
-
-        resetPinch() {
-            this._upScale = 1; this._upTx = 0; this._upTy = 0;
-            this.userZoomed = false;
-            if (this.zoomed) {
-                this._applyZoom();
-            } else {
-                var sheet = document.getElementById('labelSheet');
-                if (sheet) { sheet.style.transform = ''; sheet.style.transformOrigin = ''; sheet.style.marginBottom = ''; }
-            }
-        },
-
-        toggleZoom() {
-            this.resetPinch();
-            this.zoomed = !this.zoomed;
-            var sheet = document.getElementById('labelSheet');
-            var wrap = document.getElementById('sheetScrollWrap');
-            if (!sheet) return;
-            if (this.zoomed) {
-                this._applyZoom();
-            } else {
-                sheet.style.transform = '';
-                sheet.style.transformOrigin = '';
-                sheet.style.marginBottom = '';
-                if (wrap) { wrap.style.overflowX = 'auto'; wrap.style.paddingLeft = ''; wrap.style.paddingRight = ''; }
-            }
-        },
-
-        get current() {
-            return this.sizes.find(s => s.key === this.size) || this.sizes[0];
-        },
-
-        metaText() {
-            const c = this.current;
-            return '{{ labels|length }} шт. · ' + c.label + ' · ' + c.cols + ' в ряд · A4';
-        },
-
-        setSize(key) {
-            this.resetPinch();
-            this.size = key;
-            localStorage.setItem('ds_label_size', key);
-            const url = new URL(location.href);
-            url.searchParams.set('size', key);
-            history.replaceState(null, '', url.toString());
-            fetch('/api/label-size', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'size=' + encodeURIComponent(key),
-                credentials: 'same-origin',
-            }).catch(() => {});
-        },
-
-        applyVars() {
-            const vars = this.current.vars;
-            const root = document.documentElement;
-            for (const [k, v] of Object.entries(vars)) {
-                root.style.setProperty(k, v);
-            }
-        },
-
-        async downloadBulkPdf(btn) {
-            if (!_BULK_IDS.length) return;
-            btn.disabled = true;
-            const orig = btn.textContent;
-            btn.textContent = '⏳ Генерация…';
-            try {
-                const resp = await fetch('/products/labels', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        product_ids: _BULK_IDS,
-                        csrf_token: _CSRF,
-                        format: 'pdf',
-                        size: this.size,
-                    })
-                });
-                if (!resp.ok) { alert('Ошибка генерации PDF'); return; }
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = 'labels.pdf';
-                document.body.appendChild(a); a.click();
-                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-            } catch(e) {
-                alert('Ошибка: ' + e.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = orig;
-            }
-        },
-    };
-}
-</script>
-
-{% if auto_print %}
-<script>
-window.addEventListener('load', function() {
-    setTimeout(function() { window.print(); }, 500);
-});
-</script>
-{% endif %}
-
-{% if is_owner %}
-<!-- Design panel JS -->
-<script>
-function toggleDesignPanel() {
-    document.getElementById('designPanel').classList.toggle('open');
-}
-
-if (new URLSearchParams(location.search).get('design') === '1') {
-    document.addEventListener('DOMContentLoaded', function() {
-        document.getElementById('designPanel').classList.add('open');
-    });
-}
-
-function applyDesignPreview() {
-    var root = document.documentElement;
-    root.style.setProperty('--label-bg',    document.getElementById('bgColor').value);
-    root.style.setProperty('--label-text',  document.getElementById('textColor').value);
-    root.style.setProperty('--label-price', document.getElementById('priceColor').value);
-
-    var fs = document.getElementById('fontSize').value;
-    var sheet = document.getElementById('labelSheet');
-    sheet.classList.remove('fs-small', 'fs-large');
-    if (fs !== 'medium') sheet.classList.add('fs-' + fs);
-}
-
-function previewLogo(input) {
-    if (!input.files || !input.files[0]) return;
-    var reader = new FileReader();
-    reader.onload = function(e) {
-        document.querySelectorAll('.label-logo').forEach(function(img) {
-            img.src = e.target.result;
-            img.style.display = '';
+    /* ── Order (SortableJS) ── */
+    initSortable() {
+      const c = document.getElementById('elem-sortable');
+      if(!c || typeof Sortable === 'undefined') return;
+      Sortable.create(c, {
+        animation:150, handle:'.drag-handle',
+        onEnd: () => {
+          const order = [];
+          c.querySelectorAll('.elem-item[data-key]').forEach(el => order.push(el.dataset.key));
+          this.elemOrder = order;
+          this.applyOrder();
+        }
+      });
+    },
+    applyOrder() {
+      const order = this.elemOrder;
+      document.querySelectorAll('.label').forEach(label => {
+        const map = {};
+        label.querySelectorAll('.lbl-block[data-block]').forEach(el => {
+          map[el.dataset.block] = el;
         });
-        document.getElementById('clearLogoFlag').value = '';
-    };
-    reader.readAsDataURL(input.files[0]);
-}
+        order.forEach(key => { if(map[key]) label.appendChild(map[key]); });
+      });
+    },
 
-function clearLogo() {
-    document.getElementById('clearLogoFlag').value = '1';
-    document.getElementById('logoInput').value = '';
-    document.querySelectorAll('.label-logo').forEach(function(img) {
-        /* Fall back to org logo if available */
-        var orgLogo = document.getElementById('orgLogoPreviewImg');
-        var orgSrc = orgLogo && orgLogo.style.display !== 'none' ? orgLogo.src : '';
-        if (orgSrc) {
-            img.src = orgSrc;
-            img.style.display = '';
-        } else {
-            img.src = '';
-            img.style.display = 'none';
-        }
-    });
-}
+    /* ── Design ── */
+    applyDesign() { this.applyDesignVars(); },
+    applyDesignVars() {
+      const d = this.d;
+      const r = document.documentElement;
+      r.style.setProperty('--lbl-bg',      d.bg_color);
+      r.style.setProperty('--lbl-text',    d.text_color);
+      r.style.setProperty('--lbl-price',   d.price_color);
+      r.style.setProperty('--lbl-border',  d.border_color);
+      r.style.setProperty('--lbl-bw',      (d.border_width||'1')+'px');
+      r.style.setProperty('--lbl-font',    FF_MAP[d.font_family] || FF_MAP.sans);
+      document.querySelectorAll('.label').forEach(el => {
+        el.style.fontSize = (FS_MAP[d.font_size]||1)+'rem';
+      });
+      /* sale badge */
+      document.querySelectorAll('.lbl-block[data-block="badge"] .label-badge').forEach(el => {
+        el.textContent = d.sale_badge || '';
+        el.style.display = (d.sale_badge && this.visElems.badge) ? '' : 'none';
+      });
+    },
+    applyTheme(theme) {
+      const THEMES = {
+        standard: {bg_color:'#ffffff',text_color:'#000000',border_color:'#cccccc',border_width:'1'},
+        dark:     {bg_color:'#1a1a2e',text_color:'#e2e2e2',border_color:'#444444',border_width:'1'},
+        accent:   {bg_color:'#fff8e7',text_color:'#3a2a00',border_color:'#f0a500',border_width:'2'},
+        minimal:  {bg_color:'#fafafa',text_color:'#333333',border_color:'#fafafa',border_width:'0'},
+      };
+      this.d.theme = theme;
+      if(THEMES[theme]) Object.assign(this.d, THEMES[theme]);
+      this.applyDesignVars();
+    },
 
-function resetDesign() {
-    document.getElementById('resetModal').style.display = 'flex';
-}
-function closeResetModal() {
-    document.getElementById('resetModal').style.display = 'none';
-}
-function confirmReset() {
-    closeResetModal();
-    document.getElementById('bgColor').value    = '#ffffff';
-    document.getElementById('textColor').value  = '#000000';
-    document.getElementById('priceColor').value = '#000000';
-    document.getElementById('fontSize').value   = 'medium';
-    document.getElementById('clearLogoFlag').value = '1';
-    document.getElementById('logoInput').value  = '';
-    document.querySelectorAll('.label-logo').forEach(function(img) {
-        img.src = ''; img.style.display = 'none';
-    });
-    applyDesignPreview();
-    saveDesign();
-}
+    /* ── Save design ── */
+    async saveDesign() {
+      const fd = new FormData();
+      fd.append('csrf_token',       CSRF);
+      fd.append('bg_color',         this.d.bg_color);
+      fd.append('text_color',       this.d.text_color);
+      fd.append('price_color',      this.d.price_color);
+      fd.append('font_size',        this.d.font_size);
+      fd.append('border_color',     this.d.border_color);
+      fd.append('border_width',     this.d.border_width);
+      fd.append('label_theme',      this.d.theme || 'standard');
+      fd.append('font_family',      this.d.font_family);
+      fd.append('element_order',    JSON.stringify(this.elemOrder));
+      fd.append('visible_elements', JSON.stringify(this.visElems));
+      fd.append('sale_badge',       this.d.sale_badge || '');
+      try {
+        const r = await fetch('/products/label-settings', {method:'POST', body:fd});
+        this.toast(r.ok ? '✓ Дизайн сохранён' : '⚠ Ошибка сохранения');
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
 
-function useOrgLogo() {
-    var orgImg = document.getElementById('orgLogoPreviewImg');
-    if (!orgImg || orgImg.style.display === 'none' || !orgImg.src) {
-        alert('Лого организации не задано.');
+    /* ── Logo ── */
+    async uploadLogo(event) {
+      const file = event.target.files && event.target.files[0];
+      if(!file) return;
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      fd.append('logo', file);
+      try {
+        const r = await fetch('/products/label-settings', {method:'POST', body:fd});
+        if(r.ok) { this.toast('✓ Логотип загружен'); setTimeout(()=>location.reload(), 800); }
+        else this.toast('⚠ Ошибка загрузки');
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+    async clearLogo() {
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF); fd.append('clear_logo','1');
+      fd.append('bg_color', this.d.bg_color);
+      fd.append('text_color', this.d.text_color);
+      fd.append('price_color', this.d.price_color);
+      fd.append('font_size', this.d.font_size);
+      const r = await fetch('/products/label-settings', {method:'POST', body:fd});
+      if(r.ok) { this.toast('✓ Логотип удалён'); setTimeout(()=>location.reload(), 800); }
+    },
+
+    /* ── Copies ── */
+    allCopies(n) {
+      this.labelsData.forEach(l => l.copies = n);
+      this.renderCopies();
+    },
+    renderCopies() {
+      const wrap = document.getElementById('label-wrap');
+      if(!wrap) return;
+      /* Collect one canonical clone per product id */
+      const originals = {};
+      wrap.querySelectorAll('.label[data-id]').forEach(el => {
+        const id = el.dataset.id;
+        if(!originals[id]) originals[id] = el.cloneNode(true);
+      });
+      wrap.innerHTML = '';
+      this.labelsData.forEach(lb => {
+        const tmpl = originals[lb.id];
+        if(!tmpl) return;
+        const n = Math.max(1, lb.copies || 1);
+        for(let i=0;i<n;i++) wrap.appendChild(tmpl.cloneNode(true));
+      });
+      this.$nextTick(() => {
+        this.initBarcodes();
+        this.applyVisibility();
+        this.applyOrder();
+        this.applyDesignVars();
+      });
+    },
+
+    /* ── Barcodes (JsBarcode) ── */
+    initBarcodes() {
+      if(typeof JsBarcode === 'undefined') return;
+      const lineColor = getComputedStyle(document.documentElement)
+                          .getPropertyValue('--lbl-text').trim() || '#000000';
+      document.querySelectorAll('svg.label-barcode-svg[data-barcode]').forEach(svg => {
+        const code = svg.dataset.barcode;
+        if(!code) return;
+        try {
+          JsBarcode(svg, code, {
+            format:'CODE128', lineColor, background:'transparent',
+            width:1.2, height:30, displayValue:false, margin:2,
+          });
+        } catch(e) { svg.style.display='none'; }
+      });
+    },
+
+    /* ── PDF ── */
+    async downloadPdf() {
+      if(SING) {
+        let url = `/products/${SING}/label?format=pdf&size=${this.curSize}`;
+        if(NET) url += `&network=${encodeURIComponent(NET)}`;
+        window.open(url, '_blank');
         return;
-    }
-    /* Clear the label-specific logo override so the fallback takes effect on save */
-    document.getElementById('clearLogoFlag').value = '1';
-    document.getElementById('logoInput').value = '';
-    /* Preview org logo on labels immediately */
-    document.querySelectorAll('.label-logo').forEach(function(img) {
-        img.src = orgImg.src;
-        img.style.display = '';
-    });
-    /* Show in label logo preview */
-    var prev = document.getElementById('logoPreviewImg');
-    if (prev) { prev.src = orgImg.src; prev.style.display = ''; }
-    /* Auto-save so the change persists */
-    saveDesign();
+      }
+      /* bulk → POST JSON → download blob */
+      const copiesMap = {};
+      this.labelsData.forEach(lb => { copiesMap[lb.id] = lb.copies || 1; });
+      try {
+        const r = await fetch('/products/labels', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            csrf_token:CSRF, product_ids:BULK,
+            size:this.curSize, format:'pdf',
+            network:NET, copies_map:copiesMap
+          }),
+        });
+        if(!r.ok) { this.toast('⚠ Ошибка PDF'); return; }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'labels.pdf';
+        a.click();
+      } catch { this.toast('⚠ Ошибка сети'); }
+    },
+
+    /* ── Copy link ── */
+    copyLink() {
+      navigator.clipboard.writeText(location.href)
+        .then(() => this.toast('✓ Ссылка скопирована'))
+        .catch(() => this.toast('⚠ Буфер недоступен'));
+    },
+
+    /* ── Toast ── */
+    toast(msg, ms=2400) {
+      const t = document.getElementById('lbl-toast');
+      if(!t) return;
+      t.textContent = msg; t.style.opacity='1';
+      setTimeout(() => t.style.opacity='0', ms);
+    },
+  };
 }
-
-function uploadOrgLogo(input) {
-    if (!input.files || !input.files[0]) return;
-    var form = new FormData();
-    form.append('csrf_token', document.querySelector('#designForm [name=csrf_token]').value);
-    form.append('org_logo', input.files[0]);
-
-    var reader = new FileReader();
-    reader.onload = function(e) {
-        var orgImg = document.getElementById('orgLogoPreviewImg');
-        if (orgImg) { orgImg.src = e.target.result; orgImg.style.display = ''; }
-    };
-    reader.readAsDataURL(input.files[0]);
-
-    fetch('/products/org-logo', {
-        method: 'POST', body: form, credentials: 'same-origin'
-    })
-    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(json) {
-        if (!json.ok) throw new Error(json.error || 'Ошибка');
-        /* Reload page so UI reflects new org logo state */
-        location.reload();
-    })
-    .catch(function(err) { alert('Ошибка загрузки: ' + err.message); });
-}
-
-function clearOrgLogo() {
-    if (!confirm('Удалить лого организации?')) return;
-    var form = new FormData();
-    form.append('csrf_token', document.querySelector('#designForm [name=csrf_token]').value);
-    form.append('clear_org_logo', '1');
-
-    fetch('/products/org-logo', {
-        method: 'POST', body: form, credentials: 'same-origin'
-    })
-    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function() { location.reload(); })
-    .catch(function(err) { alert('Ошибка: ' + err.message); });
-}
-
-function saveDesign() {
-    var btn = document.getElementById('saveBtn');
-    var status = document.getElementById('saveStatus');
-    btn.disabled = true;
-    status.style.display = 'none';
-
-    fetch('/products/label-settings', {
-        method: 'POST',
-        body: new FormData(document.getElementById('designForm')),
-        credentials: 'same-origin'
-    })
-    .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-    })
-    .then(function(json) {
-        if (json.ok) {
-            status.style.display = 'inline';
-            setTimeout(function() { status.style.display = 'none'; }, 3000);
-        }
-    })
-    .catch(function(err) { alert('Ошибка сохранения: ' + err.message); })
-    .finally(function() { btn.disabled = false; });
-}
-
-/* ── Reset confirmation modal ── */
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeResetModal();
-});
 </script>
-{% endif %}
-
-<!-- Reset design confirmation modal -->
-<div id="resetModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.65);align-items:center;justify-content:center;">
-    <div style="background:#1e293b;border-radius:14px;padding:22px 24px;width:310px;max-width:92vw;box-shadow:0 24px 48px rgba(0,0,0,.6);">
-        <h3 style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:8px;">↺ Сбросить дизайн?</h3>
-        <p style="font-size:12px;color:#94a3b8;margin-bottom:14px;">Будет применён стандартный стиль: белый фон, чёрный текст, без логотипа.</p>
-        <!-- Mini label preview of the reset state -->
-        <div style="background:#fff;border-radius:8px;padding:10px 14px;margin-bottom:18px;border:1px solid #e2e8f0;display:flex;flex-direction:column;gap:4px;">
-            <div style="font-size:11px;font-weight:600;color:#0f172a;letter-spacing:.2px;">Название товара</div>
-            <div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1.1;">199 <span style="font-size:11px;font-weight:600;">₽</span></div>
-            <div style="font-size:10px;color:#64748b;margin-top:2px;">Стандартный дизайн</div>
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;">
-            <button onclick="closeResetModal()"
-                    style="background:none;border:1px solid #475569;color:#94a3b8;padding:7px 16px;border-radius:8px;font-size:12px;cursor:pointer;transition:color .15s"
-                    onmouseover="this.style.color='#e2e8f0'" onmouseout="this.style.color='#94a3b8'">
-                Отмена
-            </button>
-            <button onclick="confirmReset()"
-                    style="background:#ef4444;color:#fff;border:none;padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s"
-                    onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
-                Сбросить
-            </button>
-        </div>
-    </div>
-</div>
-</body>
-</html>
+{% endblock %}

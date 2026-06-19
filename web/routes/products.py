@@ -1284,18 +1284,48 @@ def _make_qr_b64(data: str) -> str:
 _DEFAULT_LABEL_SETTINGS = {
     'bg_color': '#ffffff', 'text_color': '#000000',
     'price_color': '#000000', 'logo_path': '', 'font_size': 'medium',
+    'org_logo_path': '',
+    'font_family': 'Arial, Helvetica, sans-serif',
+    'border_color': '#cccccc', 'border_width': '1',
+    'label_theme': 'standard',
+    'element_order': ["logo","badge","name","price","sep","qr","barcode","article","category","description"],
+    'visible_elements': {"logo":True,"badge":False,"name":True,"price":True,
+                         "sep":True,"qr":True,"barcode":False,"article":True,
+                         "category":False,"description":False},
+    'sale_badge': '',
 }
 
 
-def _build_label_ctx(product) -> dict:
-    """Build context dict for a single product label."""
-    article = product[7] if len(product) > 7 else ""
-    qr_b64 = _make_qr_b64(article) if article else ""
+def _build_label_ctx(product, network: str = None, db=None, copies: int = 1) -> dict:
+    """Build context dict for a single product label.
+    If network is given and db is provided, resolves effective article/barcode
+    from product_network_variants (variant-aware ценники).
+    """
+    base_article = product[7] if len(product) > 7 else ""
+    base_barcode = product[8] if len(product) > 8 else ""
+    article = base_article
+    barcode = base_barcode
+    if network and db:
+        try:
+            codes = db.get_effective_product_codes(product[0], network)
+            article = codes.get("article") or base_article
+            barcode = codes.get("barcode") or base_barcode
+        except Exception:
+            pass
+    qr_code = article or barcode
+    qr_b64 = _make_qr_b64(qr_code) if qr_code else ""
+    category = product[2] or "" if len(product) > 2 else ""
+    description = (product[6] or "")[:80] if len(product) > 6 else ""
     return {
-        "name": product[1] or "",
-        "price": int(product[3]) if product[3] is not None else 0,
-        "article": article or "",
-        "qr_b64": qr_b64,
+        "id":          product[0],
+        "name":        product[1] or "",
+        "price":       int(product[3]) if product[3] is not None else 0,
+        "article":     article or "",
+        "barcode":     barcode or "",
+        "qr_b64":      qr_b64,
+        "category":    category,
+        "description": description,
+        "copies":      max(1, int(copies)),
     }
 
 
@@ -1309,9 +1339,41 @@ _LABEL_PDF_PARAMS: dict[str, tuple] = {
 }
 
 
-def _generate_labels_pdf(labels: list, size: str = "58x40") -> bytes:
+def _hex_to_rgb_color(hex_color: str):
+    """Convert #rrggbb hex to reportlab Color. Returns black on error."""
+    from reportlab.lib import colors as _rlc
+    try:
+        h = hex_color.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        r, g, b = int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255
+        return _rlc.Color(r, g, b)
+    except Exception:
+        return _rlc.black
+
+
+def _make_barcode_img(code: str) -> "io.BytesIO | None":
+    """Generate Code-128 barcode PNG bytes using python-barcode + Pillow."""
+    if not code:
+        return None
+    try:
+        import barcode as _bc
+        from barcode.writer import ImageWriter as _IW
+        buf = io.BytesIO()
+        _bc.get("code128", code, writer=_IW()).write(
+            buf, options={"write_text": False, "module_height": 6.0,
+                          "quiet_zone": 2.0, "font_size": 0}
+        )
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
+def _generate_labels_pdf(labels: list, size: str = "58x40",
+                          label_settings: dict = None) -> bytes:
     """Generate a PDF with price labels on A4 using reportlab.
-    Label dimensions and grid are determined by `size` (58x40 | 40x30 | a6).
+    Applies bg/text/price colors and logo from label_settings.
     Column count is auto-derived so physical dimensions are exact.
     """
     import base64 as _b64
@@ -1320,6 +1382,18 @@ def _generate_labels_pdf(labels: list, size: str = "58x40") -> bytes:
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.lib.utils import ImageReader
+
+    ls = label_settings or {}
+    bg_color    = _hex_to_rgb_color(ls.get("bg_color", "#ffffff"))
+    text_color  = _hex_to_rgb_color(ls.get("text_color", "#000000"))
+    price_color = _hex_to_rgb_color(ls.get("price_color", "#000000"))
+    border_color = _hex_to_rgb_color(ls.get("border_color", "#cccccc"))
+    try:
+        border_w = max(0.1, min(3.0, float(ls.get("border_width", "1"))))
+    except Exception:
+        border_w = 0.5
+    vis = ls.get("visible_elements") or {}
+    sale_badge = ls.get("sale_badge", "")
 
     lw_mm, lh_mm, hg_mm, vg_mm, mg_mm = _LABEL_PDF_PARAMS.get(
         size, _LABEL_PDF_PARAMS["58x40"]
@@ -1334,7 +1408,6 @@ def _generate_labels_pdf(labels: list, size: str = "58x40") -> bytes:
     v_gap   = vg_mm * mm
     margin  = mg_mm * mm
 
-    # Auto-derive column count from exact label size; centre grid on page.
     denominator = label_w + h_gap if (label_w + h_gap) > 0 else label_w
     cols = max(1, int((page_w - 2 * margin + h_gap) / denominator))
     grid_w = cols * label_w + (cols - 1) * h_gap
@@ -1343,89 +1416,171 @@ def _generate_labels_pdf(labels: list, size: str = "58x40") -> bytes:
     rows_per_page = max(1, int((page_h - 2 * margin + v_gap) / (label_h + v_gap)))
     labels_per_page = cols * rows_per_page
 
-    # Scale font/QR to label size.
-    name_pt   = max(5, min(11, lw_mm * 0.12))
-    price_pt  = max(8, min(22, lw_mm * 0.22))
-    art_pt    = max(4, min(8, lw_mm * 0.09))
-    qr_mm     = max(8, min(34, lw_mm * 0.38))
+    name_pt  = max(5, min(11, lw_mm * 0.12))
+    price_pt = max(8, min(22, lw_mm * 0.22))
+    art_pt   = max(4, min(8,  lw_mm * 0.09))
+    qr_mm_v  = max(8, min(34, lw_mm * 0.38))
+    badge_pt = max(4, min(9,  lw_mm * 0.10))
+
+    logo_path = ls.get("logo_path") or ls.get("org_logo_path") or ""
+    logo_img = None
+    if logo_path and vis.get("logo", True):
+        try:
+            fpath = Path("web") / logo_path.lstrip("/")
+            if fpath.exists():
+                logo_img = ImageReader(str(fpath))
+        except Exception:
+            pass
+
+    # Expand copies
+    expanded = []
+    for lb in labels:
+        for _ in range(max(1, int(lb.get("copies", 1)))):
+            expanded.append(lb)
 
     c = _canvas.Canvas(buf, pagesize=A4)
     c.setTitle("Ценники — DailySales")
 
-    for idx, lb in enumerate(labels):
+    for idx, lb in enumerate(expanded):
         if idx > 0 and idx % labels_per_page == 0:
             c.showPage()
 
         col = idx % cols
         row_on_page = (idx // cols) % rows_per_page
-
         x = left_margin + col * (label_w + h_gap)
         y = page_h - margin - (row_on_page + 1) * label_h - row_on_page * v_gap
 
-        c.setStrokeColor(colors.Color(0.8, 0.8, 0.8))
-        c.setLineWidth(0.5)
-        c.roundRect(x, y, label_w, label_h, min(2 * mm, label_w * 0.04))
+        # Background fill
+        c.setFillColor(bg_color)
+        c.roundRect(x, y, label_w, label_h, min(2 * mm, label_w * 0.04), fill=1, stroke=0)
+        c.setStrokeColor(border_color)
+        c.setLineWidth(border_w * 0.5)
+        c.roundRect(x, y, label_w, label_h, min(2 * mm, label_w * 0.04), fill=0, stroke=1)
 
         inner_x = x + 2 * mm
         inner_w = label_w - 4 * mm
+        cur_y = y + label_h - 2 * mm
 
-        name = (lb.get("name") or "")[:60]
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica-Bold", name_pt)
-        name_y = y + label_h - 3.5 * mm
-        words = name.split()
-        line1, line2 = "", ""
-        for w in words:
-            test = (line1 + " " + w).strip()
-            if c.stringWidth(test, "Helvetica-Bold", name_pt) <= inner_w:
-                line1 = test
-            elif not line2:
-                line2 = w
-            else:
-                test2 = (line2 + " " + w).strip()
-                if c.stringWidth(test2, "Helvetica-Bold", name_pt) <= inner_w:
-                    line2 = test2
-        lh_pt = name_pt * 1.3
-        if line1:
-            c.drawCentredString(x + label_w / 2, name_y - lh_pt, line1)
-        if line2:
-            c.drawCentredString(x + label_w / 2, name_y - lh_pt - lh_pt, line2)
+        # Sale badge
+        if sale_badge and vis.get("badge", False):
+            c.setFillColor(colors.Color(0.9, 0.1, 0.1))
+            badge_h = badge_pt * 1.6
+            c.roundRect(x + 1 * mm, cur_y - badge_h, label_w - 2 * mm, badge_h, 1 * mm, fill=1, stroke=0)
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica-Bold", badge_pt)
+            c.drawCentredString(x + label_w / 2, cur_y - badge_h + badge_pt * 0.3, sale_badge)
+            cur_y -= badge_h + 1 * mm
 
-        price = lb.get("price", 0)
-        price_str = f"{int(price):,}".replace(",", "\u202f") + " \u20bd"
-        c.setFont("Helvetica-Bold", price_pt)
-        price_y = y + label_h / 2 + 3 * mm
-        c.drawCentredString(x + label_w / 2, price_y, price_str)
-
-        sep_y = y + label_h / 2 - 0.5 * mm
-        c.setStrokeColor(colors.Color(0.85, 0.85, 0.85))
-        c.setLineWidth(0.4)
-        c.line(inner_x, sep_y, inner_x + inner_w, sep_y)
-
-        qr_b64 = lb.get("qr_b64") or ""
-        qr_size = qr_mm * mm
-        qr_area_h = label_h / 2 - 3 * mm
-        qr_y = y + (qr_area_h - qr_size) / 2
-
-        if qr_b64:
+        # Logo
+        if logo_img and vis.get("logo", True):
             try:
-                qr_bytes = _b64.b64decode(qr_b64)
-                qr_buf = io.BytesIO(qr_bytes)
-                img = ImageReader(qr_buf)
-                c.drawImage(img, x + (label_w - qr_size) / 2, qr_y, qr_size, qr_size,
-                            preserveAspectRatio=True)
+                logo_h = min(8 * mm, label_h * 0.2)
+                logo_w = min(label_w - 4 * mm, logo_h * 3)
+                c.drawImage(logo_img, x + (label_w - logo_w) / 2,
+                            cur_y - logo_h, logo_w, logo_h,
+                            preserveAspectRatio=True, mask="auto")
+                cur_y -= logo_h + 1 * mm
             except Exception:
                 pass
 
-        article = lb.get("article") or ""
+        # Category
+        if vis.get("category", False):
+            cat = (lb.get("category") or "")[:40]
+            if cat:
+                c.setFillColor(colors.Color(0.5, 0.5, 0.5))
+                c.setFont("Helvetica", max(4, art_pt - 1))
+                c.drawCentredString(x + label_w / 2, cur_y - art_pt, cat.upper())
+                cur_y -= art_pt + 1 * mm
+
+        # Name
+        if vis.get("name", True):
+            name = (lb.get("name") or "")[:60]
+            c.setFillColor(text_color)
+            c.setFont("Helvetica-Bold", name_pt)
+            words = name.split()
+            line1, line2 = "", ""
+            for w in words:
+                test = (line1 + " " + w).strip()
+                if c.stringWidth(test, "Helvetica-Bold", name_pt) <= inner_w:
+                    line1 = test
+                else:
+                    if not line2:
+                        line2 = w
+                    else:
+                        test2 = (line2 + " " + w).strip()
+                        if c.stringWidth(test2, "Helvetica-Bold", name_pt) <= inner_w:
+                            line2 = test2
+            lh_pt = name_pt * 1.3
+            lines_h = (lh_pt if line1 else 0) + (lh_pt if line2 else 0) + 0.5 * mm
+            name_top = cur_y - 0.5 * mm
+            if line1:
+                c.drawCentredString(x + label_w / 2, name_top - lh_pt, line1)
+            if line2:
+                c.drawCentredString(x + label_w / 2, name_top - lh_pt - lh_pt, line2)
+            cur_y -= lines_h
+
+        # Price
+        if vis.get("price", True):
+            price = lb.get("price", 0)
+            price_str = f"{int(price):,}".replace(",", "\u202f") + " \u20bd"
+            c.setFillColor(price_color)
+            c.setFont("Helvetica-Bold", price_pt)
+            c.drawCentredString(x + label_w / 2, cur_y - price_pt - 0.5 * mm, price_str)
+            cur_y -= price_pt + 2 * mm
+
+        # Separator
+        if vis.get("sep", True):
+            c.setStrokeColor(colors.Color(0.8, 0.8, 0.8))
+            c.setLineWidth(0.3)
+            c.line(inner_x, cur_y, inner_x + inner_w, cur_y)
+            cur_y -= 1.5 * mm
+
+        # QR
+        qr_b64 = lb.get("qr_b64") or ""
+        if qr_b64 and vis.get("qr", True):
+            try:
+                qr_bytes = _b64.b64decode(qr_b64)
+                qr_size = min(qr_mm_v * mm, cur_y - y - art_pt * 2 - 3 * mm)
+                qr_size = max(6 * mm, qr_size)
+                qr_img = ImageReader(io.BytesIO(qr_bytes))
+                c.drawImage(qr_img, x + (label_w - qr_size) / 2,
+                            cur_y - qr_size, qr_size, qr_size, preserveAspectRatio=True)
+                cur_y -= qr_size + 1 * mm
+            except Exception:
+                pass
+
+        # Barcode (Code-128)
+        barcode_val = lb.get("barcode") or lb.get("article") or ""
+        if barcode_val and vis.get("barcode", False):
+            bc_buf = _make_barcode_img(barcode_val)
+            if bc_buf:
+                try:
+                    bc_img = ImageReader(bc_buf)
+                    bc_h = min(8 * mm, cur_y - y - art_pt * 2 - 2 * mm)
+                    bc_h = max(5 * mm, bc_h)
+                    c.drawImage(bc_img, inner_x, cur_y - bc_h,
+                                inner_w, bc_h, preserveAspectRatio=True)
+                    cur_y -= bc_h + 0.5 * mm
+                except Exception:
+                    pass
+
+        # Article / description at bottom
         c.setFont("Courier", art_pt)
-        if article:
-            c.setFillColor(colors.Color(0.33, 0.33, 0.33))
-            c.drawCentredString(x + label_w / 2, y + 2, article)
-        else:
+        article = lb.get("article") or ""
+        if article and vis.get("article", True):
+            c.setFillColor(text_color)
+            c.drawCentredString(x + label_w / 2, y + art_pt + 1, article)
+        elif vis.get("article", True):
             c.setFillColor(colors.Color(0.7, 0.7, 0.7))
-            c.drawCentredString(x + label_w / 2, y + 2,
+            c.drawCentredString(x + label_w / 2, y + art_pt + 1,
                                 "\u2014 \u0430\u0440\u0442\u0438\u043a\u0443\u043b \u043d\u0435 \u0437\u0430\u0434\u0430\u043d \u2014")
+
+        if vis.get("description", False):
+            desc = (lb.get("description") or "")[:60]
+            if desc:
+                c.setFillColor(colors.Color(0.4, 0.4, 0.4))
+                c.setFont("Helvetica", max(4, art_pt - 1))
+                c.drawCentredString(x + label_w / 2, y + 1, desc)
 
     c.save()
     return buf.getvalue()
@@ -1535,11 +1690,12 @@ async def api_save_label_size(request: Request):
 
 @router.get("/products/{product_id}/label")
 def product_label(request: Request, product_id: int, print: str = "",
-                  size: str = "58x40", format: str = ""):
+                  size: str = "58x40", format: str = "", network: str = ""):
     """Render a print-friendly price label for a single product.
     ?format=pdf returns a downloadable PDF; ?size=58x40|40x30|a6 sets label size.
+    ?network=<name> resolves network-specific codes.
     """
-    from web.auth import get_session_user
+    from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
     from billing_utils import is_extension_denied
 
@@ -1558,20 +1714,29 @@ def product_label(request: Request, product_id: int, print: str = "",
     if not product:
         return RedirectResponse(url="/products", status_code=302)
 
-    from web.auth import get_csrf_token
     url_size = request.query_params.get("size")
     if url_size and url_size in _VALID_LABEL_SIZES:
         size = url_size
         _save_user_label_size(telegram_id, size)
     else:
         size = _get_user_label_size(telegram_id)
+
+    url_network = request.query_params.get("network", "").strip()
+    network = url_network or network
+
+    trade_networks: list[str] = []
+    try:
+        trade_networks = db.get_all_trade_networks() or []
+    except Exception:
+        pass
+
     label_settings = _get_label_settings_safe(db)
-    label = _build_label_ctx(product)
+    label = _build_label_ctx(product, network=network or None, db=db)
 
     if format == "pdf":
         from fastapi.responses import Response
         try:
-            pdf_bytes = _generate_labels_pdf([label], size=size)
+            pdf_bytes = _generate_labels_pdf([label], size=size, label_settings=label_settings)
         except Exception as exc:
             logging.error(f"PDF generation failed: {exc}")
             return Response(content="PDF generation error", status_code=500)
@@ -1593,6 +1758,9 @@ def product_label(request: Request, product_id: int, print: str = "",
             "is_owner": user.get("role") in ("owner", "super_admin"),
             "csrf_token": get_csrf_token(request),
             "pdf_url": f"/products/{product_id}/label?format=pdf",
+            "trade_networks": trade_networks,
+            "selected_network": network,
+            "single_product_id": product_id,
         }
     )
 
@@ -1600,9 +1768,10 @@ def product_label(request: Request, product_id: int, print: str = "",
 @router.post("/products/labels")
 async def products_labels_bulk(request: Request):
     """Return a print page (or PDF) with labels for multiple products.
-    JSON body: {product_ids: [...], csrf_token: "...", format: "pdf"|""}
+    JSON body: {product_ids: [...], copies_map: {id: n}, network: "...",
+                csrf_token: "...", format: "pdf"|"", size: "58x40"}
     """
-    from web.auth import get_session_user, verify_csrf_token
+    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
     from web.deps import get_web_db
     from billing_utils import is_extension_denied
 
@@ -1617,7 +1786,6 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="Subscription required", status_code=403)
 
-    # Accept format from query param (?format=pdf) OR JSON body field.
     fmt_qp = request.query_params.get("format", "")
     try:
         body = await request.json()
@@ -1625,6 +1793,8 @@ async def products_labels_bulk(request: Request):
         product_ids = [int(x) for x in body.get("product_ids", [])]
         size = body.get("size", "58x40")
         fmt = fmt_qp or body.get("format", "")
+        network = str(body.get("network", "") or "").strip()
+        copies_map: dict = body.get("copies_map") or {}
     except Exception:
         from fastapi.responses import Response
         return Response(content="Bad request", status_code=400)
@@ -1643,18 +1813,25 @@ async def products_labels_bulk(request: Request):
         from fastapi.responses import Response
         return Response(content="No products selected", status_code=400)
 
-    from web.auth import get_csrf_token
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     label_settings = _get_label_settings_safe(db)
+
+    trade_networks: list[str] = []
+    try:
+        trade_networks = db.get_all_trade_networks() or []
+    except Exception:
+        pass
 
     labels = []
     for pid in product_ids[:200]:
         try:
             product = db.get_product(pid)
             if product:
-                labels.append(_build_label_ctx(product))
+                copies = max(1, min(99, int(copies_map.get(str(pid), 1))))
+                labels.append(_build_label_ctx(product, network=network or None,
+                                               db=db, copies=copies))
         except Exception:
             pass
 
@@ -1665,7 +1842,7 @@ async def products_labels_bulk(request: Request):
     if fmt == "pdf":
         from fastapi.responses import Response
         try:
-            pdf_bytes = _generate_labels_pdf(labels, size=size)
+            pdf_bytes = _generate_labels_pdf(labels, size=size, label_settings=label_settings)
         except Exception as exc:
             logging.error(f"Bulk PDF generation failed: {exc}")
             return Response(content="PDF generation error", status_code=500)
@@ -1686,6 +1863,8 @@ async def products_labels_bulk(request: Request):
             "is_owner": user.get("role") in ("owner", "super_admin"),
             "csrf_token": get_csrf_token(request),
             "bulk_product_ids": product_ids,
+            "trade_networks": trade_networks,
+            "selected_network": network,
         }
     )
 
@@ -1699,12 +1878,20 @@ async def save_label_settings(
     font_size: str = Form("medium"),
     clear_logo: str = Form(""),
     logo: UploadFile = File(None),
+    font_family: str = Form(""),
+    border_color: str = Form("#cccccc"),
+    border_width: str = Form("1"),
+    label_theme: str = Form("standard"),
+    element_order: str = Form(""),
+    visible_elements: str = Form(""),
+    sale_badge: str = Form(""),
 ):
     """Save label design settings (owner only). Accepts multipart/form-data."""
-    from web.auth import get_session_user, verify_csrf_token, get_csrf_token
+    from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
     from fastapi.responses import Response
     from billing_utils import is_extension_denied
+    import json as _json
 
     user = get_session_user(request)
     if not user:
@@ -1719,15 +1906,45 @@ async def save_label_settings(
     if not verify_csrf_token(request, csrf):
         return Response(content="CSRF error", status_code=403)
 
+    import re as _re
+    _color_re = _re.compile(r'^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$')
+    bg_color     = bg_color     if _color_re.match(bg_color)     else "#ffffff"
+    text_color   = text_color   if _color_re.match(text_color)   else "#000000"
+    price_color  = price_color  if _color_re.match(price_color)  else "#000000"
+    border_color = border_color if _color_re.match(border_color) else "#cccccc"
+
     _VALID_FONT_SIZES = {"small", "medium", "large"}
     if font_size not in _VALID_FONT_SIZES:
         font_size = "medium"
+    _VALID_THEMES = {"standard", "dark", "accent", "minimal"}
+    if label_theme not in _VALID_THEMES:
+        label_theme = "standard"
+    try:
+        bw = max(0, min(5, int(border_width)))
+        border_width = str(bw)
+    except Exception:
+        border_width = "1"
 
-    import re as _re
-    _color_re = _re.compile(r'^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$')
-    bg_color = bg_color if _color_re.match(bg_color) else "#ffffff"
-    text_color = text_color if _color_re.match(text_color) else "#000000"
-    price_color = price_color if _color_re.match(price_color) else "#000000"
+    # Validate JSON strings (element_order / visible_elements)
+    def _safe_json(raw: str) -> str:
+        try:
+            _json.loads(raw)
+            return raw
+        except Exception:
+            return ""
+
+    element_order    = _safe_json(element_order)
+    visible_elements = _safe_json(visible_elements)
+    sale_badge = sale_badge[:30].strip() if sale_badge else ""
+
+    # Allowed font families whitelist
+    _FONT_MAP = {
+        "sans": "Arial, Helvetica, sans-serif",
+        "serif": "Georgia, 'Times New Roman', serif",
+        "mono": "'Courier New', Courier, monospace",
+        "rounded": "'Trebuchet MS', Verdana, sans-serif",
+    }
+    font_family = _FONT_MAP.get(font_family, font_family or "Arial, Helvetica, sans-serif")
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
@@ -1752,8 +1969,13 @@ async def save_label_settings(
         except Exception as exc:
             logging.warning(f"label logo upload failed: {exc}")
 
-    db.save_label_settings(bg_color, text_color, price_color, logo_path, font_size)
-
+    db.save_label_settings(
+        bg_color, text_color, price_color, logo_path, font_size,
+        font_family=font_family, border_color=border_color,
+        border_width=border_width, label_theme=label_theme,
+        element_order=element_order, visible_elements=visible_elements,
+        sale_badge=sale_badge,
+    )
     return JSONResponse({"ok": True})
 
 
