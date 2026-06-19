@@ -120,6 +120,7 @@ def plans_new(request: Request):
     db = get_web_db(telegram_id, org_db)
     sellers, shops, categories, products = _load_form_data(db)
 
+    from billing_utils import has_module as _hm_plans
     ctx = {
         "request": request, "user": user, "is_admin": True,
         "is_edit": False, "plan": None,
@@ -130,6 +131,7 @@ def plans_new(request: Request):
         "target_labels": TARGET_LABELS,
         "csrf_token": get_csrf_token(request),
         "error": None, "form_data": None,
+        "ai_assistant_ok": _hm_plans(telegram_id, "ai_assistant"),
     }
     return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
 
@@ -439,6 +441,7 @@ def plans_edit(request: Request, plan_id: int):
 
     sellers, shops, categories, products = _load_form_data(db)
 
+    from billing_utils import has_module as _hm_plans_edit
     ctx = {
         "request": request, "user": user,
         "is_admin": True, "is_edit": True,
@@ -450,6 +453,7 @@ def plans_edit(request: Request, plan_id: int):
         "target_labels": TARGET_LABELS,
         "csrf_token": get_csrf_token(request),
         "error": None, "form_data": None,
+        "ai_assistant_ok": _hm_plans_edit(telegram_id, "ai_assistant"),
     }
     return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
 

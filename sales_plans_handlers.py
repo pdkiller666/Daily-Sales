@@ -817,7 +817,7 @@ async def plnwiz_products_confirmed(callback: CallbackQuery, state: FSMContext):
 
 # ── Ввод целевого значения ────────────────────────────────────────────────────
 
-async def _show_target_input(callback: CallbackQuery, state: FSMContext):
+async def _show_target_input(callback: CallbackQuery, state: FSMContext, hint_text: str = ""):
     data = await state.get_data()
     metric = data.get('pln_metric', 'turnover')
     period = _PERIOD_LABELS.get(data.get('pln_period', 'monthly'), '?')
@@ -839,7 +839,20 @@ async def _show_target_input(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SalesPlanStates.entering_target_value)
 
     builder = InlineKeyboardBuilder()
+    _ai_ok = False
+    try:
+        from billing_utils import has_module as _hm
+        _ai_ok = _hm(callback.from_user.id, "ai_assistant")
+    except Exception:
+        pass
+    if _ai_ok:
+        builder.button(text="🤖 AI-подсказка цели", callback_data="plnai_hint")
     builder.button(text="❌ Отмена", callback_data="admin_sales_plans")
+    builder.adjust(1)
+
+    hint_block = ""
+    if hint_text:
+        hint_block = f"\n\n💡 <b>AI-подсказка:</b>\n{he(hint_text)}"
 
     await callback.message.edit_text(
         f"📋 <b>Новый план — введите цель</b>\n\n"
@@ -848,10 +861,170 @@ async def _show_target_input(callback: CallbackQuery, state: FSMContext):
         f"📊 Метрика: {_METRIC_LABELS.get(metric, metric)}\n"
         f"🔍 Фильтр: {filter_label}\n\n"
         f"Введите целевое значение в {unit}:\n"
-        f"Пример: <code>{example}</code>",
+        f"Пример: <code>{example}</code>"
+        f"{hint_block}",
         reply_markup=builder.as_markup(), parse_mode="HTML"
     )
     await callback.answer()
+
+
+@sales_plans_router.callback_query(F.data == "plnai_hint")
+async def plnai_hint_callback(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    await callback.answer("🤖 Анализирую историю продаж…")
+
+    try:
+        from billing_utils import has_module as _hm
+        if not _hm(callback.from_user.id, "ai_assistant"):
+            await callback.message.edit_text(
+                "🔒 <b>AI-помощник не подключён</b>\n\nПодключите модуль <b>AI-помощник</b> в веб-кабинете: Подписка → Модули.",
+                parse_mode="HTML"
+            )
+            return
+    except Exception:
+        pass
+
+    try:
+        from web.ai_utils import ask_llm, is_configured, build_plan_target_hint_prompt
+        if not is_configured():
+            await _show_target_input(callback, state)
+            return
+    except Exception:
+        await _show_target_input(callback, state)
+        return
+
+    try:
+        from web.rate_store import check_and_increment_ai, get_ai_rate_limits
+        base_limit, _ = get_ai_rate_limits()
+        try:
+            from billing_utils import has_extension as _hex
+            from web.rate_store import get_custom_ai_limit
+            custom = get_custom_ai_limit(callback.from_user.id)
+            limit = custom if custom is not None else (
+                base_limit * 3 if _hex(callback.from_user.id, "ai_high_limit") else base_limit
+            )
+        except Exception:
+            limit = base_limit
+        if not check_and_increment_ai(callback.from_user.id, limit):
+            await _show_target_input(callback, state, hint_text="⚠️ Превышен дневной лимит AI-запросов.")
+            return
+    except Exception:
+        pass
+
+    try:
+        data = await state.get_data()
+        target_type = data.get('pln_target_type', 'shop')
+        seller_id = data.get('pln_user_id')
+        shop_name = data.get('pln_shop_name')
+        plan_type = data.get('pln_period', 'monthly')
+        metric_type = data.get('pln_metric', 'turnover')
+        who = data.get('pln_user_name') if target_type == 'seller' else shop_name
+
+        current_db = await get_db(callback.from_user.id, state)
+
+        # Query historical data synchronously from the thread pool
+        import asyncio
+        history = []
+        try:
+            _MONTH_RU = {
+                "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель",
+                "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август",
+                "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь",
+            }
+            metric_expr = (
+                "COALESCE(SUM(s.sale_price * s.quantity_sold), 0)"
+                if metric_type == "turnover"
+                else "COALESCE(SUM(s.quantity_sold), 0)"
+            )
+            if plan_type == "monthly":
+                period_fmt = "strftime('%Y-%m', s.sale_date)"
+                lookback = "-4 months"
+                now_period = __import__('datetime').datetime.utcnow().strftime("%Y-%m")
+                def _fmt(raw):
+                    try:
+                        y, m = raw.split("-")
+                        return f"{_MONTH_RU.get(m, m)} {y}"
+                    except Exception:
+                        return raw
+            else:
+                period_fmt = "strftime('%Y-%W', s.sale_date)"
+                lookback = "-8 weeks"
+                now_period = __import__('datetime').datetime.utcnow().strftime("%Y-%W")
+                def _fmt(raw):
+                    return f"Неделя {raw}"
+
+            if target_type == "seller" and seller_id:
+                where_extra = "AND s.user_id = ?"
+                params = [lookback, int(seller_id), 4]
+            elif target_type == "shop" and shop_name:
+                where_extra = "AND s.shop_name = ?"
+                params = [lookback, shop_name, 4]
+            else:
+                params = None
+
+            if params:
+                def _query():
+                    conn = current_db.get_connection()
+                    try:
+                        cur = conn.cursor()
+                        cur.execute(
+                            f"""SELECT {period_fmt} AS period, {metric_expr} AS value
+                                FROM sales s
+                                WHERE date(s.sale_date) >= date('now', ?)
+                                  {where_extra}
+                                GROUP BY period ORDER BY period DESC LIMIT ?""",
+                            params
+                        )
+                        rows = cur.fetchall()
+                        return rows
+                    finally:
+                        conn.close()
+                rows = await asyncio.get_event_loop().run_in_executor(None, _query)
+                for r in rows:
+                    period_raw = r[0] or ""
+                    if period_raw == now_period:
+                        continue
+                    history.append({"period": _fmt(period_raw), "value": float(r[1] or 0)})
+                history = history[:4]
+        except Exception as _he:
+            pass
+
+        avg = sum(h["value"] for h in history) / len(history) if history else 0.0
+        suggestion = round(avg * 1.1)
+        if metric_type == "turnover" and suggestion > 1000:
+            suggestion = round(suggestion / 1000) * 1000
+
+        prompt = build_plan_target_hint_prompt(
+            target_type=target_type,
+            who=who or "?",
+            plan_type=plan_type,
+            metric_type=metric_type,
+            history=history,
+            suggestion=float(suggestion),
+        )
+        _HINT_SYSTEM = (
+            "Ты — аналитик продаж розничного магазина. "
+            "Используй только предоставленные исторические данные. "
+            "Давай конкретный числовой диапазон цели. "
+            "Пиши по-русски. Без markdown. Без заголовков. Ровно 2 предложения."
+        )
+        hint_result = await ask_llm(prompt, system=_HINT_SYSTEM, max_tokens=200, temperature=0.1, feature="planhint")
+
+        if not hint_result and avg > 0:
+            unit_str = "₽" if metric_type == "turnover" else "шт"
+            hint_result = (
+                f"Средний показатель за последние периоды — {avg:,.0f} {unit_str}. "
+                f"Рекомендуется поставить цель {suggestion:,.0f} {unit_str} (+10% к среднему)."
+            )
+
+        await _show_target_input(callback, state, hint_text=hint_result or "")
+    except Exception as exc:
+        import logging
+        logging.error(f"plnai_hint_callback error: {exc}")
+        await _show_target_input(callback, state)
 
 
 @sales_plans_router.message(SalesPlanStates.entering_target_value)

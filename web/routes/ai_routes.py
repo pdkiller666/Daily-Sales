@@ -943,3 +943,217 @@ async def ai_price_advice(request: Request):
     except Exception as exc:
         logger.error("ai_price_advice error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── 8. Plan target hint ──────────────────────────────────────────────────────
+
+_PLAN_HINT_CACHE: dict[str, dict] = {}
+_PLAN_HINT_TTL = 7200  # 2 h
+
+
+def _plhint_cache_get(key: str) -> dict | None:
+    entry = _PLAN_HINT_CACHE.get(key)
+    if not entry:
+        return None
+    if _dt.datetime.utcnow() > entry["expires_at"]:
+        _PLAN_HINT_CACHE.pop(key, None)
+        return None
+    return entry
+
+
+def _plhint_cache_set(key: str, text: str, suggestion: float) -> None:
+    _PLAN_HINT_CACHE[key] = {
+        "text": text,
+        "suggestion": suggestion,
+        "expires_at": _dt.datetime.utcnow() + _dt.timedelta(seconds=_PLAN_HINT_TTL),
+    }
+
+
+def _query_plan_history(db, target_type: str, seller_id: int | None,
+                        shop_name: str | None, plan_type: str, metric_type: str) -> list:
+    """Query last 3–4 complete periods (months or weeks) for the given target."""
+    import sqlite3 as _sqlite3
+    metric_expr = (
+        "COALESCE(SUM(s.sale_price * s.quantity_sold), 0)"
+        if metric_type == "turnover"
+        else "COALESCE(SUM(s.quantity_sold), 0)"
+    )
+    target_cond = ""
+    params: list = []
+
+    if plan_type == "monthly":
+        period_fmt = "strftime('%Y-%m', s.sale_date)"
+        lookback = "-4 months"
+        limit = 4
+        _MONTH_RU = {
+            "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель",
+            "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август",
+            "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь",
+        }
+        def fmt_period(raw: str) -> str:
+            try:
+                y, m = raw.split("-")
+                return f"{_MONTH_RU.get(m, m)} {y}"
+            except Exception:
+                return raw
+    else:
+        period_fmt = "strftime('%Y-%W', s.sale_date)"
+        lookback = "-8 weeks"
+        limit = 8
+        def fmt_period(raw: str) -> str:
+            return f"Неделя {raw}"
+
+    if target_type == "seller" and seller_id:
+        target_cond = "AND s.user_id = ?"
+        params.append(int(seller_id))
+    elif target_type == "shop" and shop_name:
+        target_cond = "AND s.shop_name = ?"
+        params.append(shop_name)
+    else:
+        return []
+
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""SELECT {period_fmt} AS period,
+                       {metric_expr} AS value
+                FROM sales s
+                WHERE date(s.sale_date) >= date('now', ?)
+                  {target_cond}
+                GROUP BY period
+                ORDER BY period DESC
+                LIMIT ?""",
+            [lookback] + params + [limit],
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        # Exclude the current (incomplete) period — first row if it matches today's period
+        import datetime as _dtt
+        now_period = _dtt.datetime.utcnow().strftime("%Y-%m" if plan_type == "monthly" else "%Y-%W")
+        result = []
+        for r in rows:
+            period_raw = r[0] or ""
+            if period_raw == now_period:
+                continue  # skip current incomplete period
+            result.append({"period": fmt_period(period_raw), "value": float(r[1] or 0)})
+        return result[:4]
+    except Exception as _e:
+        logger.error("_query_plan_history error: %s", _e)
+        return []
+
+
+@router.post("/plan-target-hint")
+async def ai_plan_target_hint(request: Request):
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, build_plan_target_hint_prompt, is_configured
+    from web.rate_store import check_and_increment_ai
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+
+    from billing_utils import has_module
+    tg_id = int(user["sub"])
+    if not has_module(tg_id, "ai_assistant"):
+        return JSONResponse({"ok": False, "error": "Модуль AI-помощника не подключён"}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен"}, status_code=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Bad request"}, status_code=400)
+
+    target_type = str(body.get("target_type", "")).strip()
+    seller_id_raw = body.get("seller_id")
+    shop_name = str(body.get("shop_name", "")).strip()
+    plan_type = str(body.get("plan_type", "monthly")).strip()
+    metric_type = str(body.get("metric_type", "turnover")).strip()
+    who = str(body.get("who", "")).strip()
+
+    if target_type not in ("seller", "shop"):
+        return JSONResponse({"ok": False, "error": "Укажите тип цели (seller/shop)"}, status_code=400)
+    if plan_type not in ("weekly", "monthly"):
+        plan_type = "monthly"
+    if metric_type not in ("turnover", "quantity"):
+        metric_type = "turnover"
+
+    seller_id: int | None = None
+    if target_type == "seller":
+        try:
+            seller_id = int(seller_id_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "Укажите продавца"}, status_code=400)
+    elif not shop_name:
+        return JSONResponse({"ok": False, "error": "Укажите магазин"}, status_code=400)
+
+    org_db = user.get("org_db")
+    today_month = _dt.datetime.utcnow().strftime("%Y-%m")
+    scope_key = f"{seller_id or shop_name}:{plan_type}:{metric_type}"
+    _ck = f"planhint:{org_db}:{scope_key}:{today_month}"
+
+    cached = _plhint_cache_get(_ck)
+    if cached:
+        return JSONResponse({"ok": True, "text": cached["text"], "suggestion": cached["suggestion"], "cached": True})
+
+    limit, _ = _get_limits(tg_id)
+    if not check_and_increment_ai(tg_id, limit):
+        return JSONResponse({
+            "ok": False,
+            "error": f"Превышен дневной лимит запросов ({limit}/день). Сброс в полночь UTC."
+        }, status_code=429)
+
+    try:
+        import anyio
+        db = get_web_db(tg_id, org_db)
+        history = await anyio.to_thread.run_sync(
+            lambda: _query_plan_history(db, target_type, seller_id, shop_name, plan_type, metric_type)
+        )
+
+        if not history:
+            avg = 0.0
+        else:
+            avg = sum(h["value"] for h in history) / len(history)
+        suggestion = round(avg * 1.1)
+        if metric_type == "turnover" and suggestion > 1000:
+            suggestion = round(suggestion / 1000) * 1000
+
+        if not who:
+            who = shop_name if target_type == "shop" else f"продавец #{seller_id}"
+
+        prompt = build_plan_target_hint_prompt(
+            target_type=target_type,
+            who=who,
+            plan_type=plan_type,
+            metric_type=metric_type,
+            history=history,
+            suggestion=float(suggestion),
+        )
+        _HINT_SYSTEM = (
+            "Ты — аналитик продаж розничного магазина. "
+            "Используй только предоставленные исторические данные. "
+            "Давай конкретный числовой диапазон цели. "
+            "Пиши по-русски. Без markdown. Без заголовков. Ровно 2 предложения."
+        )
+        result = await ask_llm(prompt, system=_HINT_SYSTEM, max_tokens=200, temperature=0.1, feature="planhint")
+        if not result:
+            if avg > 0:
+                unit = "₽" if metric_type == "turnover" else "шт"
+                result = (
+                    f"На основе последних периодов средний показатель составил "
+                    f"{avg:,.0f} {unit}. Рекомендуется поставить цель "
+                    f"{suggestion:,.0f} {unit} (+10% к среднему)."
+                )
+            else:
+                return JSONResponse({"ok": False, "error": "Недостаточно данных для подсказки."})
+
+        _plhint_cache_set(_ck, result, float(suggestion))
+        return JSONResponse({"ok": True, "text": result, "suggestion": float(suggestion), "cached": False})
+
+    except Exception as exc:
+        logger.error("ai_plan_target_hint error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

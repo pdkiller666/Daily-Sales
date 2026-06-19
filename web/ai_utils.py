@@ -1459,3 +1459,57 @@ def build_seller_coach_prompt(
         "Тон позитивный, личный, конкретный. Обращайся к продавцу по имени. "
         "Без общих фраз. Опирайся только на данные выше."
     )
+
+
+# ─── Plan target hint prompt ──────────────────────────────────────────────────
+
+def build_plan_target_hint_prompt(
+    target_type: str,
+    who: str,
+    plan_type: str,
+    metric_type: str,
+    history: list,
+    suggestion: float,
+) -> str:
+    """Prompt for AI plan-target-hint endpoint.
+
+    Args:
+        target_type: 'seller' or 'shop'
+        who:         name of the seller or shop
+        plan_type:   'weekly' or 'monthly'
+        metric_type: 'turnover' or 'quantity'
+        history:     list of {period, value} dicts, newest first, max 4 items
+        suggestion:  mechanically computed target (avg * 1.1), for context
+    """
+    period_label = "месячных" if plan_type == "monthly" else "недельных"
+    metric_label = "выручки (₽)" if metric_type == "turnover" else "количества продаж (шт)"
+    who_label = f"продавца {who}" if target_type == "seller" else f"магазина «{who}»"
+    unit = "₽" if metric_type == "turnover" else "шт"
+
+    if not history:
+        history_block = "  Исторических данных недостаточно (нет продаж за последние периоды)."
+    else:
+        rows = []
+        for h in history:
+            val = h.get("value", 0)
+            if metric_type == "turnover":
+                rows.append(f"  {h['period']}: {val:,.0f} ₽")
+            else:
+                rows.append(f"  {h['period']}: {int(val)} шт")
+        history_block = "\n".join(rows)
+
+    sugg_str = (
+        f"{suggestion:,.0f} ₽" if metric_type == "turnover" else f"{int(suggestion)} шт"
+    )
+
+    return (
+        f"Данные для {who_label}:\n\n"
+        f"Показатели {period_label} периодов ({metric_label}):\n"
+        f"{history_block}\n\n"
+        f"Механически рассчитанный ориентир (+10% к среднему): {sugg_str}.\n\n"
+        f"На основе этих данных предложи реалистичную цель для {period_label[:-2]}ого плана.\n"
+        f"Формат ответа — ровно 2 предложения:\n"
+        f"1) Цифровой диапазон цели (мин–макс в {unit}) с кратким обоснованием через данные выше.\n"
+        f"2) Главный фактор, который стоит учесть (тренд / сезонность / разброс по периодам).\n"
+        f"Пиши конкретно, без лишних слов. Не повторяй числа из истории без необходимости."
+    )
