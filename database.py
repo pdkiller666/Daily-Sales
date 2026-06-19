@@ -1328,9 +1328,11 @@ class Database:
                 updated_at           TEXT    DEFAULT (datetime('now'))
             )
         ''')
-        for _col, _def in [('assigned_shop', 'TEXT DEFAULT NULL'),
-                            ('assign_all',    'INTEGER DEFAULT 0'),
-                            ('recurrence',    'TEXT DEFAULT NULL')]:
+        for _col, _def in [('assigned_shop',    'TEXT DEFAULT NULL'),
+                            ('assign_all',      'INTEGER DEFAULT 0'),
+                            ('recurrence',      'TEXT DEFAULT NULL'),
+                            ('rating',          'INTEGER DEFAULT NULL'),
+                            ('rating_comment',  'TEXT DEFAULT NULL')]:
             try:
                 cursor.execute(f'ALTER TABLE tasks ADD COLUMN {_col} {_def}')
             except Exception as _exc:
@@ -13433,7 +13435,8 @@ class Database:
                        tt.name AS topic_name, tt.color AS topic_color,
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
-                       t.assigned_shop, t.assign_all, t.recurrence
+                       t.assigned_shop, t.assign_all, t.recurrence,
+                       t.rating, t.rating_comment
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -13469,11 +13472,29 @@ class Database:
                 "assigned_name": a_name, "creator_name": c_name,
                 "assigned_shop": row[21], "assign_all": bool(row[22]),
                 "recurrence": row[23] or "none",
+                "rating": row[24], "rating_comment": row[25] or "",
                 "checklist": checklist,
             }
         except Exception as e:
             logger.error("get_task: %s", e)
             return None
+
+    def rate_task(self, task_id: int, rating: int, comment: str = "") -> bool:
+        """Сохранить оценку выполнения задачи (1-5 звёзд)."""
+        try:
+            conn = self.get_connection()
+            try:
+                conn.execute(
+                    "UPDATE tasks SET rating = ?, rating_comment = ?, updated_at = datetime('now') WHERE id = ?",
+                    (max(1, min(5, rating)), comment.strip(), task_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            return True
+        except Exception as e:
+            logger.error("rate_task: %s", e)
+            return False
 
     def update_task_status(self, task_id: int, status: str) -> bool:
         """Обновить статус задачи."""

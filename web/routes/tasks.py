@@ -1807,6 +1807,53 @@ def task_toggle_checklist(
 
 # ─── EDIT ────────────────────────────────────────────────────────────────────
 
+@router.post("/tasks/{task_id}/rate")
+def task_rate(request: Request, task_id: int,
+              csrf_token: str = Form(""),
+              rating: int = Form(0),
+              rating_comment: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/tasks/{task_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+    if rating < 1 or rating > 5:
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=rate_invalid", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+        db.rate_task(task_id, rating, rating_comment)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else None
+        try:
+            db.add_task_history(task_id, my_db_id, 'rated', None,
+                                f"{'⭐' * rating} ({rating}/5)" + (f": {rating_comment}" if rating_comment.strip() else ""))
+        except Exception:
+            pass
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=rated_ok", status_code=303)
+    except Exception as e:
+        logger.error("task_rate: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+
 @router.post("/tasks/{task_id}/remind")
 def task_set_reminder(request: Request, task_id: int,
                       csrf_token: str = Form(""),

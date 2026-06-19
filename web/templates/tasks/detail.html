@@ -30,6 +30,9 @@
   'too_many_files':  '⚠️ Достигнут лимит вложений (10 файлов).',
   'access_denied':   '⚠️ Нет доступа к этому действию.',
   'not_found':       '⚠️ Файл не найден.',
+  'rated_ok':        '✅ Оценка выполнения сохранена.',
+  'remind_ok':       '✅ Напоминание установлено.',
+  'remind_invalid':  '⚠️ Неверное время напоминания.',
 } %}
 {% if msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
@@ -403,6 +406,62 @@
       </div>
       {% endif %}
     </div>
+
+    <!-- Rating block -->
+    {% if task.status == 'done' %}
+    <div class="card p-4 dark:bg-slate-900">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">⭐ Оценка выполнения</p>
+      {% if task.get('rating') %}
+      <div class="flex items-center gap-1 mb-2">
+        {% for s in range(1, 6) %}
+        <span class="text-xl {{ 'text-amber-400' if s <= task.rating else 'text-slate-200 dark:text-slate-700' }}">★</span>
+        {% endfor %}
+        <span class="text-sm font-medium text-slate-700 dark:text-slate-200 ml-1">{{ task.rating }}/5</span>
+      </div>
+      {% if task.get('rating_comment') %}
+      <p class="text-xs text-slate-500 dark:text-slate-400 italic">{{ task.rating_comment }}</p>
+      {% endif %}
+      {% if is_admin %}
+      <details class="mt-2">
+        <summary class="text-xs text-indigo-600 cursor-pointer hover:underline">Изменить оценку</summary>
+        <form method="POST" action="/tasks/{{ task.id }}/rate" class="mt-2 space-y-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="flex items-center gap-1">
+            {% for s in range(1, 6) %}
+            <label class="cursor-pointer">
+              <input type="radio" name="rating" value="{{ s }}" class="sr-only" {{ 'checked' if task.rating == s else '' }}>
+              <span class="text-xl hover:text-amber-400 transition-colors {{ 'text-amber-400' if task.rating and s <= task.rating else 'text-slate-300' }}">★</span>
+            </label>
+            {% endfor %}
+          </div>
+          <textarea name="rating_comment" rows="2" maxlength="500"
+                    placeholder="Комментарий к оценке (необязательно)…"
+                    class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none">{{ task.rating_comment or '' }}</textarea>
+          <button type="submit" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm rounded-lg transition-colors">Сохранить оценку</button>
+        </form>
+      </details>
+      {% endif %}
+      {% elif is_admin %}
+      <form method="POST" action="/tasks/{{ task.id }}/rate" class="space-y-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="flex items-center gap-1" x-data="{star:0}">
+          {% for s in range(1, 6) %}
+          <label class="cursor-pointer">
+            <input type="radio" name="rating" value="{{ s }}" class="sr-only" required>
+            <span class="text-2xl hover:text-amber-400 transition-colors text-slate-300 dark:text-slate-600">★</span>
+          </label>
+          {% endfor %}
+        </div>
+        <textarea name="rating_comment" rows="2" maxlength="500"
+                  placeholder="Комментарий к оценке (необязательно)…"
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+        <button type="submit" class="w-full px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition-colors">⭐ Поставить оценку</button>
+      </form>
+      {% else %}
+      <p class="text-sm text-slate-400">Оценка пока не выставлена.</p>
+      {% endif %}
+    </div>
+    {% endif %}
 
     {% if task_history|default([]) %}
     <div class="card p-4 dark:bg-slate-900">
