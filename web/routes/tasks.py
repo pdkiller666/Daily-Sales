@@ -687,6 +687,136 @@ async def tasks_new_post(
 
 # ─── TOPICS (must be BEFORE /{task_id} to avoid route shadowing) ─────────────
 
+@router.get("/tasks/kanban")
+def tasks_kanban(request: Request, topic_id: int = 0, shop_filter: str = "",
+                 assigned_filter: int = 0):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    ctx = {
+        "request": request, "user": user, "is_admin": is_admin,
+        "columns": [],
+        "topics": [], "staff_list": [], "shops_list": [],
+        "topic_filter": topic_id, "shop_filter": shop_filter,
+        "assigned_filter": assigned_filter,
+        "status_labels": STATUS_LABELS, "status_css": STATUS_CSS,
+        "priority_labels": PRIORITY_LABELS, "priority_css": PRIORITY_CSS,
+        "topic_colors": TOPIC_COLORS,
+        "csrf_token": get_csrf_token(request),
+        "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
+        "error": None,
+    }
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id, shop_name FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        my_shop = (my_row[1] or "") if my_row else ""
+
+        ctx["topics"] = db.get_task_topics()
+        if is_admin:
+            ctx["staff_list"] = _get_staff_list(db)
+            ctx["shops_list"] = _get_shops_list(db)
+
+        all_tasks = db.get_tasks(
+            topic_id=topic_id or None,
+            assigned_to=assigned_filter if assigned_filter else None,
+            shop_filter=shop_filter or None,
+            is_admin=is_admin,
+            my_user_id=my_db_id,
+            my_shop=my_shop or None,
+        )
+        ctx["my_db_id"] = my_db_id
+
+        col_order = ['new', 'in_progress', 'review', 'done']
+        col_icons = {'new': '🆕', 'in_progress': '🔄', 'review': '🔍', 'done': '✅'}
+        col_names = {'new': 'Новые', 'in_progress': 'В работе',
+                     'review': 'На проверке', 'done': 'Выполнены'}
+        by_status = {s: [] for s in col_order}
+        for t in all_tasks:
+            s = t.get('status', 'new')
+            if s in by_status:
+                by_status[s].append(t)
+        ctx["columns"] = [
+            {"key": s, "icon": col_icons[s], "name": col_names[s],
+             "tasks": by_status[s]}
+            for s in col_order
+        ]
+    except Exception as e:
+        logger.error("tasks_kanban: %s", e)
+        ctx["error"] = "Ошибка загрузки канбан-доски."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/kanban.html", ctx
+    )
+
+
+@router.post("/tasks/kanban/move")
+def tasks_kanban_move(request: Request,
+                      task_id: int = Form(...), status: str = Form(...),
+                      csrf_token: str = Form(...)):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from fastapi.responses import JSONResponse
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "not_auth"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"error": "csrf"}, status_code=403)
+    if status not in STATUS_LABELS:
+        return JSONResponse({"error": "bad_status"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        can_edit = (
+            is_admin
+            or task.get('created_by') == my_db_id
+            or task.get('assigned_to') == my_db_id
+            or task.get('assign_all')
+        )
+        if not can_edit:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+
+        db.update_task_status(task_id, status)
+        return JSONResponse({"ok": True, "new_status": status,
+                             "label": STATUS_LABELS[status]})
+    except Exception as e:
+        logger.error("tasks_kanban_move: %s", e)
+        return JSONResponse({"error": "server_error"}, status_code=500)
+
+
 @router.get("/tasks/topics")
 def tasks_topics(request: Request, msg: str = ""):
     from web.auth import get_session_user, get_csrf_token

@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}Задачи — Канбан{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-xs">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 text-sm dark:text-slate-200">Канбан</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-5">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Канбан-доска</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Задачи по статусам</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <!-- View toggle -->
+    <a href="/tasks" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-slate-800 transition-colors" title="Список">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Список
+    </a>
+    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-600 bg-indigo-600 text-white" title="Канбан">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+      Канбан
+    </span>
+    {% if is_admin %}
+    <a href="/tasks/new"
+       class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Создать
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">
+  ⚠️ {{ error }}
+</div>
+{% endif %}
+
+<!-- Filters bar -->
+<div class="flex flex-wrap gap-2 mb-5">
+  {% if topics %}
+  <select id="topicFilter" onchange="applyFilters()"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="0" {% if not topic_filter %}selected{% endif %}>Все темы</option>
+    {% for t in topics %}
+    <option value="{{ t.id }}" {% if topic_filter == t.id %}selected{% endif %}>{{ t.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if is_admin and shops_list %}
+  <select id="shopFilter" onchange="applyFilters()"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="" {% if not shop_filter %}selected{% endif %}>Все магазины</option>
+    {% for sh in shops_list %}
+    <option value="{{ sh.name | e }}" {% if shop_filter == sh.name %}selected{% endif %}>🏪 {{ sh.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if is_admin and staff_list %}
+  <select id="staffFilter" onchange="applyFilters()"
+          class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+    <option value="0" {% if not assigned_filter %}selected{% endif %}>Все сотрудники</option>
+    {% for s in staff_list %}
+    <option value="{{ s.id }}" {% if assigned_filter == s.id %}selected{% endif %}>{{ s.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if topic_filter or shop_filter or assigned_filter %}
+  <a href="/tasks/kanban" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:border-red-300 transition-colors">
+    ✕ Сбросить
+  </a>
+  {% endif %}
+</div>
+
+<!-- Kanban board (horizontally scrollable) -->
+<div class="overflow-x-auto -mx-4 px-4 pb-4">
+  <div class="flex gap-4 min-w-max">
+    {% for col in columns %}
+    <div class="w-72 flex-shrink-0 flex flex-col"
+         id="col-{{ col.key }}"
+         data-status="{{ col.key }}"
+         ondragover="event.preventDefault()"
+         ondrop="onDrop(event, '{{ col.key }}')">
+
+      <!-- Column header -->
+      {% set header_css = {
+        'new':         'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700',
+        'in_progress': 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800',
+        'review':      'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800',
+        'done':        'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800',
+      } %}
+      <div class="flex items-center justify-between px-3 py-2 rounded-xl border mb-3
+                  {{ header_css.get(col.key, 'bg-slate-100 border-slate-300') }}">
+        <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          {{ col.icon }} {{ col.name }}
+        </span>
+        <span class="text-xs font-bold px-2 py-0.5 rounded-full
+          {% if col.key == 'in_progress' %}bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300
+          {% elif col.key == 'review' %}bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300
+          {% elif col.key == 'done' %}bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300
+          {% else %}bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300{% endif %}">
+          {{ col.tasks | length }}
+        </span>
+      </div>
+
+      <!-- Cards drop zone -->
+      <div class="flex flex-col gap-2 min-h-24 rounded-xl" id="drop-{{ col.key }}">
+        {% for t in col.tasks %}
+        {% set overdue = is_overdue(t.get('deadline'), t.get('status', '')) %}
+        <div class="kanban-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 shadow-sm hover:shadow-md transition-shadow group relative"
+             id="card-{{ t.id }}"
+             draggable="true"
+             ondragstart="onDragStart(event, {{ t.id }}, '{{ col.key }}')"
+             data-task-id="{{ t.id }}"
+             data-status="{{ col.key }}">
+
+          <!-- Priority stripe -->
+          <div class="absolute left-0 top-3 bottom-3 w-1 rounded-r-full
+            {% if t.priority == 'urgent' %}bg-red-500
+            {% elif t.priority == 'high' %}bg-amber-400
+            {% elif t.priority == 'low' %}bg-emerald-400
+            {% else %}bg-blue-400{% endif %}"></div>
+
+          <div class="pl-3">
+            <!-- Title -->
+            <a href="/tasks/{{ t.id }}"
+               class="block text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 leading-snug mb-2 hover:underline line-clamp-2">
+              {{ t.title }}
+            </a>
+
+            <!-- Meta row -->
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+              {% if t.get('assign_all') %}
+              <span class="inline-flex items-center gap-0.5">👥 Все</span>
+              {% elif t.get('assigned_shop') %}
+              <span class="truncate max-w-[90px]" title="{{ t.assigned_shop }}">🏪 {{ t.assigned_shop }}</span>
+              {% elif t.get('assigned_name') %}
+              <span class="truncate max-w-[90px]" title="{{ t.assigned_name }}">👤 {{ t.assigned_name }}</span>
+              {% else %}
+              <span class="text-slate-300 dark:text-slate-600">—</span>
+              {% endif %}
+
+              {% if t.get('deadline') %}
+              <span class="{{ 'text-red-500 font-medium' if overdue else '' }}">
+                📅 {{ fmt_deadline(t.deadline) }}
+              </span>
+              {% endif %}
+
+              {% if t.get('checklist_total', 0) > 0 %}
+              <span>✓ {{ t.checklist_done }}/{{ t.checklist_total }}</span>
+              {% endif %}
+
+              {% if overdue %}
+              <span class="px-1.5 py-0.5 rounded-full bg-red-50 text-red-500 border border-red-200 dark:bg-red-950 dark:border-red-800 dark:text-red-400 font-medium">
+                ⚠️
+              </span>
+              {% endif %}
+            </div>
+
+            <!-- Quick move buttons (visible on hover) -->
+            {% if is_admin or t.get('assigned_to') == my_db_id or t.get('assign_all') %}
+            <div class="quick-move mt-2 flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {% set all_cols = [('new','🆕'),('in_progress','🔄'),('review','🔍'),('done','✅')] %}
+              {% for st_key, st_icon in all_cols %}
+              {% if st_key != col.key %}
+              <button onclick="moveCard({{ t.id }}, '{{ st_key }}', event)"
+                      title="{{ status_labels.get(st_key, st_key) }}"
+                      class="px-2 py-0.5 text-[11px] rounded-lg border transition-colors
+                        {% if st_key == 'done' %}border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400
+                        {% elif st_key == 'in_progress' %}border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400
+                        {% elif st_key == 'review' %}border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400
+                        {% else %}border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300{% endif %}">
+                {{ st_icon }}
+              </button>
+              {% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+
+        <!-- Empty column placeholder -->
+        {% if not col.tasks %}
+        <div class="text-center py-8 text-slate-300 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl" id="empty-{{ col.key }}">
+          Нет задач
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div id="kanban-toast" class="fixed bottom-5 right-5 z-50 hidden">
+  <div class="flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white"
+       id="kanban-toast-inner">
+  </div>
+</div>
+
+<script>
+const CSRF_TOKEN = {{ csrf_token | tojson }};
+let draggingId = null;
+let draggingFrom = null;
+
+function onDragStart(e, taskId, fromStatus) {
+  draggingId = taskId;
+  draggingFrom = fromStatus;
+  e.dataTransfer.effectAllowed = 'move';
+  document.getElementById('card-' + taskId).classList.add('opacity-50');
+}
+
+document.querySelectorAll('.kanban-card').forEach(card => {
+  card.addEventListener('dragend', () => {
+    card.classList.remove('opacity-50');
+    draggingId = null; draggingFrom = null;
+  });
+});
+
+function onDrop(e, toStatus) {
+  e.preventDefault();
+  if (!draggingId || draggingFrom === toStatus) return;
+  moveCard(draggingId, toStatus, null);
+}
+
+function moveCard(taskId, newStatus, e) {
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+
+  const fd = new FormData();
+  fd.append('csrf_token', CSRF_TOKEN);
+  fd.append('task_id', taskId);
+  fd.append('status', newStatus);
+
+  fetch('/tasks/kanban/move', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        relocateCard(taskId, newStatus);
+        showToast('Статус изменён → ' + data.label, 'success');
+      } else {
+        showToast('Ошибка: ' + (data.error || 'неизвестно'), 'error');
+      }
+    })
+    .catch(() => showToast('Ошибка сети', 'error'));
+}
+
+function relocateCard(taskId, newStatus) {
+  const card = document.getElementById('card-' + taskId);
+  if (!card) return;
+
+  const oldStatus = card.dataset.status;
+  const targetDrop = document.getElementById('drop-' + newStatus);
+  if (!targetDrop) return;
+
+  // Remove empty placeholder if present
+  const emptyPlaceholder = document.getElementById('empty-' + newStatus);
+  if (emptyPlaceholder) emptyPlaceholder.remove();
+
+  // Move card to new column
+  card.dataset.status = newStatus;
+  targetDrop.prepend(card);
+
+  // Update quick-move buttons visibility
+  card.querySelectorAll('button[onclick]').forEach(btn => {
+    const onclickAttr = btn.getAttribute('onclick');
+    const btnStatus = onclickAttr.match(/'(\w+)'/)?.[1];
+    if (btnStatus === newStatus) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = '';
+    }
+  });
+
+  // Update old column count
+  updateColumnCount(oldStatus);
+  updateColumnCount(newStatus);
+
+  // Add empty placeholder to old column if now empty
+  const oldDrop = document.getElementById('drop-' + oldStatus);
+  if (oldDrop && oldDrop.querySelectorAll('.kanban-card').length === 0) {
+    const ph = document.createElement('div');
+    ph.className = 'text-center py-8 text-slate-300 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl';
+    ph.id = 'empty-' + oldStatus;
+    ph.textContent = 'Нет задач';
+    oldDrop.appendChild(ph);
+  }
+}
+
+function updateColumnCount(status) {
+  const drop = document.getElementById('drop-' + status);
+  const col = document.getElementById('col-' + status);
+  if (!drop || !col) return;
+  const count = drop.querySelectorAll('.kanban-card').length;
+  const badge = col.querySelector('span.text-xs.font-bold');
+  if (badge) badge.textContent = count;
+}
+
+let toastTimer = null;
+function showToast(msg, type) {
+  const toast = document.getElementById('kanban-toast');
+  const inner = document.getElementById('kanban-toast-inner');
+  inner.textContent = msg;
+  inner.className = 'flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white '
+    + (type === 'success' ? 'bg-emerald-600' : 'bg-red-500');
+  toast.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 2500);
+}
+
+function applyFilters() {
+  const topic = document.getElementById('topicFilter')?.value || '0';
+  const shop  = encodeURIComponent(document.getElementById('shopFilter')?.value || '');
+  const staff = document.getElementById('staffFilter')?.value || '0';
+  let url = '/tasks/kanban?';
+  if (topic !== '0') url += 'topic_id=' + topic + '&';
+  if (shop) url += 'shop_filter=' + shop + '&';
+  if (staff !== '0') url += 'assigned_filter=' + staff + '&';
+  window.location.href = url;
+}
+</script>
+{% endblock %}
