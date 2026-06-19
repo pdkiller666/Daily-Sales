@@ -303,8 +303,9 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
     org_db = user.get("org_db")
     is_admin = user.get("role") in ("owner", "admin", "super_admin")
 
-    from billing_utils import has_module as _has_module
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
+    tasks_ai = tasks_pro and _has_ext(telegram_id, 'tasks_ai')
 
     ctx = {
         "request": request, "user": user, "is_admin": is_admin,
@@ -318,7 +319,7 @@ def tasks_list(request: Request, status: str = "", topic_id: int = 0,
         "csrf_token": get_csrf_token(request),
         "msg": msg, "error": None,
         "fmt_deadline": _fmt_deadline, "is_overdue": _is_overdue,
-        "tasks_pro": tasks_pro,
+        "tasks_pro": tasks_pro, "tasks_ai": tasks_ai,
     }
 
     try:
@@ -379,6 +380,103 @@ def _chat_available(telegram_id: int) -> bool:
 # ─── TEMPLATES ───────────────────────────────────────────────────────────────
 
 # ─── POOL (самоназначение) ────────────────────────────────────────────────────
+
+# ─── AI DECOMPOSE ────────────────────────────────────────────────────────────
+
+@router.get("/tasks/decompose")
+def tasks_decompose_form(request: Request, msg: str = ""):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url="/tasks", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not _has_module(telegram_id, 'tasks_pro') or not _has_ext(telegram_id, 'tasks_ai'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user, "is_admin": True,
+        "topics": [], "priority_labels": PRIORITY_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "msg": msg, "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["topics"] = db.get_task_topics()
+    except Exception as e:
+        logger.error("tasks_decompose_form: %s", e)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/decompose.html", ctx
+    )
+
+
+@router.post("/tasks/decompose/create")
+def tasks_decompose_create(
+    request: Request,
+    csrf_token: str = Form(""),
+    tasks_json: str = Form(""),
+    topic_id: str = Form(""),
+    deadline: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
+    import json as _json
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/tasks/decompose?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not _has_module(telegram_id, 'tasks_pro') or not _has_ext(telegram_id, 'tasks_ai'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=303)
+
+    try:
+        tasks_data = _json.loads(tasks_json or "[]")
+        if not tasks_data:
+            return RedirectResponse(url="/tasks/decompose?msg=no_tasks", status_code=303)
+
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute("SELECT id FROM users WHERE telegram_id=?", (telegram_id,)).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        tid = int(topic_id) if topic_id and topic_id.isdigit() else None
+        dl = deadline.strip() or None
+
+        created_count = 0
+        for t in tasks_data[:10]:
+            if isinstance(t, dict) and t.get('title'):
+                db.create_task(
+                    title=t['title'][:200],
+                    description=t.get('description', '')[:2000],
+                    topic_id=tid,
+                    created_by=my_db_id,
+                    priority=t.get('priority', 'normal') if t.get('priority') in ('normal', 'high', 'urgent', 'low') else 'normal',
+                    deadline=dl,
+                )
+                created_count += 1
+
+        return RedirectResponse(url=f"/tasks?msg=created_{created_count}", status_code=303)
+    except Exception as e:
+        logger.error("tasks_decompose_create: %s", e)
+        return RedirectResponse(url="/tasks/decompose?msg=error", status_code=303)
+
 
 @router.get("/tasks/pool")
 def tasks_pool(request: Request, topic_id: str = "", q: str = "", msg: str = ""):
@@ -649,8 +747,9 @@ def tasks_new_form(request: Request, template_id: int = 0):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
-    from billing_utils import has_module as _has_module
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
     tasks_pro = _has_module(telegram_id, 'tasks_pro')
+    tasks_ai = tasks_pro and _has_ext(telegram_id, 'tasks_ai')
 
     ctx = {
         "request": request, "user": user, "is_admin": True,
@@ -660,7 +759,7 @@ def tasks_new_form(request: Request, template_id: int = 0):
         "edit_task": None, "error": None,
         "chat_available": _chat_available(telegram_id),
         "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
-        "tasks_pro": tasks_pro, "templates": [],
+        "tasks_pro": tasks_pro, "tasks_ai": tasks_ai, "templates": [],
         "prefill_title": "", "prefill_description": "",
         "prefill_priority": "normal", "prefill_topic_id": 0,
         "prefill_checklist": "",

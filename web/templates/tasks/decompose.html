@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}AI-декомпозиция задач{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-sm">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">✨ Декомпозиция</span>
+{% endblock %}
+
+{% block content %}
+<div x-data="decomposeApp()" class="max-w-2xl mx-auto">
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">✨ AI-декомпозиция</h1>
+      <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Превратите цель в список задач с помощью AI</p>
+    </div>
+    <a href="/tasks" class="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-colors">
+      ← Задачи
+    </a>
+  </div>
+
+  {% set msg_map = {
+    'csrf_error': '⚠️ Ошибка безопасности.',
+    'no_tasks':   '⚠️ Не выбрано ни одной задачи.',
+    'error':      '⚠️ Произошла ошибка.',
+  } %}
+  {% if msg and msg in msg_map %}
+  <div class="mb-4 p-3 rounded-xl text-sm border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300">
+    {{ msg_map[msg] }}
+  </div>
+  {% endif %}
+
+  <!-- Step 1: Input goal -->
+  <div class="card p-5 dark:bg-slate-900 mb-4" x-show="!tasks.length">
+    <p class="text-sm font-medium text-slate-700 dark:text-slate-200 mb-3">🎯 Опишите цель или проект</p>
+    <textarea x-model="goal" rows="3" maxlength="500"
+              placeholder="Например: Подготовить магазин к новогодним распродажам"
+              class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none mb-3"></textarea>
+    <div class="flex items-center gap-3">
+      <button type="button" @click="generate()"
+              :disabled="loading || !goal.trim()"
+              class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+        <span x-show="!loading">✨ Сгенерировать задачи</span>
+        <span x-show="loading">⏳ Генерирую…</span>
+      </button>
+      <span x-show="errMsg" x-text="errMsg" class="text-xs text-amber-600 dark:text-amber-400"></span>
+    </div>
+  </div>
+
+  <!-- Step 2: Review & edit tasks -->
+  <div x-show="tasks.length > 0">
+    <div class="flex items-center justify-between mb-3">
+      <p class="text-sm font-medium text-slate-700 dark:text-slate-200">📋 Выберите задачи для создания</p>
+      <button type="button" @click="tasks = []; goal = ''"
+              class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline">
+        Начать заново
+      </button>
+    </div>
+
+    <div class="space-y-2 mb-4">
+      <template x-for="(task, i) in tasks" :key="i">
+        <div class="card p-3 dark:bg-slate-900 flex items-start gap-3">
+          <input type="checkbox" x-model="task.selected"
+                 class="mt-0.5 w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 shrink-0 cursor-pointer">
+          <div class="flex-1 min-w-0">
+            <input type="text" x-model="task.title" maxlength="200"
+                   class="w-full text-sm font-medium bg-transparent text-slate-800 dark:text-slate-100 border-b border-transparent hover:border-slate-300 focus:border-violet-400 focus:outline-none pb-0.5 mb-1">
+            <input type="text" x-model="task.description" maxlength="300"
+                   placeholder="Описание (необязательно)"
+                   class="w-full text-xs bg-transparent text-slate-500 dark:text-slate-400 border-b border-transparent hover:border-slate-300 focus:border-violet-400 focus:outline-none pb-0.5">
+          </div>
+          <div class="shrink-0">
+            <select x-model="task.priority"
+                    class="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none">
+              <option value="urgent">🔴 Срочно</option>
+              <option value="high">🟠 Высокий</option>
+              <option value="normal">🔵 Обычный</option>
+              <option value="low">🟢 Низкий</option>
+            </select>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Common settings + submit -->
+    <form method="POST" action="/tasks/decompose/create" @submit.prevent="submitTasks($event.target)">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="tasks_json" :value="JSON.stringify(tasks.filter(t=>t.selected))">
+
+      <div class="card p-4 dark:bg-slate-900 space-y-3 mb-4">
+        <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Общие настройки</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Тема (необязательно)</label>
+            <select name="topic_id"
+                    class="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500">
+              <option value="">— Без темы —</option>
+              {% for t in topics %}
+              <option value="{{ t.id }}">{{ t.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Дедлайн (необязательно)</label>
+            <input type="date" name="deadline"
+                   class="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-violet-500">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit"
+                :disabled="!tasks.some(t=>t.selected)"
+                class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+          ✅ Создать выбранные задачи (<span x-text="tasks.filter(t=>t.selected).length"></span>)
+        </button>
+        <span class="text-xs text-slate-400" x-text="tasks.filter(t=>t.selected).length === 0 ? 'Выберите хотя бы одну задачу' : ''"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function decomposeApp() {
+  return {
+    goal: '',
+    tasks: [],
+    loading: false,
+    errMsg: '',
+    async generate() {
+      const g = this.goal.trim();
+      if (!g) return;
+      this.loading = true;
+      this.errMsg = '';
+      try {
+        const r = await fetch('/api/ai/task-decompose', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+          body: JSON.stringify({goal: g}),
+        });
+        const d = await r.json();
+        if (d.ok && d.tasks && d.tasks.length) {
+          this.tasks = d.tasks.map(t => ({...t, selected: true}));
+        } else {
+          this.errMsg = d.error || 'Ошибка AI.';
+        }
+      } catch (e) {
+        this.errMsg = 'Ошибка сети.';
+      } finally {
+        this.loading = false;
+      }
+    },
+    submitTasks(form) {
+      const selected = this.tasks.filter(t => t.selected);
+      if (!selected.length) return;
+      form.querySelector('[name=tasks_json]').value = JSON.stringify(selected);
+      form.submit();
+    }
+  };
+}
+</script>
+{% endblock %}

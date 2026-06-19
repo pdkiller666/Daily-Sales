@@ -1212,3 +1212,198 @@ async def ai_plan_target_hint(request: Request):
     except Exception as exc:
         logger.error("ai_plan_target_hint error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── Tasks AI: чеклист ────────────────────────────────────────────────────────
+
+@router.post("/task-checklist")
+async def ai_task_checklist(request: Request):
+    """Генерация чеклиста для задачи (tasks_ai extension)."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, is_configured
+    from web.rate_store import check_and_increment_ai
+    from billing_utils import has_extension, has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    tg_id = int(user["sub"])
+
+    if not has_module(tg_id, "tasks_pro") or not has_extension(tg_id, "tasks_ai"):
+        return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
+    if not check_and_increment_ai(tg_id):
+        return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
+
+    try:
+        body = await request.json()
+        title = (body.get("title") or "").strip()[:200]
+        description = (body.get("description") or "").strip()[:500]
+        if not title:
+            return JSONResponse({"ok": False, "error": "Укажите название задачи."})
+
+        context = f"Задача: {title}"
+        if description:
+            context += f"\nОписание: {description}"
+
+        prompt = (
+            f"{context}\n\n"
+            "Сгенерируй чеклист из 3–8 конкретных и понятных шагов для выполнения этой задачи. "
+            "Верни ТОЛЬКО пронумерованный список, по одному пункту на строке (1. текст, 2. текст…). "
+            "Без вступлений, без заключений, без markdown."
+        )
+        system = (
+            "Ты — помощник по управлению задачами в розничном магазине. "
+            "Генерируй практичные, конкретные шаги. Пиши по-русски. "
+            "Отвечай ТОЛЬКО списком — без вступлений, заголовков и пояснений."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=400, temperature=0.3, feature="task_checklist")
+        if not result:
+            return JSONResponse({"ok": False, "error": "AI не ответил. Попробуйте ещё раз."})
+
+        # Парсим пронумерованный список
+        items = []
+        for line in result.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # Убираем номер: "1. ", "1) ", "• ", "- "
+            import re as _re
+            clean = _re.sub(r'^[\d]+[.)]\s*', '', line).strip()
+            clean = _re.sub(r'^[-•*]\s*', '', clean).strip()
+            if clean:
+                items.append(clean)
+
+        if not items:
+            return JSONResponse({"ok": False, "error": "Не удалось разобрать ответ AI."})
+
+        return JSONResponse({"ok": True, "items": items})
+
+    except Exception as exc:
+        logger.error("ai_task_checklist error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── Tasks AI: описание ───────────────────────────────────────────────────────
+
+@router.post("/task-description")
+async def ai_task_description(request: Request):
+    """Генерация описания задачи (tasks_ai extension)."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, is_configured
+    from web.rate_store import check_and_increment_ai
+    from billing_utils import has_extension, has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    tg_id = int(user["sub"])
+
+    if not has_module(tg_id, "tasks_pro") or not has_extension(tg_id, "tasks_ai"):
+        return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
+    if not check_and_increment_ai(tg_id):
+        return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
+
+    try:
+        body = await request.json()
+        title = (body.get("title") or "").strip()[:200]
+        if not title:
+            return JSONResponse({"ok": False, "error": "Укажите название задачи."})
+
+        prompt = (
+            f"Задача: {title}\n\n"
+            "Напиши краткое описание этой задачи для сотрудника розничного магазина. "
+            "3–5 предложений: что нужно сделать, зачем это важно, на что обратить внимание. "
+            "Без списков, без markdown, просто текст."
+        )
+        system = (
+            "Ты — менеджер розничного магазина. Пиши чётко и профессионально, по-русски. "
+            "Максимум 5 предложений. Без markdown."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=250, temperature=0.4, feature="task_description")
+        if not result:
+            return JSONResponse({"ok": False, "error": "AI не ответил. Попробуйте ещё раз."})
+
+        return JSONResponse({"ok": True, "text": result.strip()})
+
+    except Exception as exc:
+        logger.error("ai_task_description error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── Tasks AI: декомпозиция цели ─────────────────────────────────────────────
+
+@router.post("/task-decompose")
+async def ai_task_decompose(request: Request):
+    """Декомпозиция цели в список подзадач (tasks_ai extension)."""
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "Forbidden"}, status_code=403)
+    from web.auth import get_session_user
+    from web.ai_utils import ask_llm, is_configured
+    from web.rate_store import check_and_increment_ai
+    from billing_utils import has_extension, has_module
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+    tg_id = int(user["sub"])
+
+    if not has_module(tg_id, "tasks_pro") or not has_extension(tg_id, "tasks_ai"):
+        return JSONResponse({"ok": False, "error": "Требуется расширение «AI для задач»."}, status_code=403)
+    if not is_configured():
+        return JSONResponse({"ok": False, "error": "AI не настроен."}, status_code=503)
+    if not check_and_increment_ai(tg_id):
+        return JSONResponse({"ok": False, "error": "Дневной лимит AI исчерпан."}, status_code=429)
+
+    try:
+        body = await request.json()
+        goal = (body.get("goal") or "").strip()[:500]
+        if not goal:
+            return JSONResponse({"ok": False, "error": "Укажите цель."})
+
+        prompt = (
+            f"Цель: {goal}\n\n"
+            "Разложи эту цель на 3–7 конкретных задач для команды розничного магазина. "
+            "Верни JSON-массив объектов: [{\"title\": \"...\", \"description\": \"...\", \"priority\": \"normal|high|urgent\"}]. "
+            "ТОЛЬКО JSON, без пояснений и markdown."
+        )
+        system = (
+            "Ты — менеджер проектов розничного магазина. "
+            "Декомпозируй цели в конкретные задачи. "
+            "Возвращай ТОЛЬКО валидный JSON-массив. Пиши по-русски."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=600, temperature=0.3, feature="task_decompose")
+        if not result:
+            return JSONResponse({"ok": False, "error": "AI не ответил. Попробуйте ещё раз."})
+
+        # Парсим JSON из ответа
+        import re as _re
+        import json as _json
+        json_match = _re.search(r'\[.*\]', result, _re.DOTALL)
+        if not json_match:
+            return JSONResponse({"ok": False, "error": "Не удалось разобрать ответ AI."})
+        tasks = _json.loads(json_match.group())
+        # Нормализуем
+        valid_priorities = {'normal', 'high', 'urgent', 'low'}
+        normalized = []
+        for t in tasks:
+            if isinstance(t, dict) and t.get('title'):
+                normalized.append({
+                    'title': str(t['title'])[:200],
+                    'description': str(t.get('description', ''))[:500],
+                    'priority': t.get('priority', 'normal') if t.get('priority') in valid_priorities else 'normal',
+                })
+        if not normalized:
+            return JSONResponse({"ok": False, "error": "AI вернул пустой список."})
+        return JSONResponse({"ok": True, "tasks": normalized})
+
+    except Exception as exc:
+        logger.error("ai_task_decompose error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)

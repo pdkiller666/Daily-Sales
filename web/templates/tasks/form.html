@@ -109,13 +109,40 @@
     </div>
 
     <!-- Description -->
-    <div>
-      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-        Описание <span class="text-slate-400 font-normal">(необязательно)</span>
-      </label>
+    <div x-data="{ descLoading: false, descErr: '' }">
+      <div class="flex items-center justify-between mb-1.5">
+        <label class="text-sm font-medium text-slate-700 dark:text-slate-200">
+          Описание <span class="text-slate-400 font-normal">(необязательно)</span>
+        </label>
+        {% if tasks_ai|default(false) %}
+        <button type="button"
+                @click="
+                  const titleEl = $el.closest('form').querySelector('[name=title]');
+                  const descEl = $el.closest('form').querySelector('[name=description]');
+                  const t = titleEl ? titleEl.value.trim() : '';
+                  if (!t) { descErr = 'Сначала введите название задачи.'; return; }
+                  descLoading = true; descErr = '';
+                  fetch('/api/ai/task-description', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify({title: t})
+                  }).then(r=>r.json()).then(d=>{
+                    descLoading = false;
+                    if (d.ok) { if (descEl) descEl.value = d.text; }
+                    else descErr = d.error || 'Ошибка AI.';
+                  }).catch(()=>{ descLoading = false; descErr = 'Ошибка сети.'; });
+                "
+                :disabled="descLoading"
+                class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950 transition-colors disabled:opacity-50">
+          <span x-show="!descLoading">✨ AI-описание</span>
+          <span x-show="descLoading">⏳ Генерирую…</span>
+        </button>
+        {% endif %}
+      </div>
       <textarea name="description" rows="4" maxlength="2000"
                 placeholder="Подробное описание, инструкции, ссылки…"
                 class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ edit_task.description if edit_task else prefill_description|default('') }}</textarea>
+      <p x-show="descErr" x-text="descErr" class="mt-1 text-xs text-amber-600 dark:text-amber-400"></p>
     </div>
 
     <!-- Row: topic + priority -->
@@ -274,13 +301,41 @@
 
     {% if not edit_task %}
     <!-- Checklist (only on create) -->
-    <div>
-      <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-        Чеклист <span class="text-slate-400 font-normal">(по одному пункту на строку)</span>
-      </label>
+    <div x-data="{ clLoading: false, clErr: '' }">
+      <div class="flex items-center justify-between mb-1.5">
+        <label class="text-sm font-medium text-slate-700 dark:text-slate-200">
+          Чеклист <span class="text-slate-400 font-normal">(по одному пункту на строку)</span>
+        </label>
+        {% if tasks_ai|default(false) %}
+        <button type="button"
+                @click="
+                  const titleEl = $el.closest('form').querySelector('[name=title]');
+                  const descEl = $el.closest('form').querySelector('[name=description]');
+                  const clEl = $el.closest('form').querySelector('[name=checklist_items]');
+                  const t = titleEl ? titleEl.value.trim() : '';
+                  if (!t) { clErr = 'Сначала введите название задачи.'; return; }
+                  clLoading = true; clErr = '';
+                  fetch('/api/ai/task-checklist', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify({title: t, description: descEl ? descEl.value : ''})
+                  }).then(r=>r.json()).then(d=>{
+                    clLoading = false;
+                    if (d.ok && d.items) { if (clEl) clEl.value = d.items.join('\n'); }
+                    else clErr = d.error || 'Ошибка AI.';
+                  }).catch(()=>{ clLoading = false; clErr = 'Ошибка сети.'; });
+                "
+                :disabled="clLoading"
+                class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950 transition-colors disabled:opacity-50">
+          <span x-show="!clLoading">✨ AI-чеклист</span>
+          <span x-show="clLoading">⏳ Генерирую…</span>
+        </button>
+        {% endif %}
+      </div>
       <textarea name="checklist_items" rows="4"
                 placeholder="Пересчитать остатки&#10;Обновить ценники&#10;Сделать фото полки"
                 class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ prefill_checklist|default('') }}</textarea>
+      <p x-show="clErr" x-text="clErr" class="mt-1 text-xs text-amber-600 dark:text-amber-400"></p>
     </div>
 
     <!-- Файлы (только при создании) -->
