@@ -897,39 +897,37 @@ async def plnai_hint_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        from web.rate_store import check_and_increment_ai, get_ai_rate_limits
-        base_limit, _ = get_ai_rate_limits()
-        try:
-            from billing_utils import has_extension as _hex
-            from web.rate_store import get_custom_ai_limit
-            custom = get_custom_ai_limit(callback.from_user.id)
-            limit = custom if custom is not None else (
-                base_limit * 3 if _hex(callback.from_user.id, "ai_high_limit") else base_limit
-            )
-        except Exception:
-            limit = base_limit
-        if not check_and_increment_ai(callback.from_user.id, limit):
+        from web.rate_store import check_and_increment_ai, get_ai_rate_limits, get_custom_ai_limit
+        from billing_utils import has_extension as _hex_ail
+        _base, _ = get_ai_rate_limits()
+        _custom = get_custom_ai_limit(callback.from_user.id)
+        _limit = _custom if _custom is not None else (
+            _base * 3 if _hex_ail(callback.from_user.id, "ai_high_limit") else _base
+        )
+        if not check_and_increment_ai(callback.from_user.id, _limit):
             await _show_target_input(callback, state, hint_text="⚠️ Превышен дневной лимит AI-запросов.")
             return
     except Exception:
         pass
 
     try:
+        import json as _pj
+        import asyncio
         data = await state.get_data()
         target_type = data.get('pln_target_type', 'shop')
         seller_id = data.get('pln_user_id')
         shop_name = data.get('pln_shop_name')
         plan_type = data.get('pln_period', 'monthly')
         metric_type = data.get('pln_metric', 'turnover')
+        filter_type = data.get('pln_filter_type', 'all')
+        filter_value = data.get('pln_filter_value')
         who = data.get('pln_user_name') if target_type == 'seller' else shop_name
 
         current_db = await get_db(callback.from_user.id, state)
 
-        # Query historical data synchronously from the thread pool
-        import asyncio
         history = []
         try:
-            _MONTH_RU = {
+            _MONTH_RU_BOT = {
                 "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель",
                 "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август",
                 "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь",
@@ -946,7 +944,7 @@ async def plnai_hint_callback(callback: CallbackQuery, state: FSMContext):
                 def _fmt(raw):
                     try:
                         y, m = raw.split("-")
-                        return f"{_MONTH_RU.get(m, m)} {y}"
+                        return f"{_MONTH_RU_BOT.get(m, m)} {y}"
                     except Exception:
                         return raw
             else:
@@ -956,30 +954,54 @@ async def plnai_hint_callback(callback: CallbackQuery, state: FSMContext):
                 def _fmt(raw):
                     return f"Неделя {raw}"
 
-            if target_type == "seller" and seller_id:
-                where_extra = "AND s.user_id = ?"
-                params = [lookback, int(seller_id), 4]
-            elif target_type == "shop" and shop_name:
-                where_extra = "AND s.shop_name = ?"
-                params = [lookback, shop_name, 4]
-            else:
-                params = None
+            # Build WHERE clause with target + product filter
+            extra_conds: list = []
+            q_params: list = []
+            join_clause = ""
 
-            if params:
+            if target_type == "seller" and seller_id:
+                extra_conds.append("s.user_id = ?")
+                q_params.append(int(seller_id))
+            elif target_type == "shop" and shop_name:
+                extra_conds.append("s.shop_name = ?")
+                q_params.append(shop_name)
+            else:
+                extra_conds = None  # type: ignore
+
+            if extra_conds is not None:
+                if filter_type == "category" and filter_value:
+                    try:
+                        cats = _pj.loads(filter_value)
+                        if isinstance(cats, list) and cats:
+                            join_clause = "LEFT JOIN products p ON s.product_id = p.id"
+                            extra_conds.append(f"p.category IN ({','.join('?'*len(cats))})")
+                            q_params.extend(cats)
+                    except Exception:
+                        pass
+                elif filter_type == "product" and filter_value:
+                    try:
+                        ids = _pj.loads(filter_value)
+                        if isinstance(ids, list) and ids:
+                            extra_conds.append(f"s.product_id IN ({','.join('?'*len(ids))})")
+                            q_params.extend(ids)
+                    except Exception:
+                        pass
+
+                where = " AND ".join(extra_conds) if extra_conds else "1=1"
+
                 def _query():
                     conn = current_db.get_connection()
                     try:
                         cur = conn.cursor()
                         cur.execute(
                             f"""SELECT {period_fmt} AS period, {metric_expr} AS value
-                                FROM sales s
+                                FROM sales s {join_clause}
                                 WHERE date(s.sale_date) >= date('now', ?)
-                                  {where_extra}
-                                GROUP BY period ORDER BY period DESC LIMIT ?""",
-                            params
+                                  AND {where}
+                                GROUP BY period ORDER BY period DESC LIMIT 5""",
+                            [lookback] + q_params,
                         )
-                        rows = cur.fetchall()
-                        return rows
+                        return cur.fetchall()
                     finally:
                         conn.close()
                 rows = await asyncio.get_event_loop().run_in_executor(None, _query)

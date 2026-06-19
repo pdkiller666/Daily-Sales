@@ -212,11 +212,14 @@
                 const selText = tt === 'seller'
                     ? (document.getElementById('sellerSelect')?.options[document.getElementById('sellerSelect').selectedIndex]?.text || '')
                     : sh;
+                const ft = document.querySelector('input[name=filter_type]:checked')?.value || 'all';
+                const fcats = [...document.querySelectorAll('input[name=filter_categories]:checked')].map(el => el.value);
+                const fprods = [...document.querySelectorAll('input[name=filter_products]:checked')].map(el => parseInt(el.value));
                 try {
                     const r = await fetch('/api/ai/plan-target-hint', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-                        body: JSON.stringify({target_type: tt, seller_id: sid ? parseInt(sid) : null, shop_name: sh, plan_type: pt, metric_type: mt, who: selText})
+                        body: JSON.stringify({target_type: tt, seller_id: sid ? parseInt(sid) : null, shop_name: sh, plan_type: pt, metric_type: mt, who: selText, filter_type: ft, filter_categories: fcats, filter_products: fprods})
                     });
                     const d = await r.json();
                     if (d.ok) { this.result = d; this.done = true; }

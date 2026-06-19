@@ -233,6 +233,7 @@ def plans_create(
         logger.error(f"plans_create error: {e}")
         error = "Ошибка при создании плана. Попробуйте ещё раз."
 
+    from billing_utils import has_module as _hm_c
     ctx = {
         "request": request, "user": user,
         "is_admin": True, "is_edit": False, "plan": None,
@@ -251,6 +252,7 @@ def plans_create(
             "filter_products": [str(p) for p in filter_products],
             "target_value": target_value,
         },
+        "ai_assistant_ok": _hm_c(telegram_id, "ai_assistant"),
     }
     return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
 
@@ -572,6 +574,7 @@ def plans_update(
 
     sellers, shops, categories, products = _load_form_data(db)
 
+    from billing_utils import has_module as _hm_u
     ctx = {
         "request": request, "user": user,
         "is_admin": True, "is_edit": True,
@@ -591,6 +594,7 @@ def plans_update(
             "filter_products": [str(p) for p in filter_products],
             "target_value": target_value,
         },
+        "ai_assistant_ok": _hm_u(telegram_id, "ai_assistant"),
     }
     return request.app.state.templates.TemplateResponse(request, "plans/form.html", ctx)
 

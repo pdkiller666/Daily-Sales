@@ -970,15 +970,22 @@ def _plhint_cache_set(key: str, text: str, suggestion: float) -> None:
 
 
 def _query_plan_history(db, target_type: str, seller_id: int | None,
-                        shop_name: str | None, plan_type: str, metric_type: str) -> list:
-    """Query last 3–4 complete periods (months or weeks) for the given target."""
-    import sqlite3 as _sqlite3
+                        shop_name: str | None, plan_type: str, metric_type: str,
+                        filter_type: str = "all", filter_value: str | None = None) -> list:
+    """Query last 3–4 complete periods (months or weeks) for the given target.
+
+    filter_type/filter_value mirror the plan's own product scope:
+      - 'all'      → no product filter (default)
+      - 'category' → filter_value = JSON list of category names
+      - 'product'  → filter_value = JSON list of product ids (int)
+    """
+    import json as _json
     metric_expr = (
         "COALESCE(SUM(s.sale_price * s.quantity_sold), 0)"
         if metric_type == "turnover"
         else "COALESCE(SUM(s.quantity_sold), 0)"
     )
-    target_cond = ""
+    extra_conds: list[str] = []
     params: list = []
 
     if plan_type == "monthly":
@@ -1004,13 +1011,35 @@ def _query_plan_history(db, target_type: str, seller_id: int | None,
             return f"Неделя {raw}"
 
     if target_type == "seller" and seller_id:
-        target_cond = "AND s.user_id = ?"
+        extra_conds.append("s.user_id = ?")
         params.append(int(seller_id))
     elif target_type == "shop" and shop_name:
-        target_cond = "AND s.shop_name = ?"
+        extra_conds.append("s.shop_name = ?")
         params.append(shop_name)
     else:
         return []
+
+    # Product filter (mirrors plan filter logic)
+    join_clause = ""
+    if filter_type == "category" and filter_value:
+        try:
+            cats = _json.loads(filter_value)
+            if isinstance(cats, list) and cats:
+                join_clause = "LEFT JOIN products p ON s.product_id = p.id"
+                extra_conds.append(f"p.category IN ({','.join('?'*len(cats))})")
+                params.extend(cats)
+        except Exception:
+            pass
+    elif filter_type == "product" and filter_value:
+        try:
+            ids = _json.loads(filter_value)
+            if isinstance(ids, list) and ids:
+                extra_conds.append(f"s.product_id IN ({','.join('?'*len(ids))})")
+                params.extend(ids)
+        except Exception:
+            pass
+
+    where = " AND ".join(extra_conds) if extra_conds else "1=1"
 
     try:
         conn = db.get_connection()
@@ -1019,8 +1048,9 @@ def _query_plan_history(db, target_type: str, seller_id: int | None,
             f"""SELECT {period_fmt} AS period,
                        {metric_expr} AS value
                 FROM sales s
+                {join_clause}
                 WHERE date(s.sale_date) >= date('now', ?)
-                  {target_cond}
+                  AND {where}
                 GROUP BY period
                 ORDER BY period DESC
                 LIMIT ?""",
@@ -1028,14 +1058,13 @@ def _query_plan_history(db, target_type: str, seller_id: int | None,
         )
         rows = cursor.fetchall()
         conn.close()
-        # Exclude the current (incomplete) period — first row if it matches today's period
         import datetime as _dtt
         now_period = _dtt.datetime.utcnow().strftime("%Y-%m" if plan_type == "monthly" else "%Y-%W")
         result = []
         for r in rows:
             period_raw = r[0] or ""
             if period_raw == now_period:
-                continue  # skip current incomplete period
+                continue
             result.append({"period": fmt_period(period_raw), "value": float(r[1] or 0)})
         return result[:4]
     except Exception as _e:
@@ -1074,6 +1103,16 @@ async def ai_plan_target_hint(request: Request):
     plan_type = str(body.get("plan_type", "monthly")).strip()
     metric_type = str(body.get("metric_type", "turnover")).strip()
     who = str(body.get("who", "")).strip()
+    filter_type = str(body.get("filter_type", "all")).strip()
+    filter_categories = body.get("filter_categories", [])
+    filter_products = body.get("filter_products", [])
+    # Build filter_value JSON matching plan storage format
+    import json as _bj
+    filter_value: str | None = None
+    if filter_type == "category" and isinstance(filter_categories, list) and filter_categories:
+        filter_value = _bj.dumps(filter_categories, ensure_ascii=False)
+    elif filter_type == "product" and isinstance(filter_products, list) and filter_products:
+        filter_value = _bj.dumps([int(p) for p in filter_products if str(p).isdigit()])
 
     if target_type not in ("seller", "shop"):
         return JSONResponse({"ok": False, "error": "Укажите тип цели (seller/shop)"}, status_code=400)
@@ -1111,7 +1150,10 @@ async def ai_plan_target_hint(request: Request):
         import anyio
         db = get_web_db(tg_id, org_db)
         history = await anyio.to_thread.run_sync(
-            lambda: _query_plan_history(db, target_type, seller_id, shop_name, plan_type, metric_type)
+            lambda: _query_plan_history(
+                db, target_type, seller_id, shop_name, plan_type, metric_type,
+                filter_type=filter_type, filter_value=filter_value,
+            )
         )
 
         if not history:
