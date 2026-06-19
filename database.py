@@ -1388,6 +1388,20 @@ class Database:
         ''')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tuc_task ON task_user_completions(task_id)')
 
+        # ── Task history (per-org, аудит-лог изменений задач) ────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_history (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER,
+                action     TEXT    NOT NULL,
+                old_val    TEXT,
+                new_val    TEXT,
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_th_task ON task_history(task_id)')
+
         # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alerts_log (
@@ -13463,6 +13477,52 @@ class Database:
         except Exception as e:
             logger.error("update_task_status: %s", e)
             return False
+
+    def add_task_history(self, task_id: int, user_id: int | None,
+                         action: str, old_val: str | None = None,
+                         new_val: str | None = None) -> bool:
+        """Добавить запись в историю изменений задачи."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO task_history (task_id, user_id, action, old_val, new_val) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (task_id, user_id, action, old_val, new_val)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error("add_task_history: %s", e)
+            return False
+
+    def get_task_history(self, task_id: int, limit: int = 50) -> list:
+        """Получить историю изменений задачи (новые первые)."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """
+                SELECT h.id, h.task_id, h.user_id, h.action, h.old_val, h.new_val,
+                       h.created_at,
+                       (u.first_name || COALESCE(' ' || u.last_name, '')) AS actor_name
+                FROM task_history h
+                LEFT JOIN users u ON u.id = h.user_id
+                WHERE h.task_id = ?
+                ORDER BY h.created_at DESC
+                LIMIT ?
+                """,
+                (task_id, limit)
+            ).fetchall()
+            conn.close()
+            return [
+                {"id": r[0], "task_id": r[1], "user_id": r[2],
+                 "action": r[3], "old_val": r[4], "new_val": r[5],
+                 "created_at": r[6], "actor_name": (r[7] or "").strip() or "Система"}
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_history: %s", e)
+            return []
 
     def update_task(self, task_id: int, title: str, description: str,
                     topic_id: int | None, assigned_to: int | None,

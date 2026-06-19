@@ -561,6 +561,11 @@ async def tasks_new_post(
             checklist=items,
             recurrence=recurrence if recurrence not in ('none', '') else None,
         )
+        if task_id:
+            try:
+                db.add_task_history(task_id, my_db_id, 'created', None, title)
+            except Exception:
+                pass
 
         # Send notifications
         deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
@@ -809,7 +814,14 @@ def tasks_kanban_move(request: Request,
         if not can_edit:
             return JSONResponse({"error": "forbidden"}, status_code=403)
 
+        old_status_kb = task.get('status', '')
         db.update_task_status(task_id, status)
+        try:
+            db.add_task_history(task_id, my_db_id, 'status',
+                                STATUS_LABELS.get(old_status_kb, old_status_kb),
+                                STATUS_LABELS.get(status, status))
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "new_status": status,
                              "label": STATUS_LABELS[status]})
     except Exception as e:
@@ -991,6 +1003,7 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "team_completions": [], "team_members_for_task": [], "completed_user_ids": [],
         "my_completion": None,
         "chat_available": _chat_available(telegram_id),
+        "task_history": [],
     }
 
     try:
@@ -1081,6 +1094,16 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
                 ctx["my_completion"] = None
         else:
             ctx["my_completion"] = None
+
+        # Task history (admin only or task creator)
+        can_see_history = is_admin or (task.get('created_by') == my_db_id)
+        if can_see_history:
+            try:
+                ctx["task_history"] = db.get_task_history(task_id, limit=30)
+            except Exception:
+                ctx["task_history"] = []
+        else:
+            ctx["task_history"] = []
 
     except Exception as e:
         logger.error("task_detail: %s", e)
@@ -1341,7 +1364,14 @@ def task_change_status(
             if status != allowed:
                 return RedirectResponse(url=f"/tasks/{task_id}?msg=bad_status", status_code=303)
 
+        old_status = task.get('status', '')
         db.update_task_status(task_id, status)
+        try:
+            db.add_task_history(task_id, my_db_id, 'status',
+                                STATUS_LABELS.get(old_status, old_status),
+                                STATUS_LABELS.get(status, status))
+        except Exception:
+            pass
 
         # Record per-user completion for team tasks
         if status in ('done', 'review') and (task.get('assign_all') or task.get('assigned_shop')):
@@ -1687,6 +1717,19 @@ def task_edit_post(
                        _assigned_to, None, priority, _deadline,
                        assigned_shop=_assigned_shop_val, assign_all=_assign_all,
                        recurrence=recurrence if recurrence not in ('none', '') else None)
+        try:
+            conn_ed = db.get_connection()
+            ed_row = conn_ed.execute("SELECT id FROM users WHERE telegram_id = ?",
+                                    (telegram_id,)).fetchone()
+            conn_ed.close()
+            _ed_uid = ed_row[0] if ed_row else None
+            db.add_task_history(task_id, _ed_uid, 'edit', None, title)
+            if old_task.get('priority') != priority:
+                db.add_task_history(task_id, _ed_uid, 'priority',
+                                    PRIORITY_LABELS.get(old_task.get('priority', ''), old_task.get('priority', '')),
+                                    PRIORITY_LABELS.get(priority, priority))
+        except Exception:
+            pass
 
         # Уведомить исполнителя об изменениях задачи
         _deadline_str = f"\n📅 Срок: {_fmt_deadline(_deadline)}" if _deadline else ""
