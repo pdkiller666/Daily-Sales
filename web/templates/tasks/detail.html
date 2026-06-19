@@ -360,26 +360,42 @@
       {% endif %}
     </div>
 
-    {% if is_admin and (task.get('assign_all') or task.get('assigned_shop')) and team_members_for_task %}
+    {% if (task.get('assign_all') or task.get('assigned_shop')) and team_members_for_task %}
+    {% set _total_m = team_members_for_task|length %}
+    {% set _done_m  = completed_user_ids|length %}
+    {% set _pct_m   = ((_done_m / _total_m) * 100)|int if _total_m > 0 else 0 %}
     <div class="card p-4 dark:bg-slate-900">
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Прогресс команды</p>
-        <span class="text-xs text-slate-500">{{ completed_user_ids|length }}/{{ team_members_for_task|length }}</span>
+        <span class="text-xs font-semibold
+          {{ 'text-emerald-600 dark:text-emerald-400' if _done_m == _total_m else 'text-slate-500' }}">
+          {{ _done_m }}/{{ _total_m }}
+        </span>
       </div>
-      {% if team_members_for_task|length > 0 %}
+      {% if _total_m > 0 %}
       <div class="mb-3">
-        {% set _pct = ((completed_user_ids|length / team_members_for_task|length) * 100)|int %}
         <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
-          <div class="bg-emerald-500 h-1.5 rounded-full transition-all" style="width: {{ _pct }}%"></div>
+          <div class="bg-emerald-500 h-1.5 rounded-full transition-all" style="width: {{ _pct_m }}%"></div>
         </div>
+        {% if _pct_m == 100 %}
+        <p class="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">✅ Все выполнили</p>
+        {% endif %}
       </div>
       {% endif %}
-      <div class="space-y-1.5 max-h-52 overflow-y-auto">
+      <div class="space-y-2 max-h-56 overflow-y-auto">
         {% for member in team_members_for_task %}
         {% set _done = member.id in completed_user_ids %}
-        <div class="flex items-center gap-2 text-sm py-0.5">
-          <span class="shrink-0 text-base">{{ '✅' if _done else '⏳' }}</span>
-          <span class="{{ 'text-slate-700 dark:text-slate-200 font-medium' if _done else 'text-slate-400 dark:text-slate-500' }}">{{ member.name }}</span>
+        {% set _comp = completions_map.get(member.id) %}
+        <div class="flex items-start gap-2 py-0.5">
+          <span class="shrink-0 text-base mt-0.5">{{ '✅' if _done else '⏳' }}</span>
+          <div class="min-w-0 flex-1">
+            <span class="text-sm {{ 'text-slate-700 dark:text-slate-200 font-medium' if _done else 'text-slate-400 dark:text-slate-500' }}">{{ member.name }}</span>
+            {% if _done and _comp and _comp.completed_at %}
+            <p class="text-[11px] text-slate-400 mt-0.5 leading-none">
+              {{ _comp.completed_at[:16].replace('T', ' ') }}
+            </p>
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>

@@ -276,6 +276,10 @@ def _is_overdue(deadline: str | None, status: str) -> bool:
     if not deadline or status in ('done', 'cancelled'):
         return False
     try:
+        has_time = len(deadline) >= 13 and ("T" in deadline or " " in deadline[10:])
+        if has_time:
+            dl_dt = datetime.fromisoformat(deadline[:16].replace("T", " "))
+            return dl_dt < datetime.now()
         dl = date.fromisoformat(deadline[:10])
         return dl < date.today()
     except Exception:
@@ -905,17 +909,36 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
                 else:
                     task_members = [s for s in all_staff if s.get('shop') == _assigned_shop]
                 ctx["team_completions"] = completions
+                ctx["completions_map"] = {c['user_id']: c for c in completions}
                 ctx["team_members_for_task"] = task_members
                 ctx["completed_user_ids"] = completed_ids
             except Exception as _te:
                 logger.error("task_detail team_completions: %s", _te)
                 ctx["team_completions"] = []
+                ctx["completions_map"] = {}
                 ctx["team_members_for_task"] = []
                 ctx["completed_user_ids"] = []
         else:
             ctx["team_completions"] = []
+            ctx["completions_map"] = {}
             ctx["team_members_for_task"] = []
             ctx["completed_user_ids"] = []
+
+        # Для сотрудников командных задач — показываем их коллег и общий прогресс (read-only)
+        if not is_admin and (task.get('assign_all') or task.get('assigned_shop')):
+            try:
+                _assign_all_e = task.get('assign_all', False)
+                _assigned_shop_e = task.get('assigned_shop', '')
+                _completions_e = db.get_task_user_completions(task_id)
+                _all_staff_e = _get_staff_list(db)
+                _task_members_e = _all_staff_e if _assign_all_e else [
+                    s for s in _all_staff_e if s.get('shop') == _assigned_shop_e
+                ]
+                ctx["team_members_for_task"] = _task_members_e
+                ctx["completed_user_ids"] = [c['user_id'] for c in _completions_e]
+                ctx["completions_map"] = {c['user_id']: c for c in _completions_e}
+            except Exception:
+                pass
 
         # My personal completion for team tasks (for employees)
         if not is_admin and (_assign_all or _assigned_shop):
@@ -1658,6 +1681,23 @@ def task_my_complete(
             return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
+
+        # Авто-переход в «На проверку» когда все участники отметили выполнение
+        try:
+            _assign_all = task.get('assign_all', False)
+            _assigned_shop = task.get('assigned_shop', '')
+            if (_assign_all or _assigned_shop) and task.get('status') not in ('done', 'cancelled', 'review'):
+                all_staff = _get_staff_list(db)
+                task_members = all_staff if _assign_all else [
+                    s for s in all_staff if s.get('shop') == _assigned_shop
+                ]
+                completions_list = db.get_task_user_completions(task_id)
+                completed_ids = {c['user_id'] for c in completions_list}
+                member_ids = {m['id'] for m in task_members}
+                if member_ids and member_ids.issubset(completed_ids):
+                    db.update_task_status(task_id, 'review')
+        except Exception as _ae:
+            logger.error("task_my_complete auto-advance: %s", _ae)
 
         # Уведомить создателя задачи — все 3 канала
         _creator_id = task.get("created_by")

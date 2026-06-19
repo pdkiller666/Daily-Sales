@@ -1,6 +1,16 @@
-CURRENT_VERSION = "1.115.0"
+CURRENT_VERSION = "1.116.0"
 
 ENTRIES = [
+    {
+        "version": "1.116.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Задачи: прогресс команды теперь показывает время выполнения каждого участника, сотрудники видят прогресс коллег, при 100% задача автоматически переходит на проверку; дедлайн с точностью до минуты учитывается при расчёте просрочки",
+            "Update system version and deployment details",
+            "Add screenshot of mobile deadline picker",
+            "Show individual team member task completion details",
+        ],
+    },
     {
         "version": "1.115.0",
         "date": "19 июня 2026",
