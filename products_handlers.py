@@ -1305,24 +1305,31 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     _desc_hint = f"\n📝 {_raw_desc[:40]}{'…' if len(_raw_desc) > 40 else ''}" if _raw_desc else ""
     _art = product[7] if len(product) > 7 and product[7] else "—"
     _bc = product[8] if len(product) > 8 and product[8] else "—"
+
+    _networks = await asyncio.to_thread(current_db.get_all_trade_networks)
+    _kb_rows = [
+        [InlineKeyboardButton(text="🏷 Название", callback_data="edit_param_name"),
+         InlineKeyboardButton(text="📂 Категория", callback_data="edit_param_category")],
+        [InlineKeyboardButton(text="💰 Цена", callback_data="edit_param_price"),
+         InlineKeyboardButton(text="🔖 Артикул", callback_data="edit_param_article")],
+        [InlineKeyboardButton(text="📦 Штрихкод", callback_data="edit_param_barcode"),
+         InlineKeyboardButton(text="📷 Фото", callback_data="edit_param_photo")],
+        [InlineKeyboardButton(text="📝 Описание", callback_data="edit_param_description")],
+    ]
+    if _networks and len(_networks) >= 2:
+        _kb_rows.append([InlineKeyboardButton(text="🌐 Коды по сетям", callback_data="edit_variants")])
+    _kb_rows.append([back_button("edit_product")])
+
+    _net_hint = "\n🌐 Коды по сетям доступны" if _networks and len(_networks) >= 2 else ""
     await callback.message.edit_text(
         f"✏️ Редактирование товара:\n\n"
         f"🏷 Название: {he(product[1])}\n"
         f"📂 Категория: {he(product[2])}\n"
         f"💰 Цена: {format_currency(product[3])}\n"
         f"🔖 Артикул: <code>{he(_art)}</code>\n"
-        f"📦 Штрихкод: <code>{he(_bc)}</code>{_photo_hint}{_desc_hint}\n\n"
+        f"📦 Штрихкод: <code>{he(_bc)}</code>{_photo_hint}{_desc_hint}{_net_hint}\n\n"
         f"Что хотите изменить?",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏷 Название", callback_data="edit_param_name"),
-             InlineKeyboardButton(text="📂 Категория", callback_data="edit_param_category")],
-            [InlineKeyboardButton(text="💰 Цена", callback_data="edit_param_price"),
-             InlineKeyboardButton(text="🔖 Артикул", callback_data="edit_param_article")],
-            [InlineKeyboardButton(text="📦 Штрихкод", callback_data="edit_param_barcode"),
-             InlineKeyboardButton(text="📷 Фото", callback_data="edit_param_photo")],
-            [InlineKeyboardButton(text="📝 Описание", callback_data="edit_param_description")],
-            [back_button("edit_product")]
-        ]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
         parse_mode="HTML"
     )
 
@@ -1394,6 +1401,210 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]])
     )
     await state.set_state(ProductStates.waiting_for_edit_value)
+
+
+# ── Коды по торговым сетям (варианты товара) ────────────────────────────────
+
+async def _render_variants_list(callback, state, current_db, product_id):
+    """Экран со списком торговых сетей и кнопками выбора сети."""
+    product = await current_db.get_product(product_id)
+    networks = await asyncio.to_thread(current_db.get_all_trade_networks)
+    vmap = await asyncio.to_thread(current_db.get_product_variants_map, product_id)
+    await state.update_data(variant_networks=networks)
+
+    _def_art = (product[7] if product and len(product) > 7 and product[7] else "—")
+    _def_bc = (product[8] if product and len(product) > 8 and product[8] else "—")
+    lines = [
+        f"🌐 <b>Коды по торговым сетям</b>",
+        f"Товар: {he(product[1])}\n",
+        f"По умолчанию (если для сети код не задан):",
+        f"  🔖 <code>{he(_def_art)}</code>   📦 <code>{he(_def_bc)}</code>\n",
+        "Выберите сеть, чтобы задать её артикул/штрихкод:",
+    ]
+    rows = []
+    for idx, net in enumerate(networks):
+        v = vmap.get(net) or {}
+        mark = "✅" if (v.get('article') or v.get('barcode')) else "—"
+        rows.append([InlineKeyboardButton(
+            text=f"{mark} {net[:30]}", callback_data=f"evnet_{idx}")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data=f"edit_product_choice_{product_id}")])
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML",
+    )
+
+
+async def _render_variant_network(callback, state, current_db, product_id, net_idx):
+    data = await state.get_data()
+    networks = data.get("variant_networks") or await asyncio.to_thread(current_db.get_all_trade_networks)
+    if net_idx < 0 or net_idx >= len(networks):
+        await callback.answer("❌ Сеть не найдена", show_alert=True)
+        return
+    net = networks[net_idx]
+    product = await current_db.get_product(product_id)
+    v = await asyncio.to_thread(current_db.get_product_variant, product_id, net)
+    cur_art = (v[3] if v and v[3] else "—")
+    cur_bc = (v[4] if v and v[4] else "—")
+    await callback.message.edit_text(
+        f"🌐 <b>{he(net)}</b>\n"
+        f"Товар: {he(product[1])}\n\n"
+        f"🔖 Артикул: <code>{he(cur_art)}</code>\n"
+        f"📦 Штрихкод: <code>{he(cur_bc)}</code>\n\n"
+        f"Если код не задан — используется код товара по умолчанию.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔖 Артикул", callback_data=f"evset_a_{net_idx}"),
+             InlineKeyboardButton(text="📦 Штрихкод", callback_data=f"evset_b_{net_idx}")],
+            [InlineKeyboardButton(text="🗑 Очистить коды сети", callback_data=f"evclr_{net_idx}")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="edit_variants")],
+        ]),
+        parse_mode="HTML",
+    )
+
+
+@products_router.callback_query(F.data == "edit_variants")
+async def edit_variants_entry(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id) and not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+    data = await state.get_data()
+    product_id = data.get("edit_product_id")
+    if not product_id:
+        await callback.answer("❌ Товар не выбран", show_alert=True)
+        return
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    await _render_variants_list(callback, state, current_db, product_id)
+
+
+@products_router.callback_query(F.data.startswith("evnet_"))
+async def edit_variant_network(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id) and not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+    data = await state.get_data()
+    product_id = data.get("edit_product_id")
+    if not product_id:
+        await callback.answer("❌ Товар не выбран", show_alert=True)
+        return
+    net_idx = int(callback.data.replace("evnet_", ""))
+    await callback.answer()
+    current_db = await get_db(callback.from_user.id, state)
+    await _render_variant_network(callback, state, current_db, product_id, net_idx)
+
+
+@products_router.callback_query(F.data.startswith("evset_a_"))
+async def edit_variant_set_article(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id) and not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+    net_idx = int(callback.data.replace("evset_a_", ""))
+    data = await state.get_data()
+    networks = data.get("variant_networks") or []
+    if net_idx < 0 or net_idx >= len(networks):
+        await callback.answer("❌ Сеть не найдена", show_alert=True)
+        return
+    await state.update_data(variant_net_idx=net_idx, anchor_msg_id=callback.message.message_id)
+    await callback.answer()
+    await callback.message.edit_text(
+        f"🔖 Введите артикул для сети «{he(networks[net_idx])}»\n"
+        f"(или «-» чтобы удалить артикул этой сети):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"evnet_{net_idx}")]]),
+        parse_mode="HTML",
+    )
+    await state.set_state(ProductStates.waiting_for_variant_article)
+
+
+@products_router.callback_query(F.data.startswith("evset_b_"))
+async def edit_variant_set_barcode(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id) and not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+    net_idx = int(callback.data.replace("evset_b_", ""))
+    data = await state.get_data()
+    networks = data.get("variant_networks") or []
+    if net_idx < 0 or net_idx >= len(networks):
+        await callback.answer("❌ Сеть не найдена", show_alert=True)
+        return
+    await state.update_data(variant_net_idx=net_idx, anchor_msg_id=callback.message.message_id)
+    await callback.answer()
+    await callback.message.edit_text(
+        f"📦 Введите штрихкод для сети «{he(networks[net_idx])}»\n"
+        f"(или «-» чтобы удалить штрихкод этой сети):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data=f"evnet_{net_idx}")]]),
+        parse_mode="HTML",
+    )
+    await state.set_state(ProductStates.waiting_for_variant_barcode)
+
+
+@products_router.callback_query(F.data.startswith("evclr_"))
+async def edit_variant_clear(callback: CallbackQuery, state: FSMContext):
+    if not is_any_admin(callback.from_user.id) and not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Недостаточно прав", show_alert=True)
+        return
+    net_idx = int(callback.data.replace("evclr_", ""))
+    data = await state.get_data()
+    product_id = data.get("edit_product_id")
+    networks = data.get("variant_networks") or []
+    if not product_id or net_idx < 0 or net_idx >= len(networks):
+        await callback.answer("❌ Ошибка", show_alert=True)
+        return
+    current_db = await get_db(callback.from_user.id, state)
+    await asyncio.to_thread(current_db.delete_product_variant, product_id, networks[net_idx])
+    await callback.answer("✅ Коды сети очищены")
+    await _render_variant_network(callback, state, current_db, product_id, net_idx)
+
+
+async def _save_variant_field(message: Message, state: FSMContext, field: str):
+    if not is_any_admin(message.from_user.id) and not env_manager.is_super_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    product_id = data.get("edit_product_id")
+    net_idx = data.get("variant_net_idx")
+    networks = data.get("variant_networks") or []
+    raw = (message.text or "").strip()
+    if product_id is None or net_idx is None or net_idx >= len(networks):
+        await fsm_edit(state, message, "❌ Данные не найдены, попробуйте снова.",
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("edit_product")]]))
+        return
+    net = networks[net_idx]
+    current_db = await get_db(message.from_user.id, state)
+    new_val = None if raw in ("-", "") else raw
+    # сохраняем, не затирая второе поле
+    cur = await asyncio.to_thread(current_db.get_product_variant, product_id, net)
+    cur_art = cur[3] if cur else None
+    cur_bc = cur[4] if cur else None
+    if field == "article":
+        res = await asyncio.to_thread(current_db.set_product_variant, product_id, net, new_val, cur_bc)
+    else:
+        res = await asyncio.to_thread(current_db.set_product_variant, product_id, net, cur_art, new_val)
+    if not res.get("ok"):
+        err = res.get("error")
+        msg = "❌ Этот штрихкод уже используется другим товаром." if err == "barcode_conflict" else "❌ Не удалось сохранить."
+        await fsm_edit(state, message, msg,
+                       reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                           [InlineKeyboardButton(text="◀️ Назад", callback_data=f"evnet_{net_idx}")]]))
+        return
+    await fsm_edit(state, message, "✅ Сохранено.",
+                   reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                       [InlineKeyboardButton(text="◀️ К сети", callback_data=f"evnet_{net_idx}")],
+                       [InlineKeyboardButton(text="🌐 К списку сетей", callback_data="edit_variants")]]))
+    # Выходим из waiting-состояния, но СОХРАНЯЕМ контекст вариантов
+    # (edit_product_id/variant_networks) — иначе кнопки evnet_/edit_variants сломаются.
+    await state.set_state(None)
+
+
+@products_router.message(ProductStates.waiting_for_variant_article)
+async def process_variant_article(message: Message, state: FSMContext):
+    await _save_variant_field(message, state, "article")
+
+
+@products_router.message(ProductStates.waiting_for_variant_barcode)
+async def process_variant_barcode(message: Message, state: FSMContext):
+    await _save_variant_field(message, state, "barcode")
+
 
 @products_router.message(ProductStates.waiting_for_edit_value)
 async def process_edit_value_product(message: Message, state: FSMContext):

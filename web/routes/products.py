@@ -520,11 +520,20 @@ def products_new_form(request: Request):
     org_db = user.get("org_db")
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
+    try:
+        _nets = db.get_all_trade_networks() or []
+    except Exception:
+        _nets = []
+    network_variants = (
+        [{"network": n, "article": "", "barcode": ""} for n in _nets]
+        if len(_nets) >= 2 else []
+    )
 
     return request.app.state.templates.TemplateResponse(request, "products/form.html", {
         "request": request, "user": user, "is_admin": True,
         "csrf_token": get_csrf_token(request),
         "categories": categories,
+        "network_variants": network_variants,
         "form_data": None, "error": None, "is_edit": False,
     })
 
@@ -558,11 +567,30 @@ async def products_create(
     db = get_web_db(telegram_id, org_db)
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
 
+    # Варианты по торговым сетям из формы (сохраняем ввод при ре-рендере ошибки)
+    try:
+        _allowed_nets = set(db.get_all_trade_networks() or [])
+    except Exception:
+        _allowed_nets = set()
+    _form = await request.form()
+    _variant_inputs: list[dict] = []
+    for nk in sorted(k for k in _form.keys() if k.startswith("var_net__")):
+        idx = nk[len("var_net__"):]
+        net_name = (_form.get(nk) or "").strip()
+        if not net_name or net_name not in _allowed_nets:
+            continue
+        _variant_inputs.append({
+            "network": net_name,
+            "article": (_form.get(f"var_article__{idx}") or "").strip(),
+            "barcode": (_form.get(f"var_barcode__{idx}") or "").strip(),
+        })
+
     def _re_render(err, fd=None):
         return request.app.state.templates.TemplateResponse(request, "products/form.html", {
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
+            "network_variants": _variant_inputs,
             "form_data": fd or {"name": name, "category": category, "price": price,
                                 "description": description, "article": article,
                                 "barcode": barcode, "existing_photos": []},
@@ -639,6 +667,20 @@ async def products_create(
                 db.add_product_photo(new_id, url, source='web')
             except Exception:
                 pass
+        # Коды по торговым сетям (варианты товара)
+        _vconf: list[str] = []
+        for vi in _variant_inputs:
+            if not (vi["article"] or vi["barcode"]):
+                continue
+            try:
+                res = db.set_product_variant(new_id, vi["network"], vi["article"], vi["barcode"])
+                if not res.get("ok") and res.get("error") == "barcode_conflict":
+                    _vconf.append(vi["network"])
+            except Exception as _ve:
+                logging.error(f"products_create variants: {_ve}")
+        if _vconf:
+            _m = "Товар+добавлен,+но+штрихкод+занят+в+сетях:+" + ",+".join(_vconf)
+            return RedirectResponse(url=f"/products/{new_id}?success={_m}", status_code=303)
         return RedirectResponse(url=f"/products/{new_id}?success=Товар+добавлен", status_code=303)
     except Exception as exc:
         for u in saved_urls:
@@ -672,6 +714,24 @@ def products_edit_form(request: Request, product_id: int):
 
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
     existing_photos = db.get_product_photos(product_id) or []
+    try:
+        networks = db.get_all_trade_networks() or []
+    except Exception:
+        networks = []
+    variants_map = {}
+    if len(networks) >= 2:
+        try:
+            variants_map = db.get_product_variants_map(product_id) or {}
+        except Exception:
+            variants_map = {}
+    network_variants = [
+        {
+            "network": net,
+            "article": (variants_map.get(net) or {}).get("article") or "",
+            "barcode": (variants_map.get(net) or {}).get("barcode") or "",
+        }
+        for net in networks
+    ] if len(networks) >= 2 else []
     return request.app.state.templates.TemplateResponse(request, "products/form.html", {
         "request": request, "user": user, "is_admin": True,
         "csrf_token": get_csrf_token(request),
@@ -685,6 +745,7 @@ def products_edit_form(request: Request, product_id: int):
             "barcode": product[8] if len(product) > 8 else "",
             "existing_photos": existing_photos,
         },
+        "network_variants": network_variants,
         "error": None, "is_edit": True,
         "edit_id": product_id,
         "product_name": product[1] or "Товар",
@@ -723,11 +784,30 @@ async def products_update(
     categories = sorted({p[2] for p in (db.get_all_products() or []) if p[2]})
     existing_photos = db.get_product_photos(product_id) or []
 
+    # Варианты по торговым сетям из формы (сохраняем ввод при ре-рендере ошибки)
+    try:
+        _allowed_nets = set(db.get_all_trade_networks() or [])
+    except Exception:
+        _allowed_nets = set()
+    _form = await request.form()
+    _variant_inputs: list[dict] = []
+    for nk in sorted(k for k in _form.keys() if k.startswith("var_net__")):
+        idx = nk[len("var_net__"):]
+        net_name = (_form.get(nk) or "").strip()
+        if not net_name or net_name not in _allowed_nets:
+            continue
+        _variant_inputs.append({
+            "network": net_name,
+            "article": (_form.get(f"var_article__{idx}") or "").strip(),
+            "barcode": (_form.get(f"var_barcode__{idx}") or "").strip(),
+        })
+
     def _re_render(err):
         return request.app.state.templates.TemplateResponse(request, "products/form.html", {
             "request": request, "user": user, "is_admin": True,
             "csrf_token": get_csrf_token(request),
             "categories": categories,
+            "network_variants": _variant_inputs,
             "form_data": {"name": name, "category": category, "price": price, "description": description,
                           "article": article, "barcode": barcode, "existing_photos": existing_photos},
             "error": err, "is_edit": True,
@@ -812,6 +892,18 @@ async def products_update(
                 db.add_product_photo(product_id, url, source='web')
             except Exception:
                 pass
+        # Коды по торговым сетям (варианты товара)
+        variant_conflicts: list[str] = []
+        for vi in _variant_inputs:
+            try:
+                res = db.set_product_variant(product_id, vi["network"], vi["article"], vi["barcode"])
+                if not res.get("ok") and res.get("error") == "barcode_conflict":
+                    variant_conflicts.append(vi["network"])
+            except Exception as _ve:
+                logging.error(f"products_update variants: {_ve}")
+        if variant_conflicts:
+            _msg = "Сохранено,+но+штрихкод+занят+в+сетях:+" + ",+".join(variant_conflicts)
+            return RedirectResponse(url=f"/products/{product_id}?success={_msg}", status_code=303)
         return RedirectResponse(url=f"/products/{product_id}?success=Сохранено", status_code=303)
     except Exception as exc:
         for u in saved_urls:

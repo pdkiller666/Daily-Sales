@@ -19,6 +19,8 @@ class ProductStates(StatesGroup):
     waiting_for_edit_photo = State()
     waiting_for_edit_barcode = State()
     waiting_for_edit_barcode_photo = State()
+    waiting_for_variant_article = State()
+    waiting_for_variant_barcode = State()
     waiting_for_category_rename = State()
     waiting_for_bulk_list = State()
     confirming_bulk_import = State()

@@ -783,10 +783,13 @@ async def process_barcode_photo(message: Message, state: FSMContext):
         decoded_str = decoded[0].strip()
 
         current_db = await get_db(message.from_user.id, state)
-        product = await asyncio.to_thread(current_db.get_product_by_barcode, decoded_str)
+        _scan_data = await state.get_data()
+        _scan_shop = _scan_data.get("shop_name", "")
+        _scan_net = await asyncio.to_thread(current_db.get_network_for_shop, _scan_shop) if _scan_shop else None
+        product = await asyncio.to_thread(current_db.get_product_by_barcode, decoded_str, _scan_net)
         lookup_by = "barcode"
         if not product:
-            product = await asyncio.to_thread(current_db.get_product_by_article, decoded_str)
+            product = await asyncio.to_thread(current_db.get_product_by_article, decoded_str, _scan_net)
             lookup_by = "article"
 
         if not product:

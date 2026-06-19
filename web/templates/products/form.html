@@ -130,6 +130,41 @@
             </div>
         </div>
 
+        {% if network_variants %}
+        <!-- Per-network codes (variants) -->
+        <div class="mb-5 border border-indigo-200 dark:border-indigo-700/50 rounded-xl p-4 bg-indigo-50/40 dark:bg-indigo-900/10">
+            <div class="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                🌐 Коды по торговым сетям
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                Один и тот же товар может иметь разные артикул и штрихкод в разных сетях.
+                Если поле пустое — используется код товара по умолчанию (выше).
+            </p>
+            <div class="space-y-3">
+                {% for nv in network_variants %}
+                <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                    <div class="text-xs font-medium text-indigo-700 dark:text-indigo-300 mb-2">{{ nv.network }}</div>
+                    <input type="hidden" name="var_net__{{ loop.index0 }}" value="{{ nv.network }}">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input type="text" name="var_article__{{ loop.index0 }}"
+                               value="{{ nv.article }}"
+                               placeholder="Артикул в сети"
+                               maxlength="50"
+                               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono text-slate-800
+                                      focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent uppercase">
+                        <input type="text" name="var_barcode__{{ loop.index0 }}"
+                               value="{{ nv.barcode }}"
+                               placeholder="Штрихкод в сети"
+                               maxlength="100"
+                               class="border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 rounded-lg px-3 py-2 text-sm font-mono text-slate-800
+                                      focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Price -->
         <div class="mb-5">
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5" for="f-price">

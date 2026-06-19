@@ -424,6 +424,30 @@ class Database:
             "ON products(barcode) WHERE barcode IS NOT NULL AND barcode != ''"
         )
 
+        # Варианты товара по торговой сети: один товар — разные артикул/штрихкод
+        # в разных торговых сетях (DNS, М-Видео ...). products.article/barcode
+        # остаются значениями по умолчанию (fallback) — полная обратная совместимость.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS product_network_variants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                trade_network TEXT NOT NULL,
+                article TEXT,
+                barcode TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_pnv_product_network "
+            "ON product_network_variants(product_id, trade_network)"
+        )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_pnv_barcode "
+            "ON product_network_variants(barcode) "
+            "WHERE barcode IS NOT NULL AND barcode != ''"
+        )
+
         # Галерея фото товаров (единое хранилище бот+веб)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS product_photos (
@@ -3412,33 +3436,253 @@ class Database:
         finally:
             conn.close()
 
-    def get_product_by_article(self, article: str):
-        """Поиск товара по артикулу (без учёта регистра)."""
-        conn = self.get_connection()
-        row = conn.execute(
-            "SELECT * FROM products WHERE UPPER(article)=?", (article.strip().upper(),)
-        ).fetchone()
-        conn.close()
-        return row
+    def get_product_by_article(self, article: str, trade_network: str = None):
+        """Поиск товара по артикулу (без учёта регистра).
 
-    def get_product_by_barcode(self, barcode: str):
-        """Поиск товара по штрихкоду (без учёта регистра)."""
+        Сначала ищет среди вариантов по торговой сети (product_network_variants):
+        при переданном trade_network — приоритет точного совпадения сети, затем
+        любой вариант. Если в вариантах не найдено — fallback на products.article
+        (старое поведение, полная обратная совместимость для орг без вариантов).
+        """
+        raw = (article or "").strip()
+        if not raw:
+            return None
+        up = raw.upper()
         conn = self.get_connection()
-        row = conn.execute(
-            "SELECT * FROM products WHERE barcode=?", (barcode.strip(),)
-        ).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM products WHERE UPPER(barcode)=?", (barcode.strip().upper(),)
+        try:
+            pid = None
+            if trade_network:
+                vrow = conn.execute(
+                    "SELECT product_id FROM product_network_variants "
+                    "WHERE UPPER(article)=? AND trade_network=?",
+                    (up, trade_network),
+                ).fetchone()
+                if vrow:
+                    pid = vrow[0]
+            if pid is None:
+                vrow = conn.execute(
+                    "SELECT product_id FROM product_network_variants WHERE UPPER(article)=?",
+                    (up,),
+                ).fetchone()
+                if vrow:
+                    pid = vrow[0]
+            if pid is not None:
+                prow = conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+                if prow:
+                    return prow
+            return conn.execute(
+                "SELECT * FROM products WHERE UPPER(article)=?", (up,)
             ).fetchone()
-        conn.close()
-        return row
+        finally:
+            conn.close()
+
+    def get_product_by_barcode(self, barcode: str, trade_network: str = None):
+        """Поиск товара по штрихкоду.
+
+        Сначала ищет среди вариантов по торговой сети (product_network_variants):
+        при переданном trade_network — приоритет точного совпадения сети, затем
+        любой вариант. Если не найдено — fallback на products.barcode (старое
+        поведение, полная обратная совместимость для орг без вариантов).
+        """
+        raw = (barcode or "").strip()
+        if not raw:
+            return None
+        up = raw.upper()
+        conn = self.get_connection()
+        try:
+            pid = None
+            if trade_network:
+                vrow = conn.execute(
+                    "SELECT product_id FROM product_network_variants "
+                    "WHERE barcode=? AND trade_network=?",
+                    (raw, trade_network),
+                ).fetchone()
+                if not vrow:
+                    vrow = conn.execute(
+                        "SELECT product_id FROM product_network_variants "
+                        "WHERE UPPER(barcode)=? AND trade_network=?",
+                        (up, trade_network),
+                    ).fetchone()
+                if vrow:
+                    pid = vrow[0]
+            if pid is None:
+                vrow = conn.execute(
+                    "SELECT product_id FROM product_network_variants WHERE barcode=?",
+                    (raw,),
+                ).fetchone()
+                if not vrow:
+                    vrow = conn.execute(
+                        "SELECT product_id FROM product_network_variants WHERE UPPER(barcode)=?",
+                        (up,),
+                    ).fetchone()
+                if vrow:
+                    pid = vrow[0]
+            if pid is not None:
+                prow = conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone()
+                if prow:
+                    return prow
+            row = conn.execute(
+                "SELECT * FROM products WHERE barcode=?", (raw,)
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT * FROM products WHERE UPPER(barcode)=?", (up,)
+                ).fetchone()
+            return row
+        finally:
+            conn.close()
+
+    # ── Варианты товара по торговой сети ────────────────────────────────────
+
+    def get_product_variants(self, product_id: int) -> list:
+        """Все варианты товара по сетям.
+        Строка: id[0] product_id[1] trade_network[2] article[3] barcode[4] created_at[5]
+        """
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                "SELECT id, product_id, trade_network, article, barcode, created_at "
+                "FROM product_network_variants WHERE product_id=? ORDER BY trade_network",
+                (product_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def get_product_variant(self, product_id: int, trade_network: str):
+        """Вариант товара для конкретной сети или None."""
+        conn = self.get_connection()
+        try:
+            return conn.execute(
+                "SELECT id, product_id, trade_network, article, barcode, created_at "
+                "FROM product_network_variants WHERE product_id=? AND trade_network=?",
+                (product_id, trade_network),
+            ).fetchone()
+        finally:
+            conn.close()
+
+    def get_product_variants_map(self, product_id: int) -> dict:
+        """{trade_network: {'article': str|None, 'barcode': str|None}} для товара."""
+        result = {}
+        for row in self.get_product_variants(product_id):
+            result[row[2]] = {'article': row[3], 'barcode': row[4]}
+        return result
+
+    def set_product_variant(self, product_id: int, trade_network: str,
+                            article: str = None, barcode: str = None) -> dict:
+        """Upsert варианта товара для сети. Если article и barcode оба пустые —
+        вариант удаляется. Возвращает {'ok': bool, 'error': str|None}.
+        Ошибка 'barcode_conflict' — штрихкод уже занят другим товаром/вариантом.
+        """
+        net = (trade_network or "").strip()
+        if not net:
+            return {"ok": False, "error": "no_network"}
+        art = (article or "").strip().upper() or None
+        bc = (barcode or "").strip() or None
+        conn = self.get_connection()
+        try:
+            if art is None and bc is None:
+                conn.execute(
+                    "DELETE FROM product_network_variants WHERE product_id=? AND trade_network=?",
+                    (product_id, net),
+                )
+                conn.commit()
+                return {"ok": True, "error": None}
+            if bc is not None:
+                clash = conn.execute(
+                    "SELECT product_id FROM product_network_variants "
+                    "WHERE barcode=? AND NOT (product_id=? AND trade_network=?)",
+                    (bc, product_id, net),
+                ).fetchone()
+                if clash:
+                    return {"ok": False, "error": "barcode_conflict"}
+                # Коллизия с дефолтным штрихкодом ДРУГОГО товара (products.barcode):
+                # тот же штрихкод у своего товара — ОК (это и есть дефолт для сети).
+                pclash = conn.execute(
+                    "SELECT id FROM products WHERE barcode=? AND id<>?",
+                    (bc, product_id),
+                ).fetchone()
+                if pclash:
+                    return {"ok": False, "error": "barcode_conflict"}
+            existing = conn.execute(
+                "SELECT id FROM product_network_variants WHERE product_id=? AND trade_network=?",
+                (product_id, net),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE product_network_variants SET article=?, barcode=? WHERE id=?",
+                    (art, bc, existing[0]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO product_network_variants (product_id, trade_network, article, barcode) "
+                    "VALUES (?, ?, ?, ?)",
+                    (product_id, net, art, bc),
+                )
+            conn.commit()
+            return {"ok": True, "error": None}
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return {"ok": False, "error": "barcode_conflict"}
+        finally:
+            conn.close()
+
+    def delete_product_variant(self, product_id: int, trade_network: str) -> bool:
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "DELETE FROM product_network_variants WHERE product_id=? AND trade_network=?",
+                (product_id, trade_network),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def get_effective_product_codes(self, product_id: int, trade_network: str = None) -> dict:
+        """Действующие коды товара: вариант сети, иначе значения по умолчанию из products.
+        Возвращает {'article': str|None, 'barcode': str|None, 'is_variant': bool}.
+        """
+        conn = self.get_connection()
+        try:
+            if trade_network:
+                vrow = conn.execute(
+                    "SELECT article, barcode FROM product_network_variants "
+                    "WHERE product_id=? AND trade_network=?",
+                    (product_id, trade_network),
+                ).fetchone()
+                if vrow and (vrow[0] or vrow[1]):
+                    return {"article": vrow[0], "barcode": vrow[1], "is_variant": True}
+            prow = conn.execute(
+                "SELECT article, barcode FROM products WHERE id=?", (product_id,)
+            ).fetchone()
+            if prow:
+                return {"article": prow[0], "barcode": prow[1], "is_variant": False}
+            return {"article": None, "barcode": None, "is_variant": False}
+        finally:
+            conn.close()
+
+    def get_network_for_shop(self, shop_name: str) -> str:
+        """Торговая сеть магазина (из users) или None."""
+        if not shop_name:
+            return None
+        conn = self.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT trade_network FROM users "
+                "WHERE shop_name=? AND trade_network IS NOT NULL AND trade_network NOT IN ('', 'System') "
+                "LIMIT 1",
+                (shop_name,),
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
 
     def delete_product(self, product_id):
-        """Удаление товара и связанных записей motivation_schedule"""
+        """Удаление товара и связанных записей motivation_schedule + варианты по сетям"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM motivation_schedule WHERE product_id = ?', (product_id,))
+        cursor.execute('DELETE FROM product_network_variants WHERE product_id = ?', (product_id,))
         cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
         conn.commit()
         conn.close()
