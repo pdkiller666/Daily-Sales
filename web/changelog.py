@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.92.0"
+CURRENT_VERSION = "1.93.0"
 
 ENTRIES = [
+    {
+        "version": "1.93.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Add preset preview and QR code customization for product labels",
+            "Fix AI assistant answering for the wrong month (inject current date)",
+        ],
+    },
     {
         "version": "1.92.0",
         "date": "19 июня 2026",
