@@ -1138,9 +1138,18 @@ async def ai_plan_target_hint(request: Request):
     scope_key = f"{seller_id or shop_name}:{plan_type}:{metric_type}:{filter_type}:{_fv_hash}"
     _ck = f"planhint:{org_db}:{scope_key}:{today_month}"
 
+    # Build human-readable filter label for UI display
+    _filter_label = ""
+    if filter_type == "category" and isinstance(filter_categories, list) and filter_categories:
+        _filter_label = "По категориям: " + ", ".join(str(c) for c in filter_categories)
+    elif filter_type == "product" and isinstance(filter_products, list) and filter_products:
+        n = len(filter_products)
+        _filter_label = f"По товарам: {n} " + ("товар" if n == 1 else "товара" if 2 <= n <= 4 else "товаров")
+
     cached = _plhint_cache_get(_ck)
     if cached:
-        return JSONResponse({"ok": True, "text": cached["text"], "suggestion": cached["suggestion"], "cached": True})
+        return JSONResponse({"ok": True, "text": cached["text"], "suggestion": cached["suggestion"], "cached": True,
+                             "filter_type": filter_type, "filter_label": _filter_label})
 
     limit, _ = _get_limits(tg_id)
     if not check_and_increment_ai(tg_id, limit):
@@ -1197,7 +1206,8 @@ async def ai_plan_target_hint(request: Request):
                 return JSONResponse({"ok": False, "error": "Недостаточно данных для подсказки."})
 
         _plhint_cache_set(_ck, result, float(suggestion))
-        return JSONResponse({"ok": True, "text": result, "suggestion": float(suggestion), "cached": False})
+        return JSONResponse({"ok": True, "text": result, "suggestion": float(suggestion), "cached": False,
+                             "filter_type": filter_type, "filter_label": _filter_label})
 
     except Exception as exc:
         logger.error("ai_plan_target_hint error: %s", exc)

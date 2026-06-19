@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.114.0"
+CURRENT_VERSION = "1.115.0"
 
 ENTRIES = [
+    {
+        "version": "1.115.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Update system version and deployment information",
+            "Re-fetch AI hint when product filter changes in the plan edit form",
+            "Show which filter is active in the AI hint result text",
+        ],
+    },
     {
         "version": "1.114.0",
         "date": "19 июня 2026",

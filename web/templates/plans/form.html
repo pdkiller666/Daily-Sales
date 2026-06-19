@@ -260,6 +260,9 @@
             <p x-show="error" class="mt-2 text-xs text-red-500" x-text="error"></p>
             <div x-show="result" x-cloak class="mt-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
                 <p class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed" x-text="result && result.text"></p>
+                <p x-show="result && result.filter_type && result.filter_type !== 'all' && result.filter_label"
+                   class="mt-1.5 text-xs text-indigo-500 dark:text-indigo-400 font-medium"
+                   x-text="result && result.filter_label"></p>
                 <div class="flex items-center gap-3 mt-3">
                     <button type="button" @click="apply()"
                             class="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
@@ -313,6 +316,7 @@
                 <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-slate-100">
                     <input type="checkbox" name="filter_categories" value="{{ cat }}"
                            {% if cat in cur_sel_cats %}checked{% endif %}
+                           onchange="onFilterCheckboxChange()"
                            class="accent-indigo-600 shrink-0">
                     <span class="text-xs text-slate-700 truncate">{{ cat }}</span>
                 </label>
@@ -337,6 +341,7 @@
                     <label class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
                         <input type="checkbox" name="filter_products" value="{{ prod.id }}"
                                {% if prod.id|string in cur_sel_prods %}checked{% endif %}
+                               onchange="onFilterCheckboxChange()"
                                class="accent-indigo-600 shrink-0">
                         <span class="text-xs text-slate-700 truncate">{{ prod.name }}</span>
                     </label>
@@ -412,6 +417,13 @@ function onFilterTypeChange() {
         lbl.classList.toggle('border-slate-200', !active);
         lbl.classList.toggle('text-slate-500', !active);
     });
+    triggerAiRefresh();
+}
+
+let _aiFilterDebounceTimer = null;
+function onFilterCheckboxChange() {
+    clearTimeout(_aiFilterDebounceTimer);
+    _aiFilterDebounceTimer = setTimeout(triggerAiRefresh, 600);
 }
 </script>
 {% endblock %}
