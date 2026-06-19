@@ -1370,6 +1370,65 @@ def _make_barcode_img(code: str) -> "io.BytesIO | None":
         return None
 
 
+_PDF_FONTS_READY = False
+
+
+def _ensure_pdf_fonts() -> None:
+    """Register DejaVu TTF fonts (with Cyrillic) once for reportlab.
+    reportlab's built-in Helvetica/Courier have NO Cyrillic glyphs, so Russian
+    text renders blank without these TTFs."""
+    global _PDF_FONTS_READY
+    if _PDF_FONTS_READY:
+        return
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        base = Path("web/static/fonts")
+        files = {
+            "DejaVuSans":      "DejaVuSans.ttf",
+            "DejaVuSans-Bold": "DejaVuSans-Bold.ttf",
+            "DejaVuSerif":     "DejaVuSerif.ttf",
+            "DejaVuSerif-Bold": "DejaVuSerif-Bold.ttf",
+            "DejaVuSansMono":  "DejaVuSansMono.ttf",
+        }
+        registered = set(pdfmetrics.getRegisteredFontNames())
+        for name, fn in files.items():
+            if name in registered:
+                continue
+            fp = base / fn
+            if fp.exists():
+                pdfmetrics.registerFont(TTFont(name, str(fp)))
+        # Mark ready only when the core Cyrillic pair is available, so a
+        # transient/partial failure is retried on the next call.
+        now = set(pdfmetrics.getRegisteredFontNames())
+        if "DejaVuSans" in now and "DejaVuSans-Bold" in now:
+            _PDF_FONTS_READY = True
+    except Exception:
+        pass
+
+
+def _resolve_pdf_fonts(font_family: str) -> tuple:
+    """Map a stored CSS font-family to (regular, bold) registered PDF fonts.
+    Falls back to Helvetica if the Cyrillic TTF isn't registered."""
+    fam = (font_family or "").lower().strip()
+    if "georgia" in fam or "times" in fam or fam == "serif":
+        reg, bold = "DejaVuSerif", "DejaVuSerif-Bold"
+    elif "courier" in fam or "mono" in fam:
+        reg, bold = "DejaVuSansMono", "DejaVuSansMono"
+    else:
+        reg, bold = "DejaVuSans", "DejaVuSans-Bold"
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        names = set(pdfmetrics.getRegisteredFontNames())
+        if reg not in names:
+            reg = "Helvetica"
+        if bold not in names:
+            bold = "Helvetica-Bold"
+    except Exception:
+        reg, bold = "Helvetica", "Helvetica-Bold"
+    return reg, bold
+
+
 def _generate_labels_pdf(labels: list, size: str = "58x40",
                           label_settings: dict = None) -> bytes:
     """Generate a PDF with price labels on A4 using reportlab.
@@ -1416,11 +1475,16 @@ def _generate_labels_pdf(labels: list, size: str = "58x40",
     rows_per_page = max(1, int((page_h - 2 * margin + v_gap) / (label_h + v_gap)))
     labels_per_page = cols * rows_per_page
 
-    name_pt  = max(5, min(11, lw_mm * 0.12))
-    price_pt = max(8, min(22, lw_mm * 0.22))
-    art_pt   = max(4, min(8,  lw_mm * 0.09))
+    _ensure_pdf_fonts()
+    reg_font, bold_font = _resolve_pdf_fonts(ls.get("font_family", ""))
+    fscale = {"small": 0.85, "medium": 1.0, "large": 1.15}.get(
+        ls.get("font_size", "medium"), 1.0)
+
+    name_pt  = max(5, min(13, lw_mm * 0.12 * fscale))
+    price_pt = max(8, min(26, lw_mm * 0.22 * fscale))
+    art_pt   = max(4, min(9,  lw_mm * 0.09 * fscale))
     qr_mm_v  = max(8, min(34, lw_mm * 0.38))
-    badge_pt = max(4, min(9,  lw_mm * 0.10))
+    badge_pt = max(4, min(10, lw_mm * 0.10 * fscale))
 
     logo_path = ls.get("logo_path") or ls.get("org_logo_path") or ""
     logo_img = None
@@ -1459,128 +1523,170 @@ def _generate_labels_pdf(labels: list, size: str = "58x40",
 
         inner_x = x + 2 * mm
         inner_w = label_w - 4 * mm
-        cur_y = y + label_h - 2 * mm
+        cx = x + label_w / 2
+        st = {"y": y + label_h - 2 * mm}
 
-        # Sale badge
-        if sale_badge and vis.get("badge", False):
+        def draw_badge():
+            if not (sale_badge and vis.get("badge", False)):
+                return
             c.setFillColor(colors.Color(0.9, 0.1, 0.1))
             badge_h = badge_pt * 1.6
-            c.roundRect(x + 1 * mm, cur_y - badge_h, label_w - 2 * mm, badge_h, 1 * mm, fill=1, stroke=0)
+            c.roundRect(x + 1 * mm, st["y"] - badge_h, label_w - 2 * mm, badge_h, 1 * mm, fill=1, stroke=0)
             c.setFillColor(colors.white)
-            c.setFont("Helvetica-Bold", badge_pt)
-            c.drawCentredString(x + label_w / 2, cur_y - badge_h + badge_pt * 0.3, sale_badge)
-            cur_y -= badge_h + 1 * mm
+            c.setFont(bold_font, badge_pt)
+            c.drawCentredString(cx, st["y"] - badge_h + badge_pt * 0.3, sale_badge)
+            st["y"] -= badge_h + 1 * mm
 
-        # Logo
-        if logo_img and vis.get("logo", True):
+        def draw_logo():
+            if not (logo_img and vis.get("logo", True)):
+                return
             try:
                 logo_h = min(8 * mm, label_h * 0.2)
                 logo_w = min(label_w - 4 * mm, logo_h * 3)
                 c.drawImage(logo_img, x + (label_w - logo_w) / 2,
-                            cur_y - logo_h, logo_w, logo_h,
+                            st["y"] - logo_h, logo_w, logo_h,
                             preserveAspectRatio=True, mask="auto")
-                cur_y -= logo_h + 1 * mm
+                st["y"] -= logo_h + 1 * mm
             except Exception:
                 pass
 
-        # Category
-        if vis.get("category", False):
+        def draw_category():
+            if not vis.get("category", False):
+                return
             cat = (lb.get("category") or "")[:40]
-            if cat:
-                c.setFillColor(colors.Color(0.5, 0.5, 0.5))
-                c.setFont("Helvetica", max(4, art_pt - 1))
-                c.drawCentredString(x + label_w / 2, cur_y - art_pt, cat.upper())
-                cur_y -= art_pt + 1 * mm
+            if not cat:
+                return
+            c.setFillColor(colors.Color(0.5, 0.5, 0.5))
+            c.setFont(reg_font, max(4, art_pt - 1))
+            c.drawCentredString(cx, st["y"] - art_pt, cat.upper())
+            st["y"] -= art_pt + 1 * mm
 
-        # Name
-        if vis.get("name", True):
+        def draw_name():
+            if not vis.get("name", True):
+                return
             name = (lb.get("name") or "")[:60]
             c.setFillColor(text_color)
-            c.setFont("Helvetica-Bold", name_pt)
+            c.setFont(bold_font, name_pt)
             words = name.split()
             line1, line2 = "", ""
             for w in words:
                 test = (line1 + " " + w).strip()
-                if c.stringWidth(test, "Helvetica-Bold", name_pt) <= inner_w:
+                if c.stringWidth(test, bold_font, name_pt) <= inner_w:
                     line1 = test
                 else:
                     if not line2:
                         line2 = w
                     else:
                         test2 = (line2 + " " + w).strip()
-                        if c.stringWidth(test2, "Helvetica-Bold", name_pt) <= inner_w:
+                        if c.stringWidth(test2, bold_font, name_pt) <= inner_w:
                             line2 = test2
             lh_pt = name_pt * 1.3
             lines_h = (lh_pt if line1 else 0) + (lh_pt if line2 else 0) + 0.5 * mm
-            name_top = cur_y - 0.5 * mm
+            name_top = st["y"] - 0.5 * mm
             if line1:
-                c.drawCentredString(x + label_w / 2, name_top - lh_pt, line1)
+                c.drawCentredString(cx, name_top - lh_pt, line1)
             if line2:
-                c.drawCentredString(x + label_w / 2, name_top - lh_pt - lh_pt, line2)
-            cur_y -= lines_h
+                c.drawCentredString(cx, name_top - lh_pt - lh_pt, line2)
+            st["y"] -= lines_h
 
-        # Price
-        if vis.get("price", True):
+        def draw_price():
+            if not vis.get("price", True):
+                return
             price = lb.get("price", 0)
             price_str = f"{int(price):,}".replace(",", "\u202f") + " \u20bd"
             c.setFillColor(price_color)
-            c.setFont("Helvetica-Bold", price_pt)
-            c.drawCentredString(x + label_w / 2, cur_y - price_pt - 0.5 * mm, price_str)
-            cur_y -= price_pt + 2 * mm
+            c.setFont(bold_font, price_pt)
+            c.drawCentredString(cx, st["y"] - price_pt - 0.5 * mm, price_str)
+            st["y"] -= price_pt + 2 * mm
 
-        # Separator
-        if vis.get("sep", True):
+        def draw_sep():
+            if not vis.get("sep", True):
+                return
             c.setStrokeColor(colors.Color(0.8, 0.8, 0.8))
             c.setLineWidth(0.3)
-            c.line(inner_x, cur_y, inner_x + inner_w, cur_y)
-            cur_y -= 1.5 * mm
+            c.line(inner_x, st["y"], inner_x + inner_w, st["y"])
+            st["y"] -= 1.5 * mm
 
-        # QR
-        qr_b64 = lb.get("qr_b64") or ""
-        if qr_b64 and vis.get("qr", True):
+        def draw_qr():
+            qr_b64 = lb.get("qr_b64") or ""
+            if not (qr_b64 and vis.get("qr", True)):
+                return
+            if st["y"] - y < 9 * mm:  # not enough room — skip to avoid overflow
+                return
             try:
                 qr_bytes = _b64.b64decode(qr_b64)
-                qr_size = min(qr_mm_v * mm, cur_y - y - art_pt * 2 - 3 * mm)
+                qr_size = min(qr_mm_v * mm, st["y"] - y - 3 * mm)
                 qr_size = max(6 * mm, qr_size)
                 qr_img = ImageReader(io.BytesIO(qr_bytes))
                 c.drawImage(qr_img, x + (label_w - qr_size) / 2,
-                            cur_y - qr_size, qr_size, qr_size, preserveAspectRatio=True)
-                cur_y -= qr_size + 1 * mm
+                            st["y"] - qr_size, qr_size, qr_size, preserveAspectRatio=True)
+                st["y"] -= qr_size + 1 * mm
             except Exception:
                 pass
 
-        # Barcode (Code-128)
-        barcode_val = lb.get("barcode") or lb.get("article") or ""
-        if barcode_val and vis.get("barcode", False):
+        def draw_barcode():
+            barcode_val = lb.get("barcode") or lb.get("article") or ""
+            if not (barcode_val and vis.get("barcode", False)):
+                return
+            if st["y"] - y < 7 * mm:  # not enough room — skip to avoid overflow
+                return
             bc_buf = _make_barcode_img(barcode_val)
-            if bc_buf:
-                try:
-                    bc_img = ImageReader(bc_buf)
-                    bc_h = min(8 * mm, cur_y - y - art_pt * 2 - 2 * mm)
-                    bc_h = max(5 * mm, bc_h)
-                    c.drawImage(bc_img, inner_x, cur_y - bc_h,
-                                inner_w, bc_h, preserveAspectRatio=True)
-                    cur_y -= bc_h + 0.5 * mm
-                except Exception:
-                    pass
+            if not bc_buf:
+                return
+            try:
+                bc_img = ImageReader(bc_buf)
+                bc_h = min(8 * mm, st["y"] - y - 2 * mm)
+                bc_h = max(5 * mm, bc_h)
+                c.drawImage(bc_img, inner_x, st["y"] - bc_h,
+                            inner_w, bc_h, preserveAspectRatio=True)
+                st["y"] -= bc_h + 0.5 * mm
+            except Exception:
+                pass
 
-        # Article / description at bottom
-        c.setFont("Courier", art_pt)
-        article = lb.get("article") or ""
-        if article and vis.get("article", True):
-            c.setFillColor(text_color)
-            c.drawCentredString(x + label_w / 2, y + art_pt + 1, article)
-        elif vis.get("article", True):
-            c.setFillColor(colors.Color(0.7, 0.7, 0.7))
-            c.drawCentredString(x + label_w / 2, y + art_pt + 1,
-                                "\u2014 \u0430\u0440\u0442\u0438\u043a\u0443\u043b \u043d\u0435 \u0437\u0430\u0434\u0430\u043d \u2014")
+        def draw_article():
+            if not vis.get("article", True):
+                return
+            article = lb.get("article") or ""
+            c.setFont(reg_font, art_pt)
+            if article:
+                c.setFillColor(text_color)
+                c.drawCentredString(cx, st["y"] - art_pt, article)
+            else:
+                c.setFillColor(colors.Color(0.7, 0.7, 0.7))
+                c.drawCentredString(cx, st["y"] - art_pt,
+                                    "\u2014 \u0430\u0440\u0442\u0438\u043a\u0443\u043b \u043d\u0435 \u0437\u0430\u0434\u0430\u043d \u2014")
+            st["y"] -= art_pt + 1 * mm
 
-        if vis.get("description", False):
+        def draw_description():
+            if not vis.get("description", False):
+                return
             desc = (lb.get("description") or "")[:60]
-            if desc:
-                c.setFillColor(colors.Color(0.4, 0.4, 0.4))
-                c.setFont("Helvetica", max(4, art_pt - 1))
-                c.drawCentredString(x + label_w / 2, y + 1, desc)
+            if not desc:
+                return
+            c.setFillColor(colors.Color(0.4, 0.4, 0.4))
+            c.setFont(reg_font, max(4, art_pt - 1))
+            c.drawCentredString(cx, st["y"] - art_pt, desc)
+            st["y"] -= art_pt + 1 * mm
+
+        drawers = {
+            "badge": draw_badge, "logo": draw_logo, "category": draw_category,
+            "name": draw_name, "price": draw_price, "sep": draw_sep,
+            "qr": draw_qr, "barcode": draw_barcode,
+            "article": draw_article, "description": draw_description,
+        }
+        order = ls.get("element_order") or [
+            "logo", "badge", "name", "price", "sep", "qr",
+            "barcode", "article", "category", "description"]
+        seen = set()
+        for key in order:
+            fn = drawers.get(key)
+            if fn and key not in seen:
+                seen.add(key)
+                fn()
+        # Draw any element missing from a malformed/partial order
+        for key, fn in drawers.items():
+            if key not in seen:
+                fn()
 
     c.save()
     return buf.getvalue()

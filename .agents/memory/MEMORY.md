@@ -59,5 +59,6 @@
 - [Dedicated AI DM thread](ai-dedicated-dm-thread.md) — AI вынесен в отдельного собеседника: routing peer=-1, storage from=0/to=0+ai_peer_id=0; legacy in-dialog (ai_peer_id>=1) не трогать; гейт _ai_ext_ok на всех AI-путях
 - [Dedicated AI chat topic](ai-chat-topic.md) — org-chat AI переехал из префикса @ии в выделенную тему (chat_topics.is_ai, partial UNIQUE); триггер = topic==get_ai_topic_id(); воркер повторно гейтит has_extension
 - [Comprehensive audit 2026-06-17](audit-2026-06.md) — итоги 4-этапного аудита: что исправлено, что уже было OK, что осознанно отложено
+- [Label drag-on-preview](label-drag-preview.md) — перетаскивание блоков ценника на макете; elemOrder=единый источник, sync с панелью; свободный холст отклонён; drag-affordance скрывать в @media print
 - [Product network variants](product-network-variants.md) — один товар → разные артикул/штрихкод по сети; lookup variants→fallback на products.*; barcode-конфликт проверять и vs products.barcode; FSM set_state(None) не clear
 - [APK private-repo download](apk-private-repo-download.md) — приватный репо: browser_download_url=404 даже с токеном; качать API-URL ассета + Accept:octet-stream; _APK_MIN_SIZE<555KB
