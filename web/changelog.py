@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.79.0"
+CURRENT_VERSION = "1.80.0"
 
 ENTRIES = [
+    {
+        "version": "1.80.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Fix app download by using the correct GitHub asset API URL",
+        ],
+    },
     {
         "version": "1.79.0",
         "date": "19 июня 2026",

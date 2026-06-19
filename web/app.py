@@ -1125,6 +1125,42 @@ def create_web_app() -> FastAPI:
             background_tasks.add_task(_download_apk_to_local, apk_url)
         return JSONResponse({"ok": True, "version": version})
 
+    @app.post("/webhook/apk-binary", include_in_schema=False)
+    async def webhook_apk_binary(request: Request):
+        """Принимает готовый APK-бинарь напрямую от GitHub Actions и сохраняет
+        его на persistent volume Amvera. Не требует доступа сервера к GitHub
+        (приватный репозиторий) — Actions сам шлёт файл."""
+        import hmac
+        import logging as _logging
+        from fastapi.responses import JSONResponse
+        secret = os.environ.get("APK_WEBHOOK_SECRET", "")
+        auth = request.headers.get("Authorization", "")
+        token = auth.removeprefix("Bearer ").strip()
+        if not secret or not hmac.compare_digest(token.encode(), secret.encode()):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        version = request.headers.get("X-APK-Version", "").strip()
+        body = await request.body()
+        if len(body) < _APK_MIN_SIZE:
+            return JSONResponse(
+                {"error": f"file too small ({len(body)} bytes)"},
+                status_code=400,
+            )
+        try:
+            _APK_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _APK_LOCAL.with_suffix(".apk.tmp")
+            tmp.write_bytes(body)
+            tmp.replace(_APK_LOCAL)
+        except Exception as e:
+            _logging.error(f"webhook_apk_binary save error: {e}")
+            return JSONResponse({"error": "save failed"}, status_code=500)
+        _logging.info(
+            f"APK binary received via webhook: {len(body):,} bytes "
+            f"(version={version or 'n/a'}) → {_APK_LOCAL}"
+        )
+        return JSONResponse(
+            {"ok": True, "bytes": len(body), "version": version}
+        )
+
     @app.get("/.well-known/assetlinks.json", include_in_schema=False)
     async def assetlinks():
         from fastapi.responses import JSONResponse

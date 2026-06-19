@@ -109,6 +109,24 @@ jobs:
           draft: false
           prerelease: false
 
+      - name: Upload APK binary to server
+        env:
+          APK_WEBHOOK_SECRET: ${{ secrets.APK_WEBHOOK_SECRET }}
+        run: |
+          [ -n "$APK_WEBHOOK_SECRET" ] || { echo "APK_WEBHOOK_SECRET not set, skipping"; exit 0; }
+          [ -f "${{ env.APK_FILE }}" ] || { echo "APK file not found: ${{ env.APK_FILE }}"; exit 1; }
+          VERSION="v1.0.${{ github.run_number }}"
+          echo "Uploading $(du -h "${{ env.APK_FILE }}" | cut -f1) APK to server..."
+          STATUS=$(curl -s -o /tmp/apk_upload_resp.txt -w "%{http_code}" \
+            -X POST "https://dailysalesdeploy-pdkiller666.amvera.io/webhook/apk-binary" \
+            -H "Authorization: Bearer ${APK_WEBHOOK_SECRET}" \
+            -H "X-APK-Version: ${VERSION}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${{ env.APK_FILE }}" --max-time 120 || echo "000")
+          echo "APK binary upload HTTP status: ${STATUS}"
+          cat /tmp/apk_upload_resp.txt || true
+          [ "${STATUS}" = "200" ] || echo "::warning::APK binary upload did not return 200"
+
       - name: Notify server about new APK release
         env:
           APK_WEBHOOK_SECRET: ${{ secrets.APK_WEBHOOK_SECRET }}
