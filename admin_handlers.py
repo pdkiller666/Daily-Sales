@@ -654,6 +654,9 @@ async def add_admin_page(callback: CallbackQuery, state: FSMContext):
 
 @admin_router.callback_query(F.data.startswith("add_admin_id_"))
 async def process_add_admin_callback(callback: CallbackQuery, state: FSMContext):
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
     new_admin_id = int(callback.data.replace("add_admin_id_", ""))
     current_admins = env_manager.get_admin_ids()
     
@@ -717,6 +720,9 @@ async def remove_admin_start(callback: CallbackQuery, state: FSMContext):
 
 @admin_router.callback_query(F.data.startswith("remove_admin_"))
 async def process_remove_admin(callback: CallbackQuery, state: FSMContext):
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
     admin_id = int(callback.data.replace("remove_admin_", ""))
     if env_manager.remove_admin_id(admin_id):
         await callback.answer(f"✅ Администратор {admin_id} удален")
@@ -938,6 +944,9 @@ async def _show_invite_screen(message, org_id: int, invite_code: str):
 @admin_router.callback_query(F.data.startswith("reset_invite_"))
 async def reset_invite_handler(callback: CallbackQuery, state: FSMContext):
     """Б) Сбросить код приглашения (сгенерировать новый)."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
     try:
         org_id = int(callback.data.replace("reset_invite_", ""))
     except ValueError:
@@ -954,6 +963,9 @@ async def reset_invite_handler(callback: CallbackQuery, state: FSMContext):
 @admin_router.callback_query(F.data.startswith("invite_preset_start_"))
 async def invite_preset_start_handler(callback: CallbackQuery, state: FSMContext):
     """Д) Начало настройки пресета инвайта — выбор роли."""
+    if not env_manager.is_super_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещён!", show_alert=True)
+        return
     await callback.answer()
     try:
         org_id = int(callback.data.replace("invite_preset_start_", ""))

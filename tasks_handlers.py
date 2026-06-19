@@ -173,7 +173,8 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
 async def _show_tasks_list(target, state: FSMContext, page: int = 0):
     """Показать список задач. target — Message или CallbackQuery."""
     from aiogram.types import Message as Msg
-    db = await get_db(state)
+    tg_id = target.from_user.id
+    db = await get_db(tg_id, state)
     if db is None:
         text = "⚠️ Нет активной организации."
         if isinstance(target, Msg):
@@ -184,7 +185,6 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         return
 
     try:
-        tg_id = target.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
             "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
@@ -192,7 +192,7 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = my_row[1] if my_row and len(my_row) > 1 else None
-        admin = await is_any_admin(state)
+        admin = is_any_admin(tg_id)
 
         tasks = db.get_tasks(is_admin=admin, my_user_id=my_db_id, my_shop=my_shop)
         active = [t for t in tasks if t.get('status') not in ('done', 'cancelled')]
@@ -206,7 +206,7 @@ async def _show_tasks_list(target, state: FSMContext, page: int = 0):
         await state.update_data(tsk_list=active, tsk_page=page, tsk_my_db_id=my_db_id)
 
         if isinstance(target, Msg):
-            await fsm_edit(target, text, kb)
+            await fsm_edit(state, target, text, kb)
         else:
             await target.answer()
             await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -241,13 +241,13 @@ async def tasks_page_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_view_"))
 async def task_view_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    db = await get_db(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
         return
 
     try:
-        tg_id = callback.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
             "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
@@ -255,7 +255,7 @@ async def task_view_cb(callback: CallbackQuery, state: FSMContext):
         conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = my_row[1] if my_row and len(my_row) > 1 else None
-        admin = await is_any_admin(state)
+        admin = is_any_admin(tg_id)
 
         task = db.get_task(task_id)
         if not task:
@@ -357,13 +357,13 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Неверный статус")
         return
 
-    db = await get_db(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
         return
 
     try:
-        tg_id = callback.from_user.id
         conn = db.get_connection()
         my_row = conn.execute(
             "SELECT id, shop_name FROM users WHERE telegram_id = ?", (tg_id,)
@@ -371,7 +371,7 @@ async def task_setstatus_cb(callback: CallbackQuery, state: FSMContext):
         conn.close()
         my_db_id = my_row[0] if my_row else 0
         my_shop = my_row[1] if my_row and len(my_row) > 1 else None
-        admin = await is_any_admin(state)
+        admin = is_any_admin(tg_id)
 
         task = db.get_task(task_id)
         if not task:
@@ -516,7 +516,7 @@ async def task_photo_skip_cb(callback: CallbackQuery, state: FSMContext):
 async def task_attachment_handler(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     task_id = data.get('tsk_photo_task_id')
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
 
     if not task_id or db is None:
         await state.set_state(None)
@@ -619,13 +619,13 @@ async def task_attachment_wrong_input(message: Message, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_mycomp_"))
 async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    db = await get_db(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
         return
 
     try:
-        tg_id = callback.from_user.id
         conn = db.get_connection()
         my_row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
         conn.close()
@@ -695,13 +695,14 @@ async def task_mycomp_cb(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_reopen_"))
 async def task_reopen_cb(callback: CallbackQuery, state: FSMContext):
     task_id = int(callback.data.split("_")[-1])
-    db = await get_db(state)
+    tg_id = callback.from_user.id
+    db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org")
         return
 
     try:
-        admin = await is_any_admin(state)
+        admin = is_any_admin(tg_id)
         if not admin:
             await callback.answer("Нет доступа")
             return
@@ -934,7 +935,7 @@ def _tc_parse_deadline(text: str) -> str | None:
 
 @tasks_router.callback_query(F.data == "tsk_create")
 async def tsk_create_entry(callback: CallbackQuery, state: FSMContext):
-    admin = await is_any_admin(state)
+    admin = is_any_admin(callback.from_user.id)
     if not admin:
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -968,6 +969,7 @@ async def tsk_c_title_msg(message: Message, state: FSMContext):
     except Exception:
         pass
     await fsm_edit(
+        state,
         message,
         f"📋 <b>Создание задачи</b> — шаг 2/5\n\n"
         f"<b>Название:</b> {he(title)}\n\n"
@@ -988,8 +990,9 @@ async def tsk_c_desc_msg(message: Message, state: FSMContext):
     except Exception:
         pass
     data = await state.get_data()
-    db = await get_db(state)
+    db = await get_db(message.from_user.id, state)
     await fsm_edit(
+        state,
         message,
         f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
         f"<b>Название:</b> {he(data.get('tsk_c_title', ''))}\n\n"
@@ -1004,7 +1007,7 @@ async def tsk_c_skip_desc(callback: CallbackQuery, state: FSMContext):
     await state.set_state(None)
     await callback.answer()
     data = await state.get_data()
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     await callback.message.edit_text(
         f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
         f"<b>Название:</b> {he(data.get('tsk_c_title', ''))}\n\n"
@@ -1045,7 +1048,7 @@ async def tsk_c_who_none(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data == "tsk_c_who_users")
 async def tsk_c_who_users(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     await callback.message.edit_text(
         "📋 <b>Создание задачи</b> — шаг 3/5\n\n"
         "Выберите <b>сотрудника</b>:",
@@ -1058,7 +1061,7 @@ async def tsk_c_who_users(callback: CallbackQuery, state: FSMContext):
 async def tsk_c_users_page(callback: CallbackQuery, state: FSMContext):
     page = int(callback.data.split("_")[-1])
     await callback.answer()
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     await callback.message.edit_text(
         "📋 <b>Создание задачи</b> — шаг 3/5\n\n"
         "Выберите <b>сотрудника</b>:",
@@ -1070,7 +1073,7 @@ async def tsk_c_users_page(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data == "tsk_c_back_who")
 async def tsk_c_back_who(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     data = await state.get_data()
     await callback.message.edit_text(
         f"📋 <b>Создание задачи</b> — шаг 3/5\n\n"
@@ -1084,7 +1087,7 @@ async def tsk_c_back_who(callback: CallbackQuery, state: FSMContext):
 @tasks_router.callback_query(F.data.startswith("tsk_csh_"))
 async def tsk_c_shop_selected(callback: CallbackQuery, state: FSMContext):
     shop_raw = callback.data[len("tsk_csh_"):]
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     shop = shop_raw
     if db:
         try:
@@ -1114,7 +1117,7 @@ async def tsk_c_user_selected(callback: CallbackQuery, state: FSMContext):
     except ValueError:
         await callback.answer("Ошибка")
         return
-    db = await get_db(state)
+    db = await get_db(callback.from_user.id, state)
     uname = f"User#{uid}"
     if db:
         try:
@@ -1174,6 +1177,7 @@ async def tsk_c_dl_msg(message: Message, state: FSMContext):
         pass
     if text and not deadline:
         await fsm_edit(
+            state,
             message,
             "⚠️ Не распознан формат даты.\n\n"
             "Используйте: <code>25.06</code> · <code>25.06.2026</code> · "
@@ -1197,7 +1201,7 @@ async def tsk_c_dl_msg(message: Message, state: FSMContext):
         except Exception:
             dl_display = deadline
     data['tsk_c_deadline'] = dl_display or ''
-    await fsm_edit(message, _tc_summary(data), _tc_confirm_kb())
+    await fsm_edit(state, message, _tc_summary(data), _tc_confirm_kb())
 
 
 @tasks_router.callback_query(F.data == "tsk_c_skip_dl")
@@ -1217,11 +1221,12 @@ async def tsk_c_skip_dl(callback: CallbackQuery, state: FSMContext):
 
 @tasks_router.callback_query(F.data == "tsk_c_ok")
 async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
-    admin = await is_any_admin(state)
+    tg_id = callback.from_user.id
+    admin = is_any_admin(tg_id)
     if not admin:
         await callback.answer("Нет доступа", show_alert=True)
         return
-    db = await get_db(state)
+    db = await get_db(tg_id, state)
     if db is None:
         await callback.answer("Нет активной org", show_alert=True)
         return
@@ -1265,7 +1270,6 @@ async def tsk_c_ok(callback: CallbackQuery, state: FSMContext):
     elif atype == 'user':
         assigned_to = data.get('tsk_c_assign_uid')
 
-    tg_id = callback.from_user.id
     try:
         conn = db.get_connection()
         row = conn.execute("SELECT id FROM users WHERE telegram_id = ?", (tg_id,)).fetchone()
@@ -1380,14 +1384,14 @@ def _ai_tc_confirm_kb() -> InlineKeyboardMarkup:
 @tasks_router.callback_query(F.data == "tsk_ai_create")
 async def tsk_ai_create_entry(callback: CallbackQuery, state: FSMContext):
     """Вход в AI-визард создания задачи."""
-    admin = await is_any_admin(state)
+    tg_id = callback.from_user.id
+    admin = is_any_admin(tg_id)
     if not admin:
         await callback.answer("Нет доступа", show_alert=True)
         return
     # Billing gate: tasks_ai extension required
     try:
         from billing_utils import has_module as _hm, has_extension as _he
-        tg_id = callback.from_user.id
         if not _hm(tg_id, 'tasks_pro') or not _he(tg_id, 'tasks_ai'):
             await callback.answer("Требуется расширение «AI для задач».", show_alert=True)
             return
@@ -1415,11 +1419,11 @@ async def tsk_ai_goal_msg(message: Message, state: FSMContext):
     except Exception:
         pass
     if not goal:
-        await fsm_edit(message, "⚠️ Введите описание задачи или нажмите «Отменить»:",
+        await fsm_edit(state, message, "⚠️ Введите описание задачи или нажмите «Отменить»:",
                        _ai_tc_cancel_kb())
         return
 
-    await fsm_edit(message, "⏳ AI генерирует задачу…", _ai_tc_cancel_kb())
+    await fsm_edit(state, message, "⏳ AI генерирует задачу…", _ai_tc_cancel_kb())
 
     try:
         import aiohttp as _ahttp
@@ -1428,7 +1432,7 @@ async def tsk_ai_goal_msg(message: Message, state: FSMContext):
         # Попытка вызвать LLM через web.ai_utils
         from web.ai_utils import ask_llm, is_configured
         if not is_configured():
-            await fsm_edit(message, "⚠️ AI не настроен. Используйте обычное создание задачи.",
+            await fsm_edit(state, message, "⚠️ AI не настроен. Используйте обычное создание задачи.",
                            _ai_tc_cancel_kb())
             await clear_state_keep_org(state)
             return
@@ -1448,7 +1452,7 @@ async def tsk_ai_goal_msg(message: Message, state: FSMContext):
         result = await ask_llm(prompt, system=system, max_tokens=200, temperature=0.3,
                                feature="bot_task_create")
         if not result:
-            await fsm_edit(message, "⚠️ AI не ответил. Попробуйте позже.",
+            await fsm_edit(state, message, "⚠️ AI не ответил. Попробуйте позже.",
                            _ai_tc_cancel_kb())
             await clear_state_keep_org(state)
             return
@@ -1470,6 +1474,7 @@ async def tsk_ai_goal_msg(message: Message, state: FSMContext):
         await state.update_data(ai_title=title, ai_desc=description, ai_prio=priority)
         await state.set_state(AiTaskCreateStates.confirming)
         await fsm_edit(
+            state,
             message,
             f"✨ <b>AI создал задачу — подтвердите:</b>\n\n"
             f"<b>Название:</b> {he(title)}\n"
@@ -1479,7 +1484,7 @@ async def tsk_ai_goal_msg(message: Message, state: FSMContext):
         )
     except Exception as e:
         logger.warning("tsk_ai_goal_msg AI error: %s", e)
-        await fsm_edit(message, "⚠️ Ошибка AI. Попробуйте ещё раз или отмените.",
+        await fsm_edit(state, message, "⚠️ Ошибка AI. Попробуйте ещё раз или отмените.",
                        _ai_tc_cancel_kb())
         await clear_state_keep_org(state)
 
@@ -1499,7 +1504,11 @@ async def tsk_ai_ok(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        db = get_db(org_db)
+        db = await get_db(callback.from_user.id, state)
+        if db is None:
+            await callback.answer("Нет активной org.", show_alert=True)
+            await clear_state_keep_org(state)
+            return
         conn = db.get_connection()
         try:
             my_row = conn.execute(
