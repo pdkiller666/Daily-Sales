@@ -14079,6 +14079,79 @@ class Database:
             logger.error("get_tasks_analytics: %s", e)
             return empty
 
+    def get_unassigned_tasks(self, topic_id: int | None = None, q: str | None = None) -> list:
+        """Задачи без назначения (пул) — assign_all=0, assigned_to IS NULL, assigned_shop IS NULL, status=open."""
+        try:
+            conn = self.get_connection()
+            where = [
+                "t.status = 'open'",
+                "t.assign_all = 0",
+                "t.assigned_to IS NULL",
+                "t.assigned_shop IS NULL",
+            ]
+            params: list = []
+            if topic_id:
+                where.append("t.topic_id = ?")
+                params.append(topic_id)
+            if q:
+                where.append("(lower_u(t.title) LIKE lower_u(?) OR lower_u(t.description) LIKE lower_u(?))")
+                like = f"%{q}%"
+                params += [like, like]
+            where_sql = " AND ".join(where)
+            rows = conn.execute(
+                f"""SELECT t.id, t.title, t.description, t.priority, t.deadline,
+                           t.created_at, tt.name AS topic_name, tt.color AS topic_color,
+                           uc.first_name AS c_fn, uc.last_name AS c_ln,
+                           (SELECT COUNT(*) FROM task_checklist cl WHERE cl.task_id = t.id) AS cl_total
+                    FROM tasks t
+                    LEFT JOIN task_topics tt ON tt.id = t.topic_id
+                    LEFT JOIN users uc ON uc.id = t.created_by
+                    WHERE {where_sql}
+                    ORDER BY
+                      CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+                      t.deadline ASC NULLS LAST, t.created_at DESC""",
+                params
+            ).fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                result.append({
+                    'id': r[0], 'title': r[1], 'description': r[2] or '',
+                    'priority': r[3], 'deadline': r[4] or '',
+                    'created_at': r[5] or '',
+                    'topic_name': r[6] or '', 'topic_color': r[7] or 'blue',
+                    'creator': ' '.join(filter(None, [r[8], r[9]])) or '',
+                    'checklist_total': r[10] or 0,
+                })
+            return result
+        except Exception as e:
+            logger.error("get_unassigned_tasks: %s", e)
+            return []
+
+    def self_assign_task(self, task_id: int, user_db_id: int) -> bool:
+        """Назначить задачу из пула на себя. Возвращает True если успешно (задача была свободна)."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                """UPDATE tasks SET assigned_to = ?, updated_at = datetime('now')
+                   WHERE id = ? AND assign_all = 0 AND assigned_to IS NULL
+                     AND assigned_shop IS NULL AND status = 'open'""",
+                (user_db_id, task_id)
+            )
+            changed = cur.rowcount > 0
+            if changed:
+                conn.execute(
+                    """INSERT INTO task_history (task_id, user_id, action, old_val, new_val)
+                       VALUES (?, ?, 'self_assign', NULL, ?)""",
+                    (task_id, user_db_id, str(user_db_id))
+                )
+            conn.commit()
+            conn.close()
+            return changed
+        except Exception as e:
+            logger.error("self_assign_task: %s", e)
+            return False
+
     def create_auto_low_stock_task(self, product_name: str, shop_name: str,
                                     quantity: int, created_by_user_id: int = 0) -> int:
         """Создать авто-задачу «Пополнить остаток» с anti-duplicate за 7 дней.

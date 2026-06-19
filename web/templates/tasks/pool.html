@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Пул задач{% endblock %}
+
+{% block breadcrumb %}
+<span class="text-slate-400 text-xs">🏠</span>
+<span class="text-slate-300 text-xs">/</span>
+<a href="/tasks" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 text-sm">Задачи</a>
+<span class="text-slate-300 text-xs">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200 text-sm">Пул</span>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-5 flex-wrap gap-3">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">🎯 Пул задач</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Задачи без назначения — возьмите любую</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/tasks" class="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-colors">
+      ← Задачи
+    </a>
+    {% if is_admin %}
+    <a href="/tasks/new" class="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+      ＋ Новая
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% set msg_map = {
+  'csrf_error':    '⚠️ Ошибка безопасности.',
+  'already_taken': '⚠️ Задача уже взята другим сотрудником.',
+  'error':         '⚠️ Произошла ошибка.',
+  'pro_required':  '🔒 Требуется модуль «Задачи Pro».',
+} %}
+{% if msg and msg in msg_map %}
+<div class="mb-4 p-3 rounded-xl text-sm border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300">
+  {{ msg_map[msg] }}
+</div>
+{% endif %}
+{% if error %}
+<div class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">⚠️ {{ error }}</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="flex items-center gap-3 mb-4 flex-wrap">
+  <form method="GET" action="/tasks/pool" class="flex items-center gap-2 flex-wrap">
+    {% if topics %}
+    <select name="topic_id" onchange="this.form.submit()"
+            class="text-sm px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <option value="">Все темы</option>
+      {% for t in topics %}
+      <option value="{{ t.id }}" {{ 'selected' if topic_filter|string == t.id|string else '' }}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <div class="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 overflow-hidden">
+      <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию…"
+             class="text-sm px-3 py-1.5 bg-transparent text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none w-48">
+      {% if topic_filter %}
+      <input type="hidden" name="topic_id" value="{{ topic_filter }}">
+      {% endif %}
+      <button type="submit" class="px-2 py-1.5 text-slate-400 hover:text-indigo-600">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+      </button>
+    </div>
+    {% if q or topic_filter %}
+    <a href="/tasks/pool" class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 underline">Сбросить</a>
+    {% endif %}
+  </form>
+  <span class="text-xs text-slate-400 ml-auto">{{ tasks | length }} задач{{'' if tasks|length == 1 else 'и' if tasks|length in (2,3,4) else ''}}</span>
+</div>
+
+{% if not tasks %}
+<div class="card p-10 text-center dark:bg-slate-900">
+  <p class="text-4xl mb-3">🎯</p>
+  <p class="text-slate-700 dark:text-slate-200 font-medium mb-1">Пул пуст</p>
+  <p class="text-sm text-slate-500 dark:text-slate-400">
+    {% if q or topic_filter %}
+    Нет задач по заданным фильтрам.
+    {% else %}
+    Все задачи назначены или нет новых неназначенных задач.
+    {% endif %}
+  </p>
+  {% if is_admin %}
+  <a href="/tasks/new" class="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors">
+    ＋ Создать задачу
+  </a>
+  {% endif %}
+</div>
+{% else %}
+<div class="space-y-3">
+  {% for task in tasks %}
+  {% set pc = {'urgent': 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400',
+               'high':   'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400',
+               'normal': 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400',
+               'low':    'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'} %}
+  <div class="card p-4 dark:bg-slate-900 hover:shadow-md transition-shadow">
+    <div class="flex items-start gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap mb-1">
+          <a href="/tasks/{{ task.id }}" class="text-sm font-semibold text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400">
+            {{ task.title }}
+          </a>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {{ pc.get(task.priority, 'bg-slate-100 text-slate-500') }}">
+            {{ priority_labels.get(task.priority, task.priority) }}
+          </span>
+          {% if task.topic_name %}
+          <span class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400">
+            {{ task.topic_name }}
+          </span>
+          {% endif %}
+        </div>
+        {% if task.description %}
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">{{ task.description }}</p>
+        {% endif %}
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          {% if task.deadline %}
+          <span class="flex items-center gap-0.5">
+            📅 {{ task.deadline[:10] }}
+          </span>
+          {% endif %}
+          {% if task.checklist_total %}
+          <span>☑ {{ task.checklist_total }} пункт{{ '' if task.checklist_total == 1 else 'а' if task.checklist_total in (2,3,4) else 'ов' }}</span>
+          {% endif %}
+          {% if task.creator %}
+          <span>👤 {{ task.creator }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="shrink-0 flex items-center gap-2">
+        <a href="/tasks/{{ task.id }}" class="text-xs text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-indigo-200 transition-colors">
+          Открыть
+        </a>
+        <form method="POST" action="/tasks/{{ task.id }}/self_assign"
+              onsubmit="return confirm('Взять задачу «{{ task.title | e }}» на себя?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"
+                  class="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+            🎯 Взять
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

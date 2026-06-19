@@ -378,6 +378,84 @@ def _chat_available(telegram_id: int) -> bool:
 
 # ─── TEMPLATES ───────────────────────────────────────────────────────────────
 
+# ─── POOL (самоназначение) ────────────────────────────────────────────────────
+
+@router.get("/tasks/pool")
+def tasks_pool(request: Request, topic_id: str = "", q: str = "", msg: str = ""):
+    from web.auth import get_session_user, get_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=302)
+
+    ctx = {
+        "request": request, "user": user,
+        "is_admin": user.get("role") in ("owner", "admin", "super_admin"),
+        "tasks": [], "topics": [],
+        "priority_labels": PRIORITY_LABELS,
+        "csrf_token": get_csrf_token(request),
+        "topic_filter": topic_id, "q": q, "msg": msg,
+        "error": None,
+    }
+    try:
+        db = get_web_db(telegram_id, org_db)
+        ctx["topics"] = db.get_task_topics()
+        tid = int(topic_id) if topic_id and topic_id.isdigit() else None
+        ctx["tasks"] = db.get_unassigned_tasks(topic_id=tid, q=q.strip() or None)
+    except Exception as e:
+        logger.error("tasks_pool: %s", e)
+        ctx["error"] = "Ошибка загрузки пула задач."
+
+    return request.app.state.templates.TemplateResponse(
+        request, "tasks/pool.html", ctx
+    )
+
+
+@router.post("/tasks/{task_id}/self_assign")
+def task_self_assign(request: Request, task_id: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/pool?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    from billing_utils import has_module as _has_module
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url="/tasks?msg=pro_required", status_code=303)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute("SELECT id FROM users WHERE telegram_id=?", (telegram_id,)).fetchone()
+        finally:
+            conn.close()
+        if not my_row:
+            return RedirectResponse(url="/tasks/pool?msg=error", status_code=303)
+        ok = db.self_assign_task(task_id, my_row[0])
+        if ok:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=status_updated", status_code=303)
+        else:
+            return RedirectResponse(url="/tasks/pool?msg=already_taken", status_code=303)
+    except Exception as e:
+        logger.error("task_self_assign: %s", e)
+        return RedirectResponse(url="/tasks/pool?msg=error", status_code=303)
+
+
 @router.get("/tasks/templates")
 def tasks_templates_list(request: Request, msg: str = ""):
     from web.auth import get_session_user, get_csrf_token
