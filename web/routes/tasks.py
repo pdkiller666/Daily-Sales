@@ -1667,6 +1667,7 @@ def task_my_complete(
     request: Request,
     task_id: int,
     csrf_token: str = Form(""),
+    report: str = Form(""),
 ):
     """Сотрудник помечает командную задачу как выполненную со своей стороны."""
     from web.auth import get_session_user, verify_csrf_token
@@ -1703,6 +1704,14 @@ def task_my_complete(
             return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)
 
         db.record_task_user_completion(task_id, my_db_id, 'done')
+
+        # Сохранить текстовый отчёт как комментарий
+        report_text = (report or "").strip()[:1000]
+        if report_text:
+            try:
+                db.add_task_comment(task_id, my_db_id, f"📋 Отчёт: {report_text}")
+            except Exception as _re:
+                logger.warning("task_my_complete save report: %s", _re)
 
         # Авто-переход в «На проверку» когда все участники отметили выполнение
         try:

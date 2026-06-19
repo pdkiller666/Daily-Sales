@@ -161,11 +161,15 @@
       {% if attachments %}
       <div class="space-y-1.5 mb-4">
         {% for att in attachments %}
-        <div class="flex items-center gap-2.5 py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-slate-800 group">
-          <span class="text-base shrink-0">{{ '🖼️' if att.file_type and att.file_type.startswith('image/') else '📄' }}</span>
-          <a href="/tasks/attachment/{{ att.id }}" target="_blank"
-             class="flex-1 min-w-0 text-sm text-indigo-600 dark:text-indigo-400 hover:underline truncate">{{ att.file_name }}</a>
-          <span class="text-xs text-slate-400 shrink-0">{{ fmt_filesize(att.file_size) }}</span>
+        <div class="flex items-start gap-2.5 py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-slate-800 group">
+          <span class="text-base shrink-0 mt-0.5">{{ '🖼️' if att.file_type and att.file_type.startswith('image/') else '📄' }}</span>
+          <div class="flex-1 min-w-0">
+            <a href="/tasks/attachment/{{ att.id }}" target="_blank"
+               class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline truncate block">{{ att.file_name }}</a>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+              {{ att.author_name or '—' }} · {{ att.created_at_fmt }}{% if att.file_size %} · {{ fmt_filesize(att.file_size) }}{% endif %}
+            </p>
+          </div>
           {% if is_admin or att.user_id == my_db_id %}
           <form method="POST" action="/tasks/attachment/{{ att.id }}/delete" class="shrink-0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -286,6 +290,9 @@
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Моё выполнение</p>
       <form method="POST" action="/tasks/{{ task.id }}/my_complete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <textarea name="report" rows="3" maxlength="1000"
+                  placeholder="Краткий отчёт о выполнении (необязательно)…"
+                  class="w-full mb-3 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none"></textarea>
         <button type="submit"
                 class="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">
           ✅ Я выполнил задачу
