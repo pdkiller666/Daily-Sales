@@ -513,15 +513,10 @@ async def _maybe_compress_dm_session(db, user_db_id: int,
 
     Вызывается ПОСЛЕ сохранения ответа AI — основной поток не ждёт.
     Если резюме уже есть или сообщений мало — нет-оп.
-    Засчитывается в дневной лимит владельца орги (owner_tg_id).
+    Не списывает дневной лимит пользователя — это внутренняя системная операция.
     """
     try:
-        from web.ai_utils import ask_llm_with_tools
-        from web.rate_store import check_and_increment_ai
-        # Проверяем лимит перед компрессией — она тоже тратит LLM-вызов
-        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _get_ai_chat_daily_limit()):
-            logger.debug("_maybe_compress_dm_session: лимит исчерпан, пропускаем")
-            return
+        from web.ai_utils import ask_llm
         count = await anyio.to_thread.run_sync(
             lambda: db.count_ai_dm_session_msgs(user_db_id, since_id=last_break_id)
         )
@@ -549,9 +544,10 @@ async def _maybe_compress_dm_session(db, user_db_id: int,
             "Кратко и точно перескажи суть диалога в 3–4 предложениях, "
             "сохраняя ключевые факты, числа и решения. Не добавляй ничего от себя."
         )
-        summary = await ask_llm_with_tools(
+        summary = await ask_llm(
             f"Сожми следующий диалог:\n\n{dialog_text}",
-            system_compress, db, max_rounds=1, max_tokens=300, history=[]
+            system=system_compress,
+            max_tokens=300,
         )
         if summary:
             await anyio.to_thread.run_sync(
@@ -566,15 +562,10 @@ async def _maybe_compress_chat_session(db, topic_id: int,
                                        owner_tg_id: int = 0) -> None:
     """Авто-сжатие AI chat-темы при превышении порога.
 
-    Засчитывается в дневной лимит владельца орги (owner_tg_id).
+    Не списывает дневной лимит пользователя — это внутренняя системная операция.
     """
     try:
-        from web.ai_utils import ask_llm_with_tools
-        from web.rate_store import check_and_increment_ai
-        # Проверяем лимит перед компрессией — она тоже тратит LLM-вызов
-        if owner_tg_id and not check_and_increment_ai(owner_tg_id, _get_ai_chat_daily_limit()):
-            logger.debug("_maybe_compress_chat_session: лимит исчерпан, пропускаем")
-            return
+        from web.ai_utils import ask_llm
         count = await anyio.to_thread.run_sync(
             lambda: db.count_ai_chat_session_msgs(topic_id, since_id=last_break_id)
         )
@@ -601,9 +592,10 @@ async def _maybe_compress_chat_session(db, topic_id: int,
             "Ты — система сжатия контекста. "
             "Кратко перескажи суть командного диалога в 3–4 предложениях."
         )
-        summary = await ask_llm_with_tools(
+        summary = await ask_llm(
             f"Сожми:\n\n{dialog_text}",
-            system_compress, db, max_rounds=1, max_tokens=300, history=[]
+            system=system_compress,
+            max_tokens=300,
         )
         if summary:
             await anyio.to_thread.run_sync(

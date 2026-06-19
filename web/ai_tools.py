@@ -850,12 +850,21 @@ TOOLS: dict[str, dict] = {
 }
 
 
+_TOOLS_DESC_CACHE: str | None = None
+
+
 def get_tools_description() -> str:
-    """Format tool list for inclusion in the system prompt."""
-    lines = ["Доступные инструменты для получения данных организации:"]
-    for name, meta in TOOLS.items():
-        lines.append(f"  [{name}] — {meta['description']}")
-    return "\n".join(lines)
+    """Format tool list for inclusion in the system prompt.
+
+    Result is cached at module level — TOOLS dict never changes at runtime.
+    """
+    global _TOOLS_DESC_CACHE
+    if _TOOLS_DESC_CACHE is None:
+        lines = ["Доступные инструменты для получения данных организации:"]
+        for name, meta in TOOLS.items():
+            lines.append(f"  [{name}] — {meta['description']}")
+        _TOOLS_DESC_CACHE = "\n".join(lines)
+    return _TOOLS_DESC_CACHE
 
 
 def call_tool(name: str, params: dict, db) -> str:

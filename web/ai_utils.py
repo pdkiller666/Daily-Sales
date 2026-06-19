@@ -648,6 +648,16 @@ async def ask_llm_with_tools(
             ),
         })
 
+    # Исчерпали max_rounds, но LLM продолжал вызывать инструменты без финального ответа.
+    # Возвращаем последний tool_result как контекст с просьбой подвести итог.
+    logger.warning("ask_llm_with_tools: max_rounds=%d exhausted — forcing final answer", max_rounds)
+    messages.append({
+        "role": "user",
+        "content": "Дай краткий финальный ответ на основе полученных данных. Не вызывай инструменты.",
+    })
+    fallback = await _ask_with_messages(messages, max_tokens=max_tokens)
+    if fallback:
+        return _TOOL_CALL_RE.sub("", fallback).strip() or fallback
     return None
 
 

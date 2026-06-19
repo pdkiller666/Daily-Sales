@@ -17,30 +17,47 @@ _DB_PATH = "data/rate_limits.db"
 
 _SHOP_BOT_DB = "data/shop_bot.db"
 
+_db_tables_created = False
+
+
+def _ensure_tables() -> None:
+    """Create tables once per process lifetime. No-op on subsequent calls."""
+    global _db_tables_created
+    if _db_tables_created:
+        return
+    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(_DB_PATH, timeout=5, check_same_thread=False)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS rate_hits (
+                key    TEXT NOT NULL,
+                hit_at REAL NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rate_key_time ON rate_hits(key, hit_at)"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_usage_log (
+                tg_id      INTEGER NOT NULL,
+                usage_date TEXT    NOT NULL,
+                count      INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (tg_id, usage_date)
+            )
+        """)
+        conn.commit()
+        _db_tables_created = True
+    finally:
+        conn.close()
+
 
 def _get_conn() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
+    _ensure_tables()
     conn = sqlite3.connect(_DB_PATH, timeout=5, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS rate_hits (
-            key    TEXT NOT NULL,
-            hit_at REAL NOT NULL
-        )
-    """)
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_rate_key_time ON rate_hits(key, hit_at)"
-    )
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ai_usage_log (
-            tg_id      INTEGER NOT NULL,
-            usage_date TEXT    NOT NULL,
-            count      INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (tg_id, usage_date)
-        )
-    """)
-    conn.commit()
     return conn
 
 

@@ -92,7 +92,7 @@ def _get_org_summary(org_db: str) -> dict:
             conn = db.get_connection()
             try:
                 cat_row = conn.execute(
-                    """SELECT p.category, SUM(s.quantity * s.price) as rev
+                    """SELECT p.category, SUM(s.quantity_sold * s.sale_price) as rev
                        FROM sales s JOIN products p ON p.id = s.product_id
                        WHERE s.sale_date >= ? AND s.sale_date <= ?
                        GROUP BY p.category ORDER BY rev DESC LIMIT 1""",
