@@ -1435,6 +1435,40 @@ class Database:
             )
         ''')
 
+        # ── Task watchers (Phase 4.2) ─────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_watchers (
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now')),
+                UNIQUE(task_id, user_id)
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_task_watchers_task ON task_watchers(task_id)'
+        )
+
+        # ── Task time logs (Phase 4.3) ────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_time_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                minutes    INTEGER NOT NULL DEFAULT 0,
+                note       TEXT    DEFAULT '',
+                created_at TEXT    DEFAULT (datetime('now'))
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_task_time_logs_task ON task_time_logs(task_id)'
+        )
+
+        # estimated_hours column on tasks (Phase 4.3)
+        try:
+            cursor.execute('ALTER TABLE tasks ADD COLUMN estimated_hours REAL DEFAULT NULL')
+        except Exception:
+            pass
+
         # ── AI alerts log (per-org, история смарт-алертов и дайджестов) ─────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_alerts_log (
@@ -13496,7 +13530,7 @@ class Database:
                        ua.first_name AS a_fn, ua.last_name AS a_ln, ua.username AS a_un,
                        uc.first_name AS c_fn, uc.last_name AS c_ln, uc.username AS c_un,
                        t.assigned_shop, t.assign_all, t.recurrence,
-                       t.rating, t.rating_comment
+                       t.rating, t.rating_comment, t.estimated_hours
                 FROM tasks t
                 LEFT JOIN task_topics tt ON tt.id = t.topic_id
                 LEFT JOIN users ua ON ua.id = t.assigned_to
@@ -13533,6 +13567,7 @@ class Database:
                 "assigned_shop": row[21], "assign_all": bool(row[22]),
                 "recurrence": row[23] or "none",
                 "rating": row[24], "rating_comment": row[25] or "",
+                "estimated_hours": row[26],
                 "checklist": checklist,
             }
         except Exception as e:
@@ -14283,6 +14318,133 @@ class Database:
             return True
         except Exception as e:
             logger.error("delete_task_template: %s", e)
+            return False
+
+    # ── Phase 4.2: Task watchers ─────────────────────────────────────────────
+
+    def add_task_watcher(self, task_id: int, user_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT OR IGNORE INTO task_watchers (task_id, user_id) VALUES (?, ?)",
+                (task_id, user_id)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error("add_task_watcher: %s", e)
+            return False
+
+    def remove_task_watcher(self, task_id: int, user_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "DELETE FROM task_watchers WHERE task_id=? AND user_id=?",
+                (task_id, user_id)
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error("remove_task_watcher: %s", e)
+            return False
+
+    def is_watching_task(self, task_id: int, user_id: int) -> bool:
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT 1 FROM task_watchers WHERE task_id=? AND user_id=? LIMIT 1",
+                (task_id, user_id)
+            ).fetchone()
+            conn.close()
+            return bool(row)
+        except Exception as e:
+            logger.error("is_watching_task: %s", e)
+            return False
+
+    def get_task_watcher_db_ids(self, task_id: int) -> list[int]:
+        """Возвращает список user_id (org DB) наблюдателей задачи."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT user_id FROM task_watchers WHERE task_id=?", (task_id,)
+            ).fetchall()
+            conn.close()
+            return [r[0] for r in rows]
+        except Exception as e:
+            logger.error("get_task_watcher_db_ids: %s", e)
+            return []
+
+    # ── Phase 4.3: Task time logs ─────────────────────────────────────────────
+
+    def log_task_time(self, task_id: int, user_id: int, minutes: int,
+                      note: str = '') -> bool:
+        """Записать затраченное время на задачу."""
+        try:
+            if minutes <= 0:
+                return False
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO task_time_logs (task_id, user_id, minutes, note) VALUES (?, ?, ?, ?)",
+                (task_id, user_id, int(minutes), (note or '')[:500])
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error("log_task_time: %s", e)
+            return False
+
+    def get_task_time_total(self, task_id: int) -> int:
+        """Суммарное время (в минутах) по задаче."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(minutes), 0) FROM task_time_logs WHERE task_id=?",
+                (task_id,)
+            ).fetchone()
+            conn.close()
+            return int(row[0]) if row else 0
+        except Exception as e:
+            logger.error("get_task_time_total: %s", e)
+            return 0
+
+    def get_task_time_logs(self, task_id: int) -> list:
+        """Лог записей времени по задаче."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                """SELECT tl.id, tl.minutes, tl.note, tl.created_at,
+                          u.first_name, u.last_name
+                   FROM task_time_logs tl
+                   LEFT JOIN users u ON u.id = tl.user_id
+                   WHERE tl.task_id=?
+                   ORDER BY tl.created_at DESC LIMIT 50""",
+                (task_id,)
+            ).fetchall()
+            conn.close()
+            return [
+                {
+                    "id": r[0], "minutes": r[1], "note": r[2] or "",
+                    "created_at": r[3] or "",
+                    "user_name": f"{r[4] or ''} {r[5] or ''}".strip() or "—",
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("get_task_time_logs: %s", e)
+            return []
+
+    def delete_task_time_log(self, log_id: int, user_id: int, is_admin: bool = False) -> bool:
+        try:
+            conn = self.get_connection()
+            if is_admin:
+                conn.execute("DELETE FROM task_time_logs WHERE id=?", (log_id,))
+            else:
+                conn.execute("DELETE FROM task_time_logs WHERE id=? AND user_id=?",
+                             (log_id, user_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error("delete_task_time_log: %s", e)
             return False
 
     def get_tasks_with_deadline_today(self) -> list:

@@ -35,6 +35,10 @@
   'rated_ok':        '✅ Оценка выполнения сохранена.',
   'remind_ok':       '✅ Напоминание установлено.',
   'remind_invalid':  '⚠️ Неверное время напоминания.',
+  'watching':        '👁 Вы подписаны на задачу.',
+  'unwatched':       '👁 Подписка отменена.',
+  'time_logged':     '⏱ Время записано.',
+  'bad_time':        '⚠️ Укажите корректное время.',
 } %}
 {% if msg and msg in msg_map %}
 <div class="mb-4 flex items-start gap-2 p-3 rounded-xl text-sm border
@@ -155,7 +159,7 @@
               {{ 'bg-emerald-500 border-emerald-500' if item.is_done else 'border-slate-300 dark:border-slate-600' }}">
               {% if item.is_done %}<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>{% endif %}
             </span>
-            <span class="{{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
+            <span data-checklist-text class="{{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
           </button>
         </form>
         {% else %}
@@ -164,7 +168,7 @@
             {{ 'bg-emerald-500 border-emerald-500' if item.is_done else 'border-slate-300 dark:border-slate-600' }}">
             {% if item.is_done %}<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>{% endif %}
           </span>
-          <span class="text-sm {{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
+          <span data-checklist-text class="text-sm {{ 'line-through text-slate-400' if item.is_done else 'text-slate-700 dark:text-slate-200' }}">{{ item.text }}</span>
         </div>
         {% endif %}
         {% endfor %}
@@ -244,15 +248,60 @@
       {% endif %}
 
       {% if task.status not in ('done', 'cancelled') or is_admin %}
-      <form method="POST" action="/tasks/{{ task.id }}/comment">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <textarea name="text" rows="3" placeholder="Напишите комментарий или отчёт о выполнении…"
-                  class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none mb-2"></textarea>
-        <button type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
-          Отправить
-        </button>
-      </form>
+      <div x-data="{
+        mentionQ: '', showMention: false, caretPos: 0, commentText: '',
+        users: {{ mention_users | tojson | forceescape }},
+        get filtered() {
+          if (!this.mentionQ) return [];
+          const q = this.mentionQ.toLowerCase();
+          return this.users.filter(u => u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)).slice(0, 6);
+        },
+        onInput(e) {
+          const val = e.target.value;
+          const pos = e.target.selectionStart;
+          const before = val.slice(0, pos);
+          const m = before.match(/@(\w*)$/);
+          if (m) { this.mentionQ = m[1]; this.showMention = true; this.caretPos = pos; }
+          else { this.mentionQ = ''; this.showMention = false; }
+        },
+        pickUser(u, ta) {
+          const val = ta.value;
+          const pos = ta.selectionStart;
+          const before = val.slice(0, pos);
+          const after = val.slice(pos);
+          const newBefore = before.replace(/@\w*$/, '@' + u.username + ' ');
+          ta.value = newBefore + after;
+          ta.focus();
+          this.showMention = false; this.mentionQ = '';
+        }
+      }" class="relative">
+        <form method="POST" action="/tasks/{{ task.id }}/comment">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <textarea name="text" rows="3"
+                    placeholder="Напишите комментарий… используйте @username для упоминания"
+                    @input="onInput($event)"
+                    class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none mb-2"></textarea>
+          <!-- @mention dropdown -->
+          <div x-show="showMention && filtered.length > 0"
+               x-cloak
+               class="absolute z-30 left-0 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden"
+               style="bottom: calc(100% - 2.5rem)">
+            <template x-for="u in filtered" :key="u.db_id">
+              <button type="button"
+                      @click="pickUser(u, $el.closest('[x-data]').querySelector('textarea'))"
+                      class="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-slate-700 flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center shrink-0" x-text="u.name[0]||'?'"></span>
+                <span x-text="u.name"></span>
+                <span class="text-xs text-slate-400 ml-auto" x-text="u.username ? '@'+u.username : ''"></span>
+              </button>
+            </template>
+          </div>
+          <button type="submit"
+                  class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+            Отправить
+          </button>
+        </form>
+      </div>
       {% endif %}
     </div>
 
@@ -329,6 +378,33 @@
     </div>
     {% endif %}
     {% endif %}
+
+    <!-- Phase 4.2: Watch / Unwatch -->
+    <div class="card p-4 dark:bg-slate-900">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">👁 Наблюдатели</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ watcher_count }} подписчик{{ 'а' if watcher_count in (2,3,4) else 'ов' if watcher_count > 4 else '' }}</p>
+        </div>
+        {% if is_watching %}
+        <form method="POST" action="/tasks/{{ task.id }}/unwatch">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"
+                  class="text-xs px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors">
+            ✅ Слежу
+          </button>
+        </form>
+        {% else %}
+        <form method="POST" action="/tasks/{{ task.id }}/watch">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit"
+                  class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            👁 Следить
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
 
     <!-- Reminder (Pro) -->
     {% if tasks_pro and task and task.status not in ('done', 'cancelled') %}
@@ -582,6 +658,176 @@
           </div>
         </div>
         {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Phase 4.3: Учёт времени (tasks_pro) -->
+    {% if tasks_pro %}
+    <div class="card p-4 dark:bg-slate-900" x-data="{showLog: false}">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">⏱ Учёт времени</p>
+        {% set _th = (time_total_minutes // 60) %}
+        {% set _tm = (time_total_minutes % 60) %}
+        <span class="text-xs font-medium text-slate-700 dark:text-slate-200">
+          {% if time_total_minutes > 0 %}
+            {{ _th }}ч {{ _tm }}мин
+          {% else %}—{% endif %}
+        </span>
+      </div>
+
+      {% if task.get('estimated_hours') %}
+      {% set _est_m = (task.estimated_hours * 60)|int %}
+      {% set _spent = time_total_minutes %}
+      {% set _pct_t = ((_spent / _est_m * 100)|int) if _est_m > 0 else 0 %}
+      <div class="mb-3">
+        <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+          <span>Факт</span>
+          <span>Оценка: {{ task.estimated_hours|int }}ч {% if (task.estimated_hours % 1) >= 0.5 %}30м{% endif %}</span>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-1.5">
+          <div class="h-1.5 rounded-full transition-all {{ 'bg-red-500' if _pct_t > 100 else 'bg-indigo-500' }}"
+               style="width: {{ [_pct_t, 100]|min }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Форма добавления времени -->
+      <details class="mb-2">
+        <summary class="text-xs text-indigo-600 dark:text-indigo-400 cursor-pointer hover:underline select-none">+ Записать время</summary>
+        <form method="POST" action="/tasks/{{ task.id }}/log_time" class="mt-2 space-y-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="flex items-center gap-2">
+            <div class="flex-1">
+              <label class="text-[11px] text-slate-400 block mb-0.5">Часы</label>
+              <input type="number" name="hours" min="0" max="23" value="0" step="1"
+                     class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div class="flex-1">
+              <label class="text-[11px] text-slate-400 block mb-0.5">Минуты</label>
+              <input type="number" name="minutes" min="0" max="59" value="30" step="5"
+                     class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+          </div>
+          <input type="text" name="note" maxlength="200" placeholder="Что делали (необязательно)…"
+                 class="w-full text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <button type="submit"
+                  class="w-full px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors">
+            Сохранить
+          </button>
+        </form>
+      </details>
+
+      {% if time_logs %}
+      <button @click="showLog = !showLog" type="button"
+              class="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer select-none">
+        <span x-text="showLog ? '▲ Скрыть лог' : '▼ Показать лог (' + {{ time_logs|length }} + ')'"></span>
+      </button>
+      <div x-show="showLog" x-cloak class="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
+        {% for tl in time_logs %}
+        <div class="flex items-start gap-2 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-xs font-medium text-slate-700 dark:text-slate-200">
+                {{ (tl.minutes // 60) }}ч {{ (tl.minutes % 60) }}м
+              </span>
+              <span class="text-[11px] text-slate-400 shrink-0">{{ tl.created_at[:10] if tl.created_at else '' }}</span>
+            </div>
+            <div class="flex items-center gap-1 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <span>{{ tl.user_name }}</span>
+              {% if tl.note %}<span>· {{ tl.note }}</span>{% endif %}
+            </div>
+          </div>
+          {% if is_admin %}
+          <form method="POST" action="/tasks/{{ task.id }}/log_time/{{ tl.id }}/delete" class="shrink-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="text-slate-300 hover:text-red-500 text-xs leading-none mt-0.5" title="Удалить">×</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Phase 4.4: AI-шаблон из истории задачи (tasks_ai, admin only, done) -->
+    {% if tasks_ai and is_admin and task.status == 'done' %}
+    <div class="card p-4 dark:bg-slate-900"
+         x-data="{
+           aiTplLoading: false, aiTplResult: null, aiTplErr: '',
+           saved: false,
+           generate() {
+             this.aiTplLoading = true; this.aiTplErr = ''; this.aiTplResult = null;
+             const checklist = [];
+             document.querySelectorAll('[data-checklist-text]').forEach(el => checklist.push(el.textContent.trim()));
+             fetch('/api/ai/task-suggest-template', {
+               method: 'POST',
+               headers: {'Content-Type':'application/json','X-CSRF-Token':'{{ csrf_token }}'},
+               body: JSON.stringify({
+                 title: '{{ task.title | e }}',
+                 description: '{{ (task.description or '') | truncate(500, true, '') | e }}',
+                 checklist: checklist,
+                 comments: '{{ comments_text | e }}'
+               })
+             })
+             .then(r => r.json())
+             .then(d => {
+               this.aiTplLoading = false;
+               if (d.ok) this.aiTplResult = d.template;
+               else this.aiTplErr = d.error || 'Ошибка AI.';
+             })
+             .catch(() => { this.aiTplLoading = false; this.aiTplErr = 'Ошибка сети.'; });
+           },
+           saveTemplate() {
+             if (!this.aiTplResult) return;
+             const form = document.createElement('form');
+             form.method = 'POST';
+             form.action = '/tasks/templates/create';
+             const fields = {
+               csrf_token: '{{ csrf_token }}',
+               title: this.aiTplResult.title || '{{ task.title | e }}',
+               description: this.aiTplResult.description || '',
+               priority: this.aiTplResult.priority || 'normal',
+               checklist_json: JSON.stringify(this.aiTplResult.checklist || [])
+             };
+             Object.entries(fields).forEach(([k,v]) => {
+               const inp = document.createElement('input');
+               inp.type = 'hidden'; inp.name = k; inp.value = v;
+               form.appendChild(inp);
+             });
+             document.body.appendChild(form);
+             form.submit();
+           }
+         }">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">✨ AI-шаблон из задачи</p>
+        <button @click="generate()" :disabled="aiTplLoading"
+                class="text-xs px-2.5 py-1 rounded-lg border border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950 transition-colors disabled:opacity-50">
+          <span x-show="!aiTplLoading">✨ Создать</span>
+          <span x-show="aiTplLoading">⏳…</span>
+        </button>
+      </div>
+      <p x-show="!aiTplResult && !aiTplErr" class="text-xs text-slate-400">
+        AI создаст переиспользуемый шаблон на основе этой задачи.
+      </p>
+      <p x-show="aiTplErr" x-text="aiTplErr" class="text-xs text-amber-600 dark:text-amber-400"></p>
+      <div x-show="aiTplResult" class="space-y-2">
+        <div class="p-3 rounded-lg bg-violet-50 dark:bg-violet-950 border border-violet-100 dark:border-violet-900 space-y-1.5">
+          <p class="text-sm font-semibold text-slate-800 dark:text-slate-100" x-text="aiTplResult && aiTplResult.title"></p>
+          <p class="text-xs text-slate-500 dark:text-slate-400" x-text="aiTplResult && aiTplResult.description"></p>
+          <template x-if="aiTplResult && aiTplResult.checklist && aiTplResult.checklist.length">
+            <ul class="space-y-0.5">
+              <template x-for="(item, i) in (aiTplResult ? aiTplResult.checklist : [])" :key="i">
+                <li class="text-xs text-slate-600 dark:text-slate-300 flex items-start gap-1"><span>☐</span><span x-text="item"></span></li>
+              </template>
+            </ul>
+          </template>
+        </div>
+        <button @click="saveTemplate()"
+                class="w-full px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg transition-colors">
+          💾 Сохранить как шаблон
+        </button>
       </div>
     </div>
     {% endif %}

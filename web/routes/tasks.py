@@ -809,6 +809,7 @@ async def tasks_new_post(
     create_chat_topic: str = Form(""),
     checklist_items: str = Form(""),
     recipients_json: str = Form(""),
+    estimated_hours: str = Form(""),
     files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -946,6 +947,18 @@ async def tasks_new_post(
         if task_id:
             try:
                 db.add_task_history(task_id, my_db_id, 'created', None, title)
+            except Exception:
+                pass
+            # Phase 4.3: estimated_hours
+            try:
+                _eh = float(estimated_hours.strip().replace(',', '.')) if estimated_hours.strip() else None
+                if _eh and _eh > 0:
+                    _c2 = db.get_connection()
+                    try:
+                        _c2.execute("UPDATE tasks SET estimated_hours=? WHERE id=?", (_eh, task_id))
+                        _c2.commit()
+                    finally:
+                        _c2.close()
             except Exception:
                 pass
 
@@ -1666,6 +1679,9 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
         "my_reminders": [],
         "tasks_pro": tasks_pro, "tasks_ai": tasks_ai,
         "comments_text": "",
+        "is_watching": False, "watcher_count": 0,
+        "time_total_minutes": 0, "time_logs": [],
+        "mention_users": [],
     }
 
     try:
@@ -1773,6 +1789,52 @@ def task_detail(request: Request, task_id: int, msg: str = ""):
                 ctx["my_reminders"] = db.get_task_reminders_for_user(task_id, my_db_id)
             except Exception:
                 ctx["my_reminders"] = []
+
+        # Phase 4.2: Task watchers
+        try:
+            ctx["is_watching"] = db.is_watching_task(task_id, my_db_id) if my_db_id else False
+            watcher_ids = db.get_task_watcher_db_ids(task_id)
+            ctx["watcher_count"] = len(watcher_ids)
+        except Exception:
+            ctx["is_watching"] = False
+            ctx["watcher_count"] = 0
+
+        # Phase 4.3: Time tracking (tasks_pro gate)
+        if tasks_pro:
+            try:
+                ctx["time_total_minutes"] = db.get_task_time_total(task_id)
+                ctx["time_logs"] = db.get_task_time_logs(task_id)
+            except Exception:
+                ctx["time_total_minutes"] = 0
+                ctx["time_logs"] = []
+        else:
+            ctx["time_total_minutes"] = 0
+            ctx["time_logs"] = []
+
+        # Build org user list for @mention autocomplete (4.1)
+        try:
+            _mention_conn = db.get_connection()
+            try:
+                _mention_rows = _mention_conn.execute(
+                    "SELECT id, first_name, last_name, username FROM users WHERE telegram_id>0 LIMIT 200"
+                ).fetchall()
+            finally:
+                _mention_conn.close()
+            ctx["mention_users"] = [
+                {"db_id": r[0], "name": f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or str(r[0]),
+                 "username": r[3] or ""}
+                for r in _mention_rows
+            ]
+        except Exception:
+            ctx["mention_users"] = []
+
+        # Build comments_text for AI context (existing)
+        try:
+            ctx["comments_text"] = " | ".join(
+                c.get("text", "") for c in ctx["comments"] if c.get("text")
+            )[:2000]
+        except Exception:
+            ctx["comments_text"] = ""
 
     except Exception as e:
         logger.error("task_detail: %s", e)
@@ -2189,6 +2251,16 @@ def task_add_comment(
             _c_notify.add(_c_creator)
         if _c_assignee and _c_assignee != my_db_id:
             _c_notify.add(_c_assignee)
+
+        # Phase 4.2: также уведомить наблюдателей (watchers)
+        try:
+            _watcher_ids = db.get_task_watcher_db_ids(task_id)
+            for _wid in _watcher_ids:
+                if _wid != my_db_id:
+                    _c_notify.add(_wid)
+        except Exception:
+            pass
+
         for _nid in _c_notify:
             _ntg = _get_user_tg_id(db, _nid)
             if _ntg:
@@ -2209,6 +2281,48 @@ def task_add_comment(
                                   f"Задача: {task['title']}", f"/tasks/{task_id}")
                 except Exception:
                     pass
+
+        # Phase 4.1: @mentions — найти @username в тексте и уведомить
+        import re as _re
+        _mentions = _re.findall(r'@(\w+)', text)
+        if _mentions:
+            try:
+                _conn_m = db.get_connection()
+                try:
+                    _m_rows = _conn_m.execute(
+                        "SELECT id, username, telegram_id FROM users WHERE telegram_id>0"
+                    ).fetchall()
+                finally:
+                    _conn_m.close()
+                _username_map = {
+                    (r[1] or "").lower(): (r[0], r[2]) for r in _m_rows if r[1]
+                }
+                for _mention in _mentions:
+                    _ml = _mention.lower()
+                    if _ml in _username_map:
+                        _m_db_id, _m_tg = _username_map[_ml]
+                        if _m_db_id != my_db_id and _m_tg:
+                            try:
+                                db.add_notification_to_history(
+                                    _m_db_id, "task_status",
+                                    f"🔔 Вас упомянули в задаче «{task['title']}»"
+                                )
+                            except Exception:
+                                pass
+                            _send_tg_task_notify(
+                                _m_tg,
+                                f"🔔 <b>Вас упомянули</b> в комментарии к задаче\n\n"
+                                f"«{_html.escape(task['title'])}»\n"
+                                f"<i>{_html.escape(text[:200])}</i>"
+                            )
+                            try:
+                                from web.push_utils import send_web_push
+                                send_web_push(_m_tg, "🔔 Вас упомянули",
+                                              f"Задача: {task['title']}", f"/tasks/{task_id}")
+                            except Exception:
+                                pass
+            except Exception as _me:
+                logger.error("task_comment mentions: %s", _me)
 
     except Exception as e:
         logger.error("task_add_comment: %s", e)
@@ -2451,6 +2565,10 @@ def task_edit_form(request: Request, task_id: int):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db")
 
+    from billing_utils import has_module as _has_module, has_extension as _has_ext
+    _tpro = _has_module(telegram_id, 'tasks_pro')
+    _tai  = _tpro and _has_ext(telegram_id, 'tasks_ai')
+
     ctx = {
         "request": request, "user": user, "is_admin": True,
         "topics": [], "staff_list": [], "shops_list": [],
@@ -2459,6 +2577,7 @@ def task_edit_form(request: Request, task_id: int):
         "edit_task": None, "error": None,
         "chat_available": _chat_available(telegram_id),
         "search_items_json": "[]", "init_selected_json": "[]", "init_assign_all": "false",
+        "tasks_pro": _tpro, "tasks_ai": _tai,
     }
     try:
         db = get_web_db(telegram_id, org_db)
@@ -2496,6 +2615,7 @@ def task_edit_post(
     deadline: str = Form(""),
     recurrence: str = Form("none"),
     recipients_json: str = Form(""),
+    estimated_hours: str = Form(""),
 ):
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
@@ -2540,6 +2660,18 @@ def task_edit_post(
                        _assigned_to, None, priority, _deadline,
                        assigned_shop=_assigned_shop_val, assign_all=_assign_all,
                        recurrence=recurrence if recurrence not in ('none', '') else None)
+        # Phase 4.3: estimated_hours
+        try:
+            _eh_e = float(estimated_hours.strip().replace(',', '.')) if estimated_hours.strip() else None
+            _c_eh = db.get_connection()
+            try:
+                _c_eh.execute("UPDATE tasks SET estimated_hours=? WHERE id=?",
+                               (_eh_e if _eh_e and _eh_e > 0 else None, task_id))
+                _c_eh.commit()
+            finally:
+                _c_eh.close()
+        except Exception:
+            pass
         try:
             conn_ed = db.get_connection()
             ed_row = conn_ed.execute("SELECT id FROM users WHERE telegram_id = ?",
@@ -2764,3 +2896,163 @@ def task_my_complete(
         return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
 
     return RedirectResponse(url=f"/tasks/{task_id}?msg=done", status_code=303)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Phase 4.2: Наблюдатели задачи (watch / unwatch) ─────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/tasks/{task_id}/watch")
+def task_watch(request: Request, task_id: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        if my_db_id:
+            db.add_task_watcher(task_id, my_db_id)
+    except Exception as e:
+        logger.error("task_watch: %s", e)
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=watching", status_code=303)
+
+
+@router.post("/tasks/{task_id}/unwatch")
+def task_unwatch(request: Request, task_id: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        if my_db_id:
+            db.remove_task_watcher(task_id, my_db_id)
+    except Exception as e:
+        logger.error("task_unwatch: %s", e)
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=unwatched", status_code=303)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Phase 4.3: Учёт времени (log time / delete time log) ─────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/tasks/{task_id}/log_time")
+def task_log_time(
+    request: Request,
+    task_id: int,
+    csrf_token: str = Form(""),
+    hours: str = Form(""),
+    minutes: str = Form(""),
+    note: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from billing_utils import has_module as _has_module
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    if not _has_module(telegram_id, 'tasks_pro'):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=pro_required", status_code=303)
+
+    try:
+        h = int(hours or 0)
+        m = int(minutes or 0)
+        total_minutes = h * 60 + m
+        if total_minutes <= 0:
+            return RedirectResponse(url=f"/tasks/{task_id}?msg=bad_time", status_code=303)
+
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        db.log_task_time(task_id, my_db_id, total_minutes, note.strip()[:500])
+
+    except Exception as e:
+        logger.error("task_log_time: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+    return RedirectResponse(url=f"/tasks/{task_id}?msg=time_logged", status_code=303)
+
+
+@router.post("/tasks/{task_id}/log_time/{log_id}/delete")
+def task_delete_time_log(
+    request: Request,
+    task_id: int,
+    log_id: int,
+    csrf_token: str = Form(""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+    is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id=?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+        db.delete_task_time_log(log_id, my_db_id, is_admin)
+    except Exception as e:
+        logger.error("task_delete_time_log: %s", e)
+
+    return RedirectResponse(url=f"/tasks/{task_id}", status_code=303)

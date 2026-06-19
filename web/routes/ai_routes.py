@@ -1473,3 +1473,90 @@ async def ai_task_review(request: Request):
     except Exception as exc:
         logger.error("ai_task_review error: %s", exc)
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
+
+
+# ─── AI-шаблон из задачи (Phase 4.4) ────────────────────────────────────────
+
+@router.post("/api/ai/task-suggest-template")
+async def ai_task_suggest_template(request: Request):
+    """
+    Генерирует оптимизированный шаблон на основе выполненной задачи.
+    Gate: tasks_ai (tasks_pro + tasks_ai extension).
+    """
+    from web.auth import get_session_user
+    from web.auth import _api_csrf_ok
+    from billing_utils import has_module as _hm, has_extension as _he
+    from web.ai_utils import ask_llm
+    from web.rate_store import check_and_increment_ai
+
+    if not _api_csrf_ok(request):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    if not _hm(telegram_id, 'tasks_pro') or not _he(telegram_id, 'tasks_ai'):
+        return JSONResponse({"ok": False, "error": "Требуется tasks_ai"}, status_code=403)
+
+    if not check_and_increment_ai(telegram_id):
+        return JSONResponse({"ok": False, "error": "Лимит AI-запросов исчерпан"}, status_code=429)
+
+    try:
+        body = await request.json()
+        title = (body.get("title") or "").strip()[:300]
+        description = (body.get("description") or "").strip()[:1000]
+        checklist = body.get("checklist") or []
+        comments = (body.get("comments") or "").strip()[:800]
+        history = (body.get("history") or "").strip()[:500]
+
+        if not title:
+            return JSONResponse({"ok": False, "error": "Нет данных задачи."})
+
+        context = f"Завершённая задача: «{title}»"
+        if description:
+            context += f"\nОписание: {description}"
+        if checklist:
+            cl_text = "; ".join(str(c) for c in checklist[:15])
+            context += f"\nЧеклист: {cl_text}"
+        if comments:
+            context += f"\nКомментарии: {comments}"
+        if history:
+            context += f"\nИстория: {history}"
+
+        prompt = (
+            f"{context}\n\n"
+            "На основе этой задачи создай шаблон для повторного использования. "
+            "Ответь ТОЛЬКО в формате JSON (без markdown, без кода, только объект):\n"
+            '{"title": "название шаблона", "description": "описание", '
+            '"checklist": ["пункт 1", "пункт 2", "..."], "priority": "normal"}\n'
+            "priority: low / normal / high / urgent. Максимум 10 пунктов чеклиста. "
+            "Сделай описание и чеклист универсальными для повторного использования."
+        )
+        system = (
+            "Ты — помощник по управлению задачами в розничном магазине. "
+            "Создавай практичные, переиспользуемые шаблоны. "
+            "Отвечай строго JSON-объектом, без markdown, по-русски."
+        )
+        result = await ask_llm(prompt, system=system, max_tokens=500, temperature=0.3,
+                               feature="task_suggest_template")
+        if not result:
+            return JSONResponse({"ok": False, "error": "AI не ответил. Попробуйте ещё раз."})
+
+        import json as _json
+        result = result.strip()
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        try:
+            parsed = _json.loads(result)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "AI вернул некорректный ответ."})
+
+        return JSONResponse({"ok": True, "template": parsed})
+
+    except Exception as exc:
+        logger.error("ai_task_suggest_template error: %s", exc)
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка"}, status_code=500)
