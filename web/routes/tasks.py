@@ -1614,6 +1614,62 @@ def task_toggle_checklist(
 
 # ─── EDIT ────────────────────────────────────────────────────────────────────
 
+@router.post("/tasks/{task_id}/duplicate")
+def task_duplicate(request: Request, task_id: int, csrf_token: str = Form("")):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if user.get("role") not in ("owner", "admin", "super_admin"):
+        return RedirectResponse(url=f"/tasks/{task_id}", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=csrf_error", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db")
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        task = db.get_task(task_id)
+        if not task:
+            return RedirectResponse(url="/tasks?msg=not_found", status_code=303)
+
+        conn = db.get_connection()
+        try:
+            my_row = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        my_db_id = my_row[0] if my_row else 0
+
+        cl_items = [i.get('text', '') for i in (task.get('checklist') or []) if i.get('text', '').strip()]
+        new_title = f"[Копия] {task['title']}"
+        new_id = db.create_task(
+            title=new_title,
+            description=task.get('description', ''),
+            topic_id=task.get('topic_id'),
+            created_by=my_db_id,
+            assigned_to=task.get('assigned_to'),
+            assigned_shop=task.get('assigned_shop'),
+            assign_all=task.get('assign_all', 0),
+            priority=task.get('priority', 'normal'),
+            deadline=None,
+            checklist=cl_items,
+        )
+        if new_id:
+            try:
+                db.add_task_history(new_id, my_db_id, 'created', None, f"{new_title} (скопирована из #{task_id})")
+            except Exception:
+                pass
+        return RedirectResponse(url=f"/tasks/{new_id}/edit", status_code=303)
+    except Exception as e:
+        logger.error("task_duplicate: %s", e)
+        return RedirectResponse(url=f"/tasks/{task_id}?msg=error", status_code=303)
+
+
 @router.get("/tasks/{task_id}/edit")
 def task_edit_form(request: Request, task_id: int):
     from web.auth import get_session_user, get_csrf_token

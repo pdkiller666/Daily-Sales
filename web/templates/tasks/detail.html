@@ -59,6 +59,13 @@
              class="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             ✏️ Изменить
           </a>
+          <form method="POST" action="/tasks/{{ task.id }}/duplicate">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" title="Создать похожую задачу"
+                    class="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              📋 Копия
+            </button>
+          </form>
           <form method="POST" action="/tasks/{{ task.id }}/delete"
                 onsubmit="return confirm('Удалить задачу? Это действие нельзя отменить.')">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
