@@ -1172,6 +1172,114 @@ async def main():
         misfire_grace_time=60,
     )
 
+    # Уведомление о начале смены — каждую минуту, старт на секунде 42
+    async def shift_start_notifier():
+        """Отправляет Telegram + Web Push сотруднику ровно в момент начала его смены.
+        Запускается каждую минуту; деdup через notification_history (тип shift_start).
+        """
+        try:
+            from datetime import datetime
+            import pytz
+            from zoneinfo import ZoneInfo
+
+            now_utc = datetime.now(pytz.UTC)
+            today_utc = now_utc.strftime('%Y-%m-%d')
+
+            db_paths = _get_scheduler_db_paths()
+            for path in db_paths:
+                await asyncio.sleep(0)
+                # shop_bot.db не содержит расписаний смен — пропускаем
+                if path == 'data/shop_bot.db':
+                    continue
+                if not os.path.exists(path):
+                    continue
+                current_db = Database(path)
+                try:
+                    # Собираем все уникальные часовые пояса пользователей в этой орг
+                    conn = await asyncio.to_thread(current_db.get_connection)
+                    tz_rows = conn.execute(
+                        "SELECT DISTINCT timezone FROM users WHERE timezone IS NOT NULL AND timezone != ''"
+                    ).fetchall() or []
+                    conn.close()
+                    if not tz_rows:
+                        continue
+
+                    # Для каждого уникального часового пояса — вычисляем локальное время
+                    processed_uids: set = set()
+                    for (tz_str,) in tz_rows:
+                        try:
+                            local_now = now_utc.astimezone(ZoneInfo(tz_str))
+                            local_time = local_now.strftime('%H:%M')
+                            local_date = local_now.strftime('%Y-%m-%d')
+                        except Exception:
+                            continue
+
+                        shifts = await asyncio.to_thread(
+                            current_db.get_shifts_starting_at, local_time, local_date
+                        )
+                        for user_id, telegram_id, start_time, end_time in shifts:
+                            if not telegram_id or user_id in processed_uids:
+                                continue
+                            # Проверяем, не совпадает ли timezone пользователя с tz_str
+                            user_tz = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
+                            if user_tz != tz_str:
+                                continue  # этот пользователь будет обработан в его собственном tz-цикле
+
+                            processed_uids.add(user_id)
+
+                            # Dedup: проверяем, не было ли уже отправлено сегодня
+                            try:
+                                _conn = await asyncio.to_thread(current_db.get_connection)
+                                _already = _conn.execute(
+                                    """SELECT 1 FROM notification_history
+                                       WHERE user_id = ? AND notification_type = 'shift_start'
+                                         AND created_at >= ?""",
+                                    (user_id, local_date + ' 00:00:00')
+                                ).fetchone()
+                                _conn.close()
+                                if _already:
+                                    continue
+                            except Exception:
+                                pass
+
+                            # Формируем текст уведомления
+                            if end_time:
+                                text = f"🕐 <b>Твоя смена сегодня</b>\n{start_time} → {end_time}"
+                            else:
+                                text = f"🕐 <b>Твоя смена сегодня</b>\nНачало: {start_time}"
+
+                            try:
+                                await bot.send_message(
+                                    int(telegram_id), text,
+                                    parse_mode="HTML",
+                                    reply_markup=add_read_btn(),
+                                )
+                                await asyncio.sleep(0.05)
+                                await asyncio.to_thread(
+                                    current_db.add_notification_to_history,
+                                    user_id, 'shift_start', text
+                                )
+                                try:
+                                    from web.push_utils import apush
+                                    await apush(int(telegram_id), "🕐 Начало смены", re.sub(r'<[^>]+>', '', text).strip(), "/schedule")
+                                except Exception:
+                                    pass
+                            except Exception as _send_err:
+                                logging.warning(f"shift_start_notifier: skip {telegram_id}: {_send_err}")
+                except Exception as _db_err:
+                    logging.error(f"shift_start_notifier db={path}: {_db_err}")
+        except Exception as _e:
+            logging.error(f"shift_start_notifier: {_e}")
+
+    scheduler.add_job(
+        shift_start_notifier,
+        CronTrigger(minute='*', second=42),
+        id='shift_start_notifier',
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=60,
+    )
+
     # Upsell при истечении пробного периода — каждый час в 05 минут
     scheduler.add_job(
         send_trial_expired_upsell,

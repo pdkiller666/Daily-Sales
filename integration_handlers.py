@@ -1612,8 +1612,19 @@ async def gs_motiv_sheet_input(message: Message, state: FSMContext):
 @integration_router.callback_query(F.data.startswith("gs_mtv_"))
 async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
     raw = callback.data[len("gs_mtv_"):]
-    await callback.answer()
     msg = callback.message
+
+    # ── bdone validation — must answer BEFORE generic answer() ─
+    if raw == "bdone":
+        data = await state.get_data()
+        if not data.get('gs_mtv_bonus_map'):
+            await callback.answer("⚠️ Отметь хотя бы одну колонку бонусов", show_alert=True)
+            return
+        await callback.answer()
+        await _mtv_show_rcol(msg, state)
+        return
+
+    await callback.answer()
 
     # ── quick re-sync from saved config ───────────────────────
     if raw.startswith("resync_"):
@@ -1702,14 +1713,6 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
         await state.update_data(gs_mtv_bonus_map=bmap)
         await _mtv_show_bcol(msg, state)
         return
-    if raw == "bdone":
-        data = await state.get_data()
-        if not data.get('gs_mtv_bonus_map'):
-            await callback.answer("⚠️ Отметь хотя бы одну колонку бонусов", show_alert=True)
-            return
-        await _mtv_show_rcol(msg, state)
-        return
-
     # ── RRP-column picker (step 4) ────────────────────────────
     if raw.startswith("rcolpg_"):
         await _mtv_show_rcol(msg, state, page=int(raw[len("rcolpg_"):]))

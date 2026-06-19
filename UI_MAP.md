@@ -2,11 +2,49 @@
 
 > Справочник для агентов. Описывает полную карту интерфейса по каждому типу пользователя,
 > все callback_data, состояния FSM и разветвления логики.
-> Обновлён: 2026-06-16
+> Обновлён: 2026-06-19
 
 ---
 
 ## История изменений интерфейса
+
+### v11 — 2026-06-19: Авто-фильтры дашборда + AI-биллинг `/admin/ai-limits`
+
+**Авто-фильтры дашборда (`web/routes/dashboard.py`):**
+- `ctx["today_iso"]` — текущая дата в формате `YYYY-MM-DD` (для формирования ссылок)
+- `ctx["user_shop"]` — первый магазин из `get_user_org_scope()` для пользователей со `scope_type=shop`; пустая строка для owner/admin/других
+- 4 карточки дашборда теперь передают авто-фильтры при переходе (только для сотрудника с `scope_type=shop`):
+  - **«Продажи сегодня»** → `/sales?date={today_iso}&shop={user_shop}`
+  - **«Выручка сегодня»** → `/reports?period=today&shop={user_shop}`
+  - **«Выручка за месяц»** → `/reports?period=month&shop={user_shop}`
+  - **«Все →»** (последние продажи) → `/sales?date={today_iso}&shop={user_shop}`
+- Для owner/admin и пользователей без фиксированного магазина: ссылки без shop-параметра (поведение прежнее)
+
+**AI-биллинг суперадмина (`web/routes/admin.py`, `/admin/ai-limits`):**
+- **`GET /admin/ai-limits`** — страница управления лимитами AI: глобальный on/off, глобальный дневной лимит запросов, порог аномалии (%), карточка кастомных лимитов по tg_id, **30-дневный Chart.js-график расходов** по провайдерам (DeepSeek/Gemini/OpenRouter)
+- **`POST /admin/ai-limits/save`** — сохранить глобальный лимит + toggle
+- **`POST /admin/ai-limits/toggle`** — переключить AI on/off
+- **`POST /admin/ai-limits/save-anomaly`** — сохранить порог аномалии
+- **`POST /admin/ai-limits/set-custom`** — задать кастомный лимит для конкретного Telegram ID
+- **`POST /admin/ai-limits/clear-custom`** — сбросить кастомный лимит до дефолтного
+- Реал-тайм баннер аномалий на странице если сегодняшние запросы > порога (%)
+- Карточка в `/admin` hub linking `→ /admin/ai-limits`
+
+**Новые DB-таблицы в `data/rate_limits.db` (`web/rate_store.py`):**
+- `ai_cost_log` — `date, provider, prompt_tokens, completion_tokens, cost_usd`; upsert по `date+provider`
+- `ai_org_usage_log` — `org_key, usage_date, count`; per-org дневной счётчик (изолирован от других орг владельца)
+
+**Новые функции `web/rate_store.py`:**
+- `persist_token_cost(date, provider, prompt, completion, cost_usd)` — накапливает стоимость в `ai_cost_log` (upsert)
+- `check_and_increment_ai_for_org(org_db, limit)` → `bool` — per-org счётчик (не разделяет пул с другими орг)
+- `get_ai_total_today()` → `int` — суммарных запросов AI сегодня
+- `get_custom_ai_limit(tg_id)` → `int|None` — кастомный лимит для пользователя
+- `set_custom_ai_limit(tg_id, limit)` / `clear_custom_ai_limit(tg_id)` — CRUD кастомных лимитов
+
+**APScheduler: 13-я задача:**
+- `prune_ai_cost_log_job` — ежедневно 03:35 UTC, хранение 90 дней; очищает `ai_cost_log` из `rate_limits.db`
+
+---
 
 ### v10 — 2026-06-16: AI-сессии — явный сброс, авто-сжатие, AI thinking indicator
 

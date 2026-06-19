@@ -87,6 +87,7 @@ async def notifications_menu(callback: CallbackQuery, state: FSMContext):
     text += f"• Ежедневные отчеты: {'✅' if settings['daily_reports'] else '❌'}\n"
     text += f"• Уведомления о продажах: {'✅' if settings['sales_alerts'] else '❌'}\n"
     text += f"• Продажи коллег по смене: {'✅' if settings.get('shift_sale_alerts', True) else '❌'}\n"
+    text += f"• Начало смены: {'✅' if settings.get('shift_reminders', True) else '❌'}\n"
     text += f"• Платежные уведомления: {'✅' if settings['payment_alerts'] else '❌'}\n"
     text += f"• Админ уведомления: {'✅' if settings['admin_notifications'] else '❌'}\n"
     text += f"• Порог остатков: {settings['stock_threshold']} шт.\n"
@@ -865,6 +866,7 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
         [InlineKeyboardButton(text=f"📊 Ежедневные отчеты {'✅' if settings['daily_reports'] else '❌'}", callback_data="toggle_daily_reports")],
         [InlineKeyboardButton(text=f"💰 Уведомления о продажах {'✅' if settings['sales_alerts'] else '❌'}", callback_data="toggle_sales_alerts")],
         [InlineKeyboardButton(text=f"👥 Продажи коллег по смене {'✅' if settings.get('shift_sale_alerts', True) else '❌'}", callback_data="toggle_shift_sale")],
+        [InlineKeyboardButton(text=f"📅 Начало смены {'✅' if settings.get('shift_reminders', True) else '❌'}", callback_data="toggle_shift_reminders")],
     ]
     
     if is_admin:
@@ -915,7 +917,7 @@ async def noop_salary_header(callback: CallbackQuery):
     await callback.answer()
 
 
-@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale", "toggle_plan_coeff", "toggle_plan_coeff_cap"]))
+@notifications_router.callback_query(F.data.in_(["toggle_low_stock", "toggle_daily_reports", "toggle_sales_alerts", "toggle_payment_alerts", "toggle_admin_notifications", "toggle_shift_sale", "toggle_plan_coeff", "toggle_plan_coeff_cap", "toggle_shift_reminders"]))
 async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext):
     current_db = await get_db(callback.from_user.id, state)
     user = await current_db.get_user(callback.from_user.id)
@@ -933,6 +935,7 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
         'toggle_shift_sale': 'shift_sale_alerts',
         'toggle_plan_coeff': 'plan_coeff_enabled',
         'toggle_plan_coeff_cap': 'plan_coeff_cap',
+        'toggle_shift_reminders': 'shift_reminders',
     }
     
     setting_type = setting_mapping.get(callback.data)

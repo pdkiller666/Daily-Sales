@@ -1,5 +1,5 @@
 # Карта проекта: Telegram Bot для управления розничными продажами
-> Последнее обновление: 2026-06-16 (сессия 785–786: AI-сессии — явный сброс «Новый диалог», авто-сжатие контекста при >12 сообщений, авто-архивация через 30 дней; скрыть вложения в AI-треде; AI thinking indicator; AI tool usage stats + charts; APScheduler +2 задачи) · 55 модулей · GitHub `ba92ad8` · Amvera `0e7058a`
+> Последнее обновление: 2026-06-19 (сессии 858–859: AI-биллинг per-org квота + `/admin/ai-limits` + 30-дневный график расходов; авто-фильтры дашборда (`today_iso`/`user_shop`); `old_price[9]` в products; APScheduler +1 → 13 задач) · 55 модулей · GitHub `9576413` · Amvera `cd435c4`
 
 ## 1. ОБЩАЯ АРХИТЕКТУРА
 
@@ -68,7 +68,7 @@ Telegram API
 | Таблица | Описание |
 |---|---|
 | `users` | id, telegram_id, first_name, last_name, middle_name, phone, email, trade_network, shop_name, city, timezone, **username** (индекс 12) |
-| `products` | id[0], name[1], category[2], price[3], created_at[4], photo_file_id[5] TEXT (Telegram file_id), description[6] TEXT, **article**[7] TEXT UNIQUE (внутренний артикул орг., авто-генерируется), **barcode**[8] TEXT UNIQUE (штрихкод производителя, EAN-13/QR, опциональный) — article и barcode добавлены ALTER TABLE миграцией; позиционные индексы важны (row[7]/row[8] в handlers) |
+| `products` | id[0], name[1], category[2], price[3], created_at[4], photo_file_id[5] TEXT (Telegram file_id), description[6] TEXT, **article**[7] TEXT UNIQUE (внутренний артикул орг., авто-генерируется), **barcode**[8] TEXT UNIQUE (штрихкод производителя, EAN-13/QR, опциональный), **old_price**[9] TEXT (зачёркнутая цена для акций, опциональный) — все доп. поля добавлены ALTER TABLE миграцией (CREATE TABLE содержит только id..created_at); позиционные индексы важны; срезы `row[:7]`/`row[:8]` не включают old_price — проверять при новых фичах |
 | `inventory` | id, shop_name, product_id, quantity, last_updated |
 | `inventory_history` | id, shop_name, product_id, quantity_change, change_type, change_reason, user_id, timestamp |
 | `sales` | id, product_id, shop_name, quantity_sold, sale_price, user_id, sale_date |
@@ -579,7 +579,7 @@ APScheduler (AsyncIOScheduler)
   coalesce=True          — пропущенные повторы схлопываются в один
   max_instances=1        — никакого параллельного запуска одного задания
 
-Задачи (12 штук):
+Задачи (13 штук):
   send_sales_alerts()               cron(minute='*', second=0)   — дневные цели продаж
   send_payment_alerts()             cron(minute='*', second=12)  — напоминания подписки (14/7/3/1 день) + trial reminders
   send_daily_reports()              cron(minute='*', second=24)  — ежедневные отчёты (async)
@@ -592,6 +592,7 @@ APScheduler (AsyncIOScheduler)
   cleanup_fsm_storage()             cron(day_of_week='sun', hour=4, minute=30) — удаление FSM-записей старше 30 дней
   prune_ai_tool_stats()             cron(hour=3, minute=15)      — обрезка старой статистики AI-инструментов
   auto_archive_ai_sessions()        cron(hour=3, minute=20)      — авто-разрыв AI-сессий без активности >30 дней (все org_*.db)
+  prune_ai_cost_log_job()           cron(hour=3, minute=35)      — очистка ai_cost_log в rate_limits.db (retention 90 дней)
 
 _get_scheduler_db_paths()  → list[str]  — TTL-кеш 5 мин, все tenant БД + shop_bot.db
 ```
@@ -774,7 +775,11 @@ web/
                          smtp.yandex.ru:465 SSL; secrets YANDEX_EMAIL + YANDEX_SMTP_PASSWORD;
                          is_configured() — проверять перед вызовом (503 если SMTP не настроен)
   rate_store.py       — persistent SQLite rate limiter; check_rate_limit(key, limit, window_sec)
-                         → bool; хранит в data/rate_limits.db; выдерживает рестарты
+                         → bool; хранит в data/rate_limits.db; выдерживает рестарты;
+                         AI-биллинг: таблицы ai_cost_log (date/provider/tokens/cost_usd, upsert)
+                         и ai_org_usage_log (org_key/usage_date/count, per-org изоляция);
+                         функции persist_token_cost(), check_and_increment_ai_for_org(),
+                         get_ai_total_today(), get/set/clear_custom_ai_limit()
   deps.py             — get_web_db(telegram_id, org_db) → Database(path)
   routes/
     auth_routes.py    — GET/POST /login, GET /logout
@@ -906,12 +911,12 @@ web/
 - `web/app.py` — `create_web_app()`: FastAPI, Jinja2, router registration, Jinja2 globals; `SecurityHeadersMiddleware` (5 security headers on every response); `/robots.txt` and `/sitemap.xml` routes; `_api_rate_ok()` rate limiter (60 req/min/IP); `_nav_modules` (per-user module gating), `_landing_billing_modules()` (dynamic landing pricing)
 - `web/auth.py` — `get_session_user()`, `get_csrf_token()`, `verify_csrf_token()`, `generate_login_nonce()`, `verify_login_nonce()` (5-min HMAC stateless nonce for `/auth/code`); `hash_password()` / `verify_password()` (PBKDF2-SHA256, 390k iterations, stdlib only)
 - `web/email_utils.py` — `send_verification_email()`, `send_reset_email()`, `send_link_notification()`; SMTP via `smtp.yandex.ru:465` SSL; secrets `YANDEX_EMAIL` + `YANDEX_SMTP_PASSWORD`; `is_configured()` guard — all routes degrade gracefully if SMTP not configured
-- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `bool`; survives restarts; used by `auth_routes.py` and `email_auth.py`
+- `web/rate_store.py` — SQLite-backed persistent rate limiter; `check_rate_limit(key, limit, window_sec)` → `bool`; survives restarts; used by `auth_routes.py` and `email_auth.py`; **AI billing**: tables `ai_cost_log` (upsert by date+provider) and `ai_org_usage_log` (per-org daily counter, isolated between orgs of same owner); functions: `persist_token_cost()`, `check_and_increment_ai_for_org()`, `get_ai_total_today()`, `get/set/clear_custom_ai_limit()`
 - `web/deps.py` — `get_web_db(telegram_id, org_db)` → sync `Database(path)` + `_enable_wal()` (WAL+NORMAL on every call)
 - `billing_utils.py` — `has_module(tg_id, key)`, `has_extension(tg_id, key)`, `get_active_billing_items(tg_id)` — feature-gate API; priority: super_admin → trial → direct grant → bundle
 - `web/routes/` — route files: `auth_routes`, `email_auth`, `dashboard`, `sales`, `products`, `inventory`, `reports`, `rankings`, `staff`, `plans`, `salary`, `schedule`, `contests`, `settings`, `integration`, `payments`, `api`, `notifications`, `motivation`, `subscription`, `categories`, `promocodes`, `shops`, `pos`, `absences`, `support`, `admin_billing`, `org_structure`
 - `web/routes/org_structure.py` — `/org-structure` (owner + super_admin) (3 вкладки: подразделения/роли/инфо); CRUD departments + org_roles; gate via `org_structure_level()`; scope vocab — `network` (НЕ `trade_network`)
-- `web/routes/admin.py` — супер-кабинет `/admin/*` (орги, подписки, тарифы, статистика, реквизиты, бэкапы, глоб.поиск); `POST /admin/subs/{user_id}/cancel` — реальный сброс legacy-подписки до «Бесплатный» (`DELETE FROM subscriptions WHERE user_id=? AND end_date>now` в shop_bot.db, CSRF + `_guard`); все admin-роуты используют `request.app.state.templates`
+- `web/routes/admin.py` — супер-кабинет `/admin/*` (орги, подписки, тарифы, статистика, реквизиты, бэкапы, глоб.поиск, **AI-лимиты**); `POST /admin/subs/{user_id}/cancel` — реальный сброс legacy-подписки до «Бесплатный» (`DELETE FROM subscriptions WHERE user_id=? AND end_date>now` в shop_bot.db, CSRF + `_guard`); все admin-роуты используют `request.app.state.templates`; **AI billing routes**: `GET /admin/ai-limits` (30-day cost chart + per-user custom limits), `POST /admin/ai-limits/save`, `POST /admin/ai-limits/toggle`, `POST /admin/ai-limits/save-anomaly`, `POST /admin/ai-limits/set-custom`, `POST /admin/ai-limits/clear-custom`
 - `web/routes/admin_billing.py` — 19 маршрутов `/admin/billing/*`: хаб, CRUD модулей/расширений/пакетов, выдача/отзыв доступов; все POST с CSRF + `_guard(role=super_admin)`
 - `web/templates/admin/_macros.html` — `page_header(icon, title, subtitle='', back_url='/admin', back_label='Супер-Кабинет')` — единый тёмный hero-баннер для всех подстраниц супер-кабинета; поддерживает `{% call %}` для кнопки-действия справа (через `{% if caller %}`); импортировать ВНУТРИ `{% block content %}`, не на верхнем уровне
 - `web/routes/email_auth.py` — 9 маршрутов: `GET/POST /register`, `GET/POST /auth/email`, `GET /auth/verify`, `POST /auth/resend-verify`, `GET/POST /auth/reset`, `GET/POST /auth/reset/confirm`, `POST /settings/email-change`, `POST /settings/password-change`, `POST /settings/email-unlink`; rate limit 5 req/10min/IP на login/register/reset

@@ -245,7 +245,7 @@ bash deploy.sh "описание изменений" --no-amvera
 - **0 hardcoded secrets** — только через env/Replit Secrets
 - WAL mode + `busy_timeout=10s` на всех SQLite соединениях
 - Thread-local connection pool — безопасный параллельный доступ из `asyncio.to_thread`
-- APScheduler: `misfire_grace=60s`, `coalesce=True`, `max_instances=1`; 12 фоновых задач (включая еженедельную очистку FSM, обрезку AI-статистики, авто-архивацию AI-сессий)
+- APScheduler: `misfire_grace=60s`, `coalesce=True`, `max_instances=1`; 13 фоновых задач (включая еженедельную очистку FSM, обрезку AI-статистики/cost-log, авто-архивацию AI-сессий)
 - Глобальный error handler с user-friendly уведомлениями
 - Ежедневный автобэкап с 30-дневным хранением
 

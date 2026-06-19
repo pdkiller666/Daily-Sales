@@ -36,6 +36,29 @@ Workflow: "Start application" → python start.py (→ убивает порт 5
 - `VAPID_PRIVATE_KEY` — приватный VAPID-ключ
 - `VAPID_MAILTO` — контактный email для VAPID заявок (`mailto:admin@example.com`)
 
+**Сессии 858–859 (2026-06-19) — AI-биллинг per-org квота + авто-фильтры дашборда + old_price:**
+
+- **`old_price TEXT`** — новая колонка `products` [9] (ALTER TABLE, org_*.db); зачёркнутая цена для акций; опциональный; CREATE TABLE содержит только id..created_at; срезы `row[:7]`/`row[:8]` не включают old_price — проверять при новых фичах
+- **AI-биллинг (web/rate_store.py)**:
+  - Новые таблицы в `data/rate_limits.db`: `ai_cost_log` (date, provider, prompt_tokens, completion_tokens, cost_usd; upsert по date+provider) и `ai_org_usage_log` (org_key, usage_date, count; per-org изоляция — не делит пул с другими орг владельца)
+  - `persist_token_cost(date, provider, prompt, completion, cost_usd)` — накопление расходов
+  - `check_and_increment_ai_for_org(org_db, limit)` → bool — per-org дневной лимит
+  - `get_ai_total_today()` → int — суммарных запросов AI за сегодня
+  - `get_custom_ai_limit(tg_id)` → int|None; `set_custom_ai_limit(tg_id, limit)`; `clear_custom_ai_limit(tg_id)` — кастомные лимиты per-пользователь
+  - Лимиты кэшируются 60 секунд (снижение нагрузки на shop_bot.db)
+- **`/admin/ai-limits` (web/routes/admin.py)** — новая страница суперадмина:
+  - `GET /admin/ai-limits` — глобальный on/off, дневной лимит, порог аномалии (%), карточка кастомных лимитов, **30-дневный Chart.js-график** расходов по провайдерам (DeepSeek/Gemini/OpenRouter), реал-тайм баннер аномалии
+  - `POST /admin/ai-limits/save` — сохранить лимит; `POST /admin/ai-limits/toggle` — on/off
+  - `POST /admin/ai-limits/save-anomaly` — порог аномалии
+  - `POST /admin/ai-limits/set-custom` / `POST /admin/ai-limits/clear-custom` — кастомные лимиты per tg_id
+  - Карточка на `/admin` hub → `/admin/ai-limits`
+- **APScheduler +1** → 13 задач: `prune_ai_cost_log_job` (03:35 UTC, retention 90 дней; удаляет старые записи из `ai_cost_log`)
+- **Авто-фильтры дашборда (web/routes/dashboard.py)**:
+  - `ctx["today_iso"]` — текущая дата `YYYY-MM-DD`; `ctx["user_shop"]` — первый магазин из `get_user_org_scope()` для `scope_type=shop`, иначе `""`
+  - 4 карточки теперь передают авто-фильтры для сотрудников с фиксированным магазином: «Продажи сегодня» → `/sales?date=…&shop=…`; «Выручка сегодня» → `/reports?period=today&shop=…`; «Выручка за месяц» → `/reports?period=month&shop=…`; «Все →» (последние продажи) → `/sales?date=…&shop=…`
+  - Owner/admin и пользователи без `scope_type=shop` — ссылки без shop-параметра (поведение прежнее)
+- **Деплой:** GitHub `9576413` · Amvera `cd435c4` · хэши верифицированы
+
 **Сессия 785–786 (2026-06-16) — AI-сессии: явный сброс, авто-сжатие, авто-архивация:**
 
 - **is_session_break / is_ai_summary**: новые bool-колонки в `direct_messages` и `chat_messages` (org_*.db); миграция `ALTER TABLE … ADD COLUMN IF NOT EXISTS` в `create_tables()`

@@ -642,6 +642,9 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         "chart_labels": [],
         "chart_data": [],
         "user_tz": "Europe/Moscow",
+        "chat_available": False,
+        "is_own_card": False,
+        "member_tg_id": -1,
     }
 
     try:
@@ -694,6 +697,15 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
             "scope_type": scope_type_raw or "all",
             "scope_values": scope_values,
         }
+
+        # DM button — find owner tg_id for billing check
+        _owner_tg_id = next(
+            (tid for tid, info in org_roles.items() if info.get("role") == "owner"),
+            telegram_id,
+        )
+        ctx["chat_available"] = has_module(_owner_tg_id, "chat")
+        ctx["is_own_card"] = (u[1] == telegram_id)
+        ctx["member_tg_id"] = u[1]
 
         # Monthly sales summary — use the viewed year/month, not always today
         viewed_month_start = date(year, month, 1).isoformat()

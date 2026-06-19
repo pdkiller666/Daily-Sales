@@ -629,6 +629,12 @@ class Database:
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # Миграция: уведомление о начале смены (opt-out, по умолчанию включено)
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN shift_reminders BOOLEAN DEFAULT TRUE")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
+
         # Миграция: контекстные блоки AI-дайджеста
         try:
             cursor.execute(
@@ -4973,6 +4979,8 @@ class Database:
                 # plan_coeff_enabled/cap — индексы 12/13, добавлены миграцией
                 'plan_coeff_enabled': bool(settings[12]) if len(settings) > 12 else False,
                 'plan_coeff_cap': bool(settings[13]) if len(settings) > 13 else True,
+                # shift_reminders — индекс 14, добавлен миграцией (opt-out, дефолт True)
+                'shift_reminders': bool(settings[14]) if len(settings) > 14 else True,
             }
         else:
             self.create_default_notification_settings(user_id)
@@ -4987,6 +4995,7 @@ class Database:
                 'shift_sale_alerts': True,
                 'plan_coeff_enabled': False,
                 'plan_coeff_cap': True,
+                'shift_reminders': True,
             }
 
     def create_default_notification_settings(self, user_id):
@@ -10413,6 +10422,72 @@ class Database:
             if 'conn' in locals():
                 conn.close()
             return (None, None)
+
+    def get_shifts_starting_at(self, time_str: str, date_str: str) -> list:
+        """Вернуть список (user_id, telegram_id, start_time, end_time) для всех пользователей,
+        у которых смена на дату date_str начинается в time_str (HH:MM, локальное время).
+
+        Логика:
+        - Проверяет work_schedule.start_time == time_str для date_str.
+        - Если work_schedule.start_time IS NULL — проверяет шаблон (shift_templates)
+          для дня недели, соответствующего date_str.
+        - Исключает пользователей с shift_reminders = 0 (notification_settings).
+        - Исключает пользователей на утверждённом отсутствии в date_str.
+        """
+        try:
+            from datetime import date as _date
+            conn = self.get_connection()
+            weekday = _date.fromisoformat(date_str).weekday()
+
+            # Пользователи с явной записью в work_schedule
+            rows = conn.execute(
+                """SELECT u.id, u.telegram_id, ws.start_time, ws.end_time
+                   FROM work_schedule ws
+                   JOIN users u ON u.id = ws.user_id
+                   LEFT JOIN notification_settings ns ON ns.user_id = ws.user_id
+                   WHERE ws.work_date = ?
+                     AND ws.start_time = ?
+                     AND COALESCE(ns.shift_reminders, 1) = 1""",
+                (date_str, time_str)
+            ).fetchall() or []
+
+            # Пользователи без явной записи start_time, но с шаблоном на этот день недели
+            template_rows = conn.execute(
+                """SELECT u.id, u.telegram_id, st.start_time, st.end_time
+                   FROM shift_templates st
+                   JOIN users u ON u.id = st.user_id
+                   LEFT JOIN notification_settings ns ON ns.user_id = st.user_id
+                   WHERE st.weekday = ?
+                     AND st.start_time = ?
+                     AND COALESCE(ns.shift_reminders, 1) = 1
+                     AND EXISTS (
+                         SELECT 1 FROM work_schedule ws2
+                         WHERE ws2.user_id = st.user_id AND ws2.work_date = ?
+                           AND (ws2.start_time IS NULL OR ws2.start_time = '')
+                     )""",
+                (weekday, time_str, date_str)
+            ).fetchall() or []
+
+            conn.close()
+
+            # Объединяем, исключая дублей (user_id)
+            seen = set()
+            result = []
+            for row in list(rows) + list(template_rows):
+                uid = row[0]
+                if uid not in seen:
+                    seen.add(uid)
+                    result.append(row)
+
+            # Исключаем пользователей на утверждённом отсутствии
+            absent_ids = self.get_absent_user_ids_today(date_str)
+            if absent_ids:
+                result = [r for r in result if r[0] not in absent_ids]
+
+            return result
+        except Exception as e:
+            logger.error(f"get_shifts_starting_at: {e}")
+            return []
 
     def add_work_day(self, user_id: int, work_date: str,
                      start_time=None, end_time=None, marked_by=None) -> None:

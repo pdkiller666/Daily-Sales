@@ -57,9 +57,17 @@
             </a>
             {% endif %}
         </div>
-        <div class="text-right text-xs text-slate-400 shrink-0">
-            <p>В системе с</p>
-            <p class="font-medium text-slate-600">{{ member.created_at|fmt_date }}</p>
+        <div class="text-right text-xs text-slate-400 shrink-0 flex flex-col items-end gap-2">
+            <div>
+                <p>В системе с</p>
+                <p class="font-medium text-slate-600">{{ member.created_at|fmt_date }}</p>
+            </div>
+            {% if chat_available and not is_own_card and member_tg_id >= 0 %}
+            <a href="/chat?dm=1&peer={{ member_id }}"
+               class="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 rounded-lg text-xs font-medium transition-colors whitespace-nowrap">
+                💬 Написать
+            </a>
+            {% endif %}
         </div>
     </div>
 </div>

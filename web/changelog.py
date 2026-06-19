@@ -1,6 +1,18 @@
-CURRENT_VERSION = "1.100.0"
+CURRENT_VERSION = "1.101.0"
 
 ENTRIES = [
+    {
+        "version": "1.101.0",
+        "date": "19 июня 2026",
+        "items": [
+            "Update dashboard to automatically filter sales and revenue by date and shop",
+            "Add AI billing management and dashboard filtering capabilities",
+            "Update pricing model to a two-layer system",
+            "Fix error when marking bonus columns in the integration handler",
+            "Add DM button to employee card in web cabinet (Task #64)",
+            "Send push notification to employees at their shift start time",
+        ],
+    },
     {
         "version": "1.100.0",
         "date": "19 июня 2026",
