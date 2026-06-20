@@ -12674,7 +12674,7 @@ class Database:
                 LEFT JOIN chat_topics t ON t.id = m.topic_id
                 WHERE m.is_deleted = 0
                   AND m.topic_id = ?
-                  AND LOWER(m.message) LIKE LOWER(?)
+                  AND lower_u(m.message) LIKE lower_u(?)
                 ORDER BY m.id DESC
                 LIMIT ?
             ''', (topic_id, pattern, limit))
@@ -12689,7 +12689,7 @@ class Database:
                 LEFT JOIN chat_topics t ON t.id = m.topic_id
                 WHERE m.is_deleted = 0
                   AND (t.is_archived = 0 OR t.id IS NULL)
-                  AND LOWER(m.message) LIKE LOWER(?)
+                  AND lower_u(m.message) LIKE lower_u(?)
                 ORDER BY m.id DESC
                 LIMIT ?
             ''', (pattern, limit))
@@ -12726,7 +12726,7 @@ class Database:
             )
             WHERE d.is_deleted = 0
               AND (d.from_user_id = ? OR d.to_user_id = ?)
-              AND LOWER(d.message) LIKE LOWER(?)
+              AND lower_u(d.message) LIKE lower_u(?)
             ORDER BY d.id DESC
             LIMIT ?
         ''', (user_id, user_id, user_id, user_id, pattern, limit))
