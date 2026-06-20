@@ -726,15 +726,21 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             <div>
                                 <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-widest px-3 pt-3 pb-1">Сообщения</p>
                                 <template x-for="r in dmMsgResults" :key="String(r.dm_peer_id) + '_' + String(r.id)">
-                                    <div class="dm-contact-row"
+                                    <div class="search-result-item"
                                          @click="openDmConversation({id: r.dm_peer_id, display_name: r.dm_peer_name, initial: (r.dm_peer_name||'?')[0].toUpperCase()})">
-                                        <div class="dm-avatar" x-text="(r.dm_peer_name||'?')[0].toUpperCase()"></div>
+                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
+                                             x-text="r.initial"></div>
                                         <div class="flex-1 min-w-0">
-                                            <div class="flex justify-between items-baseline gap-1">
-                                                <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate" x-text="r.dm_peer_name"></span>
-                                                <span class="text-[10px] text-slate-400 shrink-0" x-text="r.date"></span>
+                                            <div class="flex items-baseline gap-2 mb-0.5">
+                                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate" x-text="r.display_name"></span>
+                                                <span class="shrink-0 text-[10px] bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded-full font-medium">💬 Личное</span>
+                                                <span class="ml-auto shrink-0 text-[10px] text-slate-400" x-text="r.created_at"></span>
                                             </div>
-                                            <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="r.text"></p>
+                                            <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2"
+                                               x-html="highlight(r.message, dmSearch)"></p>
+                                            <template x-if="r.has_file">
+                                                <span class="text-[10px] text-slate-400 mt-0.5 block" x-text="r.is_image ? '🖼️ ' + r.file_name : '📎 ' + r.file_name"></span>
+                                            </template>
                                         </div>
                                     </div>
                                 </template>
