@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.128.0"
+CURRENT_VERSION = "1.129.0"
 
 ENTRIES = [
+    {
+        "version": "1.129.0",
+        "date": "21 июня 2026",
+        "items": [
+            "Add customizable shift reminder settings to the web interface",
+        ],
+    },
     {
         "version": "1.128.0",
         "date": "21 июня 2026",

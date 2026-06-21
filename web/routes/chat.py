@@ -2270,7 +2270,7 @@ async def ai_dm_reset_session(
     """Вставить маркер разрыва сессии в личный AI-тред (кнопка «Новый диалог»)."""
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
-    user = await get_session_user(request)
+    user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False}, status_code=401)
     if not verify_csrf_token(request, csrf_token):
@@ -2300,7 +2300,7 @@ async def ai_topic_reset_session(
     """Вставить маркер разрыва сессии в AI-тему (кнопка «Новый диалог» в теме)."""
     from web.auth import get_session_user, verify_csrf_token
     from web.deps import get_web_db
-    user = await get_session_user(request)
+    user = get_session_user(request)
     if not user:
         return JSONResponse({"ok": False}, status_code=401)
     if not verify_csrf_token(request, csrf_token):
