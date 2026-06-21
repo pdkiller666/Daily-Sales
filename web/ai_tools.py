@@ -975,8 +975,25 @@ def _tool_get_plans_detail(db, params: dict) -> str:
             unit = "руб." if is_rev else "шт."
             scope = f"[{shop_name}]" if shop_name else "[вся орг.]"
             bar = "█" * min(pct // 10, 10) + "░" * max(0, 10 - pct // 10)
+            try:
+                start_d = _dt.date.fromisoformat(str(start)[:10])
+                end_d   = _dt.date.fromisoformat(str(end)[:10])
+                total_days   = max(1, (end_d - start_d).days + 1)
+                elapsed_days = max(1, min((today - start_d).days + 1, total_days))
+                days_left    = max(0, (end_d - today).days)
+                expected_pct = int(elapsed_days / total_days * 100)
+                projected_pct = min(int(current / elapsed_days * total_days / target_v * 100), 999) if target_v > 0 and elapsed_days > 0 else 0
+                if pct >= expected_pct + 5:
+                    pace_tag = "✅ опережает"
+                elif pct < expected_pct - 10:
+                    pace_tag = "⚠️ отстаёт"
+                else:
+                    pace_tag = "✓ в темпе"
+                extra = f" | {pace_tag} (прошло {elapsed_days}/{total_days} дн., ожид.{expected_pct}%, прогноз на конец: {projected_pct}%, осталось {days_left} дн.)"
+            except Exception:
+                extra = ""
             lines.append(
-                f"  - {name} {scope}: {int(current):,}/{int(target_v):,} {unit} — {pct}% [{bar}]"
+                f"  - {name} {scope}: {int(current):,}/{int(target_v):,} {unit} — {pct}% [{bar}]{extra}"
             )
         conn.close()
         return "Планы продаж (разбивка по магазинам):\n" + "\n".join(lines)

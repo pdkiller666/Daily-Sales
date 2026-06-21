@@ -194,6 +194,8 @@ class Database:
             cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
         if 'mobile_nav' not in users_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN mobile_nav TEXT DEFAULT NULL")
+        if 'profile_photo' not in users_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT DEFAULT NULL")
 
         # Добавляем недостающие столбцы в таблицу inventory если их нет
         cursor.execute("PRAGMA table_info(inventory)")
@@ -6297,6 +6299,18 @@ class Database:
                 conn.close()
             logger.error(f"Ошибка при удалении пользователя: {e}")
             return False
+
+    def update_user_profile_photo(self, telegram_id: int, photo_url):
+        """Сохранить/удалить фото профиля пользователя."""
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "UPDATE users SET profile_photo=? WHERE telegram_id=?",
+                (photo_url, telegram_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def update_user(self, telegram_id, first_name=None, last_name=None, middle_name=None,
                    phone=None, email=None, trade_network=None, shop_name=None, city=None,
@@ -12892,6 +12906,7 @@ class Database:
                 '''SELECT
                        last_dm.peer_id,
                        u.first_name, u.last_name, u.username,
+                       u.profile_photo,
                        d.message      AS last_msg,
                        d.from_user_id AS last_from,
                        d.file_name    AS last_file_name,

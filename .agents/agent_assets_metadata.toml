@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "sgylGAyxsvway_WyEENex"
+uri = "file://.local/skills/android-twa/SKILL.md"
+type = "text"
+title = "Android TWA APK — инструкция для агента"
+
+[[outputs]]
+id = "Cka7WruYPGYxsFSgA-HD_"
+uri = "file://TWA_APK_GUIDE.md"
+type = "text"
+title = "TWA_APK_GUIDE.md — инструкция в репозитории"

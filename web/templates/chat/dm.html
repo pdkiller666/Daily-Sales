@@ -88,9 +88,10 @@ html.dark #dm-header { background:#0f172a; border-color:#1e293b; }
 html.dark .dm-row.other .dm-bubble { background:#1e293b; color:#e2e8f0; border-color:#334155; }
 .dm-meta { font-size:.65rem; opacity:.55; margin-top:3px; white-space:nowrap; }
 .dm-row.mine .dm-meta { text-align:right; }
-.dm-del-btn { opacity:0; transition:opacity .15s; cursor:pointer; }
-.dm-bubble:hover .dm-del-btn { opacity:.55; }
+.dm-del-btn { opacity:0; transition:opacity .15s; cursor:pointer; background:none; border:none; }
+.dm-row:hover .dm-del-btn { opacity:.55; }
 @media(hover:none) { .dm-del-btn { opacity:.3; } }
+.contact-avatar img, img.contact-avatar { object-fit:cover; }
 
 /* ── Input area ── */
 #dm-input-wrap {
@@ -172,7 +173,11 @@ html.dark .dm-row.ai .dm-bubble {
         {% for c in contacts %}
         <div class="contact-item {% if peer and peer.id == c.id %}active{% endif %}"
              data-id="{{ c.id }}" data-name="{{ c.display_name|e }}">
+          {% if c.photo_url %}
+          <img src="{{ c.photo_url }}" class="contact-avatar" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+          {% else %}
           <div class="contact-avatar">{{ c.initial }}</div>
+          {% endif %}
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-1">
               <span class="font-medium text-sm text-slate-800 dark:text-slate-100 truncate">{{ c.display_name }}</span>
@@ -203,7 +208,11 @@ html.dark .dm-row.ai .dm-bubble {
       <button id="dm-back-btn" class="md:hidden mr-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded" title="Назад">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
+      {% if peer.photo_url %}
+      <img src="{{ peer.photo_url }}" class="contact-avatar" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+      {% else %}
       <div class="contact-avatar" style="width:32px;height:32px;font-size:.8rem">{{ peer.initial }}</div>
+      {% endif %}
       <span class="font-semibold text-slate-800 dark:text-slate-100 flex-1 truncate">{{ peer.display_name }}</span>
       <div id="dm-ws-dot" class="ws-dot off" title="Соединение"></div>
     </div>
@@ -217,7 +226,13 @@ html.dark .dm-row.ai .dm-bubble {
       {% for m in messages %}
       <div class="dm-row {% if m.is_mine %}mine{% elif m.is_ai %}other ai{% else %}other{% endif %}" data-id="{{ m.id }}">
         {% if not m.is_mine %}
-        <div class="contact-avatar {% if m.is_ai %}ai-avatar{% endif %}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{% if m.is_ai %}🤖{% else %}{{ peer.initial }}{% endif %}</div>
+          {% if m.is_ai %}
+          <div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>
+          {% elif peer and peer.photo_url %}
+          <img src="{{ peer.photo_url }}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">
+          {% else %}
+          <div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">{{ peer.initial if peer else "?" }}</div>
+          {% endif %}
         {% endif %}
         <div>
           <div class="dm-bubble">
@@ -231,12 +246,12 @@ html.dark .dm-row.ai .dm-bubble {
             {% if m.message %}
             <span>{{ m.message }}</span>
             {% endif %}
-            {% if m.can_delete %}
-            <button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg({{ m.id }}, this)">✕</button>
-            {% endif %}
           </div>
           <div class="dm-meta">{{ m.created_at }}</div>
         </div>
+        {% if m.can_delete %}
+        <button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg({{ m.id }}, this)" title="Удалить">✕</button>
+        {% endif %}
       </div>
       {% endfor %}
 
@@ -308,11 +323,12 @@ html.dark .dm-row.ai .dm-bubble {
 
 {% block extra_js %}
 <script>
-const CSRF_TOKEN  = {{ csrf_token | tojson }};
-const MY_DB_ID    = {{ my_db_id | tojson }};
-const PEER_ID     = {{ (peer.id if peer else 0) | tojson }};
-const PEER_NAME   = {{ (peer.display_name if peer else "") | tojson }};
+const CSRF_TOKEN   = {{ csrf_token | tojson }};
+const MY_DB_ID     = {{ my_db_id | tojson }};
+const PEER_ID      = {{ (peer.id if peer else 0) | tojson }};
+const PEER_NAME    = {{ (peer.display_name if peer else "") | tojson }};
 const PEER_INITIAL = {{ (peer.initial if peer else "?") | tojson }};
+const PEER_PHOTO   = {{ (peer.photo_url if peer else "") | tojson }};
 
 // ── WS ─────────────────────────────────────────────────────────────────────
 let ws = null;
@@ -404,6 +420,8 @@ function handleWsMessage(data) {
 function appendMessage(m) {
     const scroll = document.getElementById('dm-scroll');
     if (!scroll) return;
+    // Dedup: skip if message with same id already in DOM (except temp "tmp" id)
+    if (m.id && m.id !== 'tmp' && document.querySelector(`.dm-row[data-id="${m.id}"]`)) return;
     const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
     const typing = document.getElementById('dm-typing');
     const row = document.createElement('div');
@@ -412,9 +430,13 @@ function appendMessage(m) {
 
     let avatarHtml = '';
     if (!m.is_mine) {
-        const aiCls = m.is_ai ? ' ai-avatar' : '';
-        const aiContent = m.is_ai ? '🤖' : PEER_INITIAL;
-        avatarHtml = `<div class="contact-avatar${aiCls}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${aiContent}</div>`;
+        if (m.is_ai) {
+            avatarHtml = `<div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>`;
+        } else if (PEER_PHOTO) {
+            avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">`;
+        } else {
+            avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${escHtml(PEER_INITIAL)}</div>`;
+        }
     }
 
     let bodyHtml = '';
@@ -424,16 +446,18 @@ function appendMessage(m) {
         bodyHtml += `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>`;
     }
     if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
-    if (m.can_delete) {
-        bodyHtml += `<button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg(${m.id}, this)">✕</button>`;
-    }
+
+    const delBtnHtml = m.can_delete
+        ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg(${m.id}, this)" title="Удалить">✕</button>`
+        : '';
 
     row.innerHTML = `
         ${avatarHtml}
         <div>
           <div class="dm-bubble">${bodyHtml}</div>
           <div class="dm-meta">${escHtml(m.created_at)}</div>
-        </div>`;
+        </div>
+        ${delBtnHtml}`;
     scroll.insertBefore(row, typing);
     if (atBottom) scroll.scrollTop = scroll.scrollHeight;
 }
@@ -574,15 +598,19 @@ async function dmLoadMore() {
                 row.dataset.id = m.id;
                 let avatarHtml = '';
                 if (!m.is_mine) {
-                    const aiCls = m.is_ai ? ' ai-avatar' : '';
-                    const aiContent = m.is_ai ? '🤖' : PEER_INITIAL;
-                    avatarHtml = `<div class="contact-avatar${aiCls}" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${aiContent}</div>`;
+                    if (m.is_ai) {
+                        avatarHtml = `<div class="contact-avatar ai-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">🤖</div>`;
+                    } else if (PEER_PHOTO) {
+                        avatarHtml = `<img src="${escHtml(PEER_PHOTO)}" class="contact-avatar" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">`;
+                    } else {
+                        avatarHtml = `<div class="contact-avatar" style="width:28px;height:28px;font-size:.75rem;flex-shrink:0">${escHtml(PEER_INITIAL)}</div>`;
+                    }
                 }
                 let bodyHtml = m.has_file && m.is_image ? `<a href="${m.file_url}" target="_blank"><img src="${m.file_url}" class="dm-img-preview"></a>`
                              : m.has_file ? `<a href="${m.file_url}" target="_blank" class="dm-file-chip">📎 ${escHtml(m.file_name)}</a>` : '';
                 if (m.message) bodyHtml += `<span>${escHtml(m.message)}</span>`;
-                if (m.can_delete) bodyHtml += `<button class="dm-del-btn ml-2 text-xs opacity-60" onclick="dmDeleteMsg(${m.id},this)">✕</button>`;
-                row.innerHTML = `${avatarHtml}<div><div class="dm-bubble">${bodyHtml}</div><div class="dm-meta">${escHtml(m.created_at)}</div></div>`;
+                const delBtn = m.can_delete ? `<button class="dm-del-btn text-slate-400 hover:text-red-500 dark:text-slate-600 self-center flex-shrink-0 text-xs p-1 rounded transition-colors leading-none" onclick="dmDeleteMsg(${m.id},this)" title="Удалить">✕</button>` : '';
+                row.innerHTML = `${avatarHtml}<div><div class="dm-bubble">${bodyHtml}</div><div class="dm-meta">${escHtml(m.created_at)}</div></div>${delBtn}`;
                 scroll.insertBefore(row, scroll.querySelector('.dm-row'));
             });
             scroll.scrollTop += scroll.scrollHeight - prevH;

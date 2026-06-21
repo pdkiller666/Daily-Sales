@@ -1469,7 +1469,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
 
 
 def _fmt_contact(row, my_id: int) -> dict:
-    peer_id, fn, ln, uname, last_msg, last_from, last_file_name, last_at, unread = row
+    peer_id, fn, ln, uname, photo_url, last_msg, last_from, last_file_name, last_at, unread = row
     display = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{peer_id}"
     initial = (display[0] if display else "?").upper()
     preview = last_msg or (f"📎 {last_file_name}" if last_file_name else "")
@@ -1481,6 +1481,7 @@ def _fmt_contact(row, my_id: int) -> dict:
         "id": peer_id,
         "display_name": display,
         "initial": initial,
+        "photo_url": photo_url or "",
         "last_msg": (preview or "")[:80],
         "last_at": _fmt_ts(last_at),
         "unread": int(unread or 0),
@@ -1650,14 +1651,14 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                 conn = db.get_connection()
                 try:
                     peer_row = conn.execute(
-                        "SELECT id, first_name, last_name, username FROM users WHERE id = ?",
+                        "SELECT id, first_name, last_name, username, profile_photo FROM users WHERE id = ?",
                         (peer_id,)
                     ).fetchone()
                 finally:
                     conn.close()
                 if peer_row:
                     pname = f"{peer_row[1] or ''} {peer_row[2] or ''}".strip() or peer_row[3] or f"User#{peer_id}"
-                    ctx["peer"] = {"id": peer_id, "display_name": pname, "initial": pname[0].upper()}
+                    ctx["peer"] = {"id": peer_id, "display_name": pname, "initial": pname[0].upper(), "photo_url": (peer_row[4] if len(peer_row) > 4 else "") or ""}
                     rows = db.get_dm_conversation(user_db_id, peer_id, limit=50)
                     dm_ids = [r[0] for r in rows]
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)

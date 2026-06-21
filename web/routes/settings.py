@@ -1,8 +1,16 @@
 import logging
 import traceback
 
-from fastapi import APIRouter, Request, Form
+import hashlib
+import os
+from pathlib import Path
+
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
+
+_PROFILE_PHOTO_DIR = Path(__file__).parent.parent / "static" / "profile_photos"
+_PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -165,7 +173,20 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                     "email": user_row[6] or "",
                     "trade_network": user_row[7] or "",
                     "city": user_row[9] or "",
+                    "profile_photo": "",
                 }
+                try:
+                    _conn = db.get_connection()
+                    try:
+                        _r = _conn.execute(
+                            "SELECT profile_photo FROM users WHERE telegram_id=?",
+                            (telegram_id,)
+                        ).fetchone()
+                        ctx["profile"]["profile_photo"] = (_r[0] if _r else None) or ""
+                    finally:
+                        _conn.close()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -562,6 +583,86 @@ async def settings_profile(
         )
     except Exception:
         pass
+
+    return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+
+
+@router.post("/settings/profile-photo")
+async def settings_profile_photo_upload(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    photo: UploadFile = File(default=None),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings?error=csrf#profile", status_code=303)
+    if not photo or not photo.filename:
+        return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        data = await photo.read()
+        if not data or len(data) > _PHOTO_MAX_BYTES:
+            return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+        content_type = photo.content_type or ""
+        if not content_type.startswith("image/"):
+            return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+        ext = ".jpg"
+        if "png" in content_type:
+            ext = ".png"
+        elif "webp" in content_type:
+            ext = ".webp"
+        fname = f"{telegram_id}{ext}"
+        dest = _PROFILE_PHOTO_DIR / fname
+        dest.write_bytes(data)
+        photo_url = f"/static/profile_photos/{fname}"
+        db = get_web_db(telegram_id, org_db)
+        db.update_user_profile_photo(telegram_id, photo_url)
+    except Exception as e:
+        logger.error("profile_photo_upload: %s", e)
+
+    return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
+
+
+@router.post("/settings/profile-photo/delete")
+async def settings_profile_photo_delete(
+    request: Request,
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse(url="/settings?error=csrf#profile", status_code=303)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        row = db.get_connection()
+        try:
+            cur = row.execute("SELECT profile_photo FROM users WHERE telegram_id=?", (telegram_id,))
+            rec = cur.fetchone()
+        finally:
+            row.close()
+        if rec and rec[0]:
+            old_path = _PROFILE_PHOTO_DIR.parent.parent / rec[0].lstrip("/")
+            try:
+                old_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        db.update_user_profile_photo(telegram_id, None)
+    except Exception as e:
+        logger.error("profile_photo_delete: %s", e)
 
     return RedirectResponse(url="/settings?profile_saved=1#profile", status_code=303)
 
