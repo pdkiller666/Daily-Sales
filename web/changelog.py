@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.129.0"
+CURRENT_VERSION = "1.130.0"
 
 ENTRIES = [
+    {
+        "version": "1.130.0",
+        "date": "21 июня 2026",
+        "items": [
+            "Умнее AI-ассистент: 20 инструментов вместо 15, анализ трендов по дням, сравнение периодов, разбивка по категориям и продавцам — теперь отвечает на вопросы о прошлой неделе и любых датах.",
+            "Fix error preventing AI chat from refreshing its conversation history",
+            "Update AI system prompt to include sales data retrieval",
+        ],
+    },
     {
         "version": "1.129.0",
         "date": "21 июня 2026",

@@ -5,7 +5,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from typing import List
 
@@ -289,22 +289,30 @@ async def _build_ai_system_prompt(db, user_db_id: int) -> tuple[str, str]:
     _today = datetime.now(timezone.utc).date()
     today_text = f"{_today.day} {_RU_MONTHS[_today.month]} {_today.year} года"
 
+    # Рассчитываем опорные диапазоны дат для подсказки AI
+    _monday     = _today - timedelta(days=_today.weekday())
+    _lw_end     = _monday - timedelta(days=1)
+    _lw_start   = _monday - timedelta(days=7)
+    _prev_first = (_today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    _prev_last  = _today.replace(day=1) - timedelta(days=1)
+
     system = (
         f"Ты — AI-ассистент торговой организации «{org_name}». "
         f"Ты опытный аналитик розничных продаж и деловой советник.\n"
-        f"Сегодня — {today_text} (месяц: {_today.month}, год: {_today.year}).\n"
+        f"Сегодня — {today_text}. "
+        f"Числовые ориентиры для расчёта дат:\n"
+        f"  • Сегодня: {_today.isoformat()}\n"
+        f"  • Эта неделя (пн–сегодня): {_monday.isoformat()} — {_today.isoformat()}\n"
+        f"  • Прошлая неделя (пн–вс): {_lw_start.isoformat()} — {_lw_end.isoformat()}\n"
+        f"  • Прошлый месяц: {_prev_first.isoformat()} — {_prev_last.isoformat()}\n"
         f"Отвечай по-русски, кратко и по делу. Без markdown-разметки, без заголовков.\n"
-        f"Опирайся только на данные из контекста и инструментов — не придумывай числа и факты. "
-        f"Если данных недостаточно — скажи прямо: «У меня нет данных по этому вопросу».\n"
-        f"Используй инструменты, если нужны конкретные цифры (остатки, зарплата, рейтинг, задачи). "
-        f"Если пользователь спрашивает про зарплату, мотивацию, рейтинги, отсутствия, "
-        f"график или расходы и НЕ называет период явно — отвечай за ТЕКУЩИЙ месяц "
-        f"и НЕ передавай инструментам параметры month/year (они сами возьмут текущий). "
-        f"Период (например «за апрель», «в прошлом месяце») передавай только когда "
-        f"пользователь назвал его сам.\n"
-        f"Текущие данные организации:\n"
+        f"Опирайся только на данные из контекста и инструментов — не придумывай числа. "
+        f"Для любого исторического или периодического вопроса сначала вызови нужный инструмент, "
+        f"и только потом отвечай. Фраза «у меня нет данных» допустима лишь когда инструмент "
+        f"вернул пустой результат.\n"
+        f"Снимок данных организации (актуально на момент запроса):\n"
         f"  - Продажи сегодня: {sales_today}\n"
-        f"  - Продажи за месяц: {sales_month}"
+        f"  - Продажи за текущий месяц: {sales_month}"
         f"{plans_text}\n"
         f"Обращается: {user_name}."
     )
@@ -355,7 +363,7 @@ async def _ai_chat_reply(org_db: str, topic_id: int, user_db_id: int, user_text:
 
         try:
             answer = await ask_llm_with_tools(
-                user_text, system, db, max_rounds=3, max_tokens=500, history=history
+                user_text, system, db, max_rounds=5, max_tokens=600, history=history
             )
         except Exception:
             answer = None
@@ -439,7 +447,7 @@ async def _ai_dm_reply(org_db: str, sender_db_id: int, user_text: str, peer_id: 
 
         try:
             answer = await ask_llm_with_tools(
-                user_text, system, db, max_rounds=3, max_tokens=500, history=history
+                user_text, system, db, max_rounds=5, max_tokens=600, history=history
             )
         except Exception:
             answer = None

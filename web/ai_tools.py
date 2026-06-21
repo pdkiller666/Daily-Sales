@@ -732,6 +732,258 @@ def _tool_get_rankings(db, params: dict) -> str:
         return "Ошибка получения рейтинга."
 
 
+# ── New tools: daily breakdown, period comparison, categories, seller, plans ──
+
+def _tool_get_daily_sales(db, params: dict) -> str:
+    """Day-by-day sales breakdown for trend analysis."""
+    today     = _dt.date.today()
+    date_from = str(params.get("date_from", (today - _dt.timedelta(days=6)).isoformat()))
+    date_to   = str(params.get("date_to",   today.isoformat()))
+    shop      = str(params.get("shop", "")).strip() or None
+    try:
+        conn = db.get_connection()
+        sql = (
+            "SELECT date(s.sale_date) AS day, COUNT(*) AS cnt, "
+            "SUM(s.quantity_sold) AS qty, SUM(s.quantity_sold * s.sale_price) AS rev "
+            "FROM sales s WHERE date(s.sale_date) >= ? AND date(s.sale_date) <= ?"
+        )
+        sql_params: list = [date_from, date_to]
+        if shop:
+            sql += " AND s.shop_name = ?"
+            sql_params.append(shop)
+        sql += " GROUP BY date(s.sale_date) ORDER BY day"
+        rows = conn.execute(sql, sql_params).fetchall()
+        conn.close()
+        if not rows:
+            return f"Нет продаж за период {date_from} — {date_to}."
+        _RU_DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+        lines = []
+        total_rev = 0.0
+        for day, cnt, qty, rev in rows:
+            rev = float(rev or 0)
+            total_rev += rev
+            try:
+                wd = _dt.date.fromisoformat(str(day)).weekday()
+                day_label = f"{_RU_DAYS[wd]} {day}"
+            except Exception:
+                day_label = str(day)
+            lines.append(f"  {day_label}: {int(rev):,} ₽ ({int(qty or 0)} шт., {int(cnt)} чеков)")
+        shop_part = f" | {shop}" if shop else ""
+        return (
+            f"Динамика по дням {date_from}—{date_to}{shop_part} "
+            f"(итого {int(total_rev):,} ₽):\n" + "\n".join(lines)
+        )
+    except Exception as exc:
+        logger.warning("ai_tool get_daily_sales: %s", exc)
+        return "Ошибка получения данных по дням."
+
+
+def _tool_get_sales_comparison(db, params: dict) -> str:
+    """Compare key metrics between two time periods."""
+    today = _dt.date.today()
+    week_start = today - _dt.timedelta(days=today.weekday())
+    p1_from = str(params.get("period1_from", week_start.isoformat()))
+    p1_to   = str(params.get("period1_to",   today.isoformat()))
+    try:
+        d1_from = _dt.date.fromisoformat(p1_from)
+        d1_to   = _dt.date.fromisoformat(p1_to)
+        span    = max((d1_to - d1_from).days, 0)
+        p2_to_d = d1_from - _dt.timedelta(days=1)
+        p2_from_d = p2_to_d - _dt.timedelta(days=span)
+        p2_from = str(params.get("period2_from", p2_from_d.isoformat()))
+        p2_to   = str(params.get("period2_to",   p2_to_d.isoformat()))
+    except Exception:
+        p2_from = (today - _dt.timedelta(days=14)).isoformat()
+        p2_to   = (today - _dt.timedelta(days=8)).isoformat()
+    shop = str(params.get("shop", "")).strip() or None
+
+    def _fetch(df, dt):
+        try:
+            s = db.get_sales_summary(start_date=df, end_date=dt, shop_name=shop)
+            if not s or not s[0]:
+                return (0, 0, 0.0)
+            return (int(s[0] or 0), int(s[1] or 0), float(s[2] or 0))
+        except Exception:
+            return (0, 0, 0.0)
+
+    cnt1, qty1, rev1 = _fetch(p1_from, p1_to)
+    cnt2, qty2, rev2 = _fetch(p2_from, p2_to)
+
+    def _pct(a, b):
+        if b == 0:
+            return "н/д"
+        d = (a - b) / b * 100
+        return f"+{d:.1f}%" if d >= 0 else f"{d:.1f}%"
+
+    shop_part = f" | {shop}" if shop else ""
+    return (
+        f"Сравнение периодов{shop_part}:\n"
+        f"  Период 1 ({p1_from}—{p1_to}): {int(rev1):,} ₽, {qty1} шт., {cnt1} чеков\n"
+        f"  Период 2 ({p2_from}—{p2_to}): {int(rev2):,} ₽, {qty2} шт., {cnt2} чеков\n"
+        f"  Изменение → выручка: {_pct(rev1, rev2)} | единиц: {_pct(qty1, qty2)} | чеков: {_pct(cnt1, cnt2)}"
+    )
+
+
+def _tool_get_category_breakdown(db, params: dict) -> str:
+    """Sales breakdown by product category for a period."""
+    today     = _dt.date.today()
+    date_from = str(params.get("date_from", today.replace(day=1).isoformat()))
+    date_to   = str(params.get("date_to",   today.isoformat()))
+    shop      = str(params.get("shop", "")).strip() or None
+    try:
+        conn = db.get_connection()
+        sql = (
+            "SELECT p.category, COUNT(*) AS cnt, SUM(s.quantity_sold) AS qty, "
+            "SUM(s.quantity_sold * s.sale_price) AS rev "
+            "FROM sales s JOIN products p ON s.product_id = p.id "
+            "WHERE date(s.sale_date) >= ? AND date(s.sale_date) <= ?"
+        )
+        sql_params: list = [date_from, date_to]
+        if shop:
+            sql += " AND s.shop_name = ?"
+            sql_params.append(shop)
+        sql += " GROUP BY p.category ORDER BY rev DESC LIMIT 20"
+        rows = conn.execute(sql, sql_params).fetchall()
+        conn.close()
+        if not rows:
+            return f"Нет данных по категориям за {date_from}—{date_to}."
+        total_rev = sum(float(r[3] or 0) for r in rows)
+        lines = []
+        for cat, cnt, qty, rev in rows:
+            rev = float(rev or 0)
+            share = rev / total_rev * 100 if total_rev > 0 else 0
+            lines.append(f"  - {cat or 'Без категории'}: {int(rev):,} ₽ ({share:.1f}%) | {int(qty or 0)} шт.")
+        shop_part = f" | {shop}" if shop else ""
+        return (
+            f"Продажи по категориям {date_from}—{date_to}{shop_part} "
+            f"(итого {int(total_rev):,} ₽):\n" + "\n".join(lines)
+        )
+    except Exception as exc:
+        logger.warning("ai_tool get_category_breakdown: %s", exc)
+        return "Ошибка получения данных по категориям."
+
+
+def _tool_get_seller_stats(db, params: dict) -> str:
+    """Deep-dive stats for a specific seller: sales, top products."""
+    seller = str(params.get("seller", "")).strip()
+    if not seller:
+        return "Укажите параметр seller (имя или фамилия продавца)."
+    today     = _dt.date.today()
+    date_from = str(params.get("date_from", today.replace(day=1).isoformat()))
+    date_to   = str(params.get("date_to",   today.isoformat()))
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            """SELECT u.id, u.first_name, u.last_name, u.shop_name
+               FROM users u
+               WHERE (u.first_name LIKE ? OR u.last_name LIKE ?
+                      OR (u.first_name || ' ' || u.last_name) LIKE ?)
+               LIMIT 5""",
+            (f"%{seller}%", f"%{seller}%", f"%{seller}%"),
+        ).fetchall()
+        if not rows:
+            conn.close()
+            return f"Продавец «{seller}» не найден."
+        uid, fn, ln, shop = rows[0]
+        full_name = f"{fn or ''} {ln or ''}".strip() or seller
+
+        stats = conn.execute(
+            """SELECT COUNT(*) AS cnt, SUM(s.quantity_sold) AS qty,
+                      SUM(s.quantity_sold * s.sale_price) AS rev
+               FROM sales s
+               WHERE s.user_id = ? AND date(s.sale_date) >= ? AND date(s.sale_date) <= ?""",
+            (uid, date_from, date_to),
+        ).fetchone()
+
+        top = conn.execute(
+            """SELECT p.name, SUM(s.quantity_sold) AS qty,
+                      SUM(s.quantity_sold * s.sale_price) AS rev
+               FROM sales s JOIN products p ON s.product_id = p.id
+               WHERE s.user_id = ? AND date(s.sale_date) >= ? AND date(s.sale_date) <= ?
+               GROUP BY p.id ORDER BY rev DESC LIMIT 4""",
+            (uid, date_from, date_to),
+        ).fetchall()
+        conn.close()
+
+        cnt = int(stats[0] or 0) if stats else 0
+        qty = int(stats[1] or 0) if stats else 0
+        rev = float(stats[2] or 0) if stats else 0.0
+        avg = rev / cnt if cnt > 0 else 0
+
+        shop_part = f" ({shop})" if shop else ""
+        result = (
+            f"Продавец: {full_name}{shop_part} | {date_from}—{date_to}\n"
+            f"  Чеков: {cnt} | Единиц: {qty} | Выручка: {int(rev):,} ₽ | Средний чек: {int(avg):,} ₽"
+        )
+        if top:
+            top_lines = [
+                f"  {i+1}. {r[0]}: {int(r[1])} шт., {int(float(r[2] or 0)):,} ₽"
+                for i, r in enumerate(top)
+            ]
+            result += "\nТоп товары:\n" + "\n".join(top_lines)
+        return result
+    except Exception as exc:
+        logger.warning("ai_tool get_seller_stats: %s", exc)
+        return "Ошибка получения данных о продавце."
+
+
+def _tool_get_plans_detail(db, params: dict) -> str:
+    """Active plans with per-shop progress bars."""
+    try:
+        today = _dt.date.today()
+        conn  = db.get_connection()
+        plans = conn.execute(
+            """SELECT p.id, p.name, p.target_value, p.metric,
+                      p.start_date, p.end_date, p.shop_name
+               FROM plans p
+               WHERE date(p.start_date) <= ? AND date(p.end_date) >= ?
+               ORDER BY p.shop_name NULLS FIRST, p.name""",
+            (today.isoformat(), today.isoformat()),
+        ).fetchall()
+
+        if not plans:
+            conn.close()
+            rows = db.get_plans_with_progress()
+            if not rows:
+                return "Активных планов нет."
+            lines = []
+            for p in rows:
+                unit = "руб." if "выручка" in p.get("label", "") else "шт."
+                pct  = p.get("pct", 0)
+                bar  = "█" * min(int(pct // 10), 10) + "░" * max(0, 10 - int(pct // 10))
+                lines.append(
+                    f"  - {p['label']}: {int(p['current']):,} / {int(p['target']):,} {unit} — {pct}% [{bar}]"
+                )
+            return "Планы (текущие):\n" + "\n".join(lines)
+
+        lines = []
+        for plan_id, name, target, metric, start, end, shop_name in plans:
+            is_rev = metric and "выручка" in str(metric).lower()
+            sql = (
+                "SELECT SUM(s.quantity_sold * s.sale_price) AS rev, SUM(s.quantity_sold) AS qty "
+                "FROM sales s WHERE date(s.sale_date) >= ? AND date(s.sale_date) <= ?"
+            )
+            sql_params: list = [str(start)[:10], str(end)[:10]]
+            if shop_name:
+                sql += " AND s.shop_name = ?"
+                sql_params.append(shop_name)
+            row = conn.execute(sql, sql_params).fetchone()
+            current = float((row[0] if is_rev else row[1]) or 0) if row else 0.0
+            target_v = float(target or 0)
+            pct = int(current / target_v * 100) if target_v > 0 else 0
+            unit = "руб." if is_rev else "шт."
+            scope = f"[{shop_name}]" if shop_name else "[вся орг.]"
+            bar = "█" * min(pct // 10, 10) + "░" * max(0, 10 - pct // 10)
+            lines.append(
+                f"  - {name} {scope}: {int(current):,}/{int(target_v):,} {unit} — {pct}% [{bar}]"
+            )
+        conn.close()
+        return "Планы продаж (разбивка по магазинам):\n" + "\n".join(lines)
+    except Exception as exc:
+        logger.warning("ai_tool get_plans_detail: %s", exc)
+        return "Ошибка получения данных о планах."
+
+
 # ── Tool registry ─────────────────────────────────────────────────────────────
 
 TOOLS: dict[str, dict] = {
@@ -846,6 +1098,49 @@ TOOLS: dict[str, dict] = {
             "date_from (ГГГГ-ММ-ДД), date_to (ГГГГ-ММ-ДД), limit."
         ),
         "fn": _tool_get_rankings,
+    },
+    "get_daily_sales": {
+        "description": (
+            "Динамика продаж по дням — сколько выручки, единиц и чеков было КАЖДЫЙ ДЕНЬ периода. "
+            "Используй для анализа трендов: рост/падение, какой день лучший/худший. "
+            "Параметры: date_from (ГГГГ-ММ-ДД), date_to (ГГГГ-ММ-ДД, макс. 31 день), "
+            "shop (магазин, необязательно)."
+        ),
+        "fn": _tool_get_daily_sales,
+    },
+    "get_sales_comparison": {
+        "description": (
+            "Сравнение двух периодов: выручка, количество единиц и чеков — и процент изменения. "
+            "Используй когда нужно сравнить эту неделю с прошлой, этот месяц с прошлым, и т.д. "
+            "Параметры: period1_from, period1_to, period2_from, period2_to (ГГГГ-ММ-ДД), "
+            "shop (необязательно). "
+            "По умолчанию: period1 = текущая неделя, period2 = предыдущий аналогичный период."
+        ),
+        "fn": _tool_get_sales_comparison,
+    },
+    "get_category_breakdown": {
+        "description": (
+            "Разбивка продаж по категориям товаров за период: доля каждой категории в выручке. "
+            "Используй для анализа структуры продаж, выявления самых прибыльных категорий. "
+            "Параметры: date_from (ГГГГ-ММ-ДД), date_to (ГГГГ-ММ-ДД), shop (необязательно)."
+        ),
+        "fn": _tool_get_category_breakdown,
+    },
+    "get_seller_stats": {
+        "description": (
+            "Детальная статистика конкретного продавца: выручка, количество чеков, "
+            "топ-товары за период. Используй когда спрашивают о конкретном сотруднике. "
+            "Параметры: seller (имя или фамилия), date_from (ГГГГ-ММ-ДД), date_to (ГГГГ-ММ-ДД)."
+        ),
+        "fn": _tool_get_seller_stats,
+    },
+    "get_plans_detail": {
+        "description": (
+            "Планы продаж с разбивкой по магазинам и прогресс-барами. "
+            "Более детально, чем базовые планы в системном промпте — показывает каждый магазин. "
+            "Параметры: нет."
+        ),
+        "fn": _tool_get_plans_detail,
     },
 }
 
