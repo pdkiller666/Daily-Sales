@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.127.0"
+CURRENT_VERSION = "1.128.0"
 
 ENTRIES = [
+    {
+        "version": "1.128.0",
+        "date": "21 июня 2026",
+        "items": [
+            "Add ability to customize shift reminder times for user notifications",
+        ],
+    },
     {
         "version": "1.127.0",
         "date": "21 июня 2026",

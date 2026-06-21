@@ -177,6 +177,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
                 "sales_alerts": True, "payment_alerts": True,
                 "admin_notifications": True, "stock_threshold": 5,
                 "notification_time": "09:00", "shift_sale_alerts": True,
+                "shift_reminders": True, "shift_remind_minutes": 0,
             }
 
         # Notification history for current user
@@ -432,6 +433,8 @@ async def settings_save(
     payment_alerts: str = Form(default=""),
     admin_notifications: str = Form(default=""),
     shift_sale_alerts: str = Form(default=""),
+    shift_reminders: str = Form(default=""),
+    shift_remind_minutes: int = Form(default=0),
     stock_threshold: int = Form(default=5),
     notification_time: str = Form(default="09:00"),
     auto_tasks_low_stock: str = Form(default=""),
@@ -460,6 +463,8 @@ async def settings_save(
                 payment_alerts=1 if payment_alerts == "on" else 0,
                 admin_notifications=1 if admin_notifications == "on" else 0,
                 shift_sale_alerts=1 if shift_sale_alerts == "on" else 0,
+                shift_reminders=1 if shift_reminders == "on" else 0,
+                shift_remind_minutes=shift_remind_minutes if shift_remind_minutes in (0, 15, 30, 60) else 0,
                 stock_threshold=max(0, stock_threshold),
                 notification_time=notification_time or "09:00",
                 auto_tasks_low_stock=1 if auto_tasks_low_stock == "on" else 0,

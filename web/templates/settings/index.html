@@ -298,6 +298,22 @@
                     </div>
 
                     <div class="border-t border-slate-100 pt-4">
+                        {{ toggle('shift_reminders', 'Напоминание о начале смены',
+                                  'Уведомление когда наступает ваша смена', notif_settings.shift_reminders|default(true)) }}
+                    </div>
+
+                    <div class="pl-0">
+                        <label class="text-xs text-slate-500 font-medium">Напомнить заранее</label>
+                        <select name="shift_remind_minutes"
+                                class="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="0"  {% if (notif_settings.shift_remind_minutes|default(0))|int == 0  %}selected{% endif %}>В момент начала</option>
+                            <option value="15" {% if (notif_settings.shift_remind_minutes|default(0))|int == 15 %}selected{% endif %}>За 15 минут</option>
+                            <option value="30" {% if (notif_settings.shift_remind_minutes|default(0))|int == 30 %}selected{% endif %}>За 30 минут</option>
+                            <option value="60" {% if (notif_settings.shift_remind_minutes|default(0))|int == 60 %}selected{% endif %}>За 1 час</option>
+                        </select>
+                    </div>
+
+                    <div class="border-t border-slate-100 pt-4">
                         {{ toggle('payment_alerts', 'Оповещения о платежах',
                                   'Уведомления о поступлении платежей', notif_settings.payment_alerts) }}
                     </div>
