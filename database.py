@@ -642,6 +642,12 @@ class Database:
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # Миграция: за сколько минут до начала смены присылать напоминание (0=в момент, 15/30/60)
+        try:
+            cursor.execute("ALTER TABLE notification_settings ADD COLUMN shift_remind_minutes INTEGER DEFAULT 0")
+        except Exception as _exc:
+            logger.debug("create_tables: подавлено исключение: %s", _exc)
+
         # Миграция: контекстные блоки AI-дайджеста
         try:
             cursor.execute(
@@ -5103,6 +5109,8 @@ class Database:
                 'shift_reminders': bool(settings[14]) if len(settings) > 14 else True,
                 # auto_tasks_low_stock — индекс 15, добавлен миграцией (opt-in, дефолт False)
                 'auto_tasks_low_stock': bool(settings[15]) if len(settings) > 15 else False,
+                # shift_remind_minutes — индекс 16, добавлен миграцией (0=в момент начала)
+                'shift_remind_minutes': int(settings[16]) if len(settings) > 16 else 0,
             }
         else:
             self.create_default_notification_settings(user_id)
@@ -5119,6 +5127,7 @@ class Database:
                 'plan_coeff_cap': True,
                 'shift_reminders': True,
                 'auto_tasks_low_stock': False,
+                'shift_remind_minutes': 0,
             }
 
     def create_default_notification_settings(self, user_id):
@@ -10610,6 +10619,72 @@ class Database:
             return result
         except Exception as e:
             logger.error(f"get_shifts_starting_at: {e}")
+            return []
+
+    def get_shifts_for_reminders(self, remind_map: dict) -> list:
+        """Для каждого offset в remind_map = {minutes: (time_str, date_str)} возвращает
+        [(user_id, telegram_id, start_time, end_time, remind_minutes)] — пользователей,
+        у которых смена начинается в target_time_str и shift_remind_minutes == minutes.
+        Исключает пользователей с shift_reminders=0 и на утверждённых отсутствиях.
+        """
+        try:
+            from datetime import date as _date
+            conn = self.get_connection()
+            seen: set = set()
+            result = []
+
+            for remind_min, (time_str, date_str) in remind_map.items():
+                weekday = _date.fromisoformat(date_str).weekday()
+
+                ws_rows = conn.execute(
+                    """SELECT u.id, u.telegram_id, ws.start_time, ws.end_time
+                       FROM work_schedule ws
+                       JOIN users u ON u.id = ws.user_id
+                       LEFT JOIN notification_settings ns ON ns.user_id = ws.user_id
+                       WHERE ws.work_date = ?
+                         AND ws.start_time = ?
+                         AND COALESCE(ns.shift_reminders, 1) = 1
+                         AND COALESCE(ns.shift_remind_minutes, 0) = ?""",
+                    (date_str, time_str, remind_min)
+                ).fetchall() or []
+
+                tpl_rows = conn.execute(
+                    """SELECT u.id, u.telegram_id, st.start_time, st.end_time
+                       FROM shift_templates st
+                       JOIN users u ON u.id = st.user_id
+                       LEFT JOIN notification_settings ns ON ns.user_id = st.user_id
+                       WHERE st.weekday = ?
+                         AND st.start_time = ?
+                         AND COALESCE(ns.shift_reminders, 1) = 1
+                         AND COALESCE(ns.shift_remind_minutes, 0) = ?
+                         AND EXISTS (
+                             SELECT 1 FROM work_schedule ws2
+                             WHERE ws2.user_id = st.user_id AND ws2.work_date = ?
+                               AND (ws2.start_time IS NULL OR ws2.start_time = '')
+                         )""",
+                    (weekday, time_str, remind_min, date_str)
+                ).fetchall() or []
+
+                for row in list(ws_rows) + list(tpl_rows):
+                    uid = row[0]
+                    if uid not in seen:
+                        seen.add(uid)
+                        result.append((row[0], row[1], row[2], row[3], remind_min))
+
+            conn.close()
+
+            # Исключаем пользователей на утверждённом отсутствии
+            # Собираем все уникальные даты из remind_map
+            all_dates = set(ds for _, (_, ds) in remind_map.items())
+            absent_ids: set = set()
+            for ds in all_dates:
+                absent_ids.update(self.get_absent_user_ids_today(ds))
+            if absent_ids:
+                result = [r for r in result if r[0] not in absent_ids]
+
+            return result
+        except Exception as e:
+            logger.error(f"get_shifts_for_reminders: {e}")
             return []
 
     def add_work_day(self, user_id: int, work_date: str,

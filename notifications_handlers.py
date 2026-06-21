@@ -845,6 +845,15 @@ async def delete_scheduled_notification(callback: CallbackQuery, state: FSMConte
     await view_scheduled_notifications(callback, state)
 
 
+def _shift_remind_label(minutes: int) -> str:
+    """Подпись кнопки выбора времени напоминания о смене."""
+    if minutes == 0:
+        return "⏰ Напомнить: в момент начала"
+    if minutes == 60:
+        return "⏰ Напомнить: за 1 час"
+    return f"⏰ Напомнить: за {minutes} мин."
+
+
 @notifications_router.callback_query(F.data == "notification_settings")
 async def notification_settings_menu(callback: CallbackQuery, state: FSMContext):
     """Меню настроек уведомлений"""
@@ -867,6 +876,7 @@ async def notification_settings_menu(callback: CallbackQuery, state: FSMContext)
         [InlineKeyboardButton(text=f"💰 Уведомления о продажах {'✅' if settings['sales_alerts'] else '❌'}", callback_data="toggle_sales_alerts")],
         [InlineKeyboardButton(text=f"👥 Продажи коллег по смене {'✅' if settings.get('shift_sale_alerts', True) else '❌'}", callback_data="toggle_shift_sale")],
         [InlineKeyboardButton(text=f"📅 Начало смены {'✅' if settings.get('shift_reminders', True) else '❌'}", callback_data="toggle_shift_reminders")],
+        [InlineKeyboardButton(text=_shift_remind_label(settings.get('shift_remind_minutes', 0)), callback_data="set_shift_remind_minutes")],
     ]
     
     if is_admin:
@@ -955,6 +965,59 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
     
     await callback.answer(f"✅ Настройка изменена")
     await notification_settings_menu(callback, state)
+
+@notifications_router.callback_query(F.data == "set_shift_remind_minutes")
+async def set_shift_remind_minutes_menu(callback: CallbackQuery, state: FSMContext):
+    """Меню выбора: за сколько минут до начала смены присылать уведомление."""
+    current_db = await get_db(callback.from_user.id, state)
+    user = await current_db.get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    settings = await current_db.get_notification_settings(user[0])
+    cur = settings.get('shift_remind_minutes', 0)
+
+    def _mark(val):
+        return " ✅" if cur == val else ""
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"В момент начала{_mark(0)}", callback_data="shift_remind_save_0")],
+        [InlineKeyboardButton(text=f"За 15 минут{_mark(15)}", callback_data="shift_remind_save_15")],
+        [InlineKeyboardButton(text=f"За 30 минут{_mark(30)}", callback_data="shift_remind_save_30")],
+        [InlineKeyboardButton(text=f"За 1 час{_mark(60)}", callback_data="shift_remind_save_60")],
+        [back_button("notification_settings")],
+    ])
+    await callback.answer()
+    await callback.message.edit_text(
+        "⏰ <b>Напоминание о смене</b>\n\nВыберите, когда присылать уведомление:",
+        reply_markup=kb, parse_mode="HTML"
+    )
+
+
+@notifications_router.callback_query(F.data.startswith("shift_remind_save_"))
+async def save_shift_remind_minutes(callback: CallbackQuery, state: FSMContext):
+    """Сохраняет выбранное время напоминания о смене."""
+    try:
+        minutes = int(callback.data.split("shift_remind_save_")[1])
+    except (ValueError, IndexError):
+        await callback.answer("❌ Ошибка", show_alert=True)
+        return
+
+    if minutes not in (0, 15, 30, 60):
+        await callback.answer("❌ Недопустимое значение", show_alert=True)
+        return
+
+    current_db = await get_db(callback.from_user.id, state)
+    user = await current_db.get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    await current_db.update_notification_settings(user[0], shift_remind_minutes=minutes)
+    await callback.answer("✅ Сохранено")
+    await notification_settings_menu(callback, state)
+
 
 @notifications_router.callback_query(F.data == "set_stock_threshold")
 async def set_stock_threshold_start(callback: CallbackQuery, state: FSMContext):

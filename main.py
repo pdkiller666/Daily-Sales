@@ -1220,36 +1220,47 @@ async def main():
                         continue
 
                     # Для каждого уникального часового пояса — вычисляем локальное время
+                    # и строим remind_map для всех возможных значений shift_remind_minutes
                     processed_uids: set = set()
                     for (tz_str,) in tz_rows:
                         try:
                             local_now = now_utc.astimezone(ZoneInfo(tz_str))
-                            local_time = local_now.strftime('%H:%M')
-                            local_date = local_now.strftime('%Y-%m-%d')
                         except Exception:
                             continue
 
+                        # remind_map: {minutes_offset: (target_time_str, target_date_str)}
+                        # 0 = точно в момент начала, 15/30/60 = за N минут до
+                        from datetime import timedelta as _td
+                        remind_map = {}
+                        for _offset in (0, 15, 30, 60):
+                            _target = local_now + _td(minutes=_offset)
+                            remind_map[_offset] = (
+                                _target.strftime('%H:%M'),
+                                _target.strftime('%Y-%m-%d'),
+                            )
+
                         shifts = await asyncio.to_thread(
-                            current_db.get_shifts_starting_at, local_time, local_date
+                            current_db.get_shifts_for_reminders, remind_map
                         )
-                        for user_id, telegram_id, start_time, end_time in shifts:
+                        for user_id, telegram_id, start_time, end_time, remind_min in shifts:
                             if not telegram_id or user_id in processed_uids:
                                 continue
-                            # Проверяем, не совпадает ли timezone пользователя с tz_str
+                            # Проверяем, что timezone пользователя совпадает с tz_str
                             user_tz = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
                             if user_tz != tz_str:
-                                continue  # этот пользователь будет обработан в его собственном tz-цикле
+                                continue
 
                             processed_uids.add(user_id)
 
                             # Dedup: проверяем, не было ли уже отправлено сегодня
+                            _target_date = remind_map[remind_min][1]
                             try:
                                 _conn = await asyncio.to_thread(current_db.get_connection)
                                 _already = _conn.execute(
                                     """SELECT 1 FROM notification_history
                                        WHERE user_id = ? AND notification_type = 'shift_start'
                                          AND created_at >= ?""",
-                                    (user_id, local_date + ' 00:00:00')
+                                    (user_id, _target_date + ' 00:00:00')
                                 ).fetchone()
                                 _conn.close()
                                 if _already:
@@ -1258,10 +1269,19 @@ async def main():
                                 pass
 
                             # Формируем текст уведомления
-                            if end_time:
-                                text = f"🕐 <b>Твоя смена сегодня</b>\n{start_time} → {end_time}"
+                            if remind_min > 0:
+                                _remind_label = f"{remind_min} мин." if remind_min < 60 else "1 час"
+                                if end_time:
+                                    text = f"⏰ <b>Смена через {_remind_label}</b>\n{start_time} → {end_time}"
+                                else:
+                                    text = f"⏰ <b>Смена через {_remind_label}</b>\nНачало: {start_time}"
+                                push_title = f"⏰ Смена через {_remind_label}"
                             else:
-                                text = f"🕐 <b>Твоя смена сегодня</b>\nНачало: {start_time}"
+                                if end_time:
+                                    text = f"🕐 <b>Твоя смена сегодня</b>\n{start_time} → {end_time}"
+                                else:
+                                    text = f"🕐 <b>Твоя смена сегодня</b>\nНачало: {start_time}"
+                                push_title = "🕐 Начало смены"
 
                             try:
                                 await bot.send_message(
@@ -1276,7 +1296,7 @@ async def main():
                                 )
                                 try:
                                     from web.push_utils import apush
-                                    await apush(int(telegram_id), "🕐 Начало смены", re.sub(r'<[^>]+>', '', text).strip(), "/schedule")
+                                    await apush(int(telegram_id), push_title, re.sub(r'<[^>]+>', '', text).strip(), "/schedule")
                                 except Exception:
                                     pass
                             except Exception as _send_err:
