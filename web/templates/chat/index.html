@@ -1731,7 +1731,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const data = await res.json();
                 if (data.ok) {
                     this.msgs = [];
-                    this.latestId = 0;
+                    /* Используем ID маркера сброса как новую точку отсчёта поллинга.
+                       Без этого latestId=0 → следующий poll перезагружает всю историю. */
+                    this.latestId = data.latest_id || this.latestId;
+                    this.aiThinking = false;
                 }
             } catch(e) { alert('Ошибка соединения'); }
         },

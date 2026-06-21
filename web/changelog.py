@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.132.0"
+CURRENT_VERSION = "1.133.0"
 
 ENTRIES = [
+    {
+        "version": "1.133.0",
+        "date": "21 июня 2026",
+        "items": [
+            "Add profile photo upload and display in settings and chat",
+        ],
+    },
     {
         "version": "1.132.0",
         "date": "21 июня 2026",

@@ -2327,7 +2327,7 @@ async def ai_topic_reset_session(
         if not ai_tid or ai_tid != topic_id:
             return JSONResponse({"ok": False, "error": "Не AI-тема"}, status_code=400)
         new_id = db.add_ai_chat_session_break(user_db_id, topic_id)
-        return JSONResponse({"ok": bool(new_id)})
+        return JSONResponse({"ok": bool(new_id), "latest_id": new_id})
     except Exception as e:
         logger.error("ai_topic_reset_session: %s", e)
         return JSONResponse({"ok": False}, status_code=500)
