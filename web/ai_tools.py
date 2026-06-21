@@ -876,8 +876,9 @@ def _tool_get_seller_stats(db, params: dict) -> str:
         rows = conn.execute(
             """SELECT u.id, u.first_name, u.last_name, u.shop_name
                FROM users u
-               WHERE (u.first_name LIKE ? OR u.last_name LIKE ?
-                      OR (u.first_name || ' ' || u.last_name) LIKE ?)
+               WHERE (lower_u(u.first_name) LIKE lower_u(?)
+                      OR lower_u(u.last_name) LIKE lower_u(?)
+                      OR lower_u(u.first_name || ' ' || u.last_name) LIKE lower_u(?))
                LIMIT 5""",
             (f"%{seller}%", f"%{seller}%", f"%{seller}%"),
         ).fetchall()

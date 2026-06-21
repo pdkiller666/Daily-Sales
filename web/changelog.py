@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.130.0"
+CURRENT_VERSION = "1.131.0"
 
 ENTRIES = [
+    {
+        "version": "1.131.0",
+        "date": "21 июня 2026",
+        "items": [
+            "Expand AI assistant capabilities with new tools and improved data handling",
+        ],
+    },
     {
         "version": "1.130.0",
         "date": "21 июня 2026",
