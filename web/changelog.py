@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.137.0"
+CURRENT_VERSION = "1.138.0"
 
 ENTRIES = [
+    {
+        "version": "1.138.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Fix issues with displaying product size and category options",
+        ],
+    },
     {
         "version": "1.137.0",
         "date": "22 июня 2026",

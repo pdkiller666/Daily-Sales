@@ -160,6 +160,21 @@
     aiResult: null,
     aiError: '',
     aiIds: null,
+    init() {
+        /* Восстановить AI-результат после редиректа со сброшенными фильтрами */
+        try {
+            const saved = sessionStorage.getItem('_ds_ai_products');
+            if (saved) {
+                sessionStorage.removeItem('_ds_ai_products');
+                const s = JSON.parse(saved);
+                this.aiMode = true;
+                this.aiQuery = s.query || '';
+                this.aiResult = s.result || null;
+                this.aiIds = new Set(s.ids || []);
+                this.$nextTick(() => this.applyAiFilter());
+            }
+        } catch(_) {}
+    },
     async runAiSearch() {
         const q = this.aiQuery.trim();
         if (!q) return;
@@ -177,6 +192,19 @@
             if (d.ok) {
                 this.aiResult = d;
                 this.aiIds = new Set(d.ids || []);
+                /* Если есть server-side фильтры (category/q), часть товаров отсутствует в DOM.
+                   Сохраняем результат в sessionStorage и перезагружаем без фильтров. */
+                const sp = new URLSearchParams(window.location.search);
+                const hasFilters = sp.get('category') || sp.get('q');
+                if (hasFilters) {
+                    try {
+                        sessionStorage.setItem('_ds_ai_products', JSON.stringify({
+                            query: q, result: d, ids: [...this.aiIds]
+                        }));
+                    } catch(_) {}
+                    window.location.href = '/products';
+                    return;
+                }
                 this.$nextTick(() => this.applyAiFilter());
             } else {
                 this.aiError = d.error || 'Ошибка AI поиска';
@@ -191,12 +219,10 @@
         const tbody = document.getElementById('prod-tbody');
         if (!tbody) return;
         const rows = tbody.querySelectorAll('tr');
-        let vis = 0;
         rows.forEach(r => {
             const pid = parseInt(r.dataset.pid || '0');
             const show = !this.aiIds || this.aiIds.size === 0 || this.aiIds.has(pid);
             r.style.display = show ? '' : 'none';
-            if (show) vis++;
         });
     },
     clearAiFilter() {
