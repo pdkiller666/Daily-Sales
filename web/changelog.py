@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.139.0"
+CURRENT_VERSION = "1.140.0"
 
 ENTRIES = [
+    {
+        "version": "1.140.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Remove redundant asynchronous operation wrappers for database calls",
+        ],
+    },
     {
         "version": "1.139.0",
         "date": "22 июня 2026",
