@@ -284,8 +284,15 @@ class IntegrationManager:
             for chain, bonus in bonuses.items():
                 db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
                 chains.add(chain)
-                # Write a trade_network targeted motivation rule (task #49)
-                if product and chain and bonus is not None:
+                # Write a trade_network targeted motivation rule (task #49).
+                # Skip blank/zero cells: read_motivation_table maps empty/"-" cells
+                # to 0.0, and writing a 0 rule would silently OVERWRITE a previously
+                # set rate with zero. Treat blank/0 as "no change" for that chain.
+                try:
+                    _bonus_val = float(bonus) if bonus is not None else 0.0
+                except (TypeError, ValueError):
+                    _bonus_val = 0.0
+                if product and chain and _bonus_val > 0:
                     try:
                         ok = db.set_product_motivation(
                             product[0], 'fixed', float(bonus), None,
