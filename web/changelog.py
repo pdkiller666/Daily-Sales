@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.144.0"
+CURRENT_VERSION = "1.145.0"
 
 ENTRIES = [
+    {
+        "version": "1.145.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Correctly calculate salaries by excluding paid absences from shift counts",
+        ],
+    },
     {
         "version": "1.144.0",
         "date": "22 июня 2026",
