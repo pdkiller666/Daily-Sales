@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.134.0"
+CURRENT_VERSION = "1.135.0"
 
 ENTRIES = [
+    {
+        "version": "1.135.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Add ability to save and restore shopping cart data",
+        ],
+    },
     {
         "version": "1.134.0",
         "date": "22 июня 2026",

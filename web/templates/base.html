@@ -2680,5 +2680,68 @@ window.dsOnce = function(btn, label) {
     }
 };
 </script>
+
+<!-- ── Кеширование последнего URL модуля (восстановление фильтров/состояния при возврате) ── -->
+<script>
+(function() {
+    /* Список модулей: точный pathname → ключ хранилища.
+       Только корневые пути; детальные страницы (/products/123) не кешируются. */
+    var _NM = {
+        '/sales':         'sales',
+        '/products':      'products',
+        '/inventory':     'inventory',
+        '/reports':       'reports',
+        '/rankings':      'rankings',
+        '/staff':         'staff',
+        '/salary':        'salary',
+        '/schedule':      'schedule',
+        '/absences':      'absences',
+        '/plans':         'plans',
+        '/contests':      'contests',
+        '/tasks':         'tasks',
+        '/notifications': 'notifications',
+        '/shops':         'shops',
+        '/categories':    'categories',
+        '/org-structure': 'org-structure',
+    };
+    var _PFX = '_nav_';
+
+    try {
+        /* 1. Сохранить текущий URL если это корень модуля с фильтрами */
+        var _p = location.pathname, _s = location.search;
+        if (_s && _NM[_p]) {
+            localStorage.setItem(_PFX + _NM[_p], _p + _s);
+        }
+
+        /* 2. Перехват кликов по nav-ссылкам */
+        document.addEventListener('click', function(e) {
+            /* Игнорируем Ctrl/Cmd/Shift-клики (открытие в новой вкладке) */
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+            var a = e.target.closest('a[href]');
+            if (!a) return;
+            var href;
+            try { href = new URL(a.href, location.origin); } catch(_) { return; }
+            /* Только внутренние ссылки на модули */
+            if (href.origin !== location.origin) return;
+            var key = _NM[href.pathname];
+            if (!key) return;
+
+            if (location.pathname === href.pathname || location.pathname.startsWith(href.pathname + '/')) {
+                /* Уже в этом модуле → клик на nav = сброс к дефолту, очищаем кеш */
+                localStorage.removeItem(_PFX + key);
+                /* Даём браузеру следовать href как обычно */
+                return;
+            }
+
+            /* Переход в другой модуль — восстановить последний URL */
+            var saved = localStorage.getItem(_PFX + key);
+            if (saved && saved !== href.pathname) {
+                e.preventDefault();
+                location.href = saved;
+            }
+        });
+    } catch(_) { /* localStorage недоступен — молча игнорируем */ }
+})();
+</script>
 </body>
 </html>
