@@ -437,9 +437,26 @@ async def integration_sync_motiv(request: Request, cid: int, csrf_token: str = F
         result = await integration_manager.run_motiv_sync_from_config(db, cid)
         synced = result.get("synced", 0)
         chains = result.get("chains", [])
-        msg = f"Мотивация синхронизирована: {synced} моделей"
+        rules_written = result.get("rules_written", 0)
+        unmatched = result.get("unmatched", [])
+        unmatched_chains = result.get("unmatched_chains", [])
+        msg = (f"Мотивация синхронизирована: {synced} моделей, "
+               f"правил записано: {rules_written}")
         if chains:
-            msg += f", сети: {', '.join(str(c) for c in chains[:5])}"
+            msg += f". Сети: {', '.join(str(c) for c in chains[:5])}"
+        # Surface the same mismatch warnings the bot shows, so a 0-rule / wrong-rate
+        # sync is not silently reported as success in the web cabinet either.
+        if unmatched:
+            up = ", ".join(str(u) for u in unmatched[:5])
+            if len(unmatched) > 5:
+                up += f" … ещё {len(unmatched) - 5}"
+            msg += (f". ⚠️ Не найдено товаров ({len(unmatched)}): {up} — "
+                    f"мотивация по ним не записана, задайте псевдонимы")
+        if unmatched_chains:
+            cp = ", ".join(str(c) for c in unmatched_chains[:5])
+            msg += (f". ⚠️ Сети без совпадения в профилях: {cp} — "
+                    f"ставки по ним не применятся, добавьте псевдоним сети "
+                    f"(напр. DNS → Днс)")
         return RedirectResponse(url=f"/integration?msg={quote(msg)}", status_code=302)
     except ValueError as e:
         return RedirectResponse(url=f"/integration?error={quote(str(e))}", status_code=302)

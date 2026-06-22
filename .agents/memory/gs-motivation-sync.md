@@ -30,6 +30,19 @@ still says "✅ синхронизировано":
    `trade_network` 0 rule beats the global rule in `resolve_motivation`). Skip
    writing when bonus ≤ 0 (treat blank/0 as "no change for that chain").
 
+4. **Network-column header ≠ profile trade_network.** Sheet column headers (e.g.
+   Latin `DNS`/`MVM`) are written verbatim as the rule `scope_value`, but seller
+   profiles store the network in their own spelling (e.g. Cyrillic `Днс`).
+   `resolve_motivation` matches lowercased `trade_network` vs `scope_value`, so a
+   `DNS` rule never resolves for a `Днс` seller → wrong/global rate at sale time
+   (reported symptom: "мотивация 825₽ вместо 1155₽"). **Fix:** run the SAME alias
+   map over chain headers (not just model rows) so `DNS → Днс` makes the rule
+   resolvable; and report sheet networks that match no profile
+   (`get_all_trade_networks()`) as `unmatched_chains` so the mismatch is visible.
+   **How to apply:** any sheet→entity reconcile that targets a `scope_value` which
+   users also type freehand (network/city/shop) needs an alias path + an
+   "matches nothing known" warning, not just verbatim storage.
+
 **Also note:** sync writes with `recalculate=False`, so existing months'
 `seller_earnings` are NOT recalculated — new rates apply to future sales; users
 checking historical salary totals may still think "nothing changed". The rules
