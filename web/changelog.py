@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.136.0"
+CURRENT_VERSION = "1.137.0"
 
 ENTRIES = [
+    {
+        "version": "1.137.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Improve navigation and cart stock synchronization",
+        ],
+    },
     {
         "version": "1.136.0",
         "date": "22 июня 2026",

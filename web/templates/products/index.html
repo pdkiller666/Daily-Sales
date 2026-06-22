@@ -294,7 +294,7 @@
 {% if is_admin %}
 <div x-data="{
     sel: new Set(),
-    allCats: {{ (categories or [])|tojson }},
+    allCats: {{ (categories or [])|tojson|forceescape }},
     showDel: false,
     showCat: false,
     showPct: false,
@@ -307,9 +307,9 @@
     printMode: 'sel',
     showFiltSz: false,
     filteredCount: {{ total_count|int }},
-    fltQ: {{ q|tojson }},
-    fltCategory: {{ selected_category|tojson }},
-    sizeOpts: {{ label_size_options|tojson }},
+    fltQ: {{ q|tojson|forceescape }},
+    fltCategory: {{ selected_category|tojson|forceescape }},
+    sizeOpts: {{ label_size_options|tojson|forceescape }},
     get selArr() { return Array.from(this.sel); },
     get previewSzLabel() { const o = this.sizeOpts.find(o => o[0] === this.previewSz); return o ? o[1] : this.previewSz; },
     get printCount() { return this.printMode === 'filtered' ? Math.min(this.filteredCount, 200) : this.sel.size; },
