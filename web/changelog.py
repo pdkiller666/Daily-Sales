@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.133.0"
+CURRENT_VERSION = "1.134.0"
 
 ENTRIES = [
+    {
+        "version": "1.134.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Fix AI chat not refreshing after reset by updating polling logic",
+            "Add comprehensive documentation for APK delivery system",
+        ],
+    },
     {
         "version": "1.133.0",
         "date": "21 июня 2026",

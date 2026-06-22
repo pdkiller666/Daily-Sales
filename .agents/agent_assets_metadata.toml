@@ -12,3 +12,9 @@ id = "Cka7WruYPGYxsFSgA-HD_"
 uri = "file://TWA_APK_GUIDE.md"
 type = "text"
 title = "TWA_APK_GUIDE.md — инструкция в репозитории"
+
+[[outputs]]
+id = "QxExTJucRM-RZali--WWF"
+uri = "file://APK_DELIVERY_SYSTEM.md"
+type = "text"
+title = "APK Delivery System — полная инструкция"
