@@ -1426,13 +1426,15 @@ async def _mtv_show_aliases(target, state: FSMContext):
     kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="gs_mtv_bk_rcol"))
     text = (
         "🎯 <b>Мотивация — шаг 5/5: псевдонимы</b> <i>(необязательно)</i>\n\n"
-        "Если название модели <b>в таблице отличается</b> от названия в системе — "
-        "задай соответствие.\n\n"
+        "Если название <b>в таблице отличается</b> от названия в системе — "
+        "задай соответствие. Работает и для <b>моделей</b>, и для <b>сетей</b> "
+        "(заголовков колонок).\n\n"
         "Формат — <b>по одной паре в строке</b>:\n"
         "<code>Название в листе → Название в системе</code>\n\n"
         "<b>Например:</b>\n"
         "<code>Pura 80 → Huawei Pura 80</code>\n"
-        "<code>Nova 14 → Nova 14i</code>\n\n"
+        "<code>Nova 14 → Nova 14i</code>\n"
+        "<code>DNS → Днс</code>  <i>(сеть как в профилях)</i>\n\n"
         "Разделители: <code>→</code> или <code>-&gt;</code> или <code>:</code>\n\n"
         "Если названия совпадают — нажми «⏩ Пропустить и сохранить»."
     )
@@ -1481,6 +1483,7 @@ async def _mtv_finalize(state: FSMContext, user_id: int, edit):
         rules_written  = result.get('rules_written', 0)
         matched_models = result.get('matched_models', 0)
         unmatched      = result.get('unmatched', [])
+        unmatched_chains = result.get('unmatched_chains', [])
 
         models_preview = ", ".join(models[:8])
         if len(models) > 8:
@@ -1500,6 +1503,7 @@ async def _mtv_finalize(state: FSMContext, user_id: int, edit):
                          f"мотивация НЕ записана.\n<code>{he(un_prev)}</code>\n"
                          f"Проверьте, что названия в таблице совпадают с товарами в боте, "
                          f"или задайте псевдонимы.")
+        warn_line += _mtv_chains_warning(unmatched_chains)
 
         await edit(
             f"✅ <b>Мотивация синхронизирована!</b>\n\n"
@@ -1677,6 +1681,7 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
                 warn_line = (f"\n\n⚠️ <b>Не найдено товаров: {len(_un)}</b> — мотивация "
                              f"для них НЕ записана.\n<code>{he(un_prev)}</code>\n"
                              f"Сверьте названия с товарами в боте или задайте псевдонимы.")
+            warn_line += _mtv_chains_warning(result.get('unmatched_chains', []))
             await msg.edit_text(
                 f"✅ <b>Мотивация обновлена!</b>\n\n"
                 f"📋 Лист: <code>{he(result['sheet'])}</code>\n"
@@ -2588,6 +2593,24 @@ async def gs_mapping_field(message: Message, state: FSMContext):
 
 
 # ── lookup wizard helpers ────────────────────────────────
+
+def _mtv_chains_warning(unmatched_chains: list) -> str:
+    """Warn when a sheet network column matches no trade_network in any profile.
+    That is exactly the silent trap behind "мотивация неправильная": the sheet
+    header (e.g. DNS) ≠ the profile network (e.g. Днс), so the targeted rule is
+    written but never resolved. Tell the user to add an alias DNS → Днс."""
+    if not unmatched_chains:
+        return ""
+    prev = ", ".join(unmatched_chains[:8])
+    if len(unmatched_chains) > 8:
+        prev += f" … ещё {len(unmatched_chains) - 8}"
+    return (f"\n\n⚠️ <b>Сети без совпадения в профилях: {len(unmatched_chains)}</b>\n"
+            f"<code>{he(prev)}</code>\n"
+            f"Эти названия сетей из таблицы не совпадают ни с одной «Торговой сетью» "
+            f"в профилях сотрудников — ставки по ним <b>не применятся</b> при продаже.\n"
+            f"Задайте псевдоним сети в мастере, например: "
+            f"<code>DNS → Днс</code>")
+
 
 def _parse_aliases(text: str) -> dict:
     """Parse alias lines: 'bot_value → sheet_value' (→, ->, :)."""

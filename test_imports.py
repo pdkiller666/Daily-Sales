@@ -653,6 +653,56 @@ try:
 except Exception as _e12:
     _fn_fail("chat HTTP end-to-end write routes", _e12)
 
+# N. GS motivation sync: network-column alias (DNS → Днс) + unmatched-chain report
+try:
+    import asyncio as _aio_m, tempfile as _tf_m, os as _os_m
+    from database import Database as _Db_m
+    from integration.manager import integration_manager as _im
+
+    _tmp_m = _tf_m.mktemp(suffix='.db')
+    _dbm = _Db_m(_tmp_m)
+    _dbm.create_tables()
+    # Seller profile network is Cyrillic 'Днс'; sheet column header is Latin 'DNS'
+    _dbm.add_user(telegram_id=4242, first_name="Илья", last_name="Т", trade_network="Днс")
+    _pid_m = _dbm.add_product("Nova 15 Max", "Тест", 32999)
+    assert _pid_m, "add_product failed"
+
+    # Stub the connection lookup, token refresh and the sheet read so we exercise
+    # the real sync_motivation_from_sheet alias/scope logic without Google.
+    _dbm.get_integration_connection = lambda cid: (cid, "google_sheets", "name", "{}")
+
+    async def _fake_token(db, conn_id, conn_config):
+        return {}
+    _im._ensure_valid_token = _fake_token
+
+    _prov = _im.providers.get("google_sheets")
+    _orig_read = _prov.read_motivation_table
+    async def _fake_read(conn_config, sheet, **kw):
+        return [{"model": "Nova 15 Max", "rrp": 0.0,
+                 "bonuses": {"DNS": 1155.0, "MVM": 825.0}}]
+    _prov.read_motivation_table = _fake_read
+    try:
+        _res_m = _aio_m.run(_im.sync_motivation_from_sheet(
+            _dbm, 1, "Лист1", header_row=1, model_col=1,
+            bonus_col_map={"2": "DNS", "3": "MVM"}, rrp_col=None,
+            aliases={"DNS": "Днс"},  # sheet header → profile network
+        ))
+    finally:
+        _prov.read_motivation_table = _orig_read
+
+    # The DNS column must be written under the resolvable Cyrillic scope 'Днс'
+    _mv = _dbm.resolve_motivation(_pid_m, {"trade_network": "Днс"})
+    assert _mv is not None, "resolve_motivation returned None for 'Днс'"
+    assert float(_mv["motivation_value"]) == 1155.0, \
+        f"expected 1155 for Днс, got {_mv['motivation_value']}"
+    # MVM has no matching profile network → must be reported as unmatched
+    assert "MVM" in _res_m.get("unmatched_chains", []), \
+        f"MVM should be unmatched; got {_res_m.get('unmatched_chains')}"
+    _os_m.unlink(_tmp_m)
+    _fn_ok("GS мотивация: алиас сети DNS→Днс + отчёт о несовпавших сетях")
+except Exception as _e:
+    _fn_fail("GS motivation network alias", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

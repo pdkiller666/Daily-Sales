@@ -254,12 +254,26 @@ class IntegrationManager:
         except Exception:
             prod_by_norm = {}
 
+        # Known trade networks from employee profiles (normalized). The sheet column
+        # headers (e.g. "DNS") must match the trade_network stored in profiles
+        # (e.g. "Днс") or resolve_motivation won't find the rule. We warn the user
+        # about any sheet network that matches no profile so they can add an alias.
+        known_networks_norm = set()
+        try:
+            for nw in (db.get_all_trade_networks() or []):
+                ns = str(nw).strip().lower()
+                if ns:
+                    known_networks_norm.add(ns)
+        except Exception:
+            known_networks_norm = set()
+
         synced = 0
         models = []
         chains = set()
         rules_written = 0
         matched_models = 0
         unmatched = []
+        unmatched_chains = set()
         for entry in rows:
             model_name = entry['model']
             if alias_lookup:
@@ -282,8 +296,18 @@ class IntegrationManager:
             else:
                 unmatched.append(model_name)
             for chain, bonus in bonuses.items():
-                db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
-                chains.add(chain)
+                # Resolve the sheet column header (network) through the SAME alias
+                # map as models, so "DNS" → "Днс" matches the trade_network stored
+                # in profiles. Without this the rule scope_value never matches and
+                # resolve_motivation falls back to the wrong / global rate.
+                chain_resolved = chain
+                if alias_lookup:
+                    chain_resolved = alias_lookup.get(str(chain).strip().lower(), chain)
+                chain_norm = str(chain_resolved).strip().lower()
+                db.upsert_bonus_cache(conn_id, model_name, chain_resolved, bonus, rrp)
+                chains.add(chain_resolved)
+                if known_networks_norm and chain_norm and chain_norm not in known_networks_norm:
+                    unmatched_chains.add(str(chain_resolved))
                 # Write a trade_network targeted motivation rule (task #49).
                 # Skip blank/zero cells: read_motivation_table maps empty/"-" cells
                 # to 0.0, and writing a 0 rule would silently OVERWRITE a previously
@@ -292,11 +316,11 @@ class IntegrationManager:
                     _bonus_val = float(bonus) if bonus is not None else 0.0
                 except (TypeError, ValueError):
                     _bonus_val = 0.0
-                if product and chain and _bonus_val > 0:
+                if product and chain_resolved and _bonus_val > 0:
                     try:
                         ok = db.set_product_motivation(
                             product[0], 'fixed', float(bonus), None,
-                            scope_type='trade_network', scope_value=str(chain),
+                            scope_type='trade_network', scope_value=str(chain_resolved),
                             recalculate=False,
                         )
                         if ok:
@@ -309,10 +333,12 @@ class IntegrationManager:
         db.add_integration_log(conn_id, None, 'success',
                                f'motivation sync: {synced} моделей из "{rendered}" '
                                f'({matched_models} сопоставлено, {rules_written} таргет-правил, '
-                               f'{len(unmatched)} не найдено)')
+                               f'{len(unmatched)} не найдено, '
+                               f'{len(unmatched_chains)} сетей без профиля)')
         return {'synced': synced, 'models': models, 'sheet': rendered,
                 'chains': sorted(chains), 'rules_written': rules_written,
-                'matched_models': matched_models, 'unmatched': unmatched}
+                'matched_models': matched_models, 'unmatched': unmatched,
+                'unmatched_chains': sorted(unmatched_chains)}
 
     async def run_motiv_sync_from_config(self, db, conn_id: int) -> dict:
         """Re-run a motivation sync using the saved config for this connection."""

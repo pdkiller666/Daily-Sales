@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.141.0"
+CURRENT_VERSION = "1.142.0"
 
 ENTRIES = [
+    {
+        "version": "1.142.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Improve Google Sheets motivation sync by fixing product matching and reporting",
+        ],
+    },
     {
         "version": "1.141.0",
         "date": "22 июня 2026",
