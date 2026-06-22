@@ -151,14 +151,16 @@ async def _refresh_admin_calendar(callback: CallbackQuery, state: FSMContext,
     name = he(f"{user[2]} {user[3]}".strip() if user else f"id={target_uid}")
     daily_rate = await current_db.get_salary_rate(target_uid)
     worked = await current_db.get_work_schedule(target_uid, year, month)
-    worked_count = len(worked)
+    # net_worked_count исключает дни, покрытые оплачиваемыми отсутствиями (отпуск,
+    # больничный, отгул и т.д.), чтобы не считать их дважды при +paid_abs ниже
+    net_worked_count = await current_db.get_worked_days_count(target_uid, year, month)
     paid_abs = await current_db.get_paid_absence_days_count(target_uid, year, month)
-    salary = (worked_count + paid_abs) * daily_rate
+    salary = (net_worked_count + paid_abs) * daily_rate
     rate_str = f"{format_price(daily_rate)}₽/смену" if daily_rate else "не задана"
     if paid_abs > 0:
-        shifts_str = f"📊 Смен: {worked_count} + оплач. отпуск: {paid_abs} = {worked_count + paid_abs}"
+        shifts_str = f"📊 Смен: {net_worked_count} + оплач. отпуск: {paid_abs} = {net_worked_count + paid_abs}"
     else:
-        shifts_str = f"📊 Смен отмечено: {worked_count}"
+        shifts_str = f"📊 Смен отмечено: {net_worked_count}"
     text = (
         f"📅 <b>График работы: {name}</b>\n"
         f"{_MONTH_NAMES[month - 1]} {year}\n\n"
@@ -1175,10 +1177,10 @@ async def my_schedule(callback: CallbackQuery, state: FSMContext):
     year, month = now.year, now.month
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
-    worked_count = len(worked)
+    net_worked_count = await current_db.get_worked_days_count(user_id, year, month)
     paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
-    salary = (worked_count + paid_abs) * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary, paid_abs)
+    salary = (net_worked_count + paid_abs) * daily_rate
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary, paid_abs)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1196,10 +1198,10 @@ async def my_schedule_nav(callback: CallbackQuery, state: FSMContext):
     year, month = int(parts[2]), int(parts[3])
     daily_rate = await current_db.get_salary_rate(user_id)
     worked = await current_db.get_work_schedule(user_id, year, month)
-    worked_count = len(worked)
+    net_worked_count = await current_db.get_worked_days_count(user_id, year, month)
     paid_abs = await current_db.get_paid_absence_days_count(user_id, year, month)
-    salary = (worked_count + paid_abs) * daily_rate
-    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, worked_count, salary, paid_abs)
+    salary = (net_worked_count + paid_abs) * daily_rate
+    text = _my_schedule_text(_MONTH_NAMES[month - 1], year, daily_rate, net_worked_count, salary, paid_abs)
     kb = _calendar_kb(year, month, worked, editable=False, back_cb="main_menu")
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -1256,22 +1258,21 @@ async def _show_adj_list(callback: CallbackQuery, state: FSMContext, db, uid: in
 
     try:
         daily_rate = await db.get_salary_rate(uid)
-        worked = await db.get_work_schedule(uid, year, month)
-        worked_count = len(worked)
+        net_worked_count = await db.get_worked_days_count(uid, year, month)
         paid_abs = await db.get_paid_absence_days_count(uid, year, month)
-        effective_days = worked_count + paid_abs
+        effective_days = net_worked_count + paid_abs
         base_salary = effective_days * daily_rate
     except Exception:
-        daily_rate = worked_count = paid_abs = effective_days = base_salary = None
+        daily_rate = net_worked_count = paid_abs = effective_days = base_salary = None
 
     text = f"✏️ <b>Корректировки: {he(name)}</b>\n📅 {month_name} {year}\n\n"
 
     if daily_rate is not None and daily_rate > 0:
         rate_str = f"{format_price(daily_rate)}₽/смену"
         if paid_abs and paid_abs > 0:
-            shifts_str = f"Смен: {worked_count} + оплач. отпуск: {paid_abs} = {effective_days}"
+            shifts_str = f"Смен: {net_worked_count} + оплач. отпуск: {paid_abs} = {effective_days}"
         else:
-            shifts_str = f"Смен отработано: {worked_count}"
+            shifts_str = f"Смен отработано: {net_worked_count}"
         text += (
             f"💼 Ставка: {rate_str}\n"
             f"📊 {shifts_str}\n"

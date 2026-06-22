@@ -10487,20 +10487,62 @@ class Database:
             return set()
 
     def get_worked_days_count(self, user_id, year, month):
-        """Количество отработанных смен за месяц"""
+        """Количество отработанных смен за месяц.
+        Дни, покрытые одобренным оплачиваемым отсутствием (отпуск, больничный,
+        отгул и т.д.), НЕ считаются рабочими сменами — они учитываются отдельно
+        через get_paid_absence_days_count, чтобы не было двойного счёта.
+        """
+        import calendar as _cal
+        from datetime import date, timedelta
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
             month_start = f"{year}-{month:02d}-01"
             month_end = f"{year}-{month:02d}-31"
-            cursor.execute(
-                'SELECT COUNT(*) FROM work_schedule WHERE user_id = ? '
+            _, days_in_month = _cal.monthrange(year, month)
+            me = f"{year}-{month:02d}-{days_in_month:02d}"
+
+            worked_rows = conn.execute(
+                'SELECT work_date FROM work_schedule WHERE user_id=? '
                 'AND work_date >= ? AND work_date <= ?',
                 (user_id, month_start, month_end)
-            )
-            result = cursor.fetchone()[0]
+            ).fetchall()
+            worked_dates = {r[0] for r in worked_rows}
+
+            if not worked_dates:
+                conn.close()
+                return 0
+
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+
+            abs_rows = conn.execute(
+                '''SELECT ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.user_id=? AND ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (user_id, me, month_start)
+            ).fetchall() or []
             conn.close()
-            return result
+
+            month_start_d = date(year, month, 1)
+            month_end_d = date(year, month, days_in_month)
+            paid_abs_dates: set = set()
+            for atype, sd, ed, is_paid_override in abs_rows:
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                cur = d_start
+                while cur <= d_end:
+                    paid_abs_dates.add(cur.isoformat())
+                    cur += timedelta(days=1)
+
+            return len(worked_dates - paid_abs_dates)
         except Exception as e:
             logger.error(f"Ошибка get_worked_days_count: {e}")
             if 'conn' in locals():
@@ -11373,20 +11415,29 @@ class Database:
             return 0.0
 
     def get_team_salary_summary(self, year, month):
-        """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, base_salary, shop_name, telegram_id, adj_sum)"""
+        """Сводка зарплат по команде: (user_id, fn, ln, daily_rate, worked_days, base_salary, shop_name, telegram_id, adj_sum)
+        worked_days — смены за вычетом дней одобренных оплачиваемых отсутствий,
+        чтобы не было двойного счёта при начислении отпускных/больничных.
+        """
+        import calendar as _cal
+        from datetime import date, timedelta
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
             month_start = f"{year}-{month:02d}-01"
             month_end = f"{year}-{month:02d}-31"
+            _, days_in_month = _cal.monthrange(year, month)
+            me = f"{year}-{month:02d}-{days_in_month:02d}"
+            month_start_d = date(year, month, 1)
+            month_end_d = date(year, month, days_in_month)
+
+            # Базовые данные по пользователям
+            cursor = conn.cursor()
             cursor.execute('''
                 SELECT
                     u.id,
                     u.first_name,
                     u.last_name,
                     COALESCE(ss.daily_rate, 0) AS daily_rate,
-                    COUNT(ws.id) AS worked_days,
-                    COALESCE(ss.daily_rate, 0) * COUNT(ws.id) AS salary,
                     u.shop_name,
                     u.telegram_id,
                     COALESCE((
@@ -11395,13 +11446,56 @@ class Database:
                     ), 0) AS adj_sum
                 FROM users u
                 LEFT JOIN salary_settings ss ON ss.user_id = u.id
-                LEFT JOIN work_schedule ws ON ws.user_id = u.id
-                    AND ws.work_date >= ? AND ws.work_date <= ?
-                GROUP BY u.id
                 ORDER BY u.last_name, u.first_name
-            ''', (year, month, month_start, month_end))
-            result = cursor.fetchall()
+            ''', (year, month))
+            users = cursor.fetchall()
+
+            # Смены по всем пользователям одним запросом
+            work_dates_by_user: dict = {}
+            for uid, wd in conn.execute(
+                'SELECT user_id, work_date FROM work_schedule '
+                'WHERE work_date >= ? AND work_date <= ?',
+                (month_start, month_end)
+            ).fetchall():
+                work_dates_by_user.setdefault(uid, set()).add(wd)
+
+            # Оплачиваемые отсутствия одним запросом (для вычитания из смен)
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+            abs_rows = conn.execute(
+                '''SELECT ar.user_id, ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (me, month_start)
+            ).fetchall() or []
+            paid_abs_dates_by_user: dict = {}
+            for uid, atype, sd, ed, is_paid_override in abs_rows:
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                cur = d_start
+                while cur <= d_end:
+                    paid_abs_dates_by_user.setdefault(uid, set()).add(cur.isoformat())
+                    cur += timedelta(days=1)
+
             conn.close()
+
+            # Собираем итоговый список с правильным worked_days
+            result = []
+            for u_id, fn, ln, daily_rate, shop_name, tg_id, adj_sum in users:
+                wdates = work_dates_by_user.get(u_id, set())
+                paid_abs = paid_abs_dates_by_user.get(u_id, set())
+                worked_days = len(wdates - paid_abs)
+                base_salary = daily_rate * worked_days
+                result.append((u_id, fn, ln, daily_rate, worked_days,
+                                base_salary, shop_name, tg_id, adj_sum))
             return result
         except Exception as e:
             logger.error(f"Ошибка get_team_salary_summary: {e}")
@@ -11452,22 +11546,64 @@ class Database:
     def get_salary_bulk_stats(self, year: int, month: int,
                                start_date: str, end_date: str) -> dict:
         """Return {user_id: {'worked': int, 'adj_sum': float, 'motivation': float}}
-        for ALL users using 3 GROUP BY queries instead of 3 queries per user (avoids N+1).
-        paid_abs is not included — computed per-user due to calendar intersection logic.
+        for ALL users using bulk queries instead of N+1 (avoids N+1).
+        'worked' already excludes days covered by approved paid absences to prevent
+        double-counting with get_paid_absence_days_bulk (called by the caller).
+        paid_abs itself is not included here — computed separately.
         """
+        import calendar as _cal
+        from datetime import date, timedelta
         result: dict = {}
         month_start = f"{year}-{month:02d}-01"
         month_end = f"{year}-{month:02d}-31"
+        _, days_in_month = _cal.monthrange(year, month)
+        me = f"{year}-{month:02d}-{days_in_month:02d}"
+        month_start_d = date(year, month, 1)
+        month_end_d = date(year, month, days_in_month)
         try:
             conn = self.get_connection()
-            # 1. worked days per user
-            for uid, cnt in conn.execute(
-                'SELECT user_id, COUNT(*) FROM work_schedule '
-                'WHERE work_date >= ? AND work_date <= ? GROUP BY user_id',
+
+            # 1a. Fetch all (user_id, work_date) pairs — will subtract paid absences below
+            work_dates_by_user: dict = {}
+            for uid, wd in conn.execute(
+                'SELECT user_id, work_date FROM work_schedule '
+                'WHERE work_date >= ? AND work_date <= ?',
                 (month_start, month_end),
             ).fetchall():
+                work_dates_by_user.setdefault(uid, set()).add(wd)
+
+            # 1b. Bulk-fetch paid absence date ranges for all users in the month
+            settings_rows = conn.execute(
+                'SELECT type, is_paid FROM absence_type_settings'
+            ).fetchall()
+            type_paid = {r[0]: bool(r[1]) for r in settings_rows}
+            abs_rows = conn.execute(
+                '''SELECT ar.user_id, ar.type, ar.start_date, ar.end_date, ar.is_paid
+                   FROM absence_records ar
+                   WHERE ar.status='approved'
+                     AND ar.start_date <= ? AND ar.end_date >= ?
+                     AND ar.type != 'absence' ''',
+                (me, month_start)
+            ).fetchall() or []
+            paid_abs_dates_by_user: dict = {}
+            for uid, atype, sd, ed, is_paid_override in abs_rows:
+                paid = bool(is_paid_override) if is_paid_override is not None \
+                    else type_paid.get(atype, True)
+                if not paid:
+                    continue
+                d_start = max(date.fromisoformat(sd[:10]), month_start_d)
+                d_end = min(date.fromisoformat(ed[:10]), month_end_d)
+                cur = d_start
+                while cur <= d_end:
+                    paid_abs_dates_by_user.setdefault(uid, set()).add(cur.isoformat())
+                    cur += timedelta(days=1)
+
+            # 1c. Net worked = schedule days minus paid-absence days
+            for uid, wdates in work_dates_by_user.items():
+                paid_abs = paid_abs_dates_by_user.get(uid, set())
                 result.setdefault(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
-                result[uid]['worked'] = int(cnt)
+                result[uid]['worked'] = len(wdates - paid_abs)
+
             # 2. salary adjustments sum per user
             for uid, s in conn.execute(
                 'SELECT user_id, COALESCE(SUM(amount), 0) FROM salary_adjustments '
@@ -11476,6 +11612,7 @@ class Database:
             ).fetchall():
                 result.setdefault(uid, {'worked': 0, 'adj_sum': 0.0, 'motivation': 0.0})
                 result[uid]['adj_sum'] = float(s)
+
             # 3. motivation (seller_earnings commissions) per user
             rows = conn.execute(
                 'SELECT se.user_id, COALESCE(SUM(se.commission_amount), 0) '
