@@ -959,7 +959,7 @@ async def targeted_rules_list(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
 
     if not rules:
         await callback.message.edit_text(
@@ -991,7 +991,7 @@ async def targeted_rules_page(callback: CallbackQuery, state: FSMContext):
         page = 0
 
     current_db = await get_db(callback.from_user.id, state)
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
     if not rules:
         await targeted_rules_list(callback, state)
         return
@@ -1014,7 +1014,7 @@ async def targeted_rule_action(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
     rule = next((r for r in rules if r['id'] == rule_id), None)
     if not rule:
         await callback.answer("❌ Правило не найдено", show_alert=True)
@@ -1054,7 +1054,7 @@ async def targeted_rule_edit_start(callback: CallbackQuery, state: FSMContext):
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
     rule = next((r for r in rules if r['id'] == rule_id), None)
     if not rule:
         await callback.answer("❌ Правило не найдено", show_alert=True)
@@ -1121,9 +1121,7 @@ async def targeted_rule_edit_value(message: Message, state: FSMContext):
         rate_str = format_price(value)
 
     current_db = await get_db(message.from_user.id, state)
-    result = await asyncio.to_thread(
-        current_db.update_motivation_rule_value, rule_id, rule_type, value
-    )
+    result = await current_db.update_motivation_rule_value(rule_id, rule_type, value)
     if result is None:
         await fsm_edit(state, message,
                        "❌ <b>Ошибка</b>\n\nПравило не найдено (возможно, уже удалено).",
@@ -1134,7 +1132,7 @@ async def targeted_rule_edit_value(message: Message, state: FSMContext):
         return
 
     # Показываем подтверждение и обновлённый список
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
     text, markup = _build_targeted_rules_view(rules, 0) if rules else (None, None)
 
     success_prefix = f"✅ <b>Ставка обновлена:</b> {rate_str}\n\n"
@@ -1162,7 +1160,7 @@ async def targeted_rule_delete_final(callback: CallbackQuery, state: FSMContext)
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    result = await asyncio.to_thread(current_db.remove_motivation_rule, rule_id)
+    result = await current_db.remove_motivation_rule(rule_id)
 
     if result is None:
         await callback.answer("❌ Правило не найдено (возможно, уже удалено)", show_alert=True)
@@ -1184,7 +1182,7 @@ async def targeted_rule_delete_confirm(callback: CallbackQuery, state: FSMContex
         return
 
     current_db = await get_db(callback.from_user.id, state)
-    rules = await asyncio.to_thread(current_db.get_all_motivation_rules)
+    rules = await current_db.get_all_motivation_rules()
     rule = next((r for r in rules if r['id'] == rule_id), None)
     if not rule:
         await callback.answer("❌ Правило не найдено", show_alert=True)

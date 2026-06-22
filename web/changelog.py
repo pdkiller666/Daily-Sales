@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.138.0"
+CURRENT_VERSION = "1.139.0"
 
 ENTRIES = [
+    {
+        "version": "1.139.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Исправлена ошибка кнопки «🎯 Таргетированные правила» — список правил, пагинация, изменение ставки и удаление теперь работают без ошибок.",
+            "Fix AI search to display products correctly when filters are active",
+            "исправлена двойная обёртка asyncio.to_thread в секции «Таргетированные правила»",
+        ],
+    },
     {
         "version": "1.138.0",
         "date": "22 июня 2026",
