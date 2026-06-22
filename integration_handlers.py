@@ -1478,17 +1478,36 @@ async def _mtv_finalize(state: FSMContext, user_id: int, edit):
         chains  = result.get('chains', [])
         actual  = result['sheet']
 
+        rules_written  = result.get('rules_written', 0)
+        matched_models = result.get('matched_models', 0)
+        unmatched      = result.get('unmatched', [])
+
         models_preview = ", ".join(models[:8])
         if len(models) > 8:
             models_preview += f" … ещё {len(models) - 8}"
         alias_line = f"\n🔁 Псевдонимов: <b>{len(aliases)}</b>" if aliases else ""
 
+        # Surface how many rules actually landed in the DB and which models did not
+        # match any product — otherwise a 0-rule "success" looks like it worked.
+        rules_line = (f"\n💾 Правил записано: <b>{rules_written}</b> "
+                      f"(товаров сопоставлено: {matched_models})")
+        warn_line = ""
+        if unmatched:
+            un_prev = ", ".join(unmatched[:8])
+            if len(unmatched) > 8:
+                un_prev += f" … ещё {len(unmatched) - 8}"
+            warn_line = (f"\n\n⚠️ <b>Не найдено товаров: {len(unmatched)}</b> — для них "
+                         f"мотивация НЕ записана.\n<code>{he(un_prev)}</code>\n"
+                         f"Проверьте, что названия в таблице совпадают с товарами в боте, "
+                         f"или задайте псевдонимы.")
+
         await edit(
             f"✅ <b>Мотивация синхронизирована!</b>\n\n"
             f"📋 Лист: <code>{he(actual)}</code>\n"
-            f"🔢 Моделей: <b>{synced}</b>\n"
-            f"🏷 Сети: {he(', '.join(chains)) or '—'}{alias_line}\n"
-            f"📦 {he(models_preview)}\n\n"
+            f"🔢 Моделей в таблице: <b>{synced}</b>\n"
+            f"🏷 Сети: {he(', '.join(chains)) or '—'}{alias_line}"
+            f"{rules_line}\n"
+            f"📦 {he(models_preview)}{warn_line}\n\n"
             f"Настройка сохранена — в следующий раз жми «⚡ Быстрая синхронизация».",
             InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📊 Кэш мотивации",
@@ -1646,12 +1665,25 @@ async def gs_mtv_router(callback: CallbackQuery, state: FSMContext):
             models_preview = ", ".join(result['models'][:8])
             if len(result['models']) > 8:
                 models_preview += f" … ещё {len(result['models']) - 8}"
+            _rw = result.get('rules_written', 0)
+            _mm = result.get('matched_models', 0)
+            _un = result.get('unmatched', [])
+            rules_line = f"\n💾 Правил записано: <b>{_rw}</b> (сопоставлено: {_mm})"
+            warn_line = ""
+            if _un:
+                un_prev = ", ".join(_un[:8])
+                if len(_un) > 8:
+                    un_prev += f" … ещё {len(_un) - 8}"
+                warn_line = (f"\n\n⚠️ <b>Не найдено товаров: {len(_un)}</b> — мотивация "
+                             f"для них НЕ записана.\n<code>{he(un_prev)}</code>\n"
+                             f"Сверьте названия с товарами в боте или задайте псевдонимы.")
             await msg.edit_text(
                 f"✅ <b>Мотивация обновлена!</b>\n\n"
                 f"📋 Лист: <code>{he(result['sheet'])}</code>\n"
-                f"🔢 Моделей: <b>{result['synced']}</b>\n"
-                f"🏷 Сети: {he(', '.join(result.get('chains', []))) or '—'}\n"
-                f"📦 {he(models_preview)}",
+                f"🔢 Моделей в таблице: <b>{result['synced']}</b>\n"
+                f"🏷 Сети: {he(', '.join(result.get('chains', []))) or '—'}"
+                f"{rules_line}\n"
+                f"📦 {he(models_preview)}{warn_line}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📊 Кэш мотивации",
                                           callback_data=f"gs_show_motiv_{conn_id}")],

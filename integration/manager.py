@@ -240,10 +240,26 @@ class IntegrationManager:
             if ks and vs:
                 alias_lookup[ks] = vs
 
+        # Build a normalized product-name lookup ONCE (case-insensitive, trimmed).
+        # get_product_by_name() does an exact `name = ?` match — sheet model names
+        # rarely match byte-for-byte, so without this fallback rules_written stays 0
+        # while the user sees a "success" message. Python .lower() folds Cyrillic too
+        # (unlike SQLite LOWER which is ASCII-only).
+        prod_by_norm = {}
+        try:
+            for p in db.get_all_products():
+                key = str(p[1]).strip().lower()
+                if key and key not in prod_by_norm:
+                    prod_by_norm[key] = p
+        except Exception:
+            prod_by_norm = {}
+
         synced = 0
         models = []
         chains = set()
         rules_written = 0
+        matched_models = 0
+        unmatched = []
         for entry in rows:
             model_name = entry['model']
             if alias_lookup:
@@ -252,12 +268,19 @@ class IntegrationManager:
             bonuses = entry.get('bonuses', {})
             if not bonuses:
                 continue
-            # Find matching product once per model for targeted (trade_network) rules
+            # Find matching product once per model for targeted (trade_network) rules:
+            # exact match first, then normalized (case/whitespace-insensitive) fallback.
             product = None
             try:
                 product = db.get_product_by_name(model_name)
             except Exception:
                 product = None
+            if not product:
+                product = prod_by_norm.get(str(model_name).strip().lower())
+            if product:
+                matched_models += 1
+            else:
+                unmatched.append(model_name)
             for chain, bonus in bonuses.items():
                 db.upsert_bonus_cache(conn_id, model_name, chain, bonus, rrp)
                 chains.add(chain)
@@ -278,9 +301,11 @@ class IntegrationManager:
 
         db.add_integration_log(conn_id, None, 'success',
                                f'motivation sync: {synced} моделей из "{rendered}" '
-                               f'({rules_written} таргет-правил)')
+                               f'({matched_models} сопоставлено, {rules_written} таргет-правил, '
+                               f'{len(unmatched)} не найдено)')
         return {'synced': synced, 'models': models, 'sheet': rendered,
-                'chains': sorted(chains), 'rules_written': rules_written}
+                'chains': sorted(chains), 'rules_written': rules_written,
+                'matched_models': matched_models, 'unmatched': unmatched}
 
     async def run_motiv_sync_from_config(self, db, conn_id: int) -> dict:
         """Re-run a motivation sync using the saved config for this connection."""
