@@ -465,7 +465,7 @@ async def process_product_article(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    existing = await asyncio.to_thread(current_db.get_product_by_article, raw)
+    existing = await current_db.get_product_by_article(raw)
     if existing and existing[0] != product_id:
         await fsm_edit(state, message,
                        f"❌ Артикул <code>{he(raw)}</code> уже занят другим товаром. Введите другой:",
@@ -476,7 +476,7 @@ async def process_product_article(message: Message, state: FSMContext):
                        ]))
         return
 
-    await asyncio.to_thread(current_db.update_product, product_id, article=raw)
+    await current_db.update_product(product_id, article=raw)
     await state.update_data(product_article=raw)
 
     await state.set_state(ProductStates.waiting_for_barcode)
@@ -659,7 +659,7 @@ async def process_product_barcode(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, barcode_value)
+    existing_bc = await current_db.get_product_by_barcode(barcode_value)
     if existing_bc and existing_bc[0] != product_id:
         await fsm_edit(
             state, message,
@@ -668,7 +668,7 @@ async def process_product_barcode(message: Message, state: FSMContext):
         )
         return
 
-    await asyncio.to_thread(current_db.update_product, product_id, barcode=barcode_value)
+    await current_db.update_product(product_id, barcode=barcode_value)
 
     await state.set_state(ProductStates.waiting_for_description)
     await fsm_edit(
@@ -1306,7 +1306,7 @@ async def edit_product_choice(callback: CallbackQuery, state: FSMContext):
     _art = product[7] if len(product) > 7 and product[7] else "—"
     _bc = product[8] if len(product) > 8 and product[8] else "—"
 
-    _networks = await asyncio.to_thread(current_db.get_all_trade_networks)
+    _networks = await current_db.get_all_trade_networks()
     _kb_rows = [
         [InlineKeyboardButton(text="🏷 Название", callback_data="edit_param_name"),
          InlineKeyboardButton(text="📂 Категория", callback_data="edit_param_category")],
@@ -1408,8 +1408,8 @@ async def edit_parameter_choice(callback: CallbackQuery, state: FSMContext):
 async def _render_variants_list(callback, state, current_db, product_id):
     """Экран со списком торговых сетей и кнопками выбора сети."""
     product = await current_db.get_product(product_id)
-    networks = await asyncio.to_thread(current_db.get_all_trade_networks)
-    vmap = await asyncio.to_thread(current_db.get_product_variants_map, product_id)
+    networks = await current_db.get_all_trade_networks()
+    vmap = await current_db.get_product_variants_map(product_id)
     await state.update_data(variant_networks=networks)
 
     _def_art = (product[7] if product and len(product) > 7 and product[7] else "—")
@@ -1437,13 +1437,13 @@ async def _render_variants_list(callback, state, current_db, product_id):
 
 async def _render_variant_network(callback, state, current_db, product_id, net_idx):
     data = await state.get_data()
-    networks = data.get("variant_networks") or await asyncio.to_thread(current_db.get_all_trade_networks)
+    networks = data.get("variant_networks") or await current_db.get_all_trade_networks()
     if net_idx < 0 or net_idx >= len(networks):
         await callback.answer("❌ Сеть не найдена", show_alert=True)
         return
     net = networks[net_idx]
     product = await current_db.get_product(product_id)
-    v = await asyncio.to_thread(current_db.get_product_variant, product_id, net)
+    v = await current_db.get_product_variant(product_id, net)
     cur_art = (v[3] if v and v[3] else "—")
     cur_bc = (v[4] if v and v[4] else "—")
     await callback.message.edit_text(
@@ -1552,7 +1552,7 @@ async def edit_variant_clear(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка", show_alert=True)
         return
     current_db = await get_db(callback.from_user.id, state)
-    await asyncio.to_thread(current_db.delete_product_variant, product_id, networks[net_idx])
+    await current_db.delete_product_variant(product_id, networks[net_idx])
     await callback.answer("✅ Коды сети очищены")
     await _render_variant_network(callback, state, current_db, product_id, net_idx)
 
@@ -1573,13 +1573,13 @@ async def _save_variant_field(message: Message, state: FSMContext, field: str):
     current_db = await get_db(message.from_user.id, state)
     new_val = None if raw in ("-", "") else raw
     # сохраняем, не затирая второе поле
-    cur = await asyncio.to_thread(current_db.get_product_variant, product_id, net)
+    cur = await current_db.get_product_variant(product_id, net)
     cur_art = cur[3] if cur else None
     cur_bc = cur[4] if cur else None
     if field == "article":
-        res = await asyncio.to_thread(current_db.set_product_variant, product_id, net, new_val, cur_bc)
+        res = await current_db.set_product_variant(product_id, net, new_val, cur_bc)
     else:
-        res = await asyncio.to_thread(current_db.set_product_variant, product_id, net, cur_art, new_val)
+        res = await current_db.set_product_variant(product_id, net, cur_art, new_val)
     if not res.get("ok"):
         err = res.get("error")
         msg = "❌ Этот штрихкод уже используется другим товаром." if err == "barcode_conflict" else "❌ Не удалось сохранить."
@@ -1656,7 +1656,7 @@ async def process_edit_value_product(message: Message, state: FSMContext):
         elif param == "price":
             await current_db.update_product(product_id, price=new_value)
         elif param == "article":
-            existing = await asyncio.to_thread(current_db.get_product_by_article, new_value)
+            existing = await current_db.get_product_by_article(new_value)
             if existing and existing[0] != product_id:
                 await fsm_edit(state, message, f"✏️ ❌ Артикул <code>{he(new_value)}</code> занят другим товаром. Введите другой:", reply_markup=_edit_kb)
                 return
@@ -1769,7 +1769,7 @@ async def process_edit_barcode_photo(message: Message, state: FSMContext):
     data = await state.get_data()
     product_id = data.get('edit_product_id')
     current_db = await get_db(message.from_user.id, state)
-    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, barcode_value)
+    existing_bc = await current_db.get_product_by_barcode(barcode_value)
     if existing_bc and existing_bc[0] != product_id:
         await fsm_edit(
             state, message,
@@ -1778,7 +1778,7 @@ async def process_edit_barcode_photo(message: Message, state: FSMContext):
         )
         return
 
-    await asyncio.to_thread(current_db.update_product, product_id, barcode=barcode_value)
+    await current_db.update_product(product_id, barcode=barcode_value)
     product = await current_db.get_product(product_id)
     await fsm_edit(
         state, message,
@@ -1815,7 +1815,7 @@ async def process_edit_barcode_text(message: Message, state: FSMContext):
     raw = message.text.strip()
     if raw == '-':
         current_db = await get_db(message.from_user.id, state)
-        await asyncio.to_thread(current_db.update_product, product_id, barcode="")
+        await current_db.update_product(product_id, barcode="")
         await fsm_edit(state, message, "✅ Штрихкод удалён.",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("products")]]))
         await clear_state_keep_org(state)
@@ -1829,7 +1829,7 @@ async def process_edit_barcode_text(message: Message, state: FSMContext):
         return
 
     current_db = await get_db(message.from_user.id, state)
-    existing_bc = await asyncio.to_thread(current_db.get_product_by_barcode, raw)
+    existing_bc = await current_db.get_product_by_barcode(raw)
     if existing_bc and existing_bc[0] != product_id:
         await fsm_edit(
             state, message,
@@ -1838,7 +1838,7 @@ async def process_edit_barcode_text(message: Message, state: FSMContext):
         )
         return
 
-    await asyncio.to_thread(current_db.update_product, product_id, barcode=raw)
+    await current_db.update_product(product_id, barcode=raw)
     product = await current_db.get_product(product_id)
     await fsm_edit(
         state, message,

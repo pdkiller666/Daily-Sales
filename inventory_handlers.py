@@ -55,7 +55,7 @@ async def user_inventory_menu(callback: CallbackQuery, state: FSMContext):
         import asyncio as _asyncio
         from database import Database as CentralDB
         central_db = CentralDB('data/main.db')
-        user = await _asyncio.to_thread(central_db.get_user, callback.from_user.id)
+        user = await central_db.get_user(callback.from_user.id)
         if user:
             from tenant_manager import tenant_manager
             # Если нашли в основной, используем путь к тенанту
