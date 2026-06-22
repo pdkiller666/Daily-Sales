@@ -1,3 +1,4 @@
+- [Salary double-count paid absences](salary-paid-absences.md) — get_worked_days_count/bulk/team_summary ОБЯЗАНЫ вычитать дни approved paid absences; иначе отпуск/больничный/отгул считается дважды
 - [UX hub pattern](ux-hub-pattern.md) — консолидация кнопок в хаб-меню: 3→1 кнопка + промежуточный экран; back из хаба → родительское меню
 - [Dashboard в главном меню](menu-dashboard.md) — `_quick_menu_summary()` в handlers.py: sync DB-методы в async OK (SQLite fast), всё в try/except, пустая строка при любой ошибке
 - [Product photo/description columns](product-photo-desc.md) — products: id[0] name[1] category[2] price[3] created_at[4] photo[5] description[6] article[7] barcode[8] old_price[9]; all extras via ALTER; old_price (struck sale price) added 2026-06-19

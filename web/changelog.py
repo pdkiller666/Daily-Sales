@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.145.0"
+CURRENT_VERSION = "1.146.0"
 
 ENTRIES = [
+    {
+        "version": "1.146.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Update salary calculation logic to exclude paid absences",
+            "Improve deployment script to ensure code updates reliably",
+        ],
+    },
     {
         "version": "1.145.0",
         "date": "22 июня 2026",

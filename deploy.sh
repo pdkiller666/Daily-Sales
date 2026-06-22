@@ -236,7 +236,17 @@ if $WITH_AMVERA; then
 
   # Подтягиваем историю с Amvera-remote чтобы наш новый коммит строился поверх
   # предыдущего — иначе после --force Amvera не может найти старый хэш при сборке.
-  git remote set-url amvera "https://${AMVERA_USER}:${AMVERA_PASS}@git.msk0.amvera.ru/pdkiller666/dailysalesdeploy"
+  # URL-энкодинг учётных данных ОБЯЗАТЕЛЕН: пароль/логин могут содержать
+  # спецсимволы (`:`, `@`, `/`, `#`), которые ломают разбор URL — git примет
+  # текст после `:` за номер порта («Port number was not a decimal number»)
+  # или оборвёт строку на `@`. Кодируем оба компонента перед вставкой в URL.
+  AMVERA_REMOTE_URL=$(python3 -c "
+import os, urllib.parse
+u = urllib.parse.quote(os.environ['AMVERA_USER'], safe='')
+p = urllib.parse.quote(os.environ['AMVERA_PASS'], safe='')
+print(f'https://{u}:{p}@git.msk0.amvera.ru/pdkiller666/dailysalesdeploy')
+")
+  git remote set-url amvera "$AMVERA_REMOTE_URL"
   git fetch amvera master 2>/dev/null || true
   # Если remote/master существует — выставляем HEAD поверх него (soft: файлы в stage остаются)
   if git rev-parse amvera/master >/dev/null 2>&1; then
@@ -251,17 +261,27 @@ if $WITH_AMVERA; then
   # Если нет закоммиченных данных (первый запуск) — тоже считаем как изменение
   git rev-parse HEAD >/dev/null 2>&1 || HAS_LOCAL_CHANGES=true
 
+  # Коммитим только при наличии новых изменений в файлах.
   if $HAS_LOCAL_CHANGES; then
     git commit -m "$COMMIT_MSG"
+  fi
+
+  # Решаем, нужен ли push. КРИТИЧНО: сравниваем локальный HEAD с REMOTE-хэшем,
+  # а НЕ только с локальным состоянием. Иначе сценарий «прошлый push упал по
+  # auth» оставляет коммит локально → следующий запуск видит «файлы == HEAD» и
+  # молча рапортует «нет изменений», хотя на Amvera ничего не уехало (был
+  # реальный инцидент с потерей фикса на проде). Если REMOTE_HASH пуст (нет
+  # доступа/первый деплой) — тоже пушим.
+  LOCAL_HASH=$(git rev-parse HEAD 2>/dev/null || echo "")
+  NEED_PUSH=false
+  if $HAS_LOCAL_CHANGES; then NEED_PUSH=true; fi
+  if [ -n "$LOCAL_HASH" ] && [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then NEED_PUSH=true; fi
+
+  if $NEED_PUSH; then
     # Пушим без --force: коммит строится поверх предыдущего → история цела →
     # Amvera всегда находит предыдущий хэш и не делает лишний full-clone.
     git push amvera HEAD:master
     echo "   Amvera: ✅ отправлено!"
-  else
-    echo "   Amvera: нет изменений."
-  fi
-
-  if $HAS_LOCAL_CHANGES; then
     # Верификация: проверяем что Amvera remote видит наш хэш
     LOCAL_HASH=$(git rev-parse HEAD)
     REMOTE_HASH=$(git ls-remote amvera refs/heads/master 2>/dev/null | awk '{print $1}')
@@ -270,6 +290,8 @@ if $WITH_AMVERA; then
     else
       echo "   Amvera verify: ⚠️  расхождение! local=$LOCAL_HASH remote=${REMOTE_HASH:-не найден}"
     fi
+  else
+    echo "   Amvera: нет изменений (local HEAD == remote)."
   fi
   echo ""
   echo "=== Готово! GitHub + Amvera обновлены ==="
