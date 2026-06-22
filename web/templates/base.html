@@ -2713,27 +2713,37 @@ window.dsOnce = function(btn, label) {
             localStorage.setItem(_PFX + _NM[_p], _p + _s);
         }
 
-        /* 2. Перехват кликов по nav-ссылкам */
+        /* 2. Перехват кликов по nav-ссылкам
+              Намеренно ограничено тремя nav-контейнерами, чтобы НЕ перехватывать:
+              - ссылки с фильтрами внутри страниц (пагинация, табы периодов, сортировка)
+              - контент-ссылки с дашборда на модули с конкретными параметрами (?date_from=today)
+              - навигацию по месяцам в зарплате/отсутствиях/графике
+        */
         document.addEventListener('click', function(e) {
             /* Игнорируем Ctrl/Cmd/Shift-клики (открытие в новой вкладке) */
             if (e.metaKey || e.ctrlKey || e.shiftKey) return;
             var a = e.target.closest('a[href]');
             if (!a) return;
+
+            /* ТОЛЬКО ссылки внутри nav-контейнеров приложения */
+            if (!a.closest('nav.flex-1') &&
+                !a.closest('#ds-more-sh') &&
+                !a.closest('nav.fixed.bottom-0')) return;
+
             var href;
             try { href = new URL(a.href, location.origin); } catch(_) { return; }
-            /* Только внутренние ссылки на модули */
+            /* Только внутренние ссылки на корни модулей */
             if (href.origin !== location.origin) return;
             var key = _NM[href.pathname];
             if (!key) return;
 
             if (location.pathname === href.pathname || location.pathname.startsWith(href.pathname + '/')) {
-                /* Уже в этом модуле → клик на nav = сброс к дефолту, очищаем кеш */
+                /* Уже в этом модуле → повторный клик на nav = сброс к дефолту */
                 localStorage.removeItem(_PFX + key);
-                /* Даём браузеру следовать href как обычно */
-                return;
+                return; /* даём браузеру следовать href */
             }
 
-            /* Переход в другой модуль — восстановить последний URL */
+            /* Переход в другой модуль — восстановить последний URL если есть */
             var saved = localStorage.getItem(_PFX + key);
             if (saved && saved !== href.pathname) {
                 e.preventDefault();

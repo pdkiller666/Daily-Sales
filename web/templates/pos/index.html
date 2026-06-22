@@ -781,6 +781,12 @@ function posApp() {
                 .then(data => {
                     this.allProducts = data.products || [];
                     this.categories = data.categories || {};
+                    /* Синкаем устаревший item.stock из восстановленной корзины */
+                    const _sm = {};
+                    this.allProducts.forEach(p => { _sm[p.id] = p.stock; });
+                    this.cart.forEach(item => {
+                        if (_sm[item.id] !== undefined) item.stock = _sm[item.id];
+                    });
                     this.loading = false;
                 })
                 .catch(() => { this.loading = false; });

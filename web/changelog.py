@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.135.0"
+CURRENT_VERSION = "1.136.0"
 
 ENTRIES = [
+    {
+        "version": "1.136.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Improve navigation by restoring module state and filters",
+        ],
+    },
     {
         "version": "1.135.0",
         "date": "22 июня 2026",
