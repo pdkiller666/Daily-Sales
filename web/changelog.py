@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.143.0"
+CURRENT_VERSION = "1.144.0"
 
 ENTRIES = [
+    {
+        "version": "1.144.0",
+        "date": "22 июня 2026",
+        "items": [
+            "Improve motivation sync with network alias support and detailed warnings",
+        ],
+    },
     {
         "version": "1.143.0",
         "date": "22 июня 2026",
