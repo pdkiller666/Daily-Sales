@@ -50,6 +50,9 @@
                 </select>
             </div>
             {% endif %}
+            {% if shop %}
+            <a href="/reports/dead-stock" class="self-end px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors">× Сбросить</a>
+            {% endif %}
             <input type="hidden" name="days" value="{{ days }}">
         </div>
     </form>

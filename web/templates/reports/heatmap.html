@@ -75,6 +75,9 @@ html.dark .hm-label, html.dark .hm-header { color: #64748b; }
                 </select>
             </div>
             {% endif %}
+            {% if shop %}
+            <a href="/reports/heatmap" class="self-end px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors">× Сбросить</a>
+            {% endif %}
             <input type="hidden" name="period" value="{{ period }}">
         </div>
     </form>

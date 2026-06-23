@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.148.0"
+CURRENT_VERSION = "1.149.0"
 
 ENTRIES = [
+    {
+        "version": "1.149.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add two-factor authentication and improve security measures",
+        ],
+    },
     {
         "version": "1.148.0",
         "date": "23 июня 2026",

@@ -277,6 +277,46 @@ try:
 except Exception as _e:
     _fn_fail("module annual grant idempotency", _e)
 
+# 6c. apply_referral_bonus: atomic claim + bonus-module grant, идемпотентно под гонкой
+try:
+    import tempfile as _tf6c, os as _os6c, threading as _th6c
+    _tmp6c = _tf6c.mktemp(suffix='shop_bot.db')
+    _db6c = Database(_tmp6c)
+    _db6c.create_tables()
+    _ref6c, _red6c = 99001, 99002
+    _c6c = _db6c.get_connection()
+    _c6c.execute("INSERT INTO users (telegram_id, first_name, last_name) VALUES (?,?,?)", (_ref6c, 'Ref', 'User'))
+    _c6c.execute(
+        "INSERT OR IGNORE INTO referrals (referrer_telegram_id, referred_telegram_id) VALUES (?,?)",
+        (_ref6c, _red6c)
+    )
+    _c6c.commit(); _c6c.close()
+    # Параллельные вызовы на одного и того же реферала
+    _wins6c = []
+    def _do6c():
+        _wins6c.append(_db6c.apply_referral_bonus(_red6c))
+    _ts6c = [_th6c.Thread(target=_do6c) for _ in range(8)]
+    [t.start() for t in _ts6c]; [t.join() for t in _ts6c]
+    _cc6c = _db6c.get_connection()
+    # Ровно один грант модуля-бонуса
+    _grants6c = _cc6c.execute(
+        "SELECT COUNT(*) FROM billing_module_subs "
+        "WHERE user_telegram_id=? AND item_key='analytics' AND granted_by='referral_bonus' AND is_active=1",
+        (_ref6c,)
+    ).fetchone()[0]
+    _applied6c = _cc6c.execute(
+        "SELECT applied FROM referrals WHERE referred_telegram_id=?", (_red6c,)
+    ).fetchone()[0]
+    _cc6c.close()
+    assert _applied6c == 1, f"referrals.applied должен стать 1, получено {_applied6c}"
+    assert _grants6c == 1, f"ожидался ровно 1 бонус-грант модуля, получено {_grants6c}"
+    # Повторный вызов после применения не выдаёт ничего нового
+    assert _db6c.apply_referral_bonus(_red6c) is False, "повторный apply должен вернуть False"
+    _os6c.unlink(_tmp6c)
+    _fn_ok("apply_referral_bonus: атомарный claim + бонус-модуль (идемпотентно под гонкой)")
+except Exception as _e:
+    _fn_fail("apply_referral_bonus idempotency", _e)
+
 # 7. web.auth: JWT round-trip (PyJWT) + отклонение мусора + CSRF derive
 try:
     import os as _os7

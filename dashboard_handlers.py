@@ -18,6 +18,7 @@ from db_utils import get_db, is_any_admin, get_user_org_scope, get_role_display_
 from message_utils import safe_edit_message
 from hints import hint_suffix, maybe_send_welcome
 from utils import he, format_price
+from database import Database
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -257,7 +258,7 @@ def _per_shop_breakdown(db_file: str, start_date: str, end_date: str,
                         scope_type: str, scope_values: list, limit: int = 7) -> list:
     """Разбивка по магазинам: [(shop_name, txn, qty, revenue), ...] по убыванию выручки."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         base = '''
             SELECT u.shop_name,
@@ -296,7 +297,7 @@ def _staff_by_shop(db_file: str, today: str,
                    scope_type: str, scope_values: list) -> list:
     """Количество сотрудников на смене по каждому магазину: [(shop_name, count), ...]."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         base = '''
             SELECT u.shop_name, COUNT(DISTINCT ws.user_id)
@@ -336,7 +337,7 @@ def _staff_by_shop_with_names(db_file: str, today: str,
     отсортированный по убыванию количества сотрудников.
     """
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         base = '''
             SELECT u.shop_name, u.first_name, u.last_name
@@ -379,7 +380,7 @@ def _low_stock_items(db_file: str, scope_type: str, scope_values: list,
                      threshold: int = 5, limit: int = 5) -> list:
     """Конкретные товары с низким остатком (для single-масштаба): [(name, qty), ...]."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         vals = scope_values or []
         if scope_type == 'shop' and vals:
@@ -427,7 +428,7 @@ def _low_stock_count(db_file: str, threshold: int = 5,
                      scope_type: str = None, scope_values: list = None) -> int:
     """Количество позиций с низким остатком с учётом scope (поддерживает multi-scope)."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         vals = scope_values or []
         if scope_type == 'shop' and vals:
@@ -476,7 +477,7 @@ def _on_shift_details(db_file: str, today: str,
                       scope_type: str = None, scope_values: list = None) -> list:
     """Список сотрудников на смене сегодня с учётом scope (поддерживает multi-scope)."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         base = '''
             SELECT u.first_name, u.last_name, u.shop_name
@@ -515,7 +516,7 @@ def _today_total_earnings(db_file: str, today: str,
                           scope_type: str = None, scope_values: list = None) -> float:
     """Суммарные мотивационные выплаты за сегодня с учётом scope (поддерживает multi-scope)."""
     try:
-        conn = sqlite3.connect(db_file)
+        conn = Database(db_file).get_connection()
         cursor = conn.cursor()
         vals = scope_values or []
         if scope_type == 'shop' and vals:

@@ -704,6 +704,10 @@ def create_web_app() -> FastAPI:
                 # отражать реальную конфигурацию пакета, а не текущий статус модуля.
                 cur.execute("SELECT key, name, price_monthly FROM billing_modules")
                 mod_map = {r[0]: (r[1], int(r[2] or 0)) for r in cur.fetchall()}
+                # Цены расширений — пакет может включать не только модули, но и
+                # расширения (напр. «Аналитика Pro»); без них экономия считается неверно.
+                cur.execute("SELECT key, name, price_monthly FROM billing_extensions")
+                ext_map = {r[0]: (r[1], int(r[2] or 0)) for r in cur.fetchall()}
                 cur.execute("""
                     SELECT key, name, icon, description, includes_json, price_monthly
                     FROM billing_bundles
@@ -717,16 +721,19 @@ def create_web_app() -> FastAPI:
                 except Exception:
                     inc = {}
                 mod_keys = inc.get("modules", []) or []
+                ext_keys = inc.get("extensions", []) or []
                 names = [mod_map[k][0] for k in mod_keys if k in mod_map]
-                full = sum(mod_map[k][1] for k in mod_keys if k in mod_map)
+                ext_names = [ext_map[k][0] for k in ext_keys if k in ext_map]
+                full = (sum(mod_map[k][1] for k in mod_keys if k in mod_map)
+                        + sum(ext_map[k][1] for k in ext_keys if k in ext_map))
                 price_i = int(price or 0)
                 result.append({
                     "name": name,
                     "icon": icon or "🎁",
                     "price": price_i,
                     "description": desc or "",
-                    "module_names": names,
-                    "count": len(names),
+                    "module_names": names + ext_names,
+                    "count": len(names) + len(ext_names),
                     "full_price": int(full),
                     "save": int(full - price_i) if full > price_i else 0,
                 })

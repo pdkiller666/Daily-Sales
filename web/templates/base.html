@@ -26,7 +26,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=4c82ad276c">
+    <link rel="stylesheet" href="/static/app.css?v=f5098b3a27">
     {% block extra_css %}{% endblock %}
     <script defer src="/static/vendor/htmx.min.js?v=faf9d188bd"></script>
     <script defer src="/static/vendor/alpine.min.js?v=faf9d188bd"></script>
@@ -246,6 +246,14 @@
 
         /* Sidebar section labels */
         aside nav p.text-slate-600{letter-spacing:.1em}
+
+        /* A11y (roadmap 4.5): поднять контраст вторичного текста в тёмной теме —
+           slate-400/500 на тёмном фоне ниже WCAG AA; светлее = читаемее. */
+        html.dark .text-slate-400{color:#cbd5e1}
+        html.dark .text-slate-500{color:#94a3b8}
+        /* Видимый фокус для интерактивных не-нативных элементов (клавиатура) */
+        [role="button"]:focus-visible,[tabindex]:focus-visible{
+            outline:2px solid #3b82f6;outline-offset:2px;border-radius:6px}
     </style>
 </head>
 <body class="h-full bg-slate-100" x-data="mainApp()">
@@ -2794,6 +2802,35 @@ window.dsOnce = function(btn, label) {
             }
         });
     } catch(_) { /* localStorage недоступен — молча игнорируем */ }
+})();
+</script>
+<script>
+/* A11y (roadmap 4.5): сделать кликабельные не-нативные элементы доступными
+   с клавиатуры. Элементы с onclick / @click, не являющиеся <a>/<button>/input,
+   получают role=button, tabindex=0 и реагируют на Enter/Space. */
+(function () {
+    function enhance(root) {
+        var sel = '[onclick]:not(a):not(button):not(input):not([role]),' +
+                  '[\\@click]:not(a):not(button):not(input):not([role])';
+        var nodes;
+        try { nodes = (root || document).querySelectorAll(sel); }
+        catch (_) { return; }
+        nodes.forEach(function (el) {
+            if (el.dataset.a11yKbd) return;
+            el.dataset.a11yKbd = '1';
+            el.setAttribute('role', 'button');
+            if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                    e.preventDefault();
+                    el.click();
+                }
+            });
+        });
+    }
+    document.addEventListener('DOMContentLoaded', function () { enhance(document); });
+    /* HTMX-подгруженный контент */
+    document.body.addEventListener('htmx:afterSwap', function (e) { enhance(e.target); });
 })();
 </script>
 </body>

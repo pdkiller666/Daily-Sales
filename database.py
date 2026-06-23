@@ -18,6 +18,14 @@ _UNSET = object()
 # на каждый путь БД за время жизни процесса. Перезапуск сбрасывает кеш.
 _INITIALIZED_DBS: set = set()
 
+# ─── Версионирование схемы ────────────────────────────────────────────────
+# Лёгкий механизм пронумерованных миграций (roadmap 3.1). Существующие
+# guarded-ALTER в create_tables() остаются как baseline; НОВЫЕ изменения схемы
+# добавляются как нумерованные шаги в _apply_versioned_migrations() и
+# выполняются ровно один раз на каждую БД (версия хранится в schema_version).
+# Это устраняет класс багов «guarded ALTER при битом WAL» для будущих миграций.
+CURRENT_SCHEMA_VERSION = 1
+
 # Кеш get_user_timezone(): {(db_file, telegram_id): (tz_str, timestamp)}
 # Часовой пояс меняется крайне редко, TTL 300 сек.
 _tz_cache: dict = {}
@@ -129,6 +137,15 @@ class Database:
             return
         conn = self.get_connection()
         cursor = conn.cursor()
+
+        # Таблица версий схемы (roadmap 3.1) — создаётся первой, чтобы
+        # _apply_versioned_migrations() мог прочитать/записать версию.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        ''')
 
         # Основные таблицы
         cursor.execute('''
@@ -1990,6 +2007,10 @@ class Database:
         except Exception as _exc:
             logger.debug("create_tables: подавлено исключение: %s", _exc)
 
+        # Пронумерованные миграции (roadmap 3.1) — выполняются после baseline
+        # guarded-ALTER. Первый запуск только фиксирует текущую версию.
+        self._apply_versioned_migrations(cursor)
+
         # Инициализация базовых данных при первом запуске
         self._initialize_default_data(cursor)
 
@@ -1999,6 +2020,55 @@ class Database:
         # Помечаем БД как инициализированную — следующие вызовы create_tables()
         # для этого пути будут мгновенно возвращать return.
         _INITIALIZED_DBS.add(self.db_file)
+
+    def _apply_versioned_migrations(self, cursor):
+        """Применить пронумерованные миграции схемы (roadmap 3.1).
+
+        Существующие guarded-ALTER в create_tables() приводят схему к актуальному
+        состоянию (baseline). Этот механизм нужен для БУДУЩИХ изменений: каждый
+        шаг выполняется ровно один раз на каждую БД, версия хранится в
+        schema_version. Это убирает класс багов «guarded ALTER при битом WAL».
+
+        Регистрация будущего шага:
+            migrations = {
+                2: self._migrate_v2,
+                3: self._migrate_v3,
+            }
+        где self._migrate_vN(cursor) — идемпотентная функция.
+        """
+        try:
+            cursor.execute('SELECT MAX(version) FROM schema_version')
+            row = cursor.fetchone()
+            current = row[0] if row and row[0] is not None else 0
+        except Exception:
+            current = 0
+
+        # Первый запуск (нет записи): фиксируем baseline без выполнения шагов —
+        # схема уже приведена в актуальное состояние guarded-ALTER блоком выше.
+        if current == 0:
+            cursor.execute(
+                'INSERT INTO schema_version (version) VALUES (?)',
+                (CURRENT_SCHEMA_VERSION,),
+            )
+            return
+
+        # Реестр будущих миграций: {version: callable(cursor)}.
+        migrations: dict = {}
+
+        for version in sorted(migrations):
+            if version <= current:
+                continue
+            try:
+                migrations[version](cursor)
+                cursor.execute(
+                    'INSERT INTO schema_version (version) VALUES (?)',
+                    (version,),
+                )
+                logger.info('Применена миграция схемы v%s (%s)', version, self.db_file)
+            except Exception as _mexc:
+                logger.error('Ошибка миграции схемы v%s (%s): %s',
+                             version, self.db_file, _mexc)
+                raise
 
     def _initialize_default_data(self, cursor):
         """Инициализация базовых данных при первом создании базы"""
@@ -2211,6 +2281,39 @@ class Database:
             except Exception:
                 pass
 
+        # Roadmap 5.4 — перетюнить скидки бандлов. Меняем цену ТОЛЬКО если она всё ещё
+        # равна старому дефолту (владелец не кастомизировал) — идемпотентно и безопасно.
+        BUNDLE_REPRICE = {
+            'small_biz':   (399, 329),
+            'team_bundle': (699, 679),
+            'all_in_one':  (1299, 1199),
+        }
+        for bkey, (old_p, new_p) in BUNDLE_REPRICE.items():
+            try:
+                cursor.execute(
+                    'UPDATE billing_bundles SET price_monthly=? WHERE key=? AND price_monthly=?',
+                    (new_p, bkey, old_p)
+                )
+            except Exception:
+                pass
+
+        # Roadmap 5.6 — Lite/Pro: «Аналитика» (модуль 299₽) = Lite; пакет «Аналитика Pro»
+        # = модуль + все 5 продвинутых отчётов со скидкой. Гейтинг работает штатно
+        # (has_extension проверяет членство в пакете + родительский модуль).
+        try:
+            cursor.execute(
+                'INSERT OR IGNORE INTO billing_bundles '
+                '(key,name,icon,description,includes_json,price_monthly,sort_order,is_active) '
+                'VALUES (?,?,?,?,?,?,?,1)',
+                ('analytics_pro', 'Аналитика Pro', '📊',
+                 'Аналитика + все 5 продвинутых отчётов: ABC, тепловая карта, '
+                 'оборачиваемость, залежалые товары, прогноз тренда',
+                 '{"modules":["analytics"],"extensions":["abc_analysis","heatmap","turnover","dead_stock","trend_forecast"]}',
+                 599, 4)
+            )
+        except Exception:
+            pass
+
     def _init_billing_defaults(self, cursor):
         """Заполнить billing_modules, billing_extensions, billing_bundles дефолтными данными."""
         # Сначала всегда докатываем «поздние» модули/расширения на существующих установках
@@ -2271,11 +2374,13 @@ class Database:
 
         DEFAULT_BUNDLES = [
             ('small_biz',   '🏪', 'Малый бизнес',       'Аналитика + Уведомления для небольшого магазина',
-             '{"modules":["analytics","notifications"],"extensions":[]}', 399, 1),
+             '{"modules":["analytics","notifications"],"extensions":[]}', 329, 1),
             ('team_bundle', '👥', 'Управление командой', 'Команда + Планы + Уведомления — полный HR-пакет',
-             '{"modules":["team","plans_motivation","notifications"],"extensions":[]}', 699, 2),
+             '{"modules":["team","plans_motivation","notifications"],"extensions":[]}', 679, 2),
             ('all_in_one',  '🎯', 'Всё включено',        'Все 7 модулей — максимальный функционал',
-             '{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations","chat"],"extensions":[]}', 1299, 3),
+             '{"modules":["analytics","team","notifications","plans_motivation","ai_assistant","integrations","chat"],"extensions":[]}', 1199, 3),
+            ('analytics_pro', '📊', 'Аналитика Pro',     'Аналитика + все 5 продвинутых отчётов: ABC, тепловая карта, оборачиваемость, залежалые товары, прогноз тренда',
+             '{"modules":["analytics"],"extensions":["abc_analysis","heatmap","turnover","dead_stock","trend_forecast"]}', 599, 4),
         ]
         for key, icon, name, description, includes_json, price, sort in DEFAULT_BUNDLES:
             cursor.execute(
@@ -11820,7 +11925,7 @@ class Database:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND bonus_granted = 1',
+                'SELECT COUNT(*) FROM referrals WHERE referrer_telegram_id = ? AND applied = 1',
                 (telegram_id,)
             )
             row = cursor.fetchone()
@@ -11849,23 +11954,42 @@ class Database:
         try:
             cursor.execute('''
                 SELECT referrer_telegram_id FROM referrals
-                WHERE referred_telegram_id = ? AND bonus_granted = 0
+                WHERE referred_telegram_id = ? AND applied = 0
                 LIMIT 1
             ''', (referred_telegram_id,))
             row = cursor.fetchone()
             if not row:
                 return False
             referrer_tg_id = row[0]
+            # Атомарный compare-and-set: applied=0 в предикате UPDATE + проверка
+            # rowcount. При гонке/ретрае выигрывает ровно один вызов — остальные
+            # получают rowcount=0 и выходят БЕЗ повторной выдачи бонуса.
             cursor.execute('''
-                UPDATE referrals SET bonus_granted = 1
+                UPDATE referrals SET applied = 1, applied_at = CURRENT_TIMESTAMP
                 WHERE referred_telegram_id = ? AND referrer_telegram_id = ?
+                  AND applied = 0
             ''', (referred_telegram_id, referrer_tg_id))
+            claimed = (cursor.rowcount == 1)
             conn.commit()
         except Exception as e:
             logger.error(f"apply_referral_bonus stage 1: {e}")
             conn.close()
             return False
         conn.close()
+        if not claimed:
+            return False
+        # Roadmap 5.8 — реферальный бонус: помимо +30 дней подписки выдаём рефереру
+        # модуль «Аналитика» на 30 дней. Идемпотентно: атомарный claim по applied=0
+        # выше (rowcount==1) гарантирует, что повторно сюда не зайдём.
+        if referrer_tg_id and referrer_tg_id > 0:
+            try:
+                self.grant_billing_item(
+                    referrer_tg_id, 'module', 'analytics',
+                    duration_days=30, granted_by='referral_bonus',
+                    note='Бонус за приглашённого реферала'
+                )
+            except Exception as e:
+                logger.error(f"apply_referral_bonus grant module: {e}")
         return self._extend_subscription_by_days(referrer_tg_id, 30)
 
     def _extend_subscription_by_days(self, telegram_id: int, days: int) -> bool:
