@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.149.0"
+CURRENT_VERSION = "1.150.0"
 
 ENTRIES = [
+    {
+        "version": "1.150.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Implement database versioning and referral bonus functionality",
+            "Update improvement roadmap with completed and remaining tasks",
+        ],
+    },
     {
         "version": "1.149.0",
         "date": "23 июня 2026",
