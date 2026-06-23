@@ -12740,7 +12740,7 @@ class Database:
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
                    u.first_name, u.last_name, u.username,
-                   m.is_session_break, m.is_ai_summary, m.reply_to_id
+                   m.is_session_break, m.is_ai_summary, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
@@ -12759,7 +12759,7 @@ class Database:
         cursor.execute('''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username, m.reply_to_id
+                   u.first_name, u.last_name, u.username, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
@@ -12804,6 +12804,41 @@ class Database:
         conn.commit()
         conn.close()
         return affected > 0
+
+    def edit_chat_message(self, msg_id: int, user_id: int, new_text: str) -> bool:
+        """Редактировать своё сообщение (только автор, не удалённое). Ставит edited_at."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """UPDATE chat_messages SET message = ?, edited_at = datetime('now')
+               WHERE id = ? AND user_id = ? AND is_deleted = 0""",
+            (new_text, msg_id, user_id)
+        )
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def get_chat_edited_since(self, topic_id: int, since_ts: str) -> list:
+        """Сообщения темы, отредактированные после since_ts (для polling-синхрона).
+
+        Возвращает [(id, message, edited_at), ...]. since_ts пустой → [] (baseline).
+        """
+        if not since_ts:
+            return []
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                '''SELECT id, message, edited_at FROM chat_messages
+                   WHERE topic_id = ? AND is_deleted = 0
+                     AND edited_at IS NOT NULL AND edited_at >= ?''',
+                (topic_id, since_ts)
+            ).fetchall()
+            conn.close()
+            return [(r[0], r[1], r[2]) for r in rows]
+        except Exception as e:
+            logger.error("get_chat_edited_since: %s", e)
+            return []
 
     def get_chat_deleted_ids_since(self, topic_id: int, since_ts: str) -> list:
         """ID сообщений темы, удалённых после since_ts (UTC-строка datetime('now')).
@@ -13470,7 +13505,7 @@ class Database:
                 f'''SELECT d.id, d.from_user_id, d.to_user_id,
                            d.message, d.file_path, d.file_name, d.file_type, d.file_size,
                            d.created_at, d.is_read,
-                           uf.first_name, uf.last_name, uf.username, d.reply_to_id
+                           uf.first_name, uf.last_name, uf.username, d.edited_at, d.reply_to_id
                     FROM direct_messages d
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = ?)
@@ -14015,6 +14050,23 @@ class Database:
             return affected > 0
         except Exception as e:
             logger.error("soft_delete_dm: %s", e)
+            return False
+
+    def edit_dm(self, msg_id: int, user_id: int, new_text: str) -> bool:
+        """Редактировать своё личное сообщение (только автор, не удалённое)."""
+        try:
+            conn = self.get_connection()
+            cur = conn.execute(
+                """UPDATE direct_messages SET message = ?, edited_at = datetime('now')
+                   WHERE id = ? AND from_user_id = ? AND is_deleted = 0""",
+                (new_text, msg_id, user_id)
+            )
+            affected = cur.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+        except Exception as e:
+            logger.error("edit_dm: %s", e)
             return False
 
     # ══════════════════════════════════════════════════════════════════════════

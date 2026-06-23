@@ -607,8 +607,22 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                         </div>
                     </template>
                     <!-- Text -->
-                    <template x-if="msg.message">
+                    <template x-if="msg.message && editId !== msg.id">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-html="formatMsg(msg.message)"></p>
+                    </template>
+                    <!-- Edit mode -->
+                    <template x-if="editId === msg.id">
+                        <div class="mt-1">
+                            <textarea x-model="editText" rows="2"
+                                      class="w-full text-sm rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600"
+                                      @keydown.enter.prevent="saveEdit(msg)"
+                                      @keydown.escape="cancelEdit()"></textarea>
+                            <div class="flex gap-3 mt-1 text-[11px]">
+                                <button type="button" @click="saveEdit(msg)" class="font-semibold"
+                                        :class="msg.user_id === myUserId ? 'text-white' : 'text-blue-600 dark:text-blue-400'">Сохранить</button>
+                                <button type="button" @click="cancelEdit()" class="opacity-70">Отмена</button>
+                            </div>
+                        </div>
                     </template>
                     <!-- Files (multi-file support) -->
                     <template x-if="msg.files && msg.files.length > 0">
@@ -642,6 +656,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                     <div class="msg-meta mt-1 flex items-center gap-1.5"
                          :class="msg.user_id === myUserId ? 'justify-end' : ''">
                         <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
+                        <span x-show="msg.edited" class="text-[10px] opacity-50 italic">изм.</span>
                         <div class="relative">
                             <button @click="openReact = (openReact === msg.id ? null : msg.id)"
                                     class="react-btn text-[12px] leading-none touch-manipulation px-0.5"
@@ -660,6 +675,11 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 class="text-[12px] leading-none touch-manipulation px-0.5"
                                 :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
                                 title="Ответить">↩</button>
+                        <button x-show="msg.can_edit"
+                                @click="startEdit(msg)"
+                                class="text-[12px] leading-none touch-manipulation px-0.5"
+                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
+                                title="Редактировать">✎</button>
                         <button x-show="msg.can_delete"
                                 @click="deleteMsg(msg.id)"
                                 class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
@@ -995,7 +1015,21 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                             </a>
                                         </template>
                                         <!-- Text -->
-                                        <span x-show="m.message" x-html="formatMsg(m.message)"></span>
+                                        <span x-show="m.message && dmEditId !== m.id" x-html="formatMsg(m.message)"></span>
+                                        <!-- Edit mode -->
+                                        <template x-if="dmEditId === m.id">
+                                            <span class="block mt-1">
+                                                <textarea x-model="dmEditText" rows="2"
+                                                          class="w-full text-sm rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600"
+                                                          @keydown.enter.prevent="saveDmEdit(m)"
+                                                          @keydown.escape="cancelDmEdit()"></textarea>
+                                                <span class="flex gap-3 mt-1 text-[11px]">
+                                                    <button type="button" @click="saveDmEdit(m)" class="font-semibold"
+                                                            :class="m.is_mine ? 'text-white' : 'text-blue-600 dark:text-blue-400'">Сохранить</button>
+                                                    <button type="button" @click="cancelDmEdit()" class="opacity-70">Отмена</button>
+                                                </span>
+                                            </span>
+                                        </template>
                                         <!-- Реакция -->
                                         <span class="relative inline-block">
                                             <button @click="dmOpenReact = (dmOpenReact === m.id ? null : m.id)"
@@ -1016,6 +1050,12 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                                 class="ml-1.5 text-[12px]"
                                                 :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
                                                 title="Ответить">↩</button>
+                                        <!-- Редактировать -->
+                                        <button x-show="m.can_edit"
+                                                @click="startDmEdit(m)"
+                                                class="ml-1.5 text-[12px]"
+                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
+                                                title="Редактировать">✎</button>
                                         <!-- Delete -->
                                         <button x-show="m.can_delete"
                                                 @click="dmDeleteMsg(m.id)"
@@ -1036,8 +1076,10 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                         </template>
                                     </div>
                                     <p class="text-[10px] text-slate-400 mt-0.5 px-1"
-                                       :class="m.is_mine ? 'text-right' : ''"
-                                       x-text="m.created_at"></p>
+                                       :class="m.is_mine ? 'text-right' : ''">
+                                        <span x-text="m.created_at"></span>
+                                        <span x-show="m.edited" class="italic opacity-70">· изм.</span>
+                                    </p>
                                 </div>
                             </div>
                         </template>
@@ -1187,6 +1229,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── reply / quote ── */
         replyTo: null,        /* {id, author, snippet} — цитата в группе */
         dmReplyTo: null,      /* {id, author, snippet} — цитата в ЛС */
+
+        /* ── edit ── */
+        editId: null,         /* id редактируемого сообщения (группа) */
+        editText: '',         /* черновик правки (группа) */
+        dmEditId: null,       /* id редактируемого сообщения (ЛС) */
+        dmEditText: '',       /* черновик правки (ЛС) */
 
         /* ── send form ── */
         text: '',
@@ -1426,6 +1474,15 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (Array.isArray(data.deleted_ids) && data.deleted_ids.length) {
                     const delSet = new Set(data.deleted_ids);
                     this.msgs = this.msgs.filter(m => !delSet.has(m.id));
+                }
+
+                /* отредактированные сообщения — обновить текст у всех */
+                if (Array.isArray(data.edited) && data.edited.length) {
+                    const emap = {};
+                    data.edited.forEach(e => { emap[e.id] = e.message; });
+                    this.msgs = this.msgs.map(m =>
+                        Object.prototype.hasOwnProperty.call(emap, m.id) && this.editId !== m.id
+                            ? { ...m, message: emap[m.id], edited: true } : m);
                 }
 
                 /* живая синхронизация реакций (снимок последних сообщений темы) */
@@ -2098,6 +2155,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } else if (data.type === 'delete') {
                 /* live-удаление сообщения у обоих собеседников */
                 this.dmMessages = this.dmMessages.filter(m => m.id !== data.id);
+            } else if (data.type === 'edit') {
+                /* live-редактирование сообщения у обоих собеседников */
+                const idx = this.dmMessages.findIndex(m => m.id === data.id);
+                if (idx >= 0 && this.dmEditId !== data.id) {
+                    this.dmMessages[idx] = { ...this.dmMessages[idx], message: data.message, edited: true };
+                }
             } else if (data.type === 'reaction') {
                 /* live-реакция: обновляем чипы у обоих собеседников */
                 const idx = this.dmMessages.findIndex(m => m.id === data.id);
@@ -2121,7 +2184,62 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
         /* ══ END DM METHODS ══════════════════════════════════════════════════ */
 
-        /* ── Delete message ── */
+        /* ── Редактирование (группа) ── */
+        startEdit(msg) {
+            this.editId = msg.id;
+            this.editText = msg.message || '';
+            this.openReact = null;
+        },
+        cancelEdit() { this.editId = null; this.editText = ''; },
+        async saveEdit(msg) {
+            const text = (this.editText || '').trim();
+            if (!text) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('message', text);
+                const res = await fetch(`/chat/message/${msg.id}/edit`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    const idx = this.msgs.findIndex(m => m.id === msg.id);
+                    if (idx >= 0) this.msgs[idx] = { ...this.msgs[idx], message: data.message, edited: true };
+                    this.cancelEdit();
+                } else {
+                    alert(data.error || 'Не удалось изменить сообщение');
+                }
+            } catch(e) {
+                alert('Ошибка соединения');
+            }
+        },
+
+        /* ── Редактирование (ЛС) ── */
+        startDmEdit(m) {
+            this.dmEditId = m.id;
+            this.dmEditText = m.message || '';
+            this.dmOpenReact = null;
+        },
+        cancelDmEdit() { this.dmEditId = null; this.dmEditText = ''; },
+        async saveDmEdit(m) {
+            const text = (this.dmEditText || '').trim();
+            if (!text) return;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('message', text);
+                const res = await fetch(`/chat/dm/${m.id}/edit`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    const idx = this.dmMessages.findIndex(x => x.id === m.id);
+                    if (idx >= 0) this.dmMessages[idx] = { ...this.dmMessages[idx], message: data.message, edited: true };
+                    this.cancelDmEdit();
+                } else {
+                    alert(data.error || 'Не удалось изменить сообщение');
+                }
+            } catch(e) {
+                alert('Ошибка соединения');
+            }
+        },
+
         async deleteMsg(msgId) {
             if (!confirm('Удалить сообщение?')) return;
             try {

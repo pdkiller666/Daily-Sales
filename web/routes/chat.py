@@ -172,13 +172,14 @@ def _parse_mention_tids(text, members, exclude_tid=None) -> set:
     return out
 
 
-def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None) -> dict:
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None, edited=None) -> dict:
     """Форматировать строку chat_messages.
     files=None  → использовать legacy-колонки file_path/file_name/... из row
     files=[]    → новое сообщение без вложений
     files=[...] → список dicts из chat_message_files
     reactions   → список [{emoji,count,mine}] или None
     reply       → объект цитаты {id,author,snippet,deleted} или None
+    edited      → значение edited_at (truthy → метка «изм.»)
     """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname, *_ = row
     if user_id == 0:
@@ -237,6 +238,8 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
         "initial": initial,
         "created_at": ts,
         "can_delete": is_admin or (my_db_id > 0 and user_id == my_db_id),
+        "can_edit": (user_id != 0 and my_db_id > 0 and user_id == my_db_id),
+        "edited": bool(edited),
         "reactions": reactions or [],
         "reply": reply,
     }
@@ -869,7 +872,7 @@ def chat_page(request: Request, topic: int = 1):
             rows = db.get_chat_messages(limit=50, topic_id=topic, since_id=_ai_since)
             _react_map = db.get_chat_reactions_bulk([r[0] for r in rows], user_db_id or 0)
             _reply_map = _chat_reply_map(db, rows)
-            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0]), reply=_resolve_reply(r[-1], _reply_map)) for r in rows]
+            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0]), reply=_resolve_reply(r[-1], _reply_map), edited=r[-2]) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
 
             # Текущая тема открыта → помечаем прочитанной + обнуляем её бейдж
@@ -1025,7 +1028,7 @@ async def chat_send(
         msg_ids = [r[0] for r in new_msgs]
         files_map = _load_msg_files_bulk(db, msg_ids)
         reply_map = _chat_reply_map(db, new_msgs)
-        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in new_msgs]
+        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2]) for r in new_msgs]
         return JSONResponse({"ok": True, "messages": result, "latest_id": new_id})
 
     except Exception as exc:
@@ -1071,11 +1074,20 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
         reply_map = _chat_reply_map(db, rows)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2]) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
 
         # Удаления у всех в реальном времени (с момента прошлого опроса)
         deleted_ids = db.get_chat_deleted_ids_since(topic_id, del_since)
+
+        # Редактирования у всех в реальном времени (тот же курсор-таймстамп)
+        try:
+            edited_msgs = [
+                {"id": e[0], "message": e[1] or ""}
+                for e in db.get_chat_edited_since(topic_id, del_since)
+            ]
+        except Exception:
+            edited_msgs = []
 
         # Реакции последних сообщений темы — live-синхронизация чипов
         try:
@@ -1099,7 +1111,8 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
 
         return JSONResponse({
             "ok": True, "messages": msgs, "latest_id": latest,
-            "deleted_ids": deleted_ids, "topic_unread": topic_unread, "now": now_ts,
+            "deleted_ids": deleted_ids, "edited": edited_msgs,
+            "topic_unread": topic_unread, "now": now_ts,
             "reactions": reactions_map,
         })
 
@@ -1146,7 +1159,7 @@ def chat_topic_messages(request: Request, topic_id: int):
         files_map = _load_msg_files_bulk(db, msg_ids)
         react_map = db.get_chat_reactions_bulk(msg_ids, user_db_id)
         reply_map = _chat_reply_map(db, rows)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2]) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         try:
             db.set_chat_read(user_db_id, topic_id, latest)
@@ -1330,6 +1343,42 @@ def chat_delete_message(
         return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
         logger.error(f"chat_delete error: {exc}")
+        return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
+
+
+@router.post("/chat/message/{msg_id}/edit")
+def chat_edit_message(
+    request: Request,
+    msg_id: int,
+    message: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Редактировать своё сообщение в групповой теме (только автор)."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    text = (message or "").strip()[:2000]
+    if not text:
+        return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        ok = db.edit_chat_message(msg_id, user_db_id, text)
+        return JSONResponse({
+            "ok": ok, "message": text if ok else None,
+            "error": None if ok else "Нет доступа или сообщение не найдено",
+        })
+    except Exception as exc:
+        logger.error(f"chat_edit error: {exc}")
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
 
 
@@ -1641,13 +1690,14 @@ def _fmt_ts(raw) -> str:
         return s
 
 
-def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None) -> dict:
+def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edited=None) -> dict:
     """Форматировать строку direct_messages.
     files=None  → legacy single-file из колонок
     files=[]    → нет вложений
     files=[...] → список dicts из dm_message_files
     reactions   → список [{emoji,count,mine}] или None
     reply       → объект цитаты {id,author,snippet,deleted} или None
+    edited      → значение edited_at (truthy → метка «изм.»)
     """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
@@ -1699,6 +1749,8 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None) -> d
         "is_ai": (from_id == 0),
         "display_name": display,
         "can_delete": is_mine,
+        "can_edit": (is_mine and from_id != 0),
+        "edited": bool(edited),
         "reactions": reactions or [],
         "reply": reply,
     }
@@ -1900,7 +1952,7 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)
                     dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
                     dm_reply_map = _dm_reply_map(db, rows)
-                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map)) for r in rows]
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2]) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
             try:
                 from billing_utils import has_extension
@@ -2039,7 +2091,7 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         dm_files_map = _load_dm_files_bulk(db, dm_ids)
         dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
         dm_reply_map = _dm_reply_map(db, page)
-        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map)) for r in page]
+        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2]) for r in page]
         return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
     except Exception as exc:
         logger.error(f"api_dm_conversation error: {exc}")
@@ -2323,6 +2375,52 @@ async def dm_delete(
         return JSONResponse({"ok": ok, "error": None if ok else "Нет доступа или сообщение не найдено"})
     except Exception as exc:
         logger.error(f"dm_delete error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+@router.post("/chat/dm/{msg_id}/edit")
+async def dm_edit(
+    request: Request,
+    msg_id: int,
+    message: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    """Редактировать своё личное сообщение (только автор). Live-обновление по WS."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from web.ws_manager import dm_manager
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    text = (message or "").strip()[:2000]
+    if not text:
+        return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    try:
+        db = get_web_db(telegram_id, org_db)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        row = db.get_dm_message(msg_id)
+        ok = db.edit_dm(msg_id, user_db_id, text)
+        if ok and row:
+            payload = {"type": "edit", "id": msg_id, "message": text}
+            for uid in {row[1], row[2]}:
+                if uid:
+                    try:
+                        await dm_manager.send_to_user(org_db, uid, payload)
+                    except Exception:
+                        pass
+        return JSONResponse({
+            "ok": ok, "message": text if ok else None,
+            "error": None if ok else "Нет доступа или сообщение не найдено",
+        })
+    except Exception as exc:
+        logger.error(f"dm_edit error: {exc}")
         return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
 

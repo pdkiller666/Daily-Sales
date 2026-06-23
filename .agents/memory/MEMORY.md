@@ -20,6 +20,7 @@
 - [Chat replies/quotes](chat-replies.md) — reply_to_id; цитату валидировать по доступу (группа=та же topic_id; ЛС=оба конца в диалоге, иначе IDOR); reply_to_id всегда row[-1]; сниппет escape только на фронте (x-text)
 - [Chat @mentions](chat-mentions.md) — @имя в группах+ЛС; push split (упомянутым адресный, остальным общий — не дублировать); x-html=formatMsg ОБЯЗАН esc() ДО regex (XSS); автокомплит из dmMembers
 - [Chat read-state & realtime](chat-read-realtime.md) — rate-limit за прокси по telegram_id (не IP); курсор удалений >= (не >); серверный chat_read_state вместо localStorage; DM live-delete WS обоим; att_id≠msg_id; _topicReqSeq race guard
+- [Chat message editing](chat-edit.md) — правка автором; edited_at=row[-2] (reply_to_id=row[-1]); группа sync по poll-курсору del_since, ЛС по WS {type:edit} обоим; метку «изм.» рисовать в ОБЕИХ лентах
 - [aiohttp/aiogram совместимость](aiohttp-aiogram-compat.md) — aiogram 3.20 требует aiohttp<3.12; 3.12.x ломает Amvera-сборку; фиксировать aiohttp==3.11.18
 - [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes
 - [Alpine CSP unsafe-eval](alpine-csp-unsafe-eval.md) — Alpine.js 3 needs 'unsafe-eval' in CSP script-src; without it every x-* eval is blocked → 30 "Script error. @?:0" → Alpine dead, x-cloak removed but x-show never applied
