@@ -85,6 +85,7 @@ Sales/inventory/daily reports · multi-org with invite codes & roles · sales pl
 - Amvera hash verification (`git ls-remote`) runs after every push to confirm sync
 - Amvera "write outside persistenceMount" warnings are **FALSE POSITIVES** — all `data/` paths correctly resolve to `/app/data` (persistenceMount)
 - No `.db`, `.pkl`, `data/tenants/` in GitHub repo — runtime data only on Amvera persistent volume
+- **При закрытии любого пункта из `IMPROVEMENT_ROADMAP.md`**: сразу обновить файл — проставить ✅ + дату в строке таблицы, убрать пункт из «🔭 Что осталось», поставить ✅ в нумерованном списке §10. Делать это в том же коммите, что и фича.
 
 ## Gotchas
 

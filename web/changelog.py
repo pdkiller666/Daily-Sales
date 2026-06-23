@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.154.0"
+CURRENT_VERSION = "1.155.0"
 
 ENTRIES = [
+    {
+        "version": "1.155.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Improve scheduled notification processing by updating user timezones",
+        ],
+    },
     {
         "version": "1.154.0",
         "date": "23 июня 2026",
