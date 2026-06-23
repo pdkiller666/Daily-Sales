@@ -1029,6 +1029,19 @@ async def chat_send(
         files_map = _load_msg_files_bulk(db, msg_ids)
         reply_map = _chat_reply_map(db, new_msgs)
         result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2]) for r in new_msgs]
+
+        # Live-доставка в тему: будим клиентов в этой теме (кроме отправителя)
+        # сразу опросить сервер, без ожидания 4-сек поллинга. Poll — фоллбэк.
+        try:
+            from web.ws_manager import topic_manager
+            await topic_manager.broadcast(
+                org_db, topic_id,
+                {"type": "new", "topic_id": topic_id, "latest_id": new_id},
+                exclude_user=user_db_id,
+            )
+        except Exception:
+            pass
+
         return JSONResponse({"ok": True, "messages": result, "latest_id": new_id})
 
     except Exception as exc:
@@ -2626,6 +2639,61 @@ async def ws_dm(websocket: WebSocket):
         logger.error("ws_dm error uid=%s: %s", user_db_id, e)
     finally:
         dm_manager.disconnect(org_db, user_db_id)
+
+
+@router.websocket("/ws/topic")
+async def ws_topic(websocket: WebSocket):
+    """Live-доставка групповых тем: сервер «будит» клиентов комнаты темы
+    (broadcast {type:'new'}), клиент сразу делает poll. Само сообщение
+    форматируется per-user в HTTP-поллинге; poll — фоллбэк при разрыве WS."""
+    from web.auth import decode_session_token, COOKIE_NAME
+    from web.deps import get_web_db
+    from web.ws_manager import topic_manager
+
+    token = websocket.cookies.get(COOKIE_NAME, "")
+    user = decode_session_token(token) if token else None
+    if not user:
+        await websocket.close(code=4001)
+        return
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    if not _chat_access_ok(telegram_id):
+        await websocket.close(code=4003)
+        return
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+    except Exception:
+        await websocket.close(code=4004)
+        return
+
+    user_db_id = _get_user_db_id(db, telegram_id)
+    if not user_db_id:
+        await websocket.close(code=4004)
+        return
+
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            mtype = data.get("type")
+            if mtype == "join":
+                try:
+                    tid = int(data.get("topic_id", 0))
+                except (TypeError, ValueError):
+                    tid = 0
+                if tid > 0:
+                    topic_manager.join(org_db, tid, user_db_id, websocket)
+            elif mtype == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("ws_topic error uid=%s: %s", user_db_id, e)
+    finally:
+        topic_manager.leave(websocket)
 
 
 # ── AI Session Reset Routes ────────────────────────────────────────────────────

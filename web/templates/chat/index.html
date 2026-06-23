@@ -1302,6 +1302,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         dmWsRetry:         1000,
         dmWsRetryTimer:    null,
         dmWsOnline:        false,
+        /* WS живой доставки групповых тем (poll — фоллбэк) */
+        topicWs:           null,
+        topicWsRetry:      1000,
+        topicWsRetryTimer: null,
+        topicWsOnline:     false,
+        _topicWsClosing:   false,
+        _topicKeepalive:   null,
+        _wsPollDebounce:   null,
         dmMobileShowConv:  false,
         dmTotalUnread:     {{ dm_unread_count(request) if dm_unread_count is defined else 0 }},
         _dmInitPeer:       0,
@@ -1351,6 +1359,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.dmLoadMembers();
             /* Постоянное WS-соединение для ЛС — живёт в любом режиме */
             this.dmWsConnect();
+            /* WS живой доставки групповых тем — мгновенные сообщения без 4-сек задержки */
+            this.topicWsConnect();
             this.markTopicRead(this.currentTopicId, this.latestId);
             /* Возврат фокуса на вкладку → помечаем текущую тему прочитанной
                и сразу опрашиваем + сбрасываем backoff-интервал на быстрый. */
@@ -1573,6 +1583,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
             this.loadingTopic = false;
             this.startPolling();
+            /* переподписать WS на новую тему для живой доставки */
+            this.topicJoin(topicId);
             this.scrollBottom(true);
             history.replaceState(null, '', '/chat?topic=' + topicId);
         },
@@ -2097,6 +2109,53 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (this.dmWsRetryTimer) { clearTimeout(this.dmWsRetryTimer); this.dmWsRetryTimer = null; }
             if (this._dmKeepalive)   { clearInterval(this._dmKeepalive); this._dmKeepalive = null; }
             this.dmWsOnline = false;
+        },
+
+        /* ── WebSocket групповых тем (живая доставка, poll — фоллбэк) ── */
+        topicWsConnect() {
+            if (this.topicWs) return;
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const ws = new WebSocket(`${proto}://${location.host}/ws/topic`);
+            ws.onopen = () => {
+                this.topicWsOnline = true; this.topicWsRetry = 1000;
+                /* подписаться на текущую тему; после реконнекта — сразу опрос
+                   (ловим пропущенные сообщения за время разрыва) */
+                this.topicJoin(this.currentTopicId);
+                if (!this.dmMode) this.poll();
+            };
+            ws.onmessage = e => { try { this.handleTopicWsMsg(JSON.parse(e.data)); } catch(_) {} };
+            ws.onclose = () => {
+                this.topicWsOnline = false; this.topicWs = null;
+                if (this._topicWsClosing) { this._topicWsClosing = false; return; }
+                this.topicWsRetryTimer = setTimeout(() => {
+                    this.topicWsRetry = Math.min(this.topicWsRetry * 1.5, 30000);
+                    this.topicWsConnect();
+                }, this.topicWsRetry);
+            };
+            ws.onerror = () => { this.topicWsOnline = false; };
+            this.topicWs = ws;
+            if (!this._topicKeepalive) {
+                this._topicKeepalive = setInterval(() => {
+                    if (this.topicWs && this.topicWs.readyState === WebSocket.OPEN)
+                        this.topicWs.send(JSON.stringify({type: 'ping'}));
+                }, 25000);
+            }
+        },
+        topicJoin(topicId) {
+            if (this.topicWs && this.topicWs.readyState === WebSocket.OPEN && topicId) {
+                try { this.topicWs.send(JSON.stringify({type: 'join', topic_id: topicId})); } catch(_) {}
+            }
+        },
+        handleTopicWsMsg(data) {
+            if (!data || data.type === 'pong') return;
+            if (data.type === 'new') {
+                /* мгновенная доставка: будим опрос текущей темы (коалесинг 120мс),
+                   poll вернёт корректно отформатированные per-user сообщения */
+                if (!this.dmMode && data.topic_id === this.currentTopicId) {
+                    clearTimeout(this._wsPollDebounce);
+                    this._wsPollDebounce = setTimeout(() => this.poll(), 120);
+                }
+            }
         },
         _dmWsSend(obj) {
             if (this.dmWs && this.dmWs.readyState === WebSocket.OPEN)

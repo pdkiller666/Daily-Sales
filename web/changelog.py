@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.161.0"
+CURRENT_VERSION = "1.162.0"
 
 ENTRIES = [
+    {
+        "version": "1.162.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add message editing, reactions, and replies to chat functionality",
+        ],
+    },
     {
         "version": "1.161.0",
         "date": "23 июня 2026",
