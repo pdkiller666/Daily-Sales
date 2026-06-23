@@ -18,6 +18,7 @@
 - [Alpine x-cloak pattern](alpine-xcloak.md) — x-cloak нужен только для крупных изначально-скрытых элементов; POS-корзина — канонический пример
 - [Internal org chat module](chat-module.md) — topics + DM (direct_messages table, 9 DB methods, WS /ws/chat/dm, Alpine dmMode); search merges topic+DM results; FAB badge = topicNew+dmUnread
 - [Chat replies/quotes](chat-replies.md) — reply_to_id; цитату валидировать по доступу (группа=та же topic_id; ЛС=оба конца в диалоге, иначе IDOR); reply_to_id всегда row[-1]; сниппет escape только на фронте (x-text)
+- [Chat @mentions](chat-mentions.md) — @имя в группах+ЛС; push split (упомянутым адресный, остальным общий — не дублировать); x-html=formatMsg ОБЯЗАН esc() ДО regex (XSS); автокомплит из dmMembers
 - [Chat read-state & realtime](chat-read-realtime.md) — rate-limit за прокси по telegram_id (не IP); курсор удалений >= (не >); серверный chat_read_state вместо localStorage; DM live-delete WS обоим; att_id≠msg_id; _topicReqSeq race guard
 - [aiohttp/aiogram совместимость](aiohttp-aiogram-compat.md) — aiogram 3.20 требует aiohttp<3.12; 3.12.x ломает Amvera-сборку; фиксировать aiohttp==3.11.18
 - [Security audit findings](security-audit.md) — critical: admin.py CSRF result was ignored (8 routes); subscription limits NOT in web layer; TOCTOU in add_sale; random vs secrets for promo codes

@@ -142,6 +142,36 @@ def _dm_reply_map(db, rows) -> dict:
         return {}
 
 
+def _mention_handle(first_name, username) -> str:
+    """Хендл участника для @упоминаний: username (без @) либо имя без пробелов, lower."""
+    if username:
+        return str(username).strip().lstrip("@").lower()
+    if first_name:
+        return "".join(str(first_name).split()).lower()
+    return ""
+
+
+_MENTION_RE = re.compile(r"(?:^|\s)@([\w\u0400-\u04ff]+)", re.UNICODE)
+
+
+def _parse_mention_tids(text, members, exclude_tid=None) -> set:
+    """text → set telegram_id упомянутых участников.
+    members: rows (id, telegram_id, first_name, username)."""
+    if not text or "@" not in text:
+        return set()
+    tokens = {t.lower() for t in _MENTION_RE.findall(text)}
+    if not tokens:
+        return set()
+    out = set()
+    for uid, tid, fn, uname in members:
+        if not tid:
+            continue
+        h = _mention_handle(fn, uname)
+        if h and h in tokens and int(tid) != int(exclude_tid or 0):
+            out.add(int(tid))
+    return out
+
+
 def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None) -> dict:
     """Форматировать строку chat_messages.
     files=None  → использовать legacy-колонки file_path/file_name/... из row
@@ -962,7 +992,8 @@ async def chat_send(
             if _ai_tid and topic_id == _ai_tid:
                 asyncio.create_task(_ai_chat_reply(org_db, topic_id, user_db_id, text))
 
-        # Web Push участникам организации (кроме отправителя) — общий чат
+        # Web Push участникам организации (кроме отправителя) — общий чат.
+        # Упомянутые (@имя) получают адресное уведомление вместо общего.
         try:
             sender_name = user.get("name") or "Сотрудник"
             preview = (text or ("📎 Вложение" if saved_files else "")).strip()[:120]
@@ -970,9 +1001,22 @@ async def chat_send(
                 int(u[1]) for u in (db.get_all_users() or [])
                 if u[1] and int(u[1]) != telegram_id
             ]
+            mention_tids = set()
+            try:
+                if text:
+                    mention_tids = _parse_mention_tids(
+                        text, db.get_chat_mention_members(), exclude_tid=telegram_id
+                    )
+            except Exception:
+                mention_tids = set()
             if member_tids and preview:
                 from web.push_utils import apush_bulk
-                await apush_bulk(member_tids, "💬 Новое сообщение в чате", f"{sender_name}: {preview}", "/chat")
+                general_tids = [t for t in member_tids if t not in mention_tids]
+                if general_tids:
+                    await apush_bulk(general_tids, "💬 Новое сообщение в чате", f"{sender_name}: {preview}", "/chat")
+            if mention_tids:
+                from web.push_utils import apush_bulk
+                await apush_bulk(list(mention_tids), "📣 Вас упомянули в чате", f"{sender_name}: {preview}", "/chat")
         except Exception:
             pass
 
@@ -1902,6 +1946,7 @@ def api_dm_members(request: Request):
                 "display_name": f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or f"User#{r[0]}",
                 "initial": ((f"{r[1] or ''} {r[2] or ''}".strip() or r[3] or "?")[0]).upper(),
                 "shop_name": r[4] or "",
+                "mention": _mention_handle(r[1], r[3]),
             }
             for r in rows
         ]

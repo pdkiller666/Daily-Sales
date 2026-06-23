@@ -13560,6 +13560,20 @@ class Database:
             logger.error("get_dm_org_members: %s", e)
             return []
 
+    def get_chat_mention_members(self) -> list:
+        """(id, telegram_id, first_name, username) всех пользователей орга —
+        для резолва @упоминаний в чате."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                'SELECT id, telegram_id, first_name, username FROM users'
+            ).fetchall()
+            conn.close()
+            return rows
+        except Exception as e:
+            logger.error("get_chat_mention_members: %s", e)
+            return []
+
     def mark_dm_read(self, viewer_id: int, from_user_id: int) -> None:
         """Пометить переписку viewer_id↔from_user_id прочитанной.
 

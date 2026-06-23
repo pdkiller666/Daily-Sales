@@ -147,6 +147,30 @@ html.dark .reply-bar { background:#1e293b; }
 @keyframes replyHl { 0%{background:rgba(59,130,246,.28);} 100%{background:transparent;} }
 .reply-flash { animation:replyHl 1.6s ease-out; border-radius:12px; }
 
+/* ── @упоминания ── */
+.mention { color:#2563eb;font-weight:600;background:rgba(59,130,246,.10);
+           border-radius:4px;padding:0 2px; }
+html.dark .mention { color:#93c5fd;background:rgba(59,130,246,.18); }
+.msg-mine .mention, .dm-bubble-mine .mention { color:#fff;background:rgba(255,255,255,.22); }
+.mention-dropdown { position:absolute;bottom:calc(100% + 6px);left:0;z-index:40;
+                    width:min(280px,90vw);max-height:220px;overflow-y:auto;
+                    background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+                    box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px; }
+html.dark .mention-dropdown { background:#1e293b;border-color:#334155; }
+.mention-item { display:flex;align-items:center;gap:8px;width:100%;
+                padding:6px 8px;border-radius:8px;text-align:left;cursor:pointer;
+                background:transparent;transition:background .1s; }
+.mention-item:hover, .mention-item-active { background:rgba(59,130,246,.12); }
+html.dark .mention-item:hover, html.dark .mention-item-active { background:rgba(59,130,246,.22); }
+.mention-item-ava { flex:0 0 auto;width:24px;height:24px;border-radius:50%;
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:.7rem;font-weight:700;color:#fff;
+                    background:linear-gradient(135deg,#94a3b8,#475569); }
+.mention-item-name { flex:1;font-size:.8rem;font-weight:500;color:#1e293b;
+                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+html.dark .mention-item-name { color:#e2e8f0; }
+.mention-item-handle { flex:0 0 auto;font-size:.7rem;color:#64748b; }
+
 /* ── Scroll ── */
 #chat-scroll::-webkit-scrollbar { width:4px; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
@@ -584,7 +608,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                     </template>
                     <!-- Text -->
                     <template x-if="msg.message">
-                        <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
+                        <p class="text-sm leading-relaxed whitespace-pre-wrap" x-html="formatMsg(msg.message)"></p>
                     </template>
                     <!-- Files (multi-file support) -->
                     <template x-if="msg.files && msg.files.length > 0">
@@ -710,7 +734,18 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             <button type="button" @click="replyTo = null" class="shrink-0 text-slate-400 hover:text-red-500 leading-none text-xl px-1">×</button>
         </div>
 
-        <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
+        <form @submit.prevent="sendMessage()" class="flex items-end gap-2 relative">
+            <!-- Автокомплит @упоминаний -->
+            <div x-show="mentionOpen && mentionField==='group'" x-cloak class="mention-dropdown">
+                <template x-for="(m, i) in mentionItems" :key="m.id">
+                    <button type="button" @click="applyMention(m)"
+                            :class="i===mentionIndex ? 'mention-item mention-item-active' : 'mention-item'">
+                        <span class="mention-item-ava" x-text="m.initial"></span>
+                        <span class="mention-item-name" x-text="m.display_name"></span>
+                        <span class="mention-item-handle" x-text="'@' + m.mention"></span>
+                    </button>
+                </template>
+            </div>
             <!-- Кнопка «Новый диалог» — только в AI-теме -->
             <button x-show="currentTopicIsAi" x-cloak type="button"
                     @click="resetAiTopicSession()"
@@ -734,14 +769,18 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
 
             <textarea
                 x-model="text"
-                @keydown.enter.exact.prevent="sendMessage()"
+                @keydown.enter.exact.prevent="(mentionOpen && mentionField==='group') ? applyMentionSelected() : sendMessage()"
                 @keydown.enter.shift.exact="text += '\n'"
+                @keydown.arrow-down="(mentionOpen && mentionField==='group') && mentionNav($event, 1)"
+                @keydown.arrow-up="(mentionOpen && mentionField==='group') && mentionNav($event, -1)"
+                @keydown.escape="mentionClose()"
                 rows="1"
                 :placeholder="currentTopicIsAi ? '🤖 Спросите AI-ассистента…' : ('Написать в #' + currentTopicName + '… (Enter — отправить)')"
                 :disabled="sending"
                 class="flex-1 border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 rounded-xl px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 leading-snug"
                 style="min-height:42px;max-height:120px"
-                @input="autoResize($event.target)"
+                @input="autoResize($event.target); mentionInput($event.target, 'group')"
+                @blur="mentionBlur()"
             ></textarea>
 
             <button type="submit"
@@ -956,7 +995,7 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                             </a>
                                         </template>
                                         <!-- Text -->
-                                        <span x-show="m.message" x-text="m.message"></span>
+                                        <span x-show="m.message" x-html="formatMsg(m.message)"></span>
                                         <!-- Реакция -->
                                         <span class="relative inline-block">
                                             <button @click="dmOpenReact = (dmOpenReact === m.id ? null : m.id)"
@@ -1052,7 +1091,18 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             <button type="button" @click="dmReplyTo = null" class="shrink-0 text-slate-400 hover:text-red-500 leading-none text-xl px-1">×</button>
                         </div>
 
-                        <form @submit.prevent="dmSend()" class="flex items-end gap-2">
+                        <form @submit.prevent="dmSend()" class="flex items-end gap-2 relative">
+                            <!-- Автокомплит @упоминаний -->
+                            <div x-show="mentionOpen && mentionField==='dm'" x-cloak class="mention-dropdown">
+                                <template x-for="(m, i) in mentionItems" :key="m.id">
+                                    <button type="button" @click="applyMention(m)"
+                                            :class="i===mentionIndex ? 'mention-item mention-item-active' : 'mention-item'">
+                                        <span class="mention-item-ava" x-text="m.initial"></span>
+                                        <span class="mention-item-name" x-text="m.display_name"></span>
+                                        <span class="mention-item-handle" x-text="'@' + m.mention"></span>
+                                    </button>
+                                </template>
+                            </div>
                             <!-- Кнопка «Новый диалог» — только в AI ЛС -->
                             <button x-show="dmPeerId === -1" x-cloak type="button"
                                     @click="resetAiDmSession()"
@@ -1075,9 +1125,13 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             </label>
                             <textarea
                                 x-model="dmText"
-                                @keydown.enter.exact.prevent="dmSend()"
+                                @keydown.enter.exact.prevent="(mentionOpen && mentionField==='dm') ? applyMentionSelected() : dmSend()"
                                 @keydown.enter.shift.exact="dmText += '\n'"
-                                @input="onDmTyping($event.target)"
+                                @keydown.arrow-down="(mentionOpen && mentionField==='dm') && mentionNav($event, 1)"
+                                @keydown.arrow-up="(mentionOpen && mentionField==='dm') && mentionNav($event, -1)"
+                                @keydown.escape="mentionClose()"
+                                @input="onDmTyping($event.target); mentionInput($event.target, 'dm')"
+                                @blur="mentionBlur()"
                                 rows="1"
                                 :placeholder="'Написать ' + dmPeerName + '… (Enter — отправить)'"
                                 :disabled="dmSending"
@@ -1169,6 +1223,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         _topicReqSeq: 0,    /* race guard: монотонный счётчик переключений темы */
         _delSince: '',       /* серверная метка времени для запроса удалённых сообщений */
 
+        /* ── @упоминания (автокомплит) ── */
+        mentionOpen:       false,
+        mentionItems:      [],
+        mentionIndex:      0,
+        mentionField:      '',     /* 'group' | 'dm' */
+        _mentionStart:     -1,     /* позиция '@' в тексте */
+        _mentionEl:        null,   /* ссылка на активный textarea */
+
         /* ── DM mode ── */
         dmMode:            false,
         dmContacts:        [],
@@ -1237,6 +1299,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             document.addEventListener('focusout', () => setTimeout(this._fitHandler, 60));
             this.scrollBottom(true);
             this.startPolling();
+            /* Список участников — для @-упоминаний (автокомплит в группах и ЛС) */
+            this.dmLoadMembers();
             /* Постоянное WS-соединение для ЛС — живёт в любом режиме */
             this.dmWsConnect();
             this.markTopicRead(this.currentTopicId, this.latestId);
@@ -2134,6 +2198,68 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         scrollToDmMsg(id) {
             const el = document.querySelector('[data-dmid="' + id + '"]');
             if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); this._flashMsg(el); }
+        },
+        /* ── @упоминания ── */
+        formatMsg(text) {
+            if (!text) return '';
+            const safe = this.esc(text);
+            return safe.replace(/(^|\s)@([\wА-Яа-яЁё]+)/g,
+                '$1<span class="mention">@$2</span>');
+        },
+        mentionInput(el, field) {
+            if (!el) { this.mentionClose(); return; }
+            const pos = el.selectionStart;
+            const head = el.value.slice(0, pos);
+            const m = head.match(/(?:^|\s)@([\wА-Яа-яЁё]*)$/);
+            if (!m) { this.mentionClose(); return; }
+            const q = m[1].toLowerCase();
+            const items = (this.dmMembers || []).filter(x => {
+                const h = (x.mention || '').toLowerCase();
+                const n = (x.display_name || '').toLowerCase();
+                return !q || h.startsWith(q) || n.includes(q);
+            }).slice(0, 6);
+            if (!items.length) { this.mentionClose(); return; }
+            this._mentionStart = pos - m[1].length - 1;
+            this._mentionEl    = el;
+            this.mentionItems  = items;
+            this.mentionIndex  = 0;
+            this.mentionField  = field;
+            this.mentionOpen   = true;
+        },
+        mentionNav(ev, dir) {
+            ev.preventDefault();
+            const n = this.mentionItems.length;
+            if (!n) return;
+            this.mentionIndex = (this.mentionIndex + dir + n) % n;
+        },
+        applyMentionSelected() {
+            const m = this.mentionItems[this.mentionIndex];
+            if (m) this.applyMention(m);
+        },
+        applyMention(m) {
+            const el = this._mentionEl;
+            if (this._mentionStart < 0 || !el) { this.mentionClose(); return; }
+            const isDm  = this.mentionField === 'dm';
+            const cur   = isDm ? this.dmText : this.text;
+            const caret = el.selectionStart;
+            const before = cur.slice(0, this._mentionStart);
+            const after  = cur.slice(caret);
+            const insert = '@' + (m.mention || '') + ' ';
+            const next   = before + insert + after;
+            if (isDm) this.dmText = next; else this.text = next;
+            const np = (before + insert).length;
+            this.mentionClose();
+            this.$nextTick(() => { el.focus(); el.setSelectionRange(np, np); });
+        },
+        mentionClose() {
+            this.mentionOpen  = false;
+            this.mentionItems = [];
+            this.mentionIndex = 0;
+            this._mentionStart = -1;
+        },
+        mentionBlur() {
+            /* задержка, чтобы click по пункту успел сработать до закрытия */
+            setTimeout(() => this.mentionClose(), 150);
         }
     };
 }
