@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.160.0"
+CURRENT_VERSION = "1.161.0"
 
 ENTRIES = [
+    {
+        "version": "1.161.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Ensure AI chat history is correctly cleared after starting a new dialogue",
+        ],
+    },
     {
         "version": "1.160.0",
         "date": "23 июня 2026",

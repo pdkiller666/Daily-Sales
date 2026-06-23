@@ -64,10 +64,16 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+_REACT_RATE_STORE: dict[int, list[float]] = {}   # 60 реакций/мин на telegram_id
+
 def _send_rate_ok(tid: int)   -> bool: return _rate_ok(_SEND_RATE_STORE,   tid, 30, 60.0)
 def _poll_rate_ok(key)        -> bool: return _rate_ok(_POLL_RATE_STORE,   key, 60, 60.0)
 def _topic_rate_ok(tid: int)  -> bool: return _rate_ok(_TOPIC_RATE_STORE,  tid,  5, 3600.0)
 def _search_rate_ok(key)      -> bool: return _rate_ok(_SEARCH_RATE_STORE, key, 30, 60.0)
+def _react_rate_ok(tid: int)  -> bool: return _rate_ok(_REACT_RATE_STORE,  tid, 60, 60.0)
+
+# Разрешённый набор эмодзи-реакций (валидация на сервере)
+ALLOWED_REACTIONS = ("👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "✅")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -99,11 +105,12 @@ def _safe_filename(original: str) -> str:
     return name[:120] or "file"
 
 
-def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict:
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None) -> dict:
     """Форматировать строку chat_messages.
     files=None  → использовать legacy-колонки file_path/file_name/... из row
     files=[]    → новое сообщение без вложений
     files=[...] → список dicts из chat_message_files
+    reactions   → список [{emoji,count,mine}] или None
     """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname, *_ = row
     if user_id == 0:
@@ -162,6 +169,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None) -> dict
         "initial": initial,
         "created_at": ts,
         "can_delete": is_admin or (my_db_id > 0 and user_id == my_db_id),
+        "reactions": reactions or [],
     }
 
 
@@ -790,7 +798,8 @@ def chat_page(request: Request, topic: int = 1):
             except Exception:
                 _ai_since = 0
             rows = db.get_chat_messages(limit=50, topic_id=topic, since_id=_ai_since)
-            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin) for r in rows]
+            _react_map = db.get_chat_reactions_bulk([r[0] for r in rows], user_db_id or 0)
+            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0])) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
 
             # Текущая тема открыта → помечаем прочитанной + обнуляем её бейдж
@@ -971,6 +980,13 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         # Удаления у всех в реальном времени (с момента прошлого опроса)
         deleted_ids = db.get_chat_deleted_ids_since(topic_id, del_since)
 
+        # Реакции последних сообщений темы — live-синхронизация чипов
+        try:
+            reactions_map = {str(k): v for k, v in
+                             db.get_recent_chat_reactions(topic_id, user_db_id).items()}
+        except Exception:
+            reactions_map = {}
+
         # Текущая тема прочитана до latest; бейджи остальных тем.
         # mark_read=0 → вкладка скрыта: НЕ помечаем прочитанным (непрочитанное копится)
         if mark_read:
@@ -987,6 +1003,7 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         return JSONResponse({
             "ok": True, "messages": msgs, "latest_id": latest,
             "deleted_ids": deleted_ids, "topic_unread": topic_unread, "now": now_ts,
+            "reactions": reactions_map,
         })
 
     except Exception as exc:
@@ -1030,7 +1047,8 @@ def chat_topic_messages(request: Request, topic_id: int):
         rows = db.get_chat_messages(limit=50, topic_id=topic_id, since_id=_ai_since)
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
+        react_map = db.get_chat_reactions_bulk(msg_ids, user_db_id)
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0])) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         try:
             db.set_chat_read(user_db_id, topic_id, latest)
@@ -1215,6 +1233,104 @@ def chat_delete_message(
     except Exception as exc:
         logger.error(f"chat_delete error: {exc}")
         return JSONResponse({"ok": False, "error": "Внутренняя ошибка сервера"}, status_code=500)
+
+
+# ── Реакции: групповая тема ──────────────────────────────────────────────────
+
+@router.post("/chat/message/{msg_id}/react")
+def chat_react_message(
+    request: Request,
+    msg_id: int,
+    emoji: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+    emoji = (emoji or "").strip()
+    if emoji not in ALLOWED_REACTIONS:
+        return JSONResponse({"ok": False, "error": "Недопустимая реакция"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    if not _react_rate_ok(telegram_id):
+        return JSONResponse({"ok": False, "error": "Слишком часто"}, status_code=429)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _chat_access_ok(telegram_id):
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        mine = db.toggle_message_reaction(msg_id, user_db_id, emoji)
+        reactions = db.get_chat_reactions_bulk([msg_id], user_db_id).get(msg_id, [])
+        return JSONResponse({"ok": True, "mine": mine, "reactions": reactions})
+    except Exception as exc:
+        logger.error(f"chat_react error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+# ── Реакции: личные сообщения (с WS-распространением обоим) ───────────────────
+
+@router.post("/chat/dm/{msg_id}/react")
+async def dm_react_message(
+    request: Request,
+    msg_id: int,
+    emoji: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+):
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+    from web.ws_manager import dm_manager
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+    emoji = (emoji or "").strip()
+    if emoji not in ALLOWED_REACTIONS:
+        return JSONResponse({"ok": False, "error": "Недопустимая реакция"}, status_code=400)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+    if not _react_rate_ok(telegram_id):
+        return JSONResponse({"ok": False, "error": "Слишком часто"}, status_code=429)
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _chat_access_ok(telegram_id):
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        row = db.get_dm_message(msg_id)
+        if not row:
+            return JSONResponse({"ok": False, "error": "Сообщение не найдено"}, status_code=404)
+        # Реагировать может только участник переписки (row: id, from, to, ...)
+        if user_db_id not in {row[1], row[2]}:
+            return JSONResponse({"ok": False, "error": "Нет доступа"}, status_code=403)
+        mine = db.toggle_dm_reaction(msg_id, user_db_id, emoji)
+        my_reactions = db.get_dm_reactions_bulk([msg_id], user_db_id).get(msg_id, [])
+        # WS обоим участникам — у каждого свой признак mine
+        for uid in {row[1], row[2]}:
+            if not uid:
+                continue
+            uid_reacts = db.get_dm_reactions_bulk([msg_id], uid).get(msg_id, [])
+            try:
+                await dm_manager.send_to_user(org_db, uid, {
+                    "type": "reaction", "id": msg_id, "reactions": uid_reacts,
+                })
+            except Exception:
+                pass
+        return JSONResponse({"ok": True, "mine": mine, "reactions": my_reactions})
+    except Exception as exc:
+        logger.error(f"dm_react error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
 
 @router.post("/chat/topics/create")
@@ -1427,11 +1543,12 @@ def _fmt_ts(raw) -> str:
         return s
 
 
-def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
+def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None) -> dict:
     """Форматировать строку direct_messages.
     files=None  → legacy single-file из колонок
     files=[]    → нет вложений
     files=[...] → список dicts из dm_message_files
+    reactions   → список [{emoji,count,mine}] или None
     """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
@@ -1483,6 +1600,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None) -> dict:
         "is_ai": (from_id == 0),
         "display_name": display,
         "can_delete": is_mine,
+        "reactions": reactions or [],
     }
 
 
@@ -1680,7 +1798,8 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     rows = db.get_dm_conversation(user_db_id, peer_id, limit=50)
                     dm_ids = [r[0] for r in rows]
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)
-                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0])) for r in rows]
+                    dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0])) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
             try:
                 from billing_utils import has_extension
@@ -1816,7 +1935,8 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         page = rows[:50]
         dm_ids = [r[0] for r in page]
         dm_files_map = _load_dm_files_bulk(db, dm_ids)
-        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0])) for r in page]
+        dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
+        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0])) for r in page]
         return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
     except Exception as exc:
         logger.error(f"api_dm_conversation error: {exc}")

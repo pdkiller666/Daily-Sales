@@ -1327,6 +1327,49 @@ class Database:
             )
         ''')
 
+        # ── Реакции на сообщения (группы + ЛС) ─────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS message_reactions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                emoji      TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now')),
+                UNIQUE (message_id, user_id, emoji)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_msg_react_msg ON message_reactions(message_id)')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dm_reactions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                dm_id      INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                emoji      TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now')),
+                UNIQUE (dm_id, user_id, emoji)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dm_react_dm ON dm_reactions(dm_id)')
+
+        # ── Reply / Edit / Pin (групповой чат + ЛС) ────────────────────────────
+        cursor.execute("PRAGMA table_info(chat_messages)")
+        _cm_cols2 = [col[1] for col in cursor.fetchall()]
+        if 'reply_to_id' not in _cm_cols2:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN reply_to_id INTEGER DEFAULT 0")
+        if 'edited_at' not in _cm_cols2:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN edited_at TEXT")
+        if 'is_pinned' not in _cm_cols2:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN is_pinned INTEGER DEFAULT 0")
+        if 'pinned_at' not in _cm_cols2:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN pinned_at TEXT")
+
+        cursor.execute("PRAGMA table_info(direct_messages)")
+        _dm_cols3 = [col[1] for col in cursor.fetchall()]
+        if 'reply_to_id' not in _dm_cols3:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN reply_to_id INTEGER DEFAULT 0")
+        if 'edited_at' not in _dm_cols3:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN edited_at TEXT")
+
         # ── Task topics (категории задач) ─────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS task_topics (
@@ -12953,6 +12996,146 @@ class Database:
             return [r[0] for r in rows if r[0]]
         finally:
             conn.close()
+
+    # ── Реакции на сообщения ───────────────────────────────────────────────
+    def toggle_message_reaction(self, message_id: int, user_id: int, emoji: str) -> bool:
+        """Поставить/снять реакцию на сообщение темы. True — теперь стоит, False — снята.
+
+        Реагировать можно только на существующее не-удалённое сообщение.
+        Идемпотентно при гонке (двойной клик/несколько вкладок): ловим
+        IntegrityError на UNIQUE и трактуем как «уже стоит»."""
+        conn = self.get_connection()
+        try:
+            msg = conn.execute(
+                "SELECT 1 FROM chat_messages WHERE id=? AND COALESCE(is_deleted,0)=0",
+                (message_id,)
+            ).fetchone()
+            if not msg:
+                return False
+            row = conn.execute(
+                "SELECT id FROM message_reactions WHERE message_id=? AND user_id=? AND emoji=?",
+                (message_id, user_id, emoji)
+            ).fetchone()
+            if row:
+                conn.execute("DELETE FROM message_reactions WHERE id=?", (row[0],))
+                conn.commit()
+                return False
+            try:
+                conn.execute(
+                    "INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (?,?,?)",
+                    (message_id, user_id, emoji)
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                conn.rollback()
+            return True
+        finally:
+            conn.close()
+
+    def get_chat_reactions_bulk(self, message_ids: list, my_user_id: int = 0) -> dict:
+        """{message_id: [{emoji, count, mine}]} для списка сообщений темы."""
+        if not message_ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(message_ids))
+            rows = conn.execute(
+                f"""SELECT message_id, emoji, COUNT(*) AS cnt,
+                           MAX(CASE WHEN user_id=? THEN 1 ELSE 0 END) AS mine
+                    FROM message_reactions WHERE message_id IN ({ph})
+                    GROUP BY message_id, emoji ORDER BY MIN(id)""",
+                [my_user_id] + list(message_ids)
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for mid, emoji, cnt, mine in rows:
+            result.setdefault(mid, []).append({"emoji": emoji, "count": cnt, "mine": bool(mine)})
+        return result
+
+    def toggle_dm_reaction(self, dm_id: int, user_id: int, emoji: str) -> bool:
+        """Поставить/снять реакцию на личное сообщение. True — стоит, False — снята.
+
+        Реагировать можно только на существующее не-удалённое ЛС.
+        Идемпотентно при гонке: IntegrityError на UNIQUE → «уже стоит»."""
+        conn = self.get_connection()
+        try:
+            msg = conn.execute(
+                "SELECT 1 FROM direct_messages WHERE id=? AND COALESCE(is_deleted,0)=0",
+                (dm_id,)
+            ).fetchone()
+            if not msg:
+                return False
+            row = conn.execute(
+                "SELECT id FROM dm_reactions WHERE dm_id=? AND user_id=? AND emoji=?",
+                (dm_id, user_id, emoji)
+            ).fetchone()
+            if row:
+                conn.execute("DELETE FROM dm_reactions WHERE id=?", (row[0],))
+                conn.commit()
+                return False
+            try:
+                conn.execute(
+                    "INSERT INTO dm_reactions (dm_id, user_id, emoji) VALUES (?,?,?)",
+                    (dm_id, user_id, emoji)
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                conn.rollback()
+            return True
+        finally:
+            conn.close()
+
+    def get_dm_reactions_bulk(self, dm_ids: list, my_user_id: int = 0) -> dict:
+        """{dm_id: [{emoji, count, mine}]} для списка личных сообщений."""
+        if not dm_ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(dm_ids))
+            rows = conn.execute(
+                f"""SELECT dm_id, emoji, COUNT(*) AS cnt,
+                           MAX(CASE WHEN user_id=? THEN 1 ELSE 0 END) AS mine
+                    FROM dm_reactions WHERE dm_id IN ({ph})
+                    GROUP BY dm_id, emoji ORDER BY MIN(id)""",
+                [my_user_id] + list(dm_ids)
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for did, emoji, cnt, mine in rows:
+            result.setdefault(did, []).append({"emoji": emoji, "count": cnt, "mine": bool(mine)})
+        return result
+
+    def get_recent_chat_reactions(self, topic_id: int, my_user_id: int = 0,
+                                  limit: int = 60) -> dict:
+        """Снимок реакций последних N сообщений темы — для live-синхронизации по
+        polling. Возвращает запись для КАЖДОГО сообщения окна (пустой список,
+        если реакций нет) → клиент корректно отражает и снятие реакций.
+        {message_id: [{emoji,count,mine}]}."""
+        conn = self.get_connection()
+        try:
+            id_rows = conn.execute(
+                "SELECT id FROM chat_messages WHERE topic_id=? AND is_deleted=0 "
+                "ORDER BY id DESC LIMIT ?",
+                (topic_id, limit)
+            ).fetchall()
+            ids = [r[0] for r in id_rows]
+            result: dict = {i: [] for i in ids}
+            if ids:
+                ph = ','.join('?' * len(ids))
+                rows = conn.execute(
+                    f"""SELECT message_id, emoji, COUNT(*) AS cnt,
+                               MAX(CASE WHEN user_id=? THEN 1 ELSE 0 END) AS mine
+                        FROM message_reactions WHERE message_id IN ({ph})
+                        GROUP BY message_id, emoji ORDER BY MIN(id)""",
+                    [my_user_id] + ids
+                ).fetchall()
+                for mid, emoji, cnt, mine in rows:
+                    result[mid].append({"emoji": emoji, "count": cnt, "mine": bool(mine)})
+        finally:
+            conn.close()
+        return result
 
     def get_chat_topics(self) -> list:
         """Все не-архивные темы чата, отсортированные по sort_order."""

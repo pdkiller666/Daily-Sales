@@ -75,5 +75,6 @@
 - [Security batch: 2FA/audit/CSRF](security-2fa-audit.md) — admin_audit_log+login_ips gated by 'shop_bot' in db_file (тесты нужны shop_bot-имя); 2FA self-service by design; per-request CSRF; audit best-effort
 - [Referral bonus grant](referral-bonus-grant.md) — таблица referrals: колонка `applied` (НЕ bonus_granted, фича была молча мертва); идемпотентность = атомарный UPDATE…WHERE applied=0 + rowcount==1 ПЕРЕД выдачей
 - [Dark mode tokens & !important](dark-mode-tokens.md) — снимать !important только с class-utility оверрайдов html.dark; оставлять на element/input/table (иначе dark:-утилита по специфичности побеждает → ломает тему)
+- [Chat message reactions](chat-reactions.md) — эмодзи-реакции группы(poll-снимок)+ЛС(WS); toggle идемпотентен (IntegrityError→стоит) + проверка not-deleted; poll отдаёт [] для снятия; dm.html legacy
 - [AsyncDatabase double-wrap](async-db-double-wrap.md) — get_db() возвращает AsyncDatabase (сама оборачивает методы в to_thread); asyncio.to_thread(current_db.method) = двойная обёртка → coroutine вместо результата (truthy/TypeError); всегда await current_db.method()
 - [Schedule Index notif scheduler](schedule-index.md) — минутные джобы читают in-memory индекс {type:{(hhmm,tz):[entry]}} вместо скана всех org-баз; dirty-флагом владеет только _ensure (снимать ДО сборки); per-entry try обязателен

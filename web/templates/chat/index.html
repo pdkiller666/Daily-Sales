@@ -101,6 +101,29 @@ html.dark .dm-bubble-ai-error {
 .msg-del-btn:hover { opacity:.9 !important; }
 @media (hover: none) { .msg-del-btn { opacity:.3; } }  /* always show on touch devices */
 
+/* ── Реакции ── */
+.react-btn { opacity:0; transition:opacity .15s; cursor:pointer; }
+.msg-bubble:hover .react-btn { opacity:.55; }
+.react-btn:hover { opacity:.9 !important; }
+@media (hover: none) { .react-btn { opacity:.4; } }
+.react-chip { display:inline-flex;align-items:center;gap:3px;background:#f1f5f9;border:1px solid #e2e8f0;
+              border-radius:11px;padding:1px 7px;font-size:0.78rem;line-height:1.3;cursor:pointer;
+              transition:background .12s,border-color .12s; }
+.react-chip:hover { background:#e2e8f0; }
+.react-chip-mine { background:#dbeafe;border-color:#93c5fd; }
+html.dark .react-chip { background:#1e293b;border-color:#334155;color:#cbd5e1; }
+html.dark .react-chip:hover { background:#334155; }
+html.dark .react-chip-mine { background:#1e3a5f;border-color:#3b82f6; }
+.react-chip .rc-count { font-size:0.7rem;font-weight:600;opacity:.8; }
+.react-picker { position:absolute;bottom:100%;margin-bottom:4px;z-index:30;
+                display:flex;gap:2px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+                padding:4px 6px;box-shadow:0 6px 20px rgba(0,0,0,.14); }
+html.dark .react-picker { background:#0f172a;border-color:#334155; }
+.react-picker button { font-size:1.15rem;line-height:1;padding:3px 4px;border-radius:8px;
+                       transition:transform .1s,background .12s; }
+.react-picker button:hover { transform:scale(1.25);background:#f1f5f9; }
+html.dark .react-picker button:hover { background:#1e293b; }
+
 /* ── Scroll ── */
 #chat-scroll::-webkit-scrollbar { width:4px; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
@@ -560,15 +583,41 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                             <span>📎</span><span class="truncate" x-text="msg.file_name"></span>
                         </a>
                     </template>
-                    <!-- Meta + delete -->
+                    <!-- Meta + delete + react -->
                     <div class="msg-meta mt-1 flex items-center gap-1.5"
                          :class="msg.user_id === myUserId ? 'justify-end' : ''">
                         <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
+                        <div class="relative">
+                            <button @click="openReact = (openReact === msg.id ? null : msg.id)"
+                                    class="react-btn text-[12px] leading-none touch-manipulation px-0.5"
+                                    :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
+                                    title="Реакция">🙂</button>
+                            <div x-show="openReact === msg.id" x-cloak
+                                 @click.outside="openReact = null"
+                                 class="react-picker">
+                                <template x-for="e in REACTIONS" :key="e">
+                                    <button type="button" @click="toggleReaction(msg, e); openReact = null"
+                                            x-text="e"></button>
+                                </template>
+                            </div>
+                        </div>
                         <button x-show="msg.can_delete"
                                 @click="deleteMsg(msg.id)"
                                 class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
                                 :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
                                 title="Удалить сообщение">✕</button>
+                    </div>
+                    <!-- Чипы реакций -->
+                    <div x-show="msg.reactions && msg.reactions.length" x-cloak
+                         class="flex flex-wrap gap-1 mt-1.5"
+                         :class="msg.user_id === myUserId ? 'justify-end' : ''">
+                        <template x-for="r in (msg.reactions || [])" :key="r.emoji">
+                            <button type="button" @click="toggleReaction(msg, r.emoji)"
+                                    class="react-chip" :class="r.mine ? 'react-chip-mine' : ''">
+                                <span x-text="r.emoji"></span>
+                                <span class="rc-count" x-text="r.count"></span>
+                            </button>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -856,12 +905,39 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                         </template>
                                         <!-- Text -->
                                         <span x-show="m.message" x-text="m.message"></span>
+                                        <!-- Реакция -->
+                                        <span class="relative inline-block">
+                                            <button @click="dmOpenReact = (dmOpenReact === m.id ? null : m.id)"
+                                                    class="react-btn ml-1.5 text-[12px]"
+                                                    :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
+                                                    title="Реакция">🙂</button>
+                                            <span x-show="dmOpenReact === m.id" x-cloak
+                                                  @click.outside="dmOpenReact = null"
+                                                  class="react-picker">
+                                                <template x-for="e in REACTIONS" :key="e">
+                                                    <button type="button" @click="dmToggleReaction(m, e); dmOpenReact = null"
+                                                            x-text="e"></button>
+                                                </template>
+                                            </span>
+                                        </span>
                                         <!-- Delete -->
                                         <button x-show="m.can_delete"
                                                 @click="dmDeleteMsg(m.id)"
                                                 class="msg-del-btn ml-1.5 text-[11px]"
                                                 :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
                                                 title="Удалить">✕</button>
+                                    </div>
+                                    <!-- Чипы реакций (DM) -->
+                                    <div x-show="m.reactions && m.reactions.length" x-cloak
+                                         class="flex flex-wrap gap-1 mt-1"
+                                         :class="m.is_mine ? 'justify-end' : ''">
+                                        <template x-for="r in (m.reactions || [])" :key="r.emoji">
+                                            <button type="button" @click="dmToggleReaction(m, r.emoji)"
+                                                    class="react-chip" :class="r.mine ? 'react-chip-mine' : ''">
+                                                <span x-text="r.emoji"></span>
+                                                <span class="rc-count" x-text="r.count"></span>
+                                            </button>
+                                        </template>
                                     </div>
                                     <p class="text-[10px] text-slate-400 mt-0.5 px-1"
                                        :class="m.is_mine ? 'text-right' : ''"
@@ -982,6 +1058,11 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         myUserId,
         isAdmin,
         csrfToken,
+
+        /* ── reactions ── */
+        REACTIONS: ['👍','❤️','😂','😮','😢','🙏','🔥','✅'],
+        openReact: null,      /* id сообщения с открытым пикером (группа) */
+        dmOpenReact: null,    /* id сообщения с открытым пикером (ЛС) */
 
         /* ── send form ── */
         text: '',
@@ -1211,6 +1292,16 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (Array.isArray(data.deleted_ids) && data.deleted_ids.length) {
                     const delSet = new Set(data.deleted_ids);
                     this.msgs = this.msgs.filter(m => !delSet.has(m.id));
+                }
+
+                /* живая синхронизация реакций (снимок последних сообщений темы) */
+                if (data.reactions && typeof data.reactions === 'object') {
+                    for (const m of this.msgs) {
+                        const rk = String(m.id);
+                        if (Object.prototype.hasOwnProperty.call(data.reactions, rk)) {
+                            m.reactions = data.reactions[rk];
+                        }
+                    }
                 }
 
                 /* счётчики непрочитанного по темам.
@@ -1868,6 +1959,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } else if (data.type === 'delete') {
                 /* live-удаление сообщения у обоих собеседников */
                 this.dmMessages = this.dmMessages.filter(m => m.id !== data.id);
+            } else if (data.type === 'reaction') {
+                /* live-реакция: обновляем чипы у обоих собеседников */
+                const idx = this.dmMessages.findIndex(m => m.id === data.id);
+                if (idx >= 0) this.dmMessages[idx].reactions = data.reactions || [];
             } else if (data.type === 'typing' && data.from_user_id === this.dmPeerId) {
                 this.dmTypingText = this.dmPeerName + ' печатает…';
                 clearTimeout(this.dmTypingHideTimer);
@@ -1903,6 +1998,32 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) {
                 alert('Ошибка соединения');
             }
+        },
+
+        /* ── Реакции (группа) ── */
+        async toggleReaction(msg, emoji) {
+            const idx = this.msgs.findIndex(m => m.id === msg.id);
+            try {
+                const fd = new FormData();
+                fd.append('emoji', emoji);
+                fd.append('csrf_token', this.csrfToken);
+                const res = await fetch(`/chat/message/${msg.id}/react`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok && idx >= 0) this.msgs[idx].reactions = data.reactions || [];
+            } catch(e) { /* тихо: следующий poll синхронизирует */ }
+        },
+
+        /* ── Реакции (ЛС) ── */
+        async dmToggleReaction(m, emoji) {
+            const idx = this.dmMessages.findIndex(x => x.id === m.id);
+            try {
+                const fd = new FormData();
+                fd.append('emoji', emoji);
+                fd.append('csrf_token', this.csrfToken);
+                const res = await fetch(`/chat/dm/${m.id}/react`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok && idx >= 0) this.dmMessages[idx].reactions = data.reactions || [];
+            } catch(e) { /* тихо */ }
         }
     };
 }
