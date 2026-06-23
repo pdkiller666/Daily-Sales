@@ -227,6 +227,56 @@ try:
 except Exception as _e:
     _fn_fail("subscription_addons idempotency", _e)
 
+# 6b. module/bundle grant (annual): идемпотентность по payment_request_id + длительность 365
+try:
+    import tempfile as _tf6b, os as _os6b
+    _tmp6b = _tf6b.mktemp(suffix='shop_bot.db')
+    _db6b = Database(_tmp6b)
+    _db6b.create_tables()
+    _tg6b = 55501
+    # пользователь нужен, т.к. confirm_payment_request резолвит tg_id по user_id
+    _uid6b = None
+    _c6b = _db6b.get_connection()
+    _c6b.execute(
+        "INSERT INTO users (telegram_id, first_name, last_name) VALUES (?,?,?)",
+        (_tg6b, 'T', 'G')
+    )
+    _c6b.commit(); _c6b.close()
+    _c6b = _db6b.get_connection()
+    _row6b = _c6b.execute("SELECT id FROM users WHERE telegram_id=?", (_tg6b,)).fetchone()
+    _uid6b = _row6b[0]
+    # создаём заявку на годовой модуль и подтверждаем дважды
+    _cur6b = _c6b.cursor()
+    _cur6b.execute(
+        "INSERT INTO payment_requests (user_id, plan_type, amount, payment_proof_file_id) "
+        "VALUES (?,?,?,?)", (_uid6b, 'module_annual_analytics', 2990.0, 'test')
+    )
+    _req6b = _cur6b.lastrowid
+    _c6b.commit(); _c6b.close()
+    _ok6b_1 = _db6b.confirm_payment_request(_req6b, admin_id=0)
+    assert _ok6b_1, "confirm_payment_request (module annual) первый вызов вернул False"
+    # повторное подтверждение не должно создавать второй грант
+    _ok6b_2 = _db6b.confirm_payment_request(_req6b, admin_id=0)
+    _cc6b = _db6b.get_connection()
+    _cnt6b = _cc6b.execute(
+        "SELECT COUNT(*) FROM billing_module_subs WHERE payment_request_id=?", (_req6b,)
+    ).fetchone()[0]
+    _dur6b = _cc6b.execute(
+        "SELECT start_date, end_date FROM billing_module_subs WHERE payment_request_id=? LIMIT 1",
+        (_req6b,)
+    ).fetchone()
+    _cc6b.close()
+    assert _cnt6b == 1, f"идемпотентность модуля нарушена: создано {_cnt6b} грантов"
+    from datetime import datetime as _dt6b
+    _sd = _dt6b.strptime(_dur6b[0], '%Y-%m-%d %H:%M:%S')
+    _ed = _dt6b.strptime(_dur6b[1], '%Y-%m-%d %H:%M:%S')
+    _days6b = (_ed - _sd).days
+    assert 360 <= _days6b <= 366, f"ожидалось ~365 дней, получено {_days6b}"
+    _os6b.unlink(_tmp6b)
+    _fn_ok("module/bundle annual grant: идемпотентность + 365 дней")
+except Exception as _e:
+    _fn_fail("module annual grant idempotency", _e)
+
 # 7. web.auth: JWT round-trip (PyJWT) + отклонение мусора + CSRF derive
 try:
     import os as _os7

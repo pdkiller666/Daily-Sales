@@ -250,29 +250,47 @@ async def buy_modules(callback: CallbackQuery, state: FSMContext):
         text += "<b>Отдельные модули:</b>\n"
         for m in modules:
             price = m.get('price_monthly') or 0
+            price_year = m.get('price_annual') or 0
             active = False
             try:
                 active = _hm(telegram_id, m['key'])
             except Exception:
                 active = False
             text += f"• {he(m['name'])} — {price:.0f}₽/мес{' ✅ подключён' if active else ''}\n"
+            if active:
+                continue
             _cb = f"buymod_{m['key']}"
-            if not active and len(_cb.encode()) <= 64:
+            if len(_cb.encode()) <= 64:
                 buttons.append([InlineKeyboardButton(
-                    text=f"{m['name']} — {price:.0f}₽",
+                    text=f"{m['name']} — {price:.0f}₽/мес",
                     callback_data=_cb
+                )])
+            _cby = f"buymod_annual_{m['key']}"
+            if price_year and len(_cby.encode()) <= 64:
+                _per_mo = price_year / 12.0
+                buttons.append([InlineKeyboardButton(
+                    text=f"📅 {m['name']} — {price_year:.0f}₽/год ({_per_mo:.0f}₽/мес)",
+                    callback_data=_cby
                 )])
 
     if bundles:
         text += "\n<b>Пакеты (выгоднее):</b>\n"
         for b in bundles:
             price = b.get('price_monthly') or 0
+            price_year = b.get('price_annual') or 0
             text += f"• 📦 {he(b['name'])} — {price:.0f}₽/мес\n"
             _cb = f"buybnd_{b['key']}"
             if len(_cb.encode()) <= 64:
                 buttons.append([InlineKeyboardButton(
-                    text=f"📦 {b['name']} — {price:.0f}₽",
+                    text=f"📦 {b['name']} — {price:.0f}₽/мес",
                     callback_data=_cb
+                )])
+            _cby = f"buybnd_annual_{b['key']}"
+            if price_year and len(_cby.encode()) <= 64:
+                _per_mo = price_year / 12.0
+                buttons.append([InlineKeyboardButton(
+                    text=f"📅 {b['name']} — {price_year:.0f}₽/год ({_per_mo:.0f}₽/мес)",
+                    callback_data=_cby
                 )])
 
     if not modules and not bundles:
@@ -289,7 +307,12 @@ async def start_module_purchase(callback: CallbackQuery, state: FSMContext):
     """
     db = _get_db()
     data_str = callback.data
-    if data_str.startswith("buymod_"):
+    is_annual = False
+    if data_str.startswith("buymod_annual_"):
+        item_type, key, is_annual = "module", data_str[len("buymod_annual_"):], True
+    elif data_str.startswith("buybnd_annual_"):
+        item_type, key, is_annual = "bundle", data_str[len("buybnd_annual_"):], True
+    elif data_str.startswith("buymod_"):
         item_type, key = "module", data_str[len("buymod_"):]
     elif data_str.startswith("buybnd_"):
         item_type, key = "bundle", data_str[len("buybnd_"):]
@@ -314,16 +337,37 @@ async def start_module_purchase(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Этот элемент недоступен", show_alert=True)
         return
 
+    # Годовой период доступен только если у элемента задана годовая цена
+    if is_annual and not (item.get('price_annual') or 0):
+        await callback.answer("Годовая оплата для этого элемента недоступна", show_alert=True)
+        return
+
     await callback.answer()
-    price = float(item.get('price_monthly') or 0)
-    plan_type = f"{item_type}_{key}"
+    if is_annual:
+        price = float(item.get('price_annual') or 0)
+        plan_type = f"{item_type}_annual_{key}"
+        _duration_days = 365
+    else:
+        price = float(item.get('price_monthly') or 0)
+        plan_type = f"{item_type}_{key}"
+        _duration_days = 30
     item_name = item['name']
 
     text = f"🧩 <b>Подключение: {he(item_name)}</b>\n\n"
     if item.get('description'):
         text += f"📝 {he(item['description'])}\n\n"
     text += f"💳 <b>К оплате:</b> {price:.0f}₽\n"
-    text += "📅 <b>Срок действия:</b> 30 дней\n\n"
+    if is_annual:
+        _per_mo = price / 12.0
+        _monthly = float(item.get('price_monthly') or 0)
+        text += f"📅 <b>Срок действия:</b> 365 дней ({_per_mo:.0f}₽/мес)\n"
+        if _monthly:
+            _save = _monthly * 12 - price
+            if _save > 0:
+                text += f"💰 <b>Выгода против помесячной:</b> {_save:.0f}₽ в год\n"
+        text += "\n"
+    else:
+        text += "📅 <b>Срок действия:</b> 30 дней\n\n"
 
     from payment_provider import get_active_provider, create_yookassa_payment
     provider = get_active_provider(db)
@@ -366,7 +410,7 @@ async def start_module_purchase(callback: CallbackQuery, state: FSMContext):
 
         payment_result = create_yookassa_payment(
             amount=price,
-            description=f"Подключение {item_name} (30 дней)",
+            description=f"Подключение {item_name} ({_duration_days} дней)",
             metadata={
                 "user_id": str(callback.from_user.id),
                 "plan_type": plan_type,

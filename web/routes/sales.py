@@ -5,6 +5,7 @@ from datetime import date
 from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 PAGE_SIZE = 50
@@ -185,7 +186,7 @@ def sales_page(
         "flash_ok": request.query_params.get("ok") == "1",
         "flash_err": request.query_params.get("error", ""),
         "current_user_id": None,
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
         "sort_order": sort_order,
         "sort_col": sort_col,
         "only_backdated": bool(only_backdated),
@@ -196,7 +197,7 @@ def sales_page(
 
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
-        ctx["user_tz"] = tz or "Europe/Moscow"
+        ctx["user_tz"] = tz or DEFAULT_TZ
         today = get_current_user_time(tz).date()
         month_start = today.replace(day=1)
 
@@ -270,7 +271,7 @@ def sales_page(
         if only_backdated:
             import zoneinfo as _zi
             from datetime import datetime as _dt
-            _tz_obj = _zi.ZoneInfo(tz or "Europe/Moscow")
+            _tz_obj = _zi.ZoneInfo(tz or DEFAULT_TZ)
             _today = _dt.now(_tz_obj).date()
 
             def _sale_is_backdated(sd):
@@ -449,7 +450,7 @@ def sales_export_xlsx(
             raw_dt = str(s[6] or "")
             try:
                 from timezone_utils import get_user_time as _gut
-                _tz = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+                _tz = db.get_user_timezone(telegram_id) or DEFAULT_TZ
                 _local = _gut(raw_dt, _tz)
                 if _local:
                     date_part = _local.strftime("%Y-%m-%d")

@@ -52,7 +52,7 @@ def he(text) -> str:
 _shop_db_for_tz = None
 _main_db_for_tz  = None
 
-_DEFAULT_TZ = 'Europe/Moscow'
+from timezone_utils import DEFAULT_TZ as _DEFAULT_TZ
 
 
 def format_date_for_user(date_str, telegram_id):

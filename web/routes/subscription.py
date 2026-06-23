@@ -54,9 +54,15 @@ def _plan_type_label(plan_type: str) -> str:
     if not plan_type:
         return "—"
     if plan_type.startswith("module_"):
-        return f"Модуль: {plan_type[7:]}"
+        _k = plan_type[7:]
+        if _k.startswith("annual_"):
+            return f"Модуль (год): {_k[len('annual_'):]}"
+        return f"Модуль: {_k}"
     if plan_type.startswith("bundle_"):
-        return f"Пакет: {plan_type[7:]}"
+        _k = plan_type[7:]
+        if _k.startswith("annual_"):
+            return f"Пакет (год): {_k[len('annual_'):]}"
+        return f"Пакет: {_k}"
     if plan_type.startswith("extension_"):
         return f"Расширение: {plan_type[10:]}"
     if plan_type.startswith("addon_"):
@@ -87,12 +93,35 @@ def _strip_leading_emoji(name: str, icon: str) -> str:
     return name
 
 
+def _annual_fields(price_monthly: int, price_annual: int) -> dict:
+    """Поля годовой опции (рядом с месячной). Пустой dict-набор, если год не задан.
+
+    has_annual=True только когда price_annual>0. Показываем эквивалент ₽/мес при
+    годовой оплате и % выгоды относительно 12×месячной — чтобы выгода была явной."""
+    if not price_annual or price_annual <= 0:
+        return {"has_annual": False, "price_annual": 0,
+                "price_annual_fmt": "", "annual_per_month": 0,
+                "annual_per_month_fmt": "", "annual_save_pct": 0}
+    per_month = round(price_annual / 12)
+    full_year = price_monthly * 12
+    save_pct = int(round((full_year - price_annual) / full_year * 100)) if full_year > 0 else 0
+    return {
+        "has_annual": True,
+        "price_annual": int(price_annual),
+        "price_annual_fmt": f"{int(price_annual):,}".replace(",", "\u00a0") + "\u00a0₽/год",
+        "annual_per_month": per_month,
+        "annual_per_month_fmt": f"{per_month:,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
+        "annual_save_pct": max(save_pct, 0),
+    }
+
+
 def _get_all_billing_modules() -> list[dict]:
     try:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
             rows = conn.execute(
-                """SELECT key, name, icon, description, price_monthly, features_json
+                """SELECT key, name, icon, description, price_monthly, features_json,
+                          COALESCE(price_annual,0)
                    FROM billing_modules WHERE is_active=1
                    ORDER BY sort_order, id"""
             ).fetchall()
@@ -100,13 +129,13 @@ def _get_all_billing_modules() -> list[dict]:
             conn.close()
         result = []
         for r in rows:
-            key, name, icon, desc, price, feats_json = r
+            key, name, icon, desc, price, feats_json, price_annual = r
             try:
                 features = json.loads(feats_json or "[]")
             except Exception:
                 features = []
             _icon = icon or "🔧"
-            result.append({
+            item = {
                 "key": key,
                 "name": name,
                 "name_display": _strip_leading_emoji(name, _icon),
@@ -115,7 +144,9 @@ def _get_all_billing_modules() -> list[dict]:
                 "price_monthly": int(price or 0),
                 "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
                 "features": features,
-            })
+            }
+            item.update(_annual_fields(int(price or 0), int(price_annual or 0)))
+            result.append(item)
         return result
     except Exception:
         return []
@@ -168,7 +199,8 @@ def _get_all_billing_bundles() -> list[dict]:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
             rows = conn.execute(
-                """SELECT key, name, icon, description, includes_json, price_monthly
+                """SELECT key, name, icon, description, includes_json, price_monthly,
+                          COALESCE(price_annual,0)
                    FROM billing_bundles WHERE is_active=1
                    ORDER BY sort_order, id"""
             ).fetchall()
@@ -176,12 +208,12 @@ def _get_all_billing_bundles() -> list[dict]:
             conn.close()
         result = []
         for r in rows:
-            key, name, icon, desc, inc_json, price = r
+            key, name, icon, desc, inc_json, price, price_annual = r
             try:
                 includes = json.loads(inc_json or '{"modules":[],"extensions":[]}')
             except Exception:
                 includes = {"modules": [], "extensions": []}
-            result.append({
+            item = {
                 "key": key,
                 "name": name,
                 "icon": icon or "📦",
@@ -190,7 +222,9 @@ def _get_all_billing_bundles() -> list[dict]:
                 "modules_count": len(includes.get("modules", [])),
                 "price_monthly": int(price or 0),
                 "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
-            })
+            }
+            item.update(_annual_fields(int(price or 0), int(price_annual or 0)))
+            result.append(item)
         return result
     except Exception:
         return []
@@ -467,16 +501,25 @@ def _get_item_price(plan_type: str) -> int | None:
             price = None
             if plan_type.startswith("module_"):
                 key = plan_type[7:]
+                # module_annual_<key> → годовая цена; иначе месячная
+                _col = "price_monthly"
+                if key.startswith("annual_"):
+                    key = key[len("annual_"):]
+                    _col = "COALESCE(price_annual,0)"
                 row = conn.execute(
-                    "SELECT price_monthly FROM billing_modules WHERE key=? AND is_active=1 LIMIT 1",
+                    f"SELECT {_col} FROM billing_modules WHERE key=? AND is_active=1 LIMIT 1",
                     (key,),
                 ).fetchone()
                 if row:
                     price = int(row[0] or 0)
             elif plan_type.startswith("bundle_"):
                 key = plan_type[7:]
+                _col = "price_monthly"
+                if key.startswith("annual_"):
+                    key = key[len("annual_"):]
+                    _col = "COALESCE(price_annual,0)"
                 row = conn.execute(
-                    "SELECT price_monthly FROM billing_bundles WHERE key=? AND is_active=1 LIMIT 1",
+                    f"SELECT {_col} FROM billing_bundles WHERE key=? AND is_active=1 LIMIT 1",
                     (key,),
                 ).fetchone()
                 if row:
@@ -689,6 +732,10 @@ def subscription_module_request(
 
     amount = _get_item_price(plan_type)
     if amount is None:
+        return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
+    # Годовой период доступен только если у элемента реально задана годовая цена.
+    # Иначе amount=0 создал бы заявку, которую можно подтвердить и выдать 365 дней бесплатно.
+    if "_annual_" in plan_type and (amount is None or amount <= 0):
         return RedirectResponse(url="/subscription?msg=invalid_plan", status_code=303)
 
     telegram_id = int(user["sub"])

@@ -11,8 +11,13 @@
 import logging
 import sqlite3
 import time as _time
-from datetime import datetime
+from datetime import datetime, timedelta
 from env_manager import env_manager
+
+try:
+    from billing_utils import GRACE_DAYS as _GRACE_DAYS
+except Exception:
+    _GRACE_DAYS = 3  # soft-expiry окно (дни) — синхронно с billing_utils.GRACE_DAYS
 
 _logger = logging.getLogger(__name__)
 
@@ -88,7 +93,8 @@ def _get_org_plan_for_user(telegram_id):
             if subscription_end and plan_name not in ('Бесплатный', 'free', None):
                 try:
                     end_dt = datetime.fromisoformat(subscription_end)
-                    if datetime.now() > end_dt:
+                    # Soft-expiry: план держится ещё _GRACE_DAYS дней после end_date.
+                    if datetime.now() > end_dt + timedelta(days=_GRACE_DAYS):
                         return 'Бесплатный'
                 except Exception:
                     pass
@@ -108,7 +114,8 @@ def _get_personal_plan(telegram_id):
             "JOIN users u ON s.user_id = u.id "
             "WHERE u.telegram_id = ? AND s.end_date > ? "
             "ORDER BY s.end_date DESC LIMIT 1",
-            (telegram_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            # Soft-expiry: личный план держится ещё _GRACE_DAYS дней после истечения.
+            (telegram_id, (datetime.now() - timedelta(days=_GRACE_DAYS)).strftime('%Y-%m-%d %H:%M:%S'))
         )
         row = cursor.fetchone()
         conn.close()
@@ -419,7 +426,8 @@ def _get_org_plan_by_db_path(org_db: str):
             if subscription_end and plan_name not in ('Бесплатный', 'free', None):
                 try:
                     end_dt = datetime.fromisoformat(subscription_end)
-                    if datetime.now() > end_dt:
+                    # Soft-expiry: план держится ещё _GRACE_DAYS дней после end_date.
+                    if datetime.now() > end_dt + timedelta(days=_GRACE_DAYS):
                         return 'Бесплатный'
                 except Exception:
                     pass

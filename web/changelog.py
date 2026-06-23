@@ -1,6 +1,15 @@
-CURRENT_VERSION = "1.146.0"
+CURRENT_VERSION = "1.147.0"
 
 ENTRIES = [
+    {
+        "version": "1.147.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Update deployment script to correctly push code changes to production",
+            "Add a comprehensive improvement roadmap to the project documentation",
+            "Add annual subscription options and improve date handling",
+        ],
+    },
     {
         "version": "1.146.0",
         "date": "22 июня 2026",

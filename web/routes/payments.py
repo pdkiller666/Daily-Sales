@@ -1,6 +1,7 @@
 import sqlite3
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 
@@ -178,11 +179,11 @@ def payments_page(request: Request, msg: str = "", tab: str = "pending"):
 
     from web.auth import get_csrf_token
 
-    user_tz = "Europe/Moscow"
+    user_tz = DEFAULT_TZ
     try:
         from web.deps import get_web_db as _gwdb
         _db = _gwdb(int(user["sub"]), user.get("org_db"))
-        user_tz = _db.get_user_timezone(int(user["sub"])) or "Europe/Moscow"
+        user_tz = _db.get_user_timezone(int(user["sub"])) or DEFAULT_TZ
     except Exception:
         pass
 

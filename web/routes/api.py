@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 import logging
 import os as _os
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter(prefix="/api")
 
@@ -174,7 +175,7 @@ def my_notifications(request: Request, limit: int = 20):
         dms = db.get_dm_unread_count(user_db_id)
 
         from timezone_utils import format_user_datetime as _fmt_dt
-        _tz = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        _tz = db.get_user_timezone(telegram_id) or DEFAULT_TZ
 
         items = [
             {

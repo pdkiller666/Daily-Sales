@@ -316,6 +316,7 @@
             </div>
         </div>
         <div class="relative" style="height:180px">
+            <div id="revChartSkeleton" class="skeleton" style="position:absolute;inset:0;border-radius:.75rem"></div>
             <canvas id="revenueChart"></canvas>
         </div>
     </div>
@@ -583,6 +584,7 @@
     let view = buildView(curRange);
     let allDates = view.allDates;
 
+    document.getElementById('revChartSkeleton')?.remove();
     const chart = new Chart(ctx, {
         type: 'line',
         data: {

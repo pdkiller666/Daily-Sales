@@ -31,7 +31,17 @@
 
 {% if error %}
 <div class="mb-4 flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-    <span>❌</span><span>{{ error }}</span>
+    <span>❌</span>
+    <div class="flex-1">
+        <span>{{ error }}</span>
+        {% if 'лимит' in error or 'тариф' in error %}
+        <div class="mt-3">
+            <a href="/subscription" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold">
+                💳 Подключить модуль / докупить
+            </a>
+        </div>
+        {% endif %}
+    </div>
 </div>
 {% endif %}
 

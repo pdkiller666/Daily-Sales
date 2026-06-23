@@ -3,6 +3,7 @@ import time as _time
 from datetime import date, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 
@@ -141,7 +142,7 @@ def dashboard(request: Request, msg: str = ""):
         "on_shift_today": [],
         "today_label": date.today().strftime('%d.%m.%Y'),
         "error": None,
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
         "today_vs_yesterday": None,
         "month_vs_prev": None,
         "apk_new_version": apk_new_version,
@@ -154,7 +155,7 @@ def dashboard(request: Request, msg: str = ""):
 
         from timezone_utils import get_current_user_time
         tz = db.get_user_timezone(telegram_id)
-        ctx["user_tz"] = tz or "Europe/Moscow"
+        ctx["user_tz"] = tz or DEFAULT_TZ
         today = get_current_user_time(tz).date()
         month_start = today.replace(day=1)
 

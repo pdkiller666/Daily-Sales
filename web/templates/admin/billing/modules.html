@@ -49,6 +49,10 @@
                 <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
                 <input name="price_monthly" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
             </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/год <span class="text-slate-400">(0 = без года)</span></label>
+                <input name="price_annual" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            </div>
             <div class="col-span-2 lg:col-span-3">
                 <label class="block text-xs font-semibold text-slate-500 mb-1">Описание</label>
                 <input name="description" placeholder="Краткое описание модуля" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
@@ -223,6 +227,10 @@
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
                         <input name="price_monthly" type="number" step="1" :value="editMod.price_monthly" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/год <span class="text-slate-400">(0 = без года)</span></label>
+                        <input name="price_annual" type="number" step="1" :value="editMod.price_annual" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 mb-1">Порядок (sort)</label>

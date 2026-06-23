@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Request, File, UploadFile, Form
 from fastapi.responses import RedirectResponse, JSONResponse
+from timezone_utils import DEFAULT_TZ
 
 _PHOTO_DIR = Path("web/static/product_photos")
 _PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -2587,7 +2588,7 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
         "month_revenue": 0.0, "month_qty": 0,
         "chart_labels": [], "chart_data": [],
         "error": None,
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
         "product_history": [],
         "scoped_year": scoped_year,
         "scoped_month": scoped_month,
@@ -2600,7 +2601,7 @@ def product_detail(request: Request, product_id: int, year: int = 0, month: int 
     try:
         db = get_web_db(telegram_id, org_db)
         try:
-            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or DEFAULT_TZ
         except Exception:
             pass
 

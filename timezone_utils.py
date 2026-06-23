@@ -4,8 +4,12 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo, available_timezones
 
+# Единый дефолтный часовой пояс. Используется как fallback во всём проекте,
+# когда у пользователя не задан собственный TZ. Менять здесь — единая точка.
+DEFAULT_TZ = 'Europe/Moscow'
 
-def get_user_time(dt, user_timezone='Europe/Moscow'):
+
+def get_user_time(dt, user_timezone=DEFAULT_TZ):
     """
     Конвертирует UTC время в локальное время пользователя
     
@@ -59,7 +63,7 @@ def get_user_time(dt, user_timezone='Europe/Moscow'):
         return None
 
 
-def get_utc_time(dt, user_timezone='Europe/Moscow'):
+def get_utc_time(dt, user_timezone=DEFAULT_TZ):
     """
     Конвертирует локальное время пользователя в UTC
     
@@ -82,7 +86,7 @@ def get_utc_time(dt, user_timezone='Europe/Moscow'):
         return dt
 
 
-def format_user_datetime(dt, user_timezone='Europe/Moscow', format_str='%d.%m.%Y %H:%M'):
+def format_user_datetime(dt, user_timezone=DEFAULT_TZ, format_str='%d.%m.%Y %H:%M'):
     """
     Форматирует datetime в строку с учетом часового пояса пользователя
     
@@ -99,7 +103,7 @@ def format_user_datetime(dt, user_timezone='Europe/Moscow', format_str='%d.%m.%Y
     
     # Используем дефолтный timezone если не указан
     if user_timezone is None or user_timezone == '':
-        user_timezone = 'Europe/Moscow'
+        user_timezone = DEFAULT_TZ
         
     try:
         user_dt = get_user_time(dt, user_timezone)
@@ -159,7 +163,7 @@ def validate_timezone(timezone_str):
         return False
 
 
-def get_current_user_time(user_timezone='Europe/Moscow'):
+def get_current_user_time(user_timezone=DEFAULT_TZ):
     """
     Возвращает текущее время в часовом поясе пользователя
     

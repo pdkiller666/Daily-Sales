@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import pytz
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse, JSONResponse, Response
+from timezone_utils import DEFAULT_TZ
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -152,13 +153,13 @@ def notifications_page(
         "scheduled_success": msg == "scheduled",
         "error": None,
         "now_local": "",
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
     }
 
     try:
         db = get_web_db(telegram_id, org_db)
         from timezone_utils import get_current_user_time
-        tz_name = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        tz_name = db.get_user_timezone(telegram_id) or DEFAULT_TZ
 
         ctx["now_local"] = get_current_user_time(tz_name).strftime("%Y-%m-%dT%H:%M")
         ctx["user_tz"] = tz_name
@@ -256,7 +257,7 @@ def notifications_send(
 
     try:
         db = get_web_db(telegram_id, org_db)
-        tz_name = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+        tz_name = db.get_user_timezone(telegram_id) or DEFAULT_TZ
         user_db_id = _get_user_db_id(db, telegram_id)
         if not user_db_id:
             return RedirectResponse(url="/notifications?error=noid", status_code=303)

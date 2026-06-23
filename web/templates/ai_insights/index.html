@@ -116,6 +116,16 @@
 
         <div x-show="error" x-cloak class="mt-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300" x-text="error"></div>
 
+        <!-- Skeleton while AI report is being generated -->
+        <div x-show="loading" x-cloak class="mt-4 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
+            <div class="skeleton skeleton-line" style="width:40%"></div>
+            <div class="skeleton skeleton-line"></div>
+            <div class="skeleton skeleton-line"></div>
+            <div class="skeleton skeleton-line sk-sm"></div>
+            <div class="skeleton skeleton-line" style="width:80%"></div>
+            <div class="skeleton skeleton-line sk-sm"></div>
+        </div>
+
         <div x-show="result" x-cloak class="mt-4 space-y-2" id="new-insights-card">
             <div class="flex items-center justify-between">
                 <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">📊 Новый отчёт</span>

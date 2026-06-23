@@ -2,6 +2,7 @@ import logging
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from typing import Annotated
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 
@@ -311,9 +312,9 @@ async def _post_sale_async(db, telegram_id: int, internal_uid: int, shop_name: s
         bot = _get_bot()
         if bot:
             try:
-                user_tz = db.get_user_timezone(telegram_id) or 'Europe/Moscow'
+                user_tz = db.get_user_timezone(telegram_id) or DEFAULT_TZ
             except Exception:
-                user_tz = 'Europe/Moscow'
+                user_tz = DEFAULT_TZ
 
             today_str = _dt.now(ZoneInfo(user_tz)).date().isoformat()
 

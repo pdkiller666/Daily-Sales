@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from backup_manager import BackupManager
 from database import Database
+from timezone_utils import DEFAULT_TZ
 from tenant_manager import tenant_manager
 from web.auth import get_csrf_token, get_session_user, verify_csrf_token
 
@@ -627,9 +628,9 @@ async def admin_push_diagnostics(request: Request):
     if _guard(user):
         return RedirectResponse("/dashboard", 303)
     try:
-        viewer_tz = _db().get_user_timezone(int(user["sub"])) or "Europe/Moscow"
+        viewer_tz = _db().get_user_timezone(int(user["sub"])) or DEFAULT_TZ
     except Exception:
-        viewer_tz = "Europe/Moscow"
+        viewer_tz = DEFAULT_TZ
     q = request.query_params.get("q", "").strip()
     date_from = request.query_params.get("date_from", "").strip()
     date_to = request.query_params.get("date_to", "").strip()
@@ -943,7 +944,7 @@ def _resolve_push_user_names(tg_ids: list) -> dict:
 
 
 def _gather_push_diagnostics(
-    viewer_tz: str = "Europe/Moscow",
+    viewer_tz: str = DEFAULT_TZ,
     user_filter: str = "",
     date_from: str = "",
     date_to: str = "",

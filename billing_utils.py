@@ -19,6 +19,14 @@ from env_manager import env_manager as _env_mgr
 
 SHOP_BOT_DB = "data/shop_bot.db"
 
+# ── Soft-expiry grace window ────────────────────────────────────────────────
+# Платные модули/пакеты продолжают работать ещё GRACE_DAYS дней после end_date,
+# чтобы задержка оплаты не отключала доступ мгновенно. В это время в кабинете
+# показывается баннер «оплатите». По истечении окна доступ возвращается к free.
+# Триал и super_admin в grace НЕ попадают (у них доступ и так не платный).
+GRACE_DAYS = 3
+_GRACE_CUTOFF = f"datetime('now', '-{int(GRACE_DAYS)} days')"
+
 
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(SHOP_BOT_DB, timeout=10)
@@ -50,9 +58,9 @@ def _has_direct_item(tg_id: int, item_key: str) -> bool:
     try:
         db = _conn()
         row = db.execute(
-            """SELECT 1 FROM billing_module_subs
+            f"""SELECT 1 FROM billing_module_subs
                WHERE user_telegram_id=? AND item_key=? AND is_active=1
-                 AND (end_date IS NULL OR end_date > datetime('now')) LIMIT 1""",
+                 AND (end_date IS NULL OR end_date > {_GRACE_CUTOFF}) LIMIT 1""",
             (tg_id, item_key)
         ).fetchone()
         db.close()
@@ -66,9 +74,9 @@ def _active_bundle_keys(tg_id: int) -> list:
     try:
         db = _conn()
         rows = db.execute(
-            """SELECT item_key FROM billing_module_subs
+            f"""SELECT item_key FROM billing_module_subs
                WHERE user_telegram_id=? AND item_type='bundle' AND is_active=1
-                 AND (end_date IS NULL OR end_date > datetime('now'))""",
+                 AND (end_date IS NULL OR end_date > {_GRACE_CUTOFF})""",
             (tg_id,)
         ).fetchall()
         db.close()
@@ -140,6 +148,56 @@ def _ext_module_key(ext_key: str) -> str | None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def in_grace_period(tg_id: int) -> bool:
+    """True если пользователь сейчас в окне soft-expiry: есть платный пункт,
+    у которого end_date уже прошёл, но не более чем GRACE_DAYS назад.
+    Триал и super_admin никогда не в grace."""
+    try:
+        if _env_mgr.is_super_admin(tg_id) or _is_trial(tg_id):
+            return False
+        db = _conn()
+        row = db.execute(
+            f"""SELECT 1 FROM billing_module_subs
+                WHERE user_telegram_id=? AND is_active=1
+                  AND end_date IS NOT NULL
+                  AND end_date <= datetime('now')
+                  AND end_date > {_GRACE_CUTOFF} LIMIT 1""",
+            (tg_id,)
+        ).fetchone()
+        db.close()
+        return row is not None
+    except Exception as e:
+        logging.error(f"in_grace_period({tg_id}): {e}")
+        return False
+
+
+def grace_days_left(tg_id: int) -> "int | None":
+    """Сколько дней осталось в grace-окне (по самому позднему истёкшему пункту),
+    или None если пользователь не в grace."""
+    try:
+        if _env_mgr.is_super_admin(tg_id) or _is_trial(tg_id):
+            return None
+        db = _conn()
+        row = db.execute(
+            f"""SELECT MAX(end_date) FROM billing_module_subs
+                WHERE user_telegram_id=? AND is_active=1
+                  AND end_date IS NOT NULL
+                  AND end_date <= datetime('now')
+                  AND end_date > {_GRACE_CUTOFF}""",
+            (tg_id,)
+        ).fetchone()
+        db.close()
+        if not row or not row[0]:
+            return None
+        from datetime import datetime as _dt, timedelta as _td
+        end_dt = _dt.fromisoformat(row[0])
+        grace_end = end_dt + _td(days=GRACE_DAYS)
+        return max(0, (grace_end - _dt.utcnow()).days)
+    except Exception as e:
+        logging.error(f"grace_days_left({tg_id}): {e}")
+        return None
+
+
 def has_module(tg_id: int, module_key: str) -> bool:
     """True if user has access to the module.
 
@@ -178,9 +236,9 @@ def get_modules_access(tg_id: int, keys) -> Dict[str, bool]:
             return {k: True for k in keys}
         db = _conn()
         rows = db.execute(
-            """SELECT item_key, item_type FROM billing_module_subs
+            f"""SELECT item_key, item_type FROM billing_module_subs
                WHERE user_telegram_id=? AND is_active=1
-                 AND (end_date IS NULL OR end_date > datetime('now'))""",
+                 AND (end_date IS NULL OR end_date > {_GRACE_CUTOFF})""",
             (tg_id,)
         ).fetchall()
         db.close()
@@ -269,9 +327,9 @@ def get_active_billing_items(tg_id: int) -> Dict[str, Set[str]]:
 
         db = _conn()
         rows = db.execute(
-            """SELECT item_type, item_key FROM billing_module_subs
+            f"""SELECT item_type, item_key FROM billing_module_subs
                WHERE user_telegram_id=? AND is_active=1
-                 AND (end_date IS NULL OR end_date > datetime('now'))""",
+                 AND (end_date IS NULL OR end_date > {_GRACE_CUTOFF})""",
             (tg_id,)
         ).fetchall()
         db.close()

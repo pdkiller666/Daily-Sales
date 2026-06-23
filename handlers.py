@@ -39,7 +39,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin, get_user_org_ro
 
 # Инициализация базы данных (wrap_db — обязателен для async await вызовов)
 db = wrap_db(Database('data/shop_bot.db'))
-from timezone_utils import format_user_datetime
+from timezone_utils import format_user_datetime, DEFAULT_TZ
 
 # Получаем ID администратора
 ADMIN_CHAT_ID = int(os.getenv('ADMIN_CHAT_ID', '0').split(',')[0].strip() or 0)
@@ -1146,7 +1146,7 @@ async def user_profile_menu(callback: CallbackQuery, state: FSMContext):
     else:
         role_line = '👤 Личный режим'
 
-    reg_date = format_user_datetime(created, tz or 'Europe/Moscow', '%d.%m.%Y')
+    reg_date = format_user_datetime(created, tz or DEFAULT_TZ, '%d.%m.%Y')
 
     text = (
         f"👤 <b>Мой профиль</b>\n"

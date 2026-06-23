@@ -10,6 +10,8 @@ from fastapi.responses import RedirectResponse, PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
+from timezone_utils import DEFAULT_TZ
+
 BASE_DIR = Path(__file__).parent
 _SHOP_BOT_DB = "data/shop_bot.db"
 
@@ -263,24 +265,24 @@ def create_web_app() -> FastAPI:
 
     from timezone_utils import get_user_time as _get_user_time
 
-    def _fmt_sale_dt(s, tz: str = "Europe/Moscow", fmt: str = "%d.%m.%Y %H:%M") -> str:
+    def _fmt_sale_dt(s, tz: str = DEFAULT_TZ, fmt: str = "%d.%m.%Y %H:%M") -> str:
         """Convert UTC sale_date string to user local time and format it."""
         if not s:
             return "—"
         try:
-            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            local_dt = _get_user_time(str(s), tz or DEFAULT_TZ)
             if local_dt:
                 return local_dt.strftime(fmt)
         except Exception:
             pass
         return _fmt_date(str(s)[:10])
 
-    def _fmt_sale_time(s, tz: str = "Europe/Moscow") -> str:
+    def _fmt_sale_time(s, tz: str = DEFAULT_TZ) -> str:
         """Return only the HH:MM part of a sale_date, converted to user's TZ."""
         if not s:
             return "—"
         try:
-            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            local_dt = _get_user_time(str(s), tz or DEFAULT_TZ)
             if local_dt:
                 return local_dt.strftime("%H:%M")
         except Exception:
@@ -290,12 +292,12 @@ def create_web_app() -> FastAPI:
 
     _RU_MONTHS_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек']
 
-    def _fmt_date_badge(s, tz: str = "Europe/Moscow") -> str:
+    def _fmt_date_badge(s, tz: str = DEFAULT_TZ) -> str:
         """Return compact date like '15 июн' for mobile badge."""
         if not s:
             return "—"
         try:
-            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            local_dt = _get_user_time(str(s), tz or DEFAULT_TZ)
             if local_dt:
                 return f"{local_dt.day} {_RU_MONTHS_SHORT[local_dt.month - 1]}"
         except Exception:
@@ -309,16 +311,16 @@ def create_web_app() -> FastAPI:
                 pass
         return str(s)[:10]
 
-    def _is_backdated(s, tz: str = "Europe/Moscow") -> bool:
+    def _is_backdated(s, tz: str = DEFAULT_TZ) -> bool:
         """Return True if sale_date is NOT today in user's timezone."""
         if not s:
             return False
         try:
             from datetime import datetime
             import zoneinfo
-            local_dt = _get_user_time(str(s), tz or "Europe/Moscow")
+            local_dt = _get_user_time(str(s), tz or DEFAULT_TZ)
             if local_dt:
-                today = datetime.now(zoneinfo.ZoneInfo(tz or "Europe/Moscow")).date()
+                today = datetime.now(zoneinfo.ZoneInfo(tz or DEFAULT_TZ)).date()
                 return local_dt.date() != today
         except Exception:
             pass
@@ -491,6 +493,35 @@ def create_web_app() -> FastAPI:
             return 0
 
     templates.env.globals['dm_unread_count'] = _dm_unread_count
+
+    def _subscription_grace(request):
+        """{'in_grace': bool, 'days_left': int} для баннера soft-expiry.
+
+        Показывается владельцу, чьи платные модули истекли, но ещё в окне grace.
+        Мемоизируется на request.state (base.html вызывает один раз)."""
+        state = getattr(request, "state", None)
+        if state is not None and hasattr(state, "_sub_grace"):
+            return state._sub_grace
+        result = {"in_grace": False, "days_left": 0}
+        try:
+            from web.auth import get_session_user
+            from billing_utils import in_grace_period, grace_days_left
+            user = get_session_user(request)
+            if user:
+                tg_id = int(user["sub"])
+                if tg_id > 0 and in_grace_period(tg_id):
+                    result = {"in_grace": True,
+                              "days_left": grace_days_left(tg_id) or 0}
+        except Exception:
+            pass
+        if state is not None:
+            try:
+                state._sub_grace = result
+            except Exception:
+                pass
+        return result
+
+    templates.env.globals['subscription_grace'] = _subscription_grace
 
     _NAV_MODULE_KEYS = ('analytics', 'team', 'plans_motivation', 'chat',
                         'integrations', 'notifications', 'ai_assistant', 'pos_retail')

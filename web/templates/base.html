@@ -27,7 +27,7 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=1bec5ead89">
+    <link rel="stylesheet" href="/static/app.css?v=faf9d188bd">
     {% block extra_css %}{% endblock %}
     <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -59,6 +59,16 @@
         /* ── Sheet slide-up transition helpers (CDN Tailwind doesn't scan x-transition attrs) ── */
         .sheet-from{transform:translateY(100%)}
         .sheet-to{transform:translateY(0)}
+        /* ── Skeleton loaders (shimmer) ── */
+        .skeleton{position:relative;overflow:hidden;background:#e2e8f0;border-radius:.5rem}
+        .skeleton::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent);animation:ds-shimmer 1.4s infinite}
+        @keyframes ds-shimmer{100%{transform:translateX(100%)}}
+        .skeleton-line{height:.85rem;margin:.45rem 0;border-radius:.375rem}
+        .skeleton-line.sk-sm{width:55%}
+        .skeleton-card{height:5rem;border-radius:.75rem}
+        /* htmx: show skeleton during in-flight requests, hide otherwise */
+        .htmx-indicator{display:none}
+        .htmx-request .htmx-indicator,.htmx-request.htmx-indicator{display:block}
 
         /* ══════════════════════════════
            DARK MODE OVERRIDES
@@ -73,6 +83,8 @@
         html.dark .text-slate-600{color:#94a3b8!important}
         html.dark .text-slate-500{color:#64748b!important}
         html.dark .text-slate-400{color:#475569!important}
+        html.dark .skeleton{background:#334155}
+        html.dark .skeleton::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent)}
         html.dark .border-slate-200{border-color:#334155!important}
         html.dark .border-slate-100{border-color:#253350!important}
         html.dark .border-slate-300{border-color:#475569!important}
@@ -692,6 +704,18 @@ function toastMgr() {
 
     <!-- Content -->
     <main class="ds-main flex-1 px-4 sm:px-6 py-6 pb-24 lg:pb-6">
+        {% set _grace = subscription_grace(request) %}
+        {% if _grace and _grace.in_grace %}
+        <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200">
+            <span class="text-xl leading-none">⚠️</span>
+            <div class="flex-1 text-sm leading-snug">
+                <b>Подписка истекла.</b> Доступ к платным модулям сохраняется ещё
+                {{ _grace.days_left }} {{ 'день' if _grace.days_left == 1 else ('дня' if _grace.days_left in [2,3,4] else 'дней') }}.
+                Продлите оплату, чтобы не потерять функции.
+            </div>
+            <a href="/subscription" class="shrink-0 self-center px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold">Оплатить</a>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 

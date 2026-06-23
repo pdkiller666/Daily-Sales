@@ -467,6 +467,9 @@
             <div class="flex items-end justify-between gap-4 mt-2">
                 <div>
                     <div class="text-3xl font-black text-slate-800 dark:text-white leading-none">{{ bun.price_fmt }}</div>
+                    {% if bun.has_annual %}
+                    <p class="text-xs text-emerald-600 dark:text-emerald-400 font-semibold mt-1">или {{ bun.annual_per_month_fmt }} при оплате за год{% if bun.annual_save_pct %} · выгода −{{ bun.annual_save_pct }}%{% endif %}</p>
+                    {% endif %}
                     {% if bun_sub_info and bun_sub_info.end_date and bun_sub_info.end_date != '∞' %}
                     <p class="text-xs text-emerald-600 font-semibold mt-1">Активен до {{ bun_sub_info.end_date }}</p>
                     {% elif bun.modules_count > 1 %}
@@ -482,14 +485,28 @@
                     <form method="POST" action="/subscription/module-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
-                        <button type="submit" class="btn-renew">🔄 Продлить</button>
+                        <button type="submit" class="btn-renew">🔄 Продлить (мес.)</button>
                     </form>
+                    {% if bun.has_annual %}
+                    <form method="POST" action="/subscription/module-request">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="plan_type" value="bundle_annual_{{ bun.key }}">
+                        <button type="submit" class="btn-renew">🔄 Продлить (год)</button>
+                    </form>
+                    {% endif %}
                     {% else %}
                     <form method="POST" action="/subscription/module-request">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="plan_type" value="bundle_{{ bun.key }}">
                         <button type="submit" class="btn-connect">Подключить →</button>
                     </form>
+                    {% if bun.has_annual %}
+                    <form method="POST" action="/subscription/module-request">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="plan_type" value="bundle_annual_{{ bun.key }}">
+                        <button type="submit" class="btn-connect">Год — {{ bun.price_annual_fmt }}</button>
+                    </form>
+                    {% endif %}
                     {% endif %}
 
                     {% if is_active and bun_sub_info %}
@@ -558,6 +575,9 @@
 
         <div class="shrink-0 flex flex-col items-end gap-1.5">
             <span class="text-sm font-extrabold text-slate-700 dark:text-slate-200">{{ mod.price_fmt }}</span>
+            {% if mod.has_annual %}
+            <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">или {{ mod.annual_per_month_fmt }} при оплате за год{% if mod.annual_save_pct %} · −{{ mod.annual_save_pct }}%{% endif %}</span>
+            {% endif %}
 
             {% if is_active and not sub_info %}
             <span class="text-[11px] text-slate-400">Включён</span>
@@ -567,14 +587,28 @@
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <button type="submit" class="btn-renew">🔄 Продлить</button>
+                <button type="submit" class="btn-renew">🔄 Продлить (мес.)</button>
             </form>
+            {% if mod.has_annual %}
+            <form method="POST" action="/subscription/module-request">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="plan_type" value="module_annual_{{ mod.key }}">
+                <button type="submit" class="btn-renew">🔄 Продлить (год)</button>
+            </form>
+            {% endif %}
             {% else %}
             <form method="POST" action="/subscription/module-request">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="plan_type" value="module_{{ mod.key }}">
-                <button type="submit" class="btn-connect">Подключить</button>
+                <button type="submit" class="btn-connect">Подключить (мес.)</button>
             </form>
+            {% if mod.has_annual %}
+            <form method="POST" action="/subscription/module-request">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="plan_type" value="module_annual_{{ mod.key }}">
+                <button type="submit" class="btn-connect">Год — {{ mod.price_annual_fmt }}</button>
+            </form>
+            {% endif %}
             {% endif %}
 
             {% if is_active and sub_info %}

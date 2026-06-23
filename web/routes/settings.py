@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
+from timezone_utils import DEFAULT_TZ
 
 _PROFILE_PHOTO_DIR = Path(__file__).parent.parent / "static" / "profile_photos"
 _PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
@@ -112,7 +113,7 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "org_plan_end": "",
         # timezone
         "tz_choices": {},
-        "current_tz": "Europe/Moscow",
+        "current_tz": DEFAULT_TZ,
         # profile
         "profile": {},
         # web credentials

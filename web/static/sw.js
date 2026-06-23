@@ -1,5 +1,6 @@
-/* DailySales Service Worker v9 */
-const CACHE_NAME = 'dailysales-v9';
+/* DailySales Service Worker v10 */
+const CACHE_NAME = 'dailysales-v10';
+const OFFLINE_URL = '/static/offline.html';
 const STATIC_ASSETS = [
     '/static/logo.jpg',
     '/static/icon.svg',
@@ -8,6 +9,7 @@ const STATIC_ASSETS = [
     '/static/icon-512.png',
     '/static/apple-touch-icon.png',
     '/static/manifest.json',
+    OFFLINE_URL,
 ];
 
 /* ── Install: pre-cache static assets ── */
@@ -48,7 +50,21 @@ self.addEventListener('fetch', e => {
         );
         return;
     }
-    /* All authenticated routes: network-only (never cache sensitive data) */
+
+    /* Navigations: network-first, fall back to branded offline page when the
+       network is unreachable. We never cache the actual page HTML (sensitive
+       per-tenant data) — only serve the static offline shell on failure. */
+    if (e.request.mode === 'navigate') {
+        e.respondWith(
+            fetch(e.request).catch(() =>
+                caches.match(OFFLINE_URL).then(r => r || new Response(
+                    '<h1>Нет соединения</h1>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+                ))
+            )
+        );
+        return;
+    }
+    /* All other authenticated requests: network-only (never cache sensitive data) */
 });
 
 /* ── Push notifications ── */

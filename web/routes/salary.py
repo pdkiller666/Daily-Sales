@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse, StreamingResponse
 from datetime import date
+from timezone_utils import DEFAULT_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
         "total_pages": 1,
         "total_earnings_count": 0,
         "error": None,
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
         "absence_type": "",
         "is_current_month": (year == today.year and month == today.month),
     }
@@ -211,7 +212,7 @@ def _salary_user_earnings(request, user, year: int, month: int, page: int = 1):
     try:
         db = get_web_db(telegram_id, org_db)
         try:
-            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or DEFAULT_TZ
         except Exception:
             pass
         import sqlite3 as _sq

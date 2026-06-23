@@ -1658,6 +1658,7 @@ class Database:
                     icon          TEXT DEFAULT '📦',
                     description   TEXT DEFAULT '',
                     price_monthly REAL DEFAULT 0,
+                    price_annual  REAL DEFAULT 0,
                     sort_order    INTEGER DEFAULT 0,
                     is_active     INTEGER DEFAULT 1,
                     features_json TEXT DEFAULT '[]',
@@ -1688,6 +1689,7 @@ class Database:
                     description   TEXT DEFAULT '',
                     includes_json TEXT NOT NULL DEFAULT '{"modules":[],"extensions":[]}',
                     price_monthly REAL DEFAULT 0,
+                    price_annual  REAL DEFAULT 0,
                     sort_order    INTEGER DEFAULT 0,
                     is_active     INTEGER DEFAULT 1,
                     updated_at    TEXT DEFAULT (datetime('now'))
@@ -1717,6 +1719,13 @@ class Database:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date          ON sales(sale_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product       ON sales(product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product_date  ON sales(product_id, sale_date)')
+        # Функциональные индексы по date(sale_date): отчёты/дашборд фильтруют через
+        # date(s.sale_date) >= ? / BETWEEN — обычный индекс по строке sale_date при
+        # этом не используется (полный скан). Эти индексы покрывают такие запросы.
+        # date() детерминирована → SQLite разрешает выражение в индексе.
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_datefn        ON sales(date(sale_date))')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_user_datefn   ON sales(user_id, date(sale_date))')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_shop_datefn   ON sales(shop_name, date(sale_date))')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_inventory_shop_prod ON inventory(shop_name, product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_work_schedule_date  ON work_schedule(work_date, user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_seller_earnings_sale ON seller_earnings(sale_id)')
@@ -1779,6 +1788,12 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_user ON billing_module_subs(user_telegram_id, is_active, end_date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_msubs_key  ON billing_module_subs(item_key, is_active)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_billing_ext_mod    ON billing_extensions(module_key)')
+            # Migration: годовая цена (опция рядом с месячной) для модулей и пакетов
+            for _tbl in ('billing_modules', 'billing_bundles'):
+                try:
+                    cursor.execute(f'ALTER TABLE {_tbl} ADD COLUMN price_annual REAL DEFAULT 0')
+                except Exception:
+                    pass  # колонка уже существует
             # Migration: fix all_in_one bundle to include chat module (was missing)
             cursor.execute(
                 """UPDATE billing_bundles
@@ -4660,7 +4675,27 @@ class Database:
                 if _user_info:
                     _tg_id = _user_info[1]
                     _item_type = 'module' if plan_type.startswith('module_') else 'bundle'
-                    _item_key = plan_type[len(_item_type) + 1:]
+                    _rest = plan_type[len(_item_type) + 1:]
+                    # Годовой период кодируется префиксом 'annual_': module_annual_<key> / bundle_annual_<key>
+                    if _rest.startswith('annual_'):
+                        _item_key = _rest[len('annual_'):]
+                        _duration = 365
+                    else:
+                        _item_key = _rest
+                        _duration = 30
+                    # Идемпотентность по payment_request_id: если грант для этой заявки
+                    # уже выдан (повторное подтверждение/гонка), не дублируем.
+                    try:
+                        _ic = self.get_connection()
+                        _dup = _ic.execute(
+                            "SELECT 1 FROM billing_module_subs WHERE payment_request_id=? LIMIT 1",
+                            (request_id,)
+                        ).fetchone()
+                        _ic.close()
+                        if _dup:
+                            return True
+                    except Exception:
+                        pass
                     try:
                         _pc = self.get_connection()
                         _pr_row = _pc.execute(
@@ -4670,16 +4705,35 @@ class Database:
                         _price = float(_pr_row[0]) if _pr_row else 0.0
                     except Exception:
                         _price = 0.0
-                    self.grant_billing_item(
+                    _grant_id = self.grant_billing_item(
                         user_telegram_id=_tg_id,
                         item_type=_item_type,
                         item_key=_item_key,
-                        duration_days=30,
+                        duration_days=_duration,
                         price_paid=_price,
                         granted_by='payment',
-                        note='Оплачен из веб-кабинета',
+                        note=('Оплачен из веб-кабинета (год)' if _duration == 365 else 'Оплачен из веб-кабинета'),
                         payment_request_id=request_id,
                     )
+                    if not _grant_id:
+                        # Компенсация: грант не выдан → откат approved → pending,
+                        # чтобы админ мог повторить (иначе оплата без доступа).
+                        try:
+                            _cc = self.get_connection()
+                            _cc.execute(
+                                "UPDATE payment_requests SET status='pending', processed_at=NULL, processed_by=NULL WHERE id=?",
+                                (request_id,)
+                            )
+                            _cc.commit()
+                            _cc.close()
+                            logger.error(
+                                "confirm_payment_request: выдача модуля/пакета не удалась для "
+                                "request_id=%s, user_id=%s, plan=%s. Статус заявки сброшен в pending.",
+                                request_id, user_id, plan_type
+                            )
+                        except Exception as _ce:
+                            logger.error("confirm_payment_request module/bundle compensation: %s", _ce)
+                        return False
                 return True
 
             # Создаем подписку (и сбрасываем старые напоминания — подписка продлена)
@@ -15268,7 +15322,8 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT id,key,name,icon,description,price_monthly,sort_order,is_active,features_json '
+                'SELECT id,key,name,icon,description,price_monthly,sort_order,is_active,features_json,'
+                'COALESCE(price_annual,0) '
                 'FROM billing_modules ORDER BY sort_order,id'
             )
             rows = cursor.fetchall()
@@ -15276,7 +15331,7 @@ class Database:
             return [
                 {'id': r[0], 'key': r[1], 'name': r[2], 'icon': r[3], 'description': r[4],
                  'price_monthly': r[5], 'sort_order': r[6], 'is_active': bool(r[7]),
-                 'features_json': r[8] or '[]'}
+                 'features_json': r[8] or '[]', 'price_annual': r[9] or 0}
                 for r in rows
             ]
         except Exception as exc:
@@ -15286,19 +15341,20 @@ class Database:
     def upsert_billing_module(
         self, key: str, name: str, icon: str, description: str,
         price_monthly: float, sort_order: int = 0,
-        is_active: int = 1, features_json: str = '[]'
+        is_active: int = 1, features_json: str = '[]', price_annual: float = 0
     ) -> bool:
         try:
             conn = self.get_connection()
             conn.execute(
-                '''INSERT INTO billing_modules (key,name,icon,description,price_monthly,sort_order,is_active,features_json,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                '''INSERT INTO billing_modules (key,name,icon,description,price_monthly,price_annual,sort_order,is_active,features_json,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
                    ON CONFLICT(key) DO UPDATE SET
                        name=excluded.name, icon=excluded.icon, description=excluded.description,
-                       price_monthly=excluded.price_monthly, sort_order=excluded.sort_order,
+                       price_monthly=excluded.price_monthly, price_annual=excluded.price_annual,
+                       sort_order=excluded.sort_order,
                        is_active=excluded.is_active, features_json=excluded.features_json,
                        updated_at=datetime('now')''',
-                (key, name, icon, description, price_monthly, sort_order, is_active, features_json)
+                (key, name, icon, description, price_monthly, price_annual, sort_order, is_active, features_json)
             )
             conn.commit()
             conn.close()
@@ -15418,7 +15474,8 @@ class Database:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT id,key,name,icon,description,includes_json,price_monthly,sort_order,is_active '
+                'SELECT id,key,name,icon,description,includes_json,price_monthly,sort_order,is_active,'
+                'COALESCE(price_annual,0) '
                 'FROM billing_bundles ORDER BY sort_order,id'
             )
             rows = cursor.fetchall()
@@ -15433,7 +15490,8 @@ class Database:
                     'id': r[0], 'key': r[1], 'name': r[2], 'icon': r[3],
                     'description': r[4], 'includes_json': r[5],
                     'includes': includes,
-                    'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8])
+                    'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8]),
+                    'price_annual': r[9] or 0
                 })
             return result
         except Exception as exc:
@@ -15443,18 +15501,19 @@ class Database:
     def upsert_billing_bundle(
         self, key: str, name: str, icon: str, description: str,
         includes_json: str, price_monthly: float,
-        sort_order: int = 0, is_active: int = 1
+        sort_order: int = 0, is_active: int = 1, price_annual: float = 0
     ) -> bool:
         try:
             conn = self.get_connection()
             conn.execute(
-                '''INSERT INTO billing_bundles (key,name,icon,description,includes_json,price_monthly,sort_order,is_active,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                '''INSERT INTO billing_bundles (key,name,icon,description,includes_json,price_monthly,price_annual,sort_order,is_active,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
                    ON CONFLICT(key) DO UPDATE SET
                        name=excluded.name, icon=excluded.icon, description=excluded.description,
                        includes_json=excluded.includes_json, price_monthly=excluded.price_monthly,
+                       price_annual=excluded.price_annual,
                        sort_order=excluded.sort_order, is_active=excluded.is_active, updated_at=datetime('now')''',
-                (key, name, icon, description, includes_json, price_monthly, sort_order, is_active)
+                (key, name, icon, description, includes_json, price_monthly, price_annual, sort_order, is_active)
             )
             conn.commit()
             conn.close()

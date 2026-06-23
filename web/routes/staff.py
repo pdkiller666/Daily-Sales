@@ -4,6 +4,7 @@ from datetime import date
 from typing import Annotated
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
+from timezone_utils import DEFAULT_TZ
 
 router = APIRouter()
 
@@ -643,7 +644,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         "user_plans": [],
         "chart_labels": [],
         "chart_data": [],
-        "user_tz": "Europe/Moscow",
+        "user_tz": DEFAULT_TZ,
         "chat_available": False,
         "is_own_card": False,
         "member_tg_id": -1,
@@ -652,7 +653,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
     try:
         db = get_web_db(telegram_id, org_db)
         try:
-            ctx["user_tz"] = db.get_user_timezone(telegram_id) or "Europe/Moscow"
+            ctx["user_tz"] = db.get_user_timezone(telegram_id) or DEFAULT_TZ
         except Exception:
             pass
         org_roles = _get_org_roles(db.db_file)
@@ -829,7 +830,7 @@ def staff_detail(request: Request, user_id: int, year: int = 0, month: int = 0):
         # 7-day revenue chart for this user
         try:
             from datetime import timedelta
-            tz_staff = db.get_user_timezone(u[1] if u else telegram_id) or "Europe/Moscow"
+            tz_staff = db.get_user_timezone(u[1] if u else telegram_id) or DEFAULT_TZ
             from timezone_utils import get_current_user_time
             today_tz = get_current_user_time(tz_staff).date()
             chart_labels = []

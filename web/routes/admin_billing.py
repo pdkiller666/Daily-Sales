@@ -124,6 +124,7 @@ async def billing_module_add(
     icon: str = Form("📦"),
     description: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
 ):
     user = get_session_user(request)
@@ -134,7 +135,8 @@ async def billing_module_add(
         return RedirectResponse("/admin/billing/modules?msg=bad_input&tab=modules", 303)
     db = _db()
     ok = db.upsert_billing_module(key, name.strip(), icon.strip() or "📦",
-                                   description.strip(), price_monthly, sort_order)
+                                   description.strip(), price_monthly, sort_order,
+                                   price_annual=price_annual)
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/modules?msg={msg}&tab=modules", 303)
 
@@ -148,6 +150,7 @@ async def billing_module_save(
     icon: str = Form("📦"),
     description: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
     features_json: str = Form("[]"),
 ):
@@ -165,7 +168,8 @@ async def billing_module_save(
         features_json = "[]"
     ok = db.upsert_billing_module(
         mod["key"], name.strip() or mod["name"], icon.strip() or mod["icon"],
-        description.strip(), price_monthly, sort_order, int(mod["is_active"]), features_json
+        description.strip(), price_monthly, sort_order, int(mod["is_active"]), features_json,
+        price_annual=price_annual
     )
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/modules?msg={msg}&tab=modules", 303)
@@ -317,6 +321,7 @@ async def billing_bundle_add(
     includes_modules: str = Form(""),
     includes_extensions: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
 ):
     user = get_session_user(request)
@@ -330,7 +335,7 @@ async def billing_bundle_add(
     includes_json = json.dumps({"modules": mods, "extensions": exts})
     ok = _db().upsert_billing_bundle(
         key, name.strip(), icon.strip() or "🎁", description.strip(),
-        includes_json, price_monthly, sort_order
+        includes_json, price_monthly, sort_order, price_annual=price_annual
     )
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/bundles?msg={msg}", 303)
@@ -347,6 +352,7 @@ async def billing_bundle_save(
     includes_modules: str = Form(""),
     includes_extensions: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
 ):
     user = get_session_user(request)
@@ -362,7 +368,8 @@ async def billing_bundle_save(
     includes_json = json.dumps({"modules": mods, "extensions": exts})
     ok = db.upsert_billing_bundle(
         bnd["key"], name.strip() or bnd["name"], icon.strip() or bnd["icon"],
-        description.strip(), includes_json, price_monthly, sort_order, int(bnd["is_active"])
+        description.strip(), includes_json, price_monthly, sort_order, int(bnd["is_active"]),
+        price_annual=price_annual
     )
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/bundles?msg={msg}", 303)
