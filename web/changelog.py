@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.157.0"
+CURRENT_VERSION = "1.158.0"
 
 ENTRIES = [
+    {
+        "version": "1.158.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add options to open web interface in Telegram, Android app, or browser",
+            "Add screenshots illustrating push notification issues",
+        ],
+    },
     {
         "version": "1.157.0",
         "date": "23 июня 2026",

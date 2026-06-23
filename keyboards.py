@@ -197,9 +197,13 @@ def analytics_hub_menu(is_admin: bool = False):
     return builder.as_markup()
 
 
-def back_button(callback_data: str):
-    """Кнопка назад"""
-    return InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)
+def back_button(callback_data: str, text: str = "⬅️ Назад"):
+    """Единая кнопка «Назад» (roadmap 1.3).
+
+    text позволяет задать свою подпись (напр. «⬅️ К списку»), сохраняя
+    единый стиль стрелки. По умолчанию — «⬅️ Назад».
+    """
+    return InlineKeyboardButton(text=text, callback_data=callback_data)
 
 def home_button():
     """Единая кнопка возврата в главное меню"""

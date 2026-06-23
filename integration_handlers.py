@@ -17,6 +17,7 @@ from db_utils import get_db, clear_state_keep_org, is_any_admin
 from utils import he
 from subscription_utils import check_integrations_permission
 from keyboards import back_button, home_button
+from pagination_utils import page_nav_row
 from states import IntegrationStates, GSImportStates
 from integration.manager import AVAILABLE_FIELDS, FIELD_LABELS, integration_manager
 from timezone_utils import get_current_user_time as _get_cur_user_time
@@ -1260,14 +1261,10 @@ def _mtv_hrow_kb(rows_sorted: list, page: int, back_cb: str):
     for rn, vals in chunk:
         kb.row(InlineKeyboardButton(text=_row_btn_label(rn, vals),
                                     callback_data=f"gs_mtv_hrow_{rn}"))
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_mtv_hrowpg_{page-1}"))
-    if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_mtv_hrowpg_{page+1}"))
+    nav = page_nav_row("gs_mtv_hrowpg_", page, page > 0, page < total_pages - 1, total_pages)
     if nav:
         kb.row(*nav)
-    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
+    kb.row(back_button(back_cb))
     return kb.as_markup(), total_pages, page
 
 

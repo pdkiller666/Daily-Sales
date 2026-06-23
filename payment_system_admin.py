@@ -534,7 +534,7 @@ async def edit_plan_details(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="📦 Лимит товаров", callback_data="edit_field_max_products")],
         [InlineKeyboardButton(text="🏪 Лимит магазинов", callback_data="edit_field_max_shops")],
         [InlineKeyboardButton(text="💰 Лимит продаж/мес", callback_data="edit_field_max_sales")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_plans")]
+        [back_button("manage_plans")]
     ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -570,7 +570,7 @@ async def edit_plan_field_start(callback: CallbackQuery, state: FSMContext):
     text += "Введите новый лимит (-1 для безлимита):"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"edit_plan_{plan_id}")]
+        [back_button(f"edit_plan_{plan_id}")]
     ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1091,7 +1091,7 @@ async def process_promo_expires_edit(message: Message, state: FSMContext):
         return
     db = _get_db()
     db.update_promocode(promo_id, expires_at=raw)
-    _done_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"edit_promo_{promo_id}")]])
+    _done_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button(f"edit_promo_{promo_id}", "⬅️ К промокоду")]])
     await fsm_edit(state, message, f"✅ Срок действия обновлён: {raw}", reply_markup=_done_kb)
     await clear_state_keep_org(state)
 
@@ -1221,7 +1221,7 @@ async def set_payment_instruction(callback: CallbackQuery, state: FSMContext):
            "Введите новую инструкцию, которую будут видеть пользователи при оплате:"
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="payment_settings")]
+        [back_button("payment_settings")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1275,7 +1275,7 @@ async def payment_charts(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="payment_statistics")],
         [InlineKeyboardButton(text="🧩 Модули и пакеты", callback_data="billing_modules_admin")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="payment_system_admin")]
+        [back_button("payment_system_admin")]
     ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1297,7 +1297,7 @@ async def delete_promocode(callback: CallbackQuery):
         text += "📭 Нет доступных промокодов для удаления"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promocode")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")]
+            [back_button("manage_promocodes")]
         ])
     else:
         text += "Выберите промокод для удаления:\n\n"
@@ -1312,7 +1312,7 @@ async def delete_promocode(callback: CallbackQuery):
                 callback_data=f"delete_promo_{promo_id}"
             )])
         
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")])
+        keyboard_buttons.append([back_button("manage_promocodes")])
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1375,7 +1375,7 @@ async def execute_delete_promocode(callback: CallbackQuery):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑 Удалить еще", callback_data="delete_promocode")],
-        [InlineKeyboardButton(text="🔙 К управлению промокодами", callback_data="manage_promocodes")]
+        [back_button("manage_promocodes", "⬅️ К управлению промокодами")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1397,7 +1397,7 @@ async def edit_promocode(callback: CallbackQuery):
         text += "📭 Нет доступных промокодов для редактирования"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promocode")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")]
+            [back_button("manage_promocodes")]
         ])
     else:
         text += "Выберите промокод для редактирования:\n\n"
@@ -1415,7 +1415,7 @@ async def edit_promocode(callback: CallbackQuery):
                 callback_data=f"edit_promo_{promo_id}"
             )])
         
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")])
+        keyboard_buttons.append([back_button("manage_promocodes")])
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1466,7 +1466,7 @@ async def edit_specific_promocode(callback: CallbackQuery):
     keyboard_buttons.append([InlineKeyboardButton(text="⏳ Срок действия", callback_data=f"edit_promo_expires_{promo_id}")])
 
     keyboard_buttons.append([InlineKeyboardButton(text="🗑 Удалить промокод", callback_data=f"delete_promo_{promo_id}")])
-    keyboard_buttons.append([InlineKeyboardButton(text="🔙 К списку промокодов", callback_data="edit_promocode")])
+    keyboard_buttons.append([back_button("edit_promocode", "⬅️ К списку промокодов")])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
@@ -1667,7 +1667,7 @@ async def promocode_stats(callback: CallbackQuery):
         )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="manage_promocodes")]
+        [back_button("manage_promocodes")]
     ])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1689,7 +1689,7 @@ async def stats_by_period(callback: CallbackQuery):
         [InlineKeyboardButton(text="📅 За неделю", callback_data="stats_week")],
         [InlineKeyboardButton(text="📅 За месяц", callback_data="stats_month")],
         [InlineKeyboardButton(text="📅 За год", callback_data="stats_year")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="payment_statistics")]
+        [back_button("payment_statistics")]
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -1744,7 +1744,7 @@ async def trial_edit_days_start(callback: CallbackQuery, state: FSMContext):
     current = settings.get('trial_days', '14')
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="trial_settings")]
+        [back_button("trial_settings")]
     ])
     await callback.message.edit_text(
         f"⏱ <b>Длительность пробного периода</b>\n\n"
@@ -1762,7 +1762,7 @@ async def process_trial_days(message: Message, state: FSMContext):
     """Сохранение нового значения длительности пробного периода"""
     db = _get_db()
     raw = message.text.strip()
-    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 К настройкам пробного периода", callback_data="trial_settings")]])
+    _back_kb = InlineKeyboardMarkup(inline_keyboard=[[back_button("trial_settings", "⬅️ К настройкам пробного периода")]])
     if not raw.isdigit():
         await fsm_edit(state, message, "❌ Введите целое число (количество дней):", reply_markup=_back_kb)
         return
@@ -1797,7 +1797,7 @@ async def trial_edit_plan_start(callback: CallbackQuery, state: FSMContext):
         for p in plans
         if p[1] != 'Бесплатный'
     ]
-    plan_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="trial_settings")])
+    plan_buttons.append([back_button("trial_settings")])
 
     settings = db.get_payment_settings()
     current_plan = settings.get('trial_plan', 'Премиум')
@@ -2264,7 +2264,7 @@ async def cust_base_menu(callback: CallbackQuery):
             callback_data=f"cust_setbase_{tg_id}_{p[0]}")])
     rows.append([InlineKeyboardButton(text="🆓 Сбросить на Бесплатный",
                                       callback_data=f"cust_resetbase_{tg_id}")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cust_card_{tg_id}")])
+    rows.append([back_button(f"cust_card_{tg_id}")])
     await callback.message.edit_text(
         "📦 <b>Базовая подписка</b>\n\nВыберите тариф (лимиты 📦/🏪/💰):",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode="HTML")
@@ -2341,7 +2341,7 @@ async def cust_grant_menu(callback: CallbackQuery):
     for idx, (it, key, label, price) in enumerate(cat):
         rows.append([InlineKeyboardButton(
             text=f"{label} · {price:.0f}₽", callback_data=f"gbp_{idx}_{tg_id}")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cust_card_{tg_id}")])
+    rows.append([back_button(f"cust_card_{tg_id}")])
     await callback.message.edit_text(
         "➕ <b>Выдать доступ</b>\n\nВыберите позицию:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode="HTML")
@@ -2365,7 +2365,7 @@ async def cust_grant_pick(callback: CallbackQuery):
         [InlineKeyboardButton(text="90 дней", callback_data=f"gbd_{idx}_{tg_id}_90")],
         [InlineKeyboardButton(text="365 дней", callback_data=f"gbd_{idx}_{tg_id}_365")],
         [InlineKeyboardButton(text="♾ Бессрочно", callback_data=f"gbd_{idx}_{tg_id}_0")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"cust_grant_{tg_id}")],
+        [back_button(f"cust_grant_{tg_id}")],
     ]
     await callback.message.edit_text(
         f"➕ <b>{he(label)}</b>\n\nНа какой срок выдать доступ?",
@@ -2474,7 +2474,7 @@ def _modules_list_view(db):
             text=f"{st} {m['icon']} {m['name']} · {m['price_monthly']:.0f}₽",
             callback_data=f"bm_v_{m['id']}")])
     rows.append([InlineKeyboardButton(text="➕ Добавить модуль", callback_data="bm_add")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="billing_modules_admin")])
+    rows.append([back_button("billing_modules_admin")])
     return "📦 <b>Модули</b>", InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -2498,7 +2498,7 @@ def _module_detail(db, mid):
         [InlineKeyboardButton(text="🔢 Порядок", callback_data=f"bm_f_{mid}_sort")],
         [InlineKeyboardButton(text="🔄 Вкл/Выкл", callback_data=f"bm_t_{mid}"),
          InlineKeyboardButton(text="🗑 Удалить", callback_data=f"bm_dx_{mid}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="bm_list")],
+        [back_button("bm_list")],
     ])
     return text, kb
 
@@ -2596,7 +2596,7 @@ def _extensions_list_view(db):
             text=f"{st} {e['icon']} {e['name']} · {e['price_monthly']:.0f}₽ [{e['module_key']}]",
             callback_data=f"be_v_{e['id']}")])
     rows.append([InlineKeyboardButton(text="➕ Добавить расширение", callback_data="be_addp")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="billing_modules_admin")])
+    rows.append([back_button("billing_modules_admin")])
     return "🧩 <b>Расширения</b>", InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -2621,7 +2621,7 @@ def _ext_detail(db, eid):
         [InlineKeyboardButton(text="🔢 Порядок", callback_data=f"be_f_{eid}_sort")],
         [InlineKeyboardButton(text="🔄 Вкл/Выкл", callback_data=f"be_t_{eid}"),
          InlineKeyboardButton(text="🗑 Удалить", callback_data=f"be_dx_{eid}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="be_list")],
+        [back_button("be_list")],
     ])
     return text, kb
 
@@ -2649,7 +2649,7 @@ async def be_add_pick(callback: CallbackQuery):
     await callback.answer()
     rows = [[InlineKeyboardButton(text=f"{m['icon']} {m['name']}",
                                   callback_data=f"be_add_{m['key']}")] for m in mods]
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="be_list")])
+    rows.append([back_button("be_list")])
     await callback.message.edit_text(
         "🧩 К какому модулю добавить расширение?",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
@@ -2738,7 +2738,7 @@ def _bundles_list_view(db):
             text=f"{st} {b['icon']} {b['name']} · {b['price_monthly']:.0f}₽",
             callback_data=f"bb_v_{b['id']}")])
     rows.append([InlineKeyboardButton(text="➕ Добавить пакет", callback_data="bb_add")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="billing_modules_admin")])
+    rows.append([back_button("billing_modules_admin")])
     return "🎁 <b>Пакеты</b>", InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -2772,7 +2772,7 @@ def _bundle_detail(db, bid):
         [InlineKeyboardButton(text="🧩 Состав пакета", callback_data=f"bb_inc_{bid}")],
         [InlineKeyboardButton(text="🔄 Вкл/Выкл", callback_data=f"bb_t_{bid}"),
          InlineKeyboardButton(text="🗑 Удалить", callback_data=f"bb_dx_{bid}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="bb_list")],
+        [back_button("bb_list")],
     ])
     return text, kb
 

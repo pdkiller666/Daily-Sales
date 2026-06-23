@@ -21,6 +21,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKeyboardMarkup
 
 from keyboards import InlineKeyboardBuilder, back_button, home_button, safe_cb, resolve_cb_name
+from pagination_utils import page_nav_row
 from db_utils import get_db, clear_state_keep_org, is_any_admin
 from message_utils import fsm_edit
 from utils import he
@@ -87,11 +88,8 @@ def _tasks_keyboard(tasks: list, is_admin: bool, page: int = 0) -> InlineKeyboar
             text=label,
             callback_data=f"tsk_view_{task_id}"
         ))
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"tsk_page_{page-1}"))
-    if end < len(tasks):
-        nav_row.append(InlineKeyboardButton(text="Далее ▶", callback_data=f"tsk_page_{page+1}"))
+    _total_pages = max(1, -(-len(tasks) // page_size))
+    nav_row = page_nav_row("tsk_page_", page, page > 0, end < len(tasks), _total_pages)
     if nav_row:
         kb.row(*nav_row)
     if is_admin:
@@ -165,7 +163,7 @@ def _task_detail_keyboard(task: dict, my_db_id: int, is_admin: bool,
                 callback_data=f"tsk_reopen_{task['id']}"
             ))
 
-    kb.row(InlineKeyboardButton(text="◀ К списку", callback_data="tsk_list_0"))
+    kb.row(back_button("tsk_list_0", "⬅️ К списку"))
     kb.row(home_button())
     return kb.as_markup()
 
@@ -825,16 +823,13 @@ def _tc_users_kb(db, page: int = 0) -> InlineKeyboardMarkup:
                 text=f"👤 {name}{shop}",
                 callback_data=f"tsk_cu_{uid}"
             ))
-        nav = []
-        if page > 0:
-            nav.append(InlineKeyboardButton(text="◀", callback_data=f"tsk_c_upg_{page-1}"))
-        if start + PAGE < len(rows):
-            nav.append(InlineKeyboardButton(text="▶", callback_data=f"tsk_c_upg_{page+1}"))
+        _tp = max(1, -(-len(rows) // PAGE))
+        nav = page_nav_row("tsk_c_upg_", page, page > 0, start + PAGE < len(rows), _tp)
         if nav:
             kb.row(*nav)
     except Exception:
         pass
-    kb.row(InlineKeyboardButton(text="◀ Назад", callback_data="tsk_c_back_who"))
+    kb.row(back_button("tsk_c_back_who"))
     kb.row(InlineKeyboardButton(text="❌ Отменить", callback_data="tsk_c_cancel"))
     return kb.as_markup()
 

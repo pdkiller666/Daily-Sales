@@ -279,7 +279,7 @@ async def abs_hist(callback: CallbackQuery, state: FSMContext):
     else:
         text += 'Нет записей.\n'
     kb = InlineKeyboardBuilder()
-    kb.button(text='← Назад', callback_data='abs_my')
+    kb.row(back_button('abs_my'))
     kb.row(home_button())
     await callback.answer()
     await callback.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
