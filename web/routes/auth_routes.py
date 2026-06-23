@@ -370,6 +370,72 @@ async def miniapp_entry(request: Request):
     return HTMLResponse(content=html)
 
 
+@router.get("/open-app", include_in_schema=False)
+async def open_app(request: Request, c: str = ""):
+    """Открыть установленное Android-приложение (TWA) через intent://.
+    Если приложение установлено — открывается и (при наличии кода c) авто-логинится
+    по deep-link на /auth/code/auto. Если не установлено — fallback на /download/android."""
+    from fastapi.responses import HTMLResponse
+    import json as _json
+    import re as _re
+    # Код входа — всегда только цифры; жёстко санируем, чтобы исключить любой
+    # HTML/script-breakout (reflected XSS) при вставке в inline <script>.
+    safe_code = _re.sub(r"\D", "", c or "")[:16]
+    code_js = _json.dumps(safe_code).replace("</", "<\\/")
+    pkg = "com.dailysales.app"
+    html = """<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DailySales</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:system-ui,-apple-system,sans-serif;color:#e2e8f0;padding:1.5rem}
+.card{max-width:340px;width:100%;text-align:center}
+.ico{font-size:3rem;margin-bottom:1rem}
+.title{font-size:1.15rem;font-weight:700;margin-bottom:.5rem}
+.sub{font-size:.9rem;color:#94a3b8;margin-bottom:1.5rem;line-height:1.5}
+.btn{display:block;width:100%;box-sizing:border-box;padding:.85rem;border-radius:.75rem;font-weight:600;font-size:.95rem;text-decoration:none;margin-bottom:.6rem;border:none;cursor:pointer}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-secondary{background:#1e293b;color:#e2e8f0}
+.hidden{display:none}
+</style></head><body>
+<div class="card">
+  <div class="ico">📱</div>
+  <div class="title" id="t">Открываем приложение…</div>
+  <div class="sub" id="s">Если приложение установлено — оно откроется автоматически.</div>
+  <div id="choices" class="hidden">
+    <a class="btn btn-primary" id="install" href="/download/android">📥 Установить приложение</a>
+    <a class="btn btn-secondary" id="browser" href="#">🌐 Войти в браузере</a>
+  </div>
+</div>
+<script>
+(function(){
+  var CODE=__CODE__;
+  var PKG="__PKG__";
+  var isAndroid=/android/i.test(navigator.userAgent);
+  var deep="/auth/code/auto?c="+encodeURIComponent(CODE);
+  var browserUrl=CODE?deep:"/login";
+  document.getElementById('browser').href=browserUrl;
+  function showChoices(){
+    document.getElementById('t').textContent='Приложение не открылось';
+    document.getElementById('s').textContent='Установите приложение или войдите через браузер.';
+    document.getElementById('choices').classList.remove('hidden');
+  }
+  if(isAndroid){
+    var fallback=location.origin+'/download/android';
+    var intentUrl='intent://'+location.host+deep+
+      '#Intent;scheme=https;package='+PKG+
+      ';S.browser_fallback_url='+encodeURIComponent(fallback)+';end';
+    try{ window.location.href=intentUrl; }catch(e){}
+    setTimeout(showChoices,2000);
+  } else {
+    window.location.href=browserUrl;
+  }
+})();
+</script></body></html>"""
+    html = html.replace("__CODE__", code_js).replace("__PKG__", pkg)
+    return HTMLResponse(content=html)
+
+
 @router.post("/auth/miniapp")
 async def miniapp_auth(request: Request, init_data: str = Form(default="")):
     """Авторизация через Telegram Mini App initData.

@@ -146,17 +146,20 @@ async def cb_web_open_hub(callback: CallbackQuery):
         code = generate_code(telegram_id)
         login_url = f"{web_url.rstrip('/')}/auth/code/auto?c={code}"
         miniapp_url = f"{web_url.rstrip('/')}/auth/miniapp-entry"
+        openapp_url = f"{web_url.rstrip('/')}/open-app?c={code}"
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📱 Открыть приложение", web_app=WebAppInfo(url=miniapp_url))],
+            [InlineKeyboardButton(text="📲 Открыть в Telegram", web_app=WebAppInfo(url=miniapp_url))],
+            [InlineKeyboardButton(text="🤖 Приложение Android", url=openapp_url)],
             [InlineKeyboardButton(text="🔑 Войти в браузере", url=login_url)],
             [InlineKeyboardButton(text="◀️ Главное меню", callback_data="main_menu")],
         ])
         await callback.message.edit_text(
             f"🌐 <b>Веб-интерфейс</b>\n\n"
-            f"📱 <b>Открыть приложение</b> — прямо здесь в Telegram, без ссылок.\n"
+            f"📲 <b>Открыть в Telegram</b> — мини-приложение прямо здесь, без ссылок.\n"
+            f"🤖 <b>Приложение Android</b> — открыть установленное приложение или установить его.\n"
             f"🔑 <b>Войти в браузере</b> — одноразовая ссылка на 5 минут.\n\n"
-            f"<i>Ссылка для браузера генерируется заново при каждом нажатии.</i>",
+            f"<i>Ссылки для браузера и приложения одноразовые, действуют 5 минут.</i>",
             parse_mode="HTML",
             reply_markup=kb,
         )

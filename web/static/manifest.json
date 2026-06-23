@@ -45,5 +45,9 @@
     { "name": "Касса POS", "url": "/pos", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] },
     { "name": "Дашборд",   "url": "/dashboard", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] },
     { "name": "Продажи",   "url": "/sales", "icons": [{"src": "/static/icon-192.png", "sizes": "192x192"}] }
-  ]
+  ],
+  "related_applications": [
+    { "platform": "play", "id": "com.dailysales.app" }
+  ],
+  "prefer_related_applications": false
 }

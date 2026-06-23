@@ -1274,21 +1274,56 @@ window.dsRefreshBadge = function() {
 })();
 
 /* ══════════════════════════════════════════════════
-   4a. Android APK download banner
-   Показываем Android-пользователям в обычном браузере (не TWA/standalone/TgWebView),
-   один раз — до закрытия (sessionStorage).
+   4a. Android APK banner
+   Android-пользователям в обычном браузере (не TWA/standalone/TgWebView):
+   • приложение УСТАНОВЛЕНО → CTA «Открыть» (intent:// открывает APK; TWA делит
+     cookie с Chrome → сессия переносится автоматически).
+   • НЕ установлено → CTA «Скачать» (/download/android).
+   Показываем один раз за сессию (sessionStorage).
 ══════════════════════════════════════════════════ */
 (function () {
     var isAndroid = /android/i.test(navigator.userAgent);
     var isStandalone = window.matchMedia('(display-mode: standalone)').matches;
     var isTgWebView = /wv\)/.test(navigator.userAgent) || !!window.TelegramWebviewProxy;
-    if (isAndroid && !isStandalone && !isTgWebView &&
-        sessionStorage.getItem('ds_apk_dismissed') !== '1') {
-        setTimeout(function () {
-            var el = document.getElementById('ds-apk-banner');
-            if (el) el.classList.remove('hidden');
-        }, 2000);
+    if (!isAndroid || isStandalone || isTgWebView) return;
+    if (sessionStorage.getItem('ds_apk_dismissed') === '1') return;
+
+    function _openInApp(e) {
+        if (e) e.preventDefault();
+        var fallback = location.origin + '/download/android';
+        var intentUrl = 'intent://' + location.host + '/dashboard' +
+            '#Intent;scheme=https;package=com.dailysales.app' +
+            ';S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end';
+        window.location.href = intentUrl;
     }
+
+    function _show(installed) {
+        var el = document.getElementById('ds-apk-banner');
+        if (!el) return;
+        if (installed) {
+            var txt = document.getElementById('ds-apk-banner-text');
+            var cta = document.getElementById('ds-apk-banner-cta');
+            if (txt) txt.textContent = 'Откройте DailySales в приложении — быстрее и удобнее браузера';
+            if (cta) {
+                cta.textContent = 'Открыть';
+                cta.removeAttribute('href');
+                cta.style.cursor = 'pointer';
+                cta.addEventListener('click', _openInApp);
+            }
+        }
+        el.classList.remove('hidden');
+    }
+
+    (async function () {
+        var installed = false;
+        if ('getInstalledRelatedApps' in navigator) {
+            try {
+                var apps = await navigator.getInstalledRelatedApps();
+                installed = apps.some(function (a) { return a.id === 'com.dailysales.app'; });
+            } catch (e) {}
+        }
+        setTimeout(function () { _show(installed); }, 2000);
+    })();
 })();
 
 window.dsApkBannerDismiss = function () {
@@ -2251,11 +2286,12 @@ function mainApp() {
             <button onclick="dsPwaDismiss()" class="shrink-0 text-emerald-400 hover:text-emerald-600 text-base leading-none px-1">×</button>
         </div>
 
-        <!-- Android APK banner: показываем Android-пользователям в браузере (не TWA/standalone) один раз за сессию -->
+        <!-- Android APK banner: показываем Android-пользователям в браузере (не TWA/standalone) один раз за сессию.
+             Если приложение установлено (getInstalledRelatedApps) → CTA меняется на «Открыть» (intent://). -->
         <div id="ds-apk-banner" class="hidden flex items-center gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-800">
             <span class="text-lg shrink-0">🤖</span>
-            <span class="flex-1 leading-snug">Скачайте приложение DailySales для Android — работает быстрее браузера</span>
-            <a href="/download/android" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">Скачать</a>
+            <span class="flex-1 leading-snug" id="ds-apk-banner-text">Скачайте приложение DailySales для Android — работает быстрее браузера</span>
+            <a href="/download/android" id="ds-apk-banner-cta" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">Скачать</a>
             <button onclick="dsApkBannerDismiss()" class="shrink-0 text-blue-400 hover:text-blue-600 text-base leading-none px-1">×</button>
         </div>
 

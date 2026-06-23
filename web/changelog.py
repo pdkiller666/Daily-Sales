@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.156.0"
+CURRENT_VERSION = "1.157.0"
 
 ENTRIES = [
+    {
+        "version": "1.157.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add ability to open web app within Telegram and in browser",
+        ],
+    },
     {
         "version": "1.156.0",
         "date": "23 июня 2026",
