@@ -172,7 +172,7 @@ def _parse_mention_tids(text, members, exclude_tid=None) -> set:
     return out
 
 
-def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None, edited=None, pinned=None) -> dict:
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None, edited=None, pinned=None, forwarded=None) -> dict:
     """Форматировать строку chat_messages.
     files=None  → использовать legacy-колонки file_path/file_name/... из row
     files=[]    → новое сообщение без вложений
@@ -180,6 +180,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
     reactions   → список [{emoji,count,mine}] или None
     reply       → объект цитаты {id,author,snippet,deleted} или None
     edited      → значение edited_at (truthy → метка «изм.»)
+    forwarded   → имя первоисточника (truthy → «Переслано от …»)
     """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname, *_ = row
     if user_id == 0:
@@ -242,6 +243,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
         "can_pin": is_admin or (my_db_id > 0 and user_id == my_db_id),
         "is_pinned": bool(pinned),
         "edited": bool(edited),
+        "forwarded_from": forwarded or "",
         "reactions": reactions or [],
         "reply": reply,
     }
@@ -256,7 +258,7 @@ def _topic_pinned_bar(db, topic_id: int, my_db_id: int = 0, is_admin: bool = Fal
         r = rows[0]
         files = _load_msg_files_bulk(db, [r[0]]).get(r[0])
         return _fmt_msg(r, my_db_id=my_db_id, is_admin=is_admin,
-                        files=files, edited=r[-2], pinned=r[-3])
+                        files=files, edited=r[-2], pinned=r[-3], forwarded=r[-4])
     except Exception as e:
         logger.error("pinned bar topic=%s: %s", topic_id, e)
         return None
@@ -890,7 +892,7 @@ def chat_page(request: Request, topic: int = 1):
             rows = db.get_chat_messages(limit=50, topic_id=topic, since_id=_ai_since)
             _react_map = db.get_chat_reactions_bulk([r[0] for r in rows], user_db_id or 0)
             _reply_map = _chat_reply_map(db, rows)
-            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0]), reply=_resolve_reply(r[-1], _reply_map), edited=r[-2], pinned=r[-3]) for r in rows]
+            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0]), reply=_resolve_reply(r[-1], _reply_map), edited=r[-2], pinned=r[-3], forwarded=r[-4]) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
             ctx["pinned"] = _topic_pinned_bar(db, topic, user_db_id or 0, is_admin)
 
@@ -1047,7 +1049,7 @@ async def chat_send(
         msg_ids = [r[0] for r in new_msgs]
         files_map = _load_msg_files_bulk(db, msg_ids)
         reply_map = _chat_reply_map(db, new_msgs)
-        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3]) for r in new_msgs]
+        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3], forwarded=r[-4]) for r in new_msgs]
 
         # Live-доставка в тему: будим клиентов в этой теме (кроме отправителя)
         # сразу опросить сервер, без ожидания 4-сек поллинга. Poll — фоллбэк.
@@ -1065,6 +1067,244 @@ async def chat_send(
 
     except Exception as exc:
         logger.error(f"chat_send error: {exc}")
+        return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+
+
+def _copy_files_for_forward(src_files: list, uploads_dir: str) -> list:
+    """Физически копирует вложения источника в каталог назначения и возвращает
+    список dict'ов для add_*_files (file_path/file_name/file_type/file_size).
+
+    Копируем файлы, а не переиспользуем пути, чтобы удаление оригинала не
+    ломало пересланную копию (общий путь → битая ссылка)."""
+    import shutil
+    out = []
+    if not src_files:
+        return out
+    month_dir = datetime.now(timezone.utc).strftime("%Y-%m")
+    month_path = os.path.join(uploads_dir, month_dir)
+    try:
+        os.makedirs(month_path, exist_ok=True)
+    except OSError as e:
+        logger.warning("forward mkdir: %s", e)
+        return out
+    for f in src_files[:MAX_FILES_PER_MSG]:
+        sp = f.get("file_path") or ""
+        if not sp or not os.path.isfile(sp):
+            continue
+        try:
+            safe = _safe_filename(f.get("file_name") or os.path.basename(sp))
+            dest = os.path.join(month_path, f"{uuid.uuid4().hex[:12]}_{safe}")
+            shutil.copy2(sp, dest)
+            out.append({
+                "file_path": dest,
+                "file_name": f.get("file_name", "") or safe,
+                "file_type": f.get("file_type", "") or "",
+                "file_size": f.get("file_size", 0) or 0,
+            })
+        except Exception as e:
+            logger.warning("forward copy skip: %s", e)
+    return out
+
+
+@router.post("/chat/forward")
+async def chat_forward(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    src_kind: str = Form(default=""),      # "topic" | "dm"
+    src_id: int = Form(default=0),
+    dst_kind: str = Form(default=""),      # "topic" | "dm"
+    dst_topic_id: int = Form(default=0),
+    dst_peer_id: int = Form(default=0),
+):
+    """Переслать сообщение (тему/ЛС → тему/ЛС). Сохраняет первоисточник в
+    forwarded_from (цепочка пересылок указывает на оригинального автора),
+    физически копирует вложения."""
+    from web.auth import get_session_user, verify_csrf_token
+    from web.deps import get_web_db
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Не авторизован"}, status_code=401)
+    if not verify_csrf_token(request, csrf_token):
+        return JSONResponse({"ok": False, "error": "CSRF"}, status_code=403)
+
+    telegram_id = int(user["sub"])
+    org_db = user.get("org_db") or ""
+
+    if not _send_rate_ok(telegram_id):
+        return JSONResponse({"ok": False, "error": "Слишком много сообщений, подождите немного"}, status_code=429)
+
+    min_plan = _get_chat_min_plan()
+    if min_plan == "Отключён":
+        return JSONResponse({"ok": False, "error": "Чат отключён"}, status_code=403)
+
+    if src_kind not in ("topic", "dm") or dst_kind not in ("topic", "dm") or not src_id:
+        return JSONResponse({"ok": False, "error": "Некорректный запрос"}, status_code=400)
+
+    try:
+        db = get_web_db(telegram_id, org_db)
+        if not _chat_access_ok(telegram_id):
+            return JSONResponse({"ok": False, "error": "Недостаточный тариф"}, status_code=403)
+
+        user_db_id = _get_user_db_id(db, telegram_id)
+        if not user_db_id:
+            return JSONResponse({"ok": False, "error": "Пользователь не найден"}, status_code=400)
+
+        # ── Загрузка источника ────────────────────────────────────────────────
+        if src_kind == "topic":
+            src = db.get_chat_message_for_forward(src_id)
+            if not src or src[8]:  # is_deleted
+                return JSONResponse({"ok": False, "error": "Сообщение недоступно"}, status_code=400)
+            src_text = src[2] or ""
+            src_forwarded = src[7] or ""
+            src_author = src[10] or ""
+            src_files = db.get_chat_message_files_bulk([src_id]).get(src_id) or []
+            if not src_files and src[3]:  # legacy single-file
+                src_files = [{"file_path": src[3], "file_name": src[4],
+                              "file_type": src[5], "file_size": src[6]}]
+        else:  # dm
+            src = db.get_dm_message_for_forward(src_id)
+            if not src or src[9]:  # is_deleted
+                return JSONResponse({"ok": False, "error": "Сообщение недоступно"}, status_code=400)
+            # доступ к источнику ЛС — только участник переписки
+            if user_db_id not in (src[1], src[2]):
+                return JSONResponse({"ok": False, "error": "Нет доступа к сообщению"}, status_code=403)
+            src_text = src[3] or ""
+            src_forwarded = src[8] or ""
+            src_author = src[10] or ""
+            src_files = db.get_dm_files_bulk([src_id]).get(src_id) or []
+            if not src_files and src[4]:  # legacy single-file
+                src_files = [{"file_path": src[4], "file_name": src[5],
+                              "file_type": src[6], "file_size": src[7]}]
+
+        # Цепочка пересылок сохраняет оригинального автора
+        fwd_name = (src_forwarded or src_author or "").strip()[:120]
+        if not fwd_name:
+            return JSONResponse({"ok": False, "error": "Неизвестный автор"}, status_code=400)
+        if not src_text and not src_files:
+            return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
+
+        is_admin = user.get("role") in ("owner", "admin", "super_admin")
+
+        # ── Доставка в ТЕМУ ───────────────────────────────────────────────────
+        if dst_kind == "topic":
+            valid_topics = {r[0] for r in db.get_chat_topics()}
+            if not valid_topics:
+                valid_topics = {1}
+            tid = dst_topic_id if dst_topic_id in valid_topics else 1
+            # Копируем вложения ДО вставки: если источник был только файлами, а
+            # все копии не удались — не создаём пустое сообщение.
+            copied = _copy_files_for_forward(src_files, _uploads_dir(org_db))
+            if not src_text and not copied:
+                return JSONResponse({"ok": False, "error": "Не удалось переслать вложение"}, status_code=400)
+            new_id = db.add_chat_message(user_id=user_db_id, message=src_text,
+                                         topic_id=tid, forwarded_from=fwd_name)
+            if copied:
+                db.add_chat_message_files(new_id, copied)
+
+            new_msgs = db.get_chat_messages_since(new_id - 1, topic_id=tid)
+            files_map = _load_msg_files_bulk(db, [r[0] for r in new_msgs])
+            reply_map = _chat_reply_map(db, new_msgs)
+            result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin,
+                               files=files_map.get(r[0]),
+                               reply=_resolve_reply(r[-1], reply_map),
+                               edited=r[-2], pinned=r[-3], forwarded=r[-4]) for r in new_msgs]
+            try:
+                from web.ws_manager import topic_manager
+                await topic_manager.broadcast(
+                    org_db, tid,
+                    {"type": "new", "topic_id": tid, "latest_id": new_id},
+                    exclude_user=user_db_id,
+                )
+            except Exception:
+                pass
+            return JSONResponse({"ok": True, "messages": result,
+                                 "latest_id": new_id, "topic_id": tid})
+
+        # ── Доставка в ЛС ─────────────────────────────────────────────────────
+        if dst_peer_id <= 0:
+            return JSONResponse({"ok": False, "error": "Получатель не указан"}, status_code=400)
+
+        # Копируем вложения ДО вставки: если источник был только файлами, а все
+        # копии не удались — не создаём пустое сообщение.
+        copied = _copy_files_for_forward(src_files, _uploads_dir_dm(org_db))
+        if not src_text and not copied:
+            return JSONResponse({"ok": False, "error": "Не удалось переслать вложение"}, status_code=400)
+        new_id = db.add_dm(user_db_id, dst_peer_id, src_text, "", "", "", 0,
+                           forwarded_from=fwd_name)
+        if not new_id:
+            return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
+        if copied:
+            db.add_dm_files(new_id, copied)
+
+        fresh_files = _load_dm_files_bulk(db, [new_id]).get(new_id, []) if copied else []
+        first_file = fresh_files[0] if fresh_files else {}
+        file_name = first_file.get("file_name", "")
+        file_type = first_file.get("file_type", "")
+        file_size = first_file.get("file_size", 0)
+        ws_files = [
+            {
+                "id": f.get("id", 0),
+                "file_name": f.get("file_name", ""), "file_type": f.get("file_type", ""),
+                "file_size": f.get("file_size", 0),
+                "is_image": (f.get("file_type") or "").startswith("image/"),
+                "file_url": f"/chat/dm/file/attachment/{f.get('id', 0)}",
+            }
+            for f in fresh_files
+        ]
+        first_url = ws_files[0]["file_url"] if ws_files else ""
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        payload = {
+            "type": "message",
+            "id": new_id,
+            "from_user_id": user_db_id,
+            "to_user_id": dst_peer_id,
+            "message": src_text,
+            "file_name": file_name,
+            "file_type": file_type,
+            "file_size": file_size,
+            "has_file": bool(fresh_files),
+            "is_image": file_type.startswith("image/") if file_type else False,
+            "file_url": first_url,
+            "files": ws_files,
+            "created_at": now_str,
+            "is_read": False,
+            "reply": None,
+            "forwarded_from": fwd_name,
+        }
+        try:
+            from web.ws_manager import dm_manager
+            await dm_manager.send_to_user(org_db, dst_peer_id, payload)
+        except Exception:
+            pass
+        try:
+            first_name = user.get("name", "Кто-то")
+            preview = src_text or (f"📎 {file_name}" if file_name else "")
+            dm_msg = f"↪ {first_name}: {preview[:80]}"
+            db.add_notification_to_history(user_id=dst_peer_id, notification_type="dm", message=dm_msg)
+            try:
+                conn = db.get_connection()
+                try:
+                    _row = conn.execute("SELECT telegram_id FROM users WHERE id=?", (dst_peer_id,)).fetchone()
+                finally:
+                    conn.close()
+                if _row and _row[0]:
+                    from web.push_utils import apush
+                    await apush(int(_row[0]), "💬 Новое сообщение", dm_msg, "/chat/dm")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        msg = _fmt_dm(
+            (new_id, user_db_id, dst_peer_id, src_text, "", "", "", 0, now_str, 0,
+             user.get("name", ""), "", ""),
+            my_db_id=user_db_id, files=fresh_files, forwarded=fwd_name,
+        )
+        return JSONResponse({"ok": True, "message": msg, "peer_id": dst_peer_id})
+
+    except Exception as exc:
+        logger.error(f"chat_forward error: {exc}")
         return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
 
@@ -1106,7 +1346,7 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
         reply_map = _chat_reply_map(db, rows)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3]) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3], forwarded=r[-4]) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
 
         # Удаления у всех в реальном времени (с момента прошлого опроса)
@@ -1192,7 +1432,7 @@ def chat_topic_messages(request: Request, topic_id: int):
         files_map = _load_msg_files_bulk(db, msg_ids)
         react_map = db.get_chat_reactions_bulk(msg_ids, user_db_id)
         reply_map = _chat_reply_map(db, rows)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3]) for r in rows]
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map), edited=r[-2], pinned=r[-3], forwarded=r[-4]) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         try:
             db.set_chat_read(user_db_id, topic_id, latest)
@@ -1781,7 +2021,7 @@ def _fmt_ts(raw) -> str:
         return s
 
 
-def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edited=None) -> dict:
+def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edited=None, forwarded=None) -> dict:
     """Форматировать строку direct_messages.
     files=None  → legacy single-file из колонок
     files=[]    → нет вложений
@@ -1789,6 +2029,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edit
     reactions   → список [{emoji,count,mine}] или None
     reply       → объект цитаты {id,author,snippet,deleted} или None
     edited      → значение edited_at (truthy → метка «изм.»)
+    forwarded   → имя первоисточника (truthy → «Переслано от …»)
     """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
@@ -1842,6 +2083,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edit
         "can_delete": is_mine,
         "can_edit": (is_mine and from_id != 0),
         "edited": bool(edited),
+        "forwarded_from": forwarded or "",
         "reactions": reactions or [],
         "reply": reply,
     }
@@ -2043,7 +2285,7 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)
                     dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
                     dm_reply_map = _dm_reply_map(db, rows)
-                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2]) for r in rows]
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2], forwarded=r[-3]) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
             try:
                 from billing_utils import has_extension
@@ -2182,7 +2424,7 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         dm_files_map = _load_dm_files_bulk(db, dm_ids)
         dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
         dm_reply_map = _dm_reply_map(db, page)
-        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2]) for r in page]
+        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map), edited=r[-2], forwarded=r[-3]) for r in page]
         return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
     except Exception as exc:
         logger.error(f"api_dm_conversation error: {exc}")

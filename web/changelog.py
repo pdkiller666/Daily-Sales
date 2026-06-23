@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.163.0"
+CURRENT_VERSION = "1.164.0"
 
 ENTRIES = [
+    {
+        "version": "1.164.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add ability to pin messages and improve chat interface",
+        ],
+    },
     {
         "version": "1.163.0",
         "date": "23 июня 2026",

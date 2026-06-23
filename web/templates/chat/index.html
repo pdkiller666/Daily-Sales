@@ -568,6 +568,51 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
         </div>
     </div>
 
+    <!-- ══ Forward modal (выбор назначения пересылки) ══ -->
+    <div x-show="forwardOpen" x-cloak
+         @keydown.escape.window="closeForward()"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+         @click.self="closeForward()">
+        <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                <span class="font-semibold text-slate-800 dark:text-slate-100">↪ Переслать сообщение</span>
+                <button @click="closeForward()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xl leading-none px-1">×</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-3 space-y-3" style="scrollbar-width:thin">
+                <!-- Темы -->
+                <div>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1 px-1">Темы</p>
+                    <div class="flex flex-col gap-0.5">
+                        <template x-for="t in topicsList.filter(x => !x.is_ai)" :key="'ft_' + t.id">
+                            <button type="button" :disabled="forwardSending"
+                                    @click="doForward('topic', t.id)"
+                                    class="flex items-center gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50">
+                                <span class="text-slate-400">#</span>
+                                <span class="text-sm text-slate-800 dark:text-slate-100 truncate" x-text="t.name"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <!-- Личные сообщения -->
+                <div x-show="dmContacts.filter(c => c.id > 0).length > 0">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1 px-1">Личные сообщения</p>
+                    <div class="flex flex-col gap-0.5">
+                        <template x-for="c in dmContacts.filter(c => c.id > 0)" :key="'fc_' + c.id">
+                            <button type="button" :disabled="forwardSending"
+                                    @click="doForward('dm', c.id)"
+                                    class="flex items-center gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50">
+                                <span class="dm-avatar shrink-0" style="width:26px;height:26px;font-size:.7rem;background:#64748b" x-text="c.initial"></span>
+                                <span class="text-sm text-slate-800 dark:text-slate-100 truncate" x-text="c.display_name"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <p x-show="dmContacts.filter(c => c.id > 0).length === 0"
+                   class="text-xs text-slate-400 text-center py-2">Нет личных диалогов для пересылки</p>
+            </div>
+        </div>
+    </div>
+
     <!-- ══ Messages area ══ -->
     <div x-show="!dmMode" id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-4 sm:px-6 relative">
 
@@ -619,6 +664,13 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     <p class="text-[10px] font-semibold mb-1"
                        :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai_error ? 'text-amber-600 dark:text-amber-400' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600'))"
                        x-text="msg.is_ai_error ? 'AI-ассистент · Ошибка' : msg.display_name"></p>
+                    <!-- Метка пересылки -->
+                    <template x-if="msg.forwarded_from">
+                        <p class="text-[11px] italic mb-1 flex items-center gap-1"
+                           :class="msg.user_id === myUserId ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'">
+                            <span>↪</span><span x-text="'Переслано от ' + msg.forwarded_from"></span>
+                        </p>
+                    </template>
                     <!-- Цитата ответа -->
                     <template x-if="msg.reply">
                         <div class="reply-quote" :class="msg.reply.deleted ? 'reply-quote-deleted' : ''"
@@ -696,6 +748,10 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 class="text-[12px] leading-none touch-manipulation px-0.5"
                                 :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
                                 title="Ответить">↩</button>
+                        <button @click="openForward('topic', msg.id)"
+                                class="text-[12px] leading-none touch-manipulation px-0.5"
+                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
+                                title="Переслать">↪</button>
                         <button x-show="msg.can_edit"
                                 @click="startEdit(msg)"
                                 class="text-[12px] leading-none touch-manipulation px-0.5"
@@ -1015,6 +1071,13 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                      class="flex flex-col max-w-[72%]">
                                     <div class="px-3 py-2 text-sm leading-relaxed shadow-sm"
                                          :class="m.is_mine ? 'dm-bubble-mine' : (m.is_ai_error ? 'dm-bubble-ai-error' : 'dm-bubble-other')">
+                                        <!-- Метка пересылки (DM) -->
+                                        <template x-if="m.forwarded_from">
+                                            <p class="text-[11px] italic mb-1 flex items-center gap-1"
+                                               :class="m.is_mine ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'">
+                                                <span>↪</span><span x-text="'Переслано от ' + m.forwarded_from"></span>
+                                            </p>
+                                        </template>
                                         <!-- Цитата ответа (DM) -->
                                         <template x-if="m.reply">
                                             <div class="reply-quote" :class="m.reply.deleted ? 'reply-quote-deleted' : ''"
@@ -1076,6 +1139,11 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                                 class="ml-1.5 text-[12px]"
                                                 :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
                                                 title="Ответить">↩</button>
+                                        <!-- Переслать -->
+                                        <button @click="openForward('dm', m.id)"
+                                                class="ml-1.5 text-[12px]"
+                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
+                                                title="Переслать">↪</button>
                                         <!-- Редактировать -->
                                         <button x-show="m.can_edit"
                                                 @click="startDmEdit(m)"
@@ -1263,6 +1331,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── reply / quote ── */
         replyTo: null,        /* {id, author, snippet} — цитата в группе */
         dmReplyTo: null,      /* {id, author, snippet} — цитата в ЛС */
+
+        /* ── forward / пересылка ── */
+        forwardOpen:   false,
+        forwardSrcKind: '',   /* 'topic' | 'dm' источника */
+        forwardSrcId:   0,
+        forwardSending: false,
 
         /* ── edit ── */
         editId: null,         /* id редактируемого сообщения (группа) */
@@ -1766,6 +1840,55 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.sending = false;
         },
 
+        /* ── Forward / пересылка ── */
+        openForward(kind, id) {
+            this.forwardSrcKind = kind;
+            this.forwardSrcId   = id;
+            this.forwardOpen    = true;
+            /* В режиме тем контакты ЛС могли ещё не загрузиться */
+            if (!this.dmContacts || this.dmContacts.length === 0) {
+                try { this.dmLoadContacts(); } catch(_) {}
+            }
+        },
+        closeForward() {
+            this.forwardOpen = false;
+            this.forwardSrcKind = '';
+            this.forwardSrcId = 0;
+        },
+        async doForward(dstKind, dst) {
+            if (this.forwardSending || !this.forwardSrcId) return;
+            this.forwardSending = true;
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('src_kind', this.forwardSrcKind);
+                fd.append('src_id', this.forwardSrcId);
+                fd.append('dst_kind', dstKind);
+                if (dstKind === 'topic') fd.append('dst_topic_id', dst);
+                else fd.append('dst_peer_id', dst);
+
+                const res = await fetch('/chat/forward', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!data.ok) { alert(data.error || 'Не удалось переслать'); this.forwardSending = false; return; }
+
+                /* Если переслали в открытую сейчас тему — показать сразу */
+                if (dstKind === 'topic' && !this.dmMode && data.topic_id === this.currentTopicId && data.messages?.length) {
+                    const ids = new Set(this.msgs.map(m => m.id));
+                    this.msgs.push(...data.messages.filter(m => !ids.has(m.id)));
+                    if (data.latest_id) { this.latestId = data.latest_id; this.markTopicRead(this.currentTopicId, data.latest_id); }
+                    this.scrollBottom(true);
+                }
+                /* Если переслали в открытый сейчас ЛС-диалог — показать сразу */
+                if (dstKind === 'dm' && this.dmMode && data.message && data.peer_id === this.dmPeerId) {
+                    const ids = new Set(this.dmMessages.map(m => m.id));
+                    if (!ids.has(data.message.id)) this.dmMessages.push(data.message);
+                    this.$nextTick(() => this.scrollDmBottom(true));
+                }
+                this.closeForward();
+            } catch(e) { alert('Ошибка соединения'); }
+            this.forwardSending = false;
+        },
+
         /* ── Search ── */
         openSearch() {
             this.searchOpen = true;
@@ -2233,6 +2356,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         created_at: data.created_at || '', is_mine: false, can_delete: false,
                         is_ai: isAi, is_ai_error: !!data.is_ai_error,
                         reply: data.reply || null,
+                        forwarded_from: data.forwarded_from || '',
                     });
                     this._dmScrollBottom();
                     /* WS заведомо открыт (только что получили) — HTTP-фолбэк не нужен */

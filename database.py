@@ -1362,6 +1362,8 @@ class Database:
             cursor.execute("ALTER TABLE chat_messages ADD COLUMN is_pinned INTEGER DEFAULT 0")
         if 'pinned_at' not in _cm_cols2:
             cursor.execute("ALTER TABLE chat_messages ADD COLUMN pinned_at TEXT")
+        if 'forwarded_from' not in _cm_cols2:
+            cursor.execute("ALTER TABLE chat_messages ADD COLUMN forwarded_from TEXT DEFAULT ''")
 
         cursor.execute("PRAGMA table_info(direct_messages)")
         _dm_cols3 = [col[1] for col in cursor.fetchall()]
@@ -1369,6 +1371,8 @@ class Database:
             cursor.execute("ALTER TABLE direct_messages ADD COLUMN reply_to_id INTEGER DEFAULT 0")
         if 'edited_at' not in _dm_cols3:
             cursor.execute("ALTER TABLE direct_messages ADD COLUMN edited_at TEXT")
+        if 'forwarded_from' not in _dm_cols3:
+            cursor.execute("ALTER TABLE direct_messages ADD COLUMN forwarded_from TEXT DEFAULT ''")
 
         # ── Task topics (категории задач) ─────────────────────────────────────
         cursor.execute('''
@@ -12712,18 +12716,45 @@ class Database:
     def add_chat_message(self, user_id: int, message: str = '',
                          file_path: str = '', file_name: str = '',
                          file_type: str = '', file_size: int = 0,
-                         topic_id: int = 1, reply_to_id: int = 0) -> int:
+                         topic_id: int = 1, reply_to_id: int = 0,
+                         forwarded_from: str = '') -> int:
         """Добавить сообщение в чат. Возвращает id нового сообщения."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO chat_messages (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id))
+            INSERT INTO chat_messages (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id, forwarded_from)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id, forwarded_from))
         new_id = cursor.lastrowid
         conn.commit()
         conn.close()
         return new_id
+
+    def get_chat_message_for_forward(self, msg_id: int):
+        """Одно сообщение темы для пересылки: (id, user_id, message, file_path,
+        file_name, file_type, file_size, forwarded_from, is_deleted, topic_id,
+        author). Или None."""
+        conn = self.get_connection()
+        try:
+            row = conn.execute('''
+                SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                       m.file_type, m.file_size,
+                       COALESCE(m.forwarded_from,''), COALESCE(m.is_deleted,0), m.topic_id,
+                       u.first_name, u.last_name, u.username
+                FROM chat_messages m
+                LEFT JOIN users u ON u.id = m.user_id
+                WHERE m.id = ?
+            ''', (msg_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        uid = row[1]
+        if uid == 0:
+            author = "AI-ассистент"
+        else:
+            author = f"{row[10] or ''} {row[11] or ''}".strip() or row[12] or f"User#{uid}"
+        return tuple(row[:10]) + (author,)
 
     def get_chat_messages(self, limit: int = 50, topic_id: int = 1,
                           since_id: int = 0) -> list:
@@ -12740,7 +12771,8 @@ class Database:
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
                    u.first_name, u.last_name, u.username,
-                   m.is_session_break, m.is_ai_summary, m.is_pinned, m.edited_at, m.reply_to_id
+                   m.is_session_break, m.is_ai_summary,
+                   COALESCE(m.forwarded_from,''), m.is_pinned, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
@@ -12759,7 +12791,8 @@ class Database:
         cursor.execute('''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username, m.is_pinned, m.edited_at, m.reply_to_id
+                   u.first_name, u.last_name, u.username,
+                   COALESCE(m.forwarded_from,''), m.is_pinned, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
@@ -12842,15 +12875,17 @@ class Database:
     def get_pinned_chat_messages(self, topic_id: int, limit: int = 1) -> list:
         """Закреплённые сообщения темы (последний закреп первым).
 
-        Колонки совпадают с get_chat_messages_since (is_pinned=row[-3],
-        edited_at=row[-2], reply_to_id=row[-1]) — можно передавать в _fmt_msg.
+        Колонки совпадают с get_chat_messages_since (forwarded_from=row[-4],
+        is_pinned=row[-3], edited_at=row[-2], reply_to_id=row[-1]) —
+        можно передавать в _fmt_msg.
         """
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username, m.is_pinned, m.edited_at, m.reply_to_id
+                   u.first_name, u.last_name, u.username,
+                   COALESCE(m.forwarded_from,''), m.is_pinned, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.is_pinned = 1
@@ -13501,7 +13536,7 @@ class Database:
                message: str = '', file_path: str = '',
                file_name: str = '', file_type: str = '',
                file_size: int = 0, ai_peer_id: int = 0,
-               reply_to_id: int = 0) -> int:
+               reply_to_id: int = 0, forwarded_from: str = '') -> int:
         """Сохранить личное сообщение. Возвращает id записи.
 
         ai_peer_id — для ответов AI (from_user_id=0): id собеседника, в переписке
@@ -13511,9 +13546,9 @@ class Database:
             conn = self.get_connection()
             cur = conn.execute(
                 '''INSERT INTO direct_messages
-                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id)
+                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id, forwarded_from)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id, forwarded_from)
             )
             conn.commit()
             new_id = cur.lastrowid
@@ -13522,6 +13557,34 @@ class Database:
         except Exception as e:
             logger.error("add_dm: %s", e)
             return 0
+
+    def get_dm_message_for_forward(self, msg_id: int):
+        """Одно личное сообщение для пересылки: (id, from_user_id, to_user_id,
+        message, file_path, file_name, file_type, file_size, forwarded_from,
+        is_deleted, author). Или None."""
+        try:
+            conn = self.get_connection()
+            row = conn.execute('''
+                SELECT d.id, d.from_user_id, d.to_user_id, d.message,
+                       d.file_path, d.file_name, d.file_type, d.file_size,
+                       COALESCE(d.forwarded_from,''), COALESCE(d.is_deleted,0),
+                       u.first_name, u.last_name, u.username
+                FROM direct_messages d
+                LEFT JOIN users u ON u.id = d.from_user_id
+                WHERE d.id = ?
+            ''', (msg_id,)).fetchone()
+            conn.close()
+        except Exception as e:
+            logger.error("get_dm_message_for_forward: %s", e)
+            return None
+        if not row:
+            return None
+        fromid = row[1]
+        if fromid == 0:
+            author = "AI-ассистент"
+        else:
+            author = f"{row[10] or ''} {row[11] or ''}".strip() or row[12] or f"User#{fromid}"
+        return tuple(row[:10]) + (author,)
 
     def get_dm_conversation(self, user_a: int, user_b: int,
                              limit: int = 50, before_id: int = 0) -> list:
@@ -13547,7 +13610,8 @@ class Database:
                 f'''SELECT d.id, d.from_user_id, d.to_user_id,
                            d.message, d.file_path, d.file_name, d.file_type, d.file_size,
                            d.created_at, d.is_read,
-                           uf.first_name, uf.last_name, uf.username, d.edited_at, d.reply_to_id
+                           uf.first_name, uf.last_name, uf.username,
+                           COALESCE(d.forwarded_from,''), d.edited_at, d.reply_to_id
                     FROM direct_messages d
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = ?)
