@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.151.0"
+CURRENT_VERSION = "1.152.0"
 
 ENTRIES = [
+    {
+        "version": "1.152.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Adjust task pages to ensure buttons wrap correctly on smaller screens",
+        ],
+    },
     {
         "version": "1.151.0",
         "date": "23 июня 2026",
