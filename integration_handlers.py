@@ -2772,11 +2772,7 @@ def _hrow_page_kb(rows_sorted: list, page: int, wiz_back_cb: str = "") -> Inline
             text=_row_btn_label(rn, vals), callback_data=f"gs_lkp_hrow_{rn}"))
 
     # Prev / Next navigation row
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_lkp_hrow_pg_{page-1}"))
-    if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_lkp_hrow_pg_{page+1}"))
+    nav = page_nav_row("gs_lkp_hrow_pg_", page, page > 0, page < total_pages - 1, total_pages)
     if nav:
         kb.row(*nav)
 
@@ -3430,11 +3426,7 @@ def _imp_hrow_kb(rows_sorted: list, page: int, back_cb: str):
     for rn, vals in chunk:
         kb.row(InlineKeyboardButton(text=_row_btn_label(rn, vals),
                                     callback_data=f"gs_imphr_row_{rn}"))
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="◀ Назад", callback_data=f"gs_imphr_pg_{page-1}"))
-    if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="Вперёд ▶", callback_data=f"gs_imphr_pg_{page+1}"))
+    nav = page_nav_row("gs_imphr_pg_", page, page > 0, page < total_pages - 1, total_pages)
     if nav:
         kb.row(*nav)
     kb.row(InlineKeyboardButton(text="✏️ Ввести номер вручную", callback_data="gs_imphr_manual"))
