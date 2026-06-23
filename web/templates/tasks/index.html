@@ -8,12 +8,12 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-5">
-  <div>
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+  <div class="shrink-0">
     <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Задачи</h1>
     <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Поручения и контроль выполнения</p>
   </div>
-  <div class="flex items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2">
     <!-- View toggle -->
     <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-600 bg-indigo-600 text-white" title="Список">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
