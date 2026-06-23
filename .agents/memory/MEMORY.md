@@ -70,4 +70,5 @@
 - [APK private-repo download](apk-private-repo-download.md) — приватный репо: browser_download_url=404 даже с токеном; качать API-URL ассета + Accept:octet-stream; _APK_MIN_SIZE<555KB
 - [AI billing rate_store](ai-billing-rate-store.md) — ai_cost_log/ai_org_usage_log в rate_limits.db; custom_limit_{tg_id} в ai_rate_config; chat quota per-org через check_and_increment_ai_for_org(org_db, limit)
 - [GS motivation sync silent no-op](gs-motivation-sync.md) — синк мотивации пишет 0 правил при неточном имени товара (exact match) и показывает «успех»; нужен Python-нормализованный lookup + показ rules_written/unmatched; пустая ячейка=0.0 перезатирала ставку
+- [Security batch: 2FA/audit/CSRF](security-2fa-audit.md) — admin_audit_log+login_ips gated by 'shop_bot' in db_file (тесты нужны shop_bot-имя); 2FA self-service by design; per-request CSRF; audit best-effort
 - [AsyncDatabase double-wrap](async-db-double-wrap.md) — get_db() возвращает AsyncDatabase (сама оборачивает методы в to_thread); asyncio.to_thread(current_db.method) = двойная обёртка → coroutine вместо результата (truthy/TypeError); всегда await current_db.method()

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sqlite3
 import time as _time
@@ -11,6 +12,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from timezone_utils import DEFAULT_TZ
+
+logger = logging.getLogger("web.app")
 
 BASE_DIR = Path(__file__).parent
 _SHOP_BOT_DB = "data/shop_bot.db"
@@ -51,7 +54,7 @@ def _get_landing_plans() -> dict:
             }
         conn.close()
     except Exception:
-        pass
+        logger.warning("landing: не удалось загрузить тарифы из БД", exc_info=True)
     return plans
 
 
@@ -94,12 +97,9 @@ _CSP = (
     # evaluation, Alpine crashes silently, x-cloak is removed but x-show is
     # never applied, and all event handlers are dead.
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-    "https://unpkg.com https://cdn.jsdelivr.net "
     "https://telegram.org; "
-    "style-src 'self' 'unsafe-inline' "
-    "https://cdn.jsdelivr.net "
-    "https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
     "img-src 'self' data: blob: https:; "
     "connect-src 'self'; "
     "frame-src https://telegram.org https://oauth.telegram.org; "
@@ -513,7 +513,7 @@ def create_web_app() -> FastAPI:
                     result = {"in_grace": True,
                               "days_left": grace_days_left(tg_id) or 0}
         except Exception:
-            pass
+            logger.debug("subscription_grace: проверка grace-периода не удалась", exc_info=True)
         if state is not None:
             try:
                 state._sub_grace = result
@@ -543,7 +543,7 @@ def create_web_app() -> FastAPI:
                 tg_id = int(user["sub"])
                 val = has_extension(tg_id, "ai_network_insights")
         except Exception:
-            pass
+            logger.debug("ai_insights_enabled: проверка расширения не удалась", exc_info=True)
         if state is not None:
             try:
                 state._ai_insights_enabled = val
@@ -597,6 +597,7 @@ def create_web_app() -> FastAPI:
                     else:
                         result[k] = self_access.get(k, False)
         except Exception:
+            logger.debug("nav_modules: гейтинг не удался, fail-open", exc_info=True)
             result = {k: True for k in _NAV_MODULE_KEYS}
         if state is not None:
             try:
@@ -794,6 +795,7 @@ def create_web_app() -> FastAPI:
     from web.routes.email_auth import router as email_auth_router
     from web.routes.ai_routes import router as ai_router
     from web.routes.ai_insights import router as ai_insights_router
+    from web.routes.security import router as security_router
 
     app.include_router(auth_router)
     app.include_router(dash_router)
@@ -828,6 +830,7 @@ def create_web_app() -> FastAPI:
     app.include_router(email_auth_router)
     app.include_router(ai_router)
     app.include_router(ai_insights_router)
+    app.include_router(security_router)
 
     _APK_LOCAL = Path("data/apk/DailySales-latest.apk")
     _APK_MIN_SIZE = 200_000  # 200 KB — реальные TWA APK ~500-600 KB
@@ -940,7 +943,7 @@ def create_web_app() -> FastAPI:
                     c.close()
             await anyio.to_thread.run_sync(_log)
         except Exception:
-            pass
+            logger.debug("download/android: не удалось записать download_events", exc_info=True)
         # Сначала отдаём локальный APK с Amvera persistent volume
         if _APK_LOCAL.exists() and _APK_LOCAL.stat().st_size >= _APK_MIN_SIZE:
             from fastapi.responses import FileResponse

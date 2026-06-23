@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="x-csrf-token" content="{{ csrf_token_for(request) }}">
     <title>{% block title %}DailySales{% endblock %} — DailySales</title>
-    <!-- Preconnect to CDNs — eliminates DNS+TCP handshake delay -->
-    <link rel="preconnect" href="https://unpkg.com">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <!-- Self-hosted Inter font (no external CDN) -->
+    <link rel="stylesheet" href="/static/fonts.css?v=faf9d188bd">
     <!-- Icons -->
     <link rel="icon" href="/static/favicon.ico" sizes="any">
     <link rel="icon" href="/static/favicon.png" type="image/png">
@@ -27,10 +26,10 @@
         }
     </script>
     <!-- Tailwind: pre-compiled static CSS (replaces the dev-only CDN runtime build) -->
-    <link rel="stylesheet" href="/static/app.css?v=faf9d188bd">
+    <link rel="stylesheet" href="/static/app.css?v=4c82ad276c">
     {% block extra_css %}{% endblock %}
-    <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="/static/vendor/htmx.min.js?v=faf9d188bd"></script>
+    <script defer src="/static/vendor/alpine.min.js?v=faf9d188bd"></script>
     {% block extra_head %}{% endblock %}
     <style>
         [x-cloak]{display:none!important}
@@ -1065,6 +1064,17 @@ window.dsRefreshBadge = function() {
     window._getCsrfToken = function () {
         return document.querySelector('meta[name="x-csrf-token"]')?.content || '';
     };
+
+    /* HTMX: auto-attach CSRF token to every non-GET request via header so
+       routes accept HTMX POSTs without needing a hidden form field. */
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+        try {
+            const m = (evt.detail.verb || 'get').toLowerCase();
+            if (m !== 'get') {
+                evt.detail.headers['X-CSRF-Token'] = window._getCsrfToken();
+            }
+        } catch (_) {}
+    });
 
     window.dsSubscribeWebPush = async function () {
         if (!('PushManager' in window) || !navigator.serviceWorker) return;
@@ -2650,10 +2660,19 @@ function mainApp() {
         /* visibilitychange надёжнее window.focus на мобайле при навигации между
            страницами; pageshow ловит возврат из bfcache (back на мобильном). */
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) refreshUnread();
+            if (!document.hidden) { refreshUnread(); scheduleUnread(); }
         });
         window.addEventListener('pageshow', refreshUnread);
-        setInterval(refreshUnread, 10000);
+        /* Backoff: активная вкладка — 10с, скрытая — 60с (экономим трафик/батарею
+           и нагрузку на сервер при многих фоновых вкладках). Рекурсивный таймер
+           вместо setInterval, чтобы интервал подстраивался под видимость. */
+        let _unreadTimer = null;
+        function scheduleUnread() {
+            if (_unreadTimer) clearTimeout(_unreadTimer);
+            const delay = document.hidden ? 60000 : 10000;
+            _unreadTimer = setTimeout(() => { refreshUnread(); scheduleUnread(); }, delay);
+        }
+        scheduleUnread();
         refreshUnread();   /* immediately on load */
     }
 })();

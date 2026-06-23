@@ -272,6 +272,45 @@
             {% endif %}
         </div>
 
+        <!-- ── Двухфакторная аутентификация (2FA) ── -->
+        {% if web_cred %}
+        <div class="card p-5">
+            <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">🛡️ Двухфакторная аутентификация</h2>
+            <p class="text-sm text-slate-500 mb-4">Дополнительный код из приложения-аутентификатора при входе по email и паролю.</p>
+
+            {% if twofa_on %}
+            <div class="mb-3 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-sm">✅ 2FA включена.</div>
+            {% endif %}
+            {% if twofa_off %}
+            <div class="mb-3 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm">2FA отключена.</div>
+            {% endif %}
+            {% if twofa_err %}
+            <div class="mb-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 text-sm">{{ twofa_err }}</div>
+            {% endif %}
+
+            {% if twofa_enabled %}
+            <div class="flex items-center gap-2 mb-3">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-medium">Включена</span>
+            </div>
+            <details>
+                <summary class="cursor-pointer text-sm text-red-500 hover:text-red-600">Отключить 2FA</summary>
+                <form method="post" action="/settings/2fa/disable" class="mt-3 space-y-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                           placeholder="Код из приложения или код восстановления"
+                           class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 bg-white dark:bg-slate-800">
+                    <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg">Отключить</button>
+                </form>
+            </details>
+            {% else %}
+            <form method="post" action="/settings/2fa/init">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">Включить 2FA</button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% if notif_settings %}
         <form method="post" action="/settings">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

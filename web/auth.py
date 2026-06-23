@@ -1,6 +1,7 @@
 import os
 import hmac
 import hashlib
+import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -105,16 +106,59 @@ def get_session_user(request) -> Optional[dict]:
     return user
 
 
-def get_csrf_token(request) -> str:
-    """Derive a CSRF token from the session JWT (deterministic per session)."""
+def _legacy_csrf_token(request) -> str:
+    """Old deterministic-per-session token (32 hex chars). Kept for back-compat
+    so pages rendered before this deploy keep working until their next reload."""
     jwt_val = request.cookies.get(COOKIE_NAME, '')
     return hmac.new(_SECRET.encode(), jwt_val.encode(), hashlib.sha256).hexdigest()[:32]
 
 
+def get_csrf_token(request) -> str:
+    """Per-request CSRF token, unique on every render.
+
+    Format: ``<nonce>.<hmac(secret, jwt + nonce)[:32]>``. The nonce makes each
+    rendered token distinct, while the HMAC binds it to the current session JWT
+    so it cannot be forged. Verification accepts ANY validly-signed token for the
+    current session (so multiple open tabs / long-lived forms never break).
+    """
+    jwt_val = request.cookies.get(COOKIE_NAME, '')
+    nonce = secrets.token_urlsafe(9)
+    sig = hmac.new(
+        _SECRET.encode(), f"{jwt_val}.{nonce}".encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    return f"{nonce}.{sig}"
+
+
+def _verify_one(request, token: str) -> bool:
+    """True if ``token`` is a valid CSRF token for the current session JWT.
+
+    Accepts the new per-request format (``nonce.sig``) and the legacy
+    deterministic 32-char format (back-compat)."""
+    if not token:
+        return False
+    jwt_val = request.cookies.get(COOKIE_NAME, '')
+    if '.' in token:
+        nonce, _, sig = token.partition('.')
+        if nonce and sig:
+            expected = hmac.new(
+                _SECRET.encode(), f"{jwt_val}.{nonce}".encode(), hashlib.sha256
+            ).hexdigest()[:32]
+            if hmac.compare_digest(expected, sig):
+                return True
+    # Legacy fallback: deterministic per-session token (no nonce).
+    return hmac.compare_digest(_legacy_csrf_token(request), token)
+
+
 def verify_csrf_token(request, form_token: str) -> bool:
-    """Return True if the form's CSRF token matches the session-derived token."""
-    expected = get_csrf_token(request)
-    return bool(form_token) and hmac.compare_digest(expected, form_token)
+    """Return True if a valid CSRF token is present in the form field OR the
+    ``X-CSRF-Token`` header (the latter covers HTMX / fetch requests)."""
+    if _verify_one(request, form_token or ''):
+        return True
+    try:
+        header_token = request.headers.get('X-CSRF-Token', '') or ''
+    except Exception:
+        header_token = ''
+    return _verify_one(request, header_token)
 
 
 def generate_login_nonce() -> str:

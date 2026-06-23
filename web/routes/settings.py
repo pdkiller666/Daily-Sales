@@ -64,9 +64,18 @@ _EMAIL_ERROR_MSGS = {
 }
 
 
+_TWOFA_ERR_MSGS = {
+    "no_cred":    "Сначала привяжите email-аккаунт, затем включайте 2FA.",
+    "already_on": "Двухфакторная аутентификация уже включена.",
+    "no_setup":   "Сессия настройки истекла. Начните заново.",
+    "bad_code":   "Неверный код. Проверьте приложение-аутентификатор.",
+}
+
+
 @router.get("/settings")
 def settings_page(request: Request, saved: str = "", profile_saved: str = "",
-                  email_saved: str = "", email_error: str = "", email_sent: str = ""):
+                  email_saved: str = "", email_error: str = "", email_sent: str = "",
+                  twofa: str = "", twofa_err: str = ""):
     from web.auth import get_session_user, get_csrf_token
     from web.deps import get_web_db
 
@@ -95,6 +104,10 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
         "email_saved": email_saved == "1",
         "email_sent": email_sent == "1",
         "email_error": _EMAIL_ERROR_MSGS.get(email_error, ""),
+        "twofa_on": twofa == "on",
+        "twofa_off": twofa == "off",
+        "twofa_err": _TWOFA_ERR_MSGS.get(twofa_err, ""),
+        "twofa_enabled": False,
         "error": None,
         "scheduled_notifications": [],
         "notification_history": [],
@@ -128,7 +141,19 @@ def settings_page(request: Request, saved: str = "", profile_saved: str = "",
     try:
         from database import Database as _DB
         _shop_db = _DB('data/shop_bot.db')
-        ctx["web_cred"] = _shop_db.get_web_credential_by_telegram_id(telegram_id)
+        _wc = _shop_db.get_web_credential_by_telegram_id(telegram_id)
+        if not _wc and telegram_id < 0:
+            try:
+                _conn = _shop_db.get_connection()
+                _row = _conn.execute(
+                    "SELECT * FROM web_credentials WHERE synthetic_tg_id=? LIMIT 1",
+                    (telegram_id,)
+                ).fetchone()
+                _wc = _shop_db._wc_row(_row)
+            except Exception:
+                pass
+        ctx["web_cred"] = _wc
+        ctx["twofa_enabled"] = bool(_wc and _wc.get("totp_enabled"))
     except Exception:
         pass
 

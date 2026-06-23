@@ -1633,6 +1633,33 @@ class Database:
                     last_login      TEXT
                 )
             ''')
+            # Миграция: TOTP-2FA колонки (добавляются через ALTER)
+            cursor.execute("PRAGMA table_info(web_credentials)")
+            _wc_cols = [c[1] for c in cursor.fetchall()]
+            if 'totp_secret' not in _wc_cols:
+                cursor.execute("ALTER TABLE web_credentials ADD COLUMN totp_secret TEXT")
+            if 'totp_enabled' not in _wc_cols:
+                cursor.execute("ALTER TABLE web_credentials ADD COLUMN totp_enabled INTEGER DEFAULT 0")
+            if 'totp_recovery' not in _wc_cols:
+                cursor.execute("ALTER TABLE web_credentials ADD COLUMN totp_recovery TEXT")
+
+        # ── admin_audit_log — действия супер-админа (только shop_bot.db) ───────
+        if 'shop_bot' in self.db_file:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS admin_audit_log (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_tg_id  INTEGER,
+                    actor_name   TEXT,
+                    action       TEXT NOT NULL,
+                    target       TEXT,
+                    details      TEXT,
+                    ip           TEXT,
+                    created_at   TEXT DEFAULT (datetime('now'))
+                )
+            ''')
+            cursor.execute(
+                'CREATE INDEX IF NOT EXISTS idx_audit_created ON admin_audit_log(created_at DESC)'
+            )
 
         # ── login_ips — новые IP-адреса для уведомлений (только shop_bot.db) ───
         if 'shop_bot' in self.db_file:
@@ -14789,7 +14816,8 @@ class Database:
             return None
         keys = ('id', 'email', 'password_hash', 'telegram_id', 'synthetic_tg_id',
                 'org_db', 'first_name', 'email_verified', 'verify_token',
-                'verify_expires', 'reset_token', 'reset_expires', 'created_at', 'last_login')
+                'verify_expires', 'reset_token', 'reset_expires', 'created_at', 'last_login',
+                'totp_secret', 'totp_enabled', 'totp_recovery')
         return dict(zip(keys, row))
 
     def create_web_credential(self, email: str, password_hash: str,
@@ -14984,6 +15012,52 @@ class Database:
             conn.commit()
         except Exception as exc:
             logger.error("update_web_last_login: %s", exc)
+
+    def set_web_totp(self, cred_id: int, secret: str | None,
+                     enabled: int, recovery_json: str | None) -> bool:
+        """Сохранить состояние TOTP-2FA для web-аккаунта."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "UPDATE web_credentials SET totp_secret=?, totp_enabled=?, totp_recovery=? WHERE id=?",
+                (secret, int(enabled), recovery_json, cred_id)
+            )
+            conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("set_web_totp: %s", exc)
+            return False
+
+    def add_admin_audit(self, actor_tg_id: int | None, actor_name: str | None,
+                        action: str, target: str = "", details: str = "",
+                        ip: str = "") -> None:
+        """Записать действие супер-админа в аудит-лог (shop_bot.db)."""
+        try:
+            conn = self.get_connection()
+            conn.execute(
+                "INSERT INTO admin_audit_log (actor_tg_id, actor_name, action, target, details, ip) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (actor_tg_id, actor_name or "", action, target or "", details or "", ip or "")
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.error("add_admin_audit: %s", exc)
+
+    def get_admin_audit(self, limit: int = 100, offset: int = 0) -> list:
+        """Последние записи аудит-лога супер-админа."""
+        try:
+            conn = self.get_connection()
+            rows = conn.execute(
+                "SELECT id, actor_tg_id, actor_name, action, target, details, ip, created_at "
+                "FROM admin_audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                (int(limit), int(offset))
+            ).fetchall()
+            return [dict(zip(
+                ('id', 'actor_tg_id', 'actor_name', 'action', 'target',
+                 'details', 'ip', 'created_at'), r)) for r in rows]
+        except Exception as exc:
+            logger.error("get_admin_audit: %s", exc)
+            return []
 
     def link_web_credential_to_telegram(self, email: str, telegram_id: int) -> str:
         """Link an email credential to a real Telegram account.

@@ -495,6 +495,15 @@ async def billing_grant(
         note=note.strip(),
     )
     msg = "granted" if sub_id else "error"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(
+            request, user, "billing_grant",
+            target=f"tg:{user_telegram_id}",
+            details=f"{item_type}:{item_key.strip()} {duration_days}д {price_paid}₽ → {msg}",
+        )
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/billing/grants?msg={msg}", 303)
 
 
@@ -510,4 +519,12 @@ async def billing_revoke(
     result = _db().revoke_billing_item(sub_id, cascade=True)
     cascaded = result.get("cascaded", 0)
     msg = f"revoked_cascade_{cascaded}" if cascaded else "revoked"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(
+            request, user, "billing_revoke",
+            target=f"sub:{sub_id}", details=f"cascaded={cascaded}",
+        )
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/billing/grants?msg={msg}", 303)

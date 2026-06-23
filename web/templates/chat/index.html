@@ -1089,10 +1089,13 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             /* Постоянное WS-соединение для ЛС — живёт в любом режиме */
             this.dmWsConnect();
             this.markTopicRead(this.currentTopicId, this.latestId);
-            /* Возврат фокуса на вкладку → помечаем текущую тему прочитанной */
+            /* Возврат фокуса на вкладку → помечаем текущую тему прочитанной
+               и сразу опрашиваем + сбрасываем backoff-интервал на быстрый. */
             document.addEventListener('visibilitychange', () => {
                 if (!document.hidden && !this.dmMode) {
                     this.markTopicRead(this.currentTopicId, this.latestId);
+                    this.poll();
+                    this.startPolling();
                 }
             });
             /* Перед уходом со страницы — гарантированная серверная отметка
@@ -1174,8 +1177,16 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         },
 
         startPolling() {
-            if (this.pollTimer) clearInterval(this.pollTimer);
-            this.pollTimer = setInterval(() => this.poll(), 4000);
+            if (this.pollTimer) clearTimeout(this.pollTimer);
+            /* Backoff: видимая вкладка — 4с (живой чат), скрытая — 20с.
+               Рекурсивный таймер вместо setInterval, чтобы интервал
+               подстраивался под видимость без рассинхрона. */
+            const tick = async () => {
+                await this.poll();
+                const delay = document.hidden ? 20000 : 4000;
+                this.pollTimer = setTimeout(tick, delay);
+            };
+            this.pollTimer = setTimeout(tick, document.hidden ? 20000 : 4000);
         },
 
         async poll() {
@@ -1514,7 +1525,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── Switch modes ── */
         switchToDm() {
             this.dmMode = true;
-            if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+            if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
             this.dmLoadContacts();
             this.dmWsConnect();
             history.replaceState(null, '', '/chat?dm=1');

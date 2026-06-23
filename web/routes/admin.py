@@ -147,6 +147,12 @@ def admin_delete_org(
         msg = "deleted"
     except Exception:
         msg = "error"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "org_delete",
+                         target=f"org:{org_id}", details=f"result={msg}")
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/orgs?msg={msg}", 303)
 
 
@@ -205,6 +211,12 @@ async def admin_cancel_sub(
     finally:
         if conn:
             conn.close()
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "subscription_cancel",
+                         target=f"user:{user_id}", details=f"result={msg}")
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/subs?msg={msg}", 303)
 
 
@@ -591,6 +603,11 @@ def admin_create_backup(request: Request, csrf_token: str = Form("")):
         msg = "created"
     except Exception:
         msg = "error"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "backup_create", details=f"result={msg}")
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/backups?msg={msg}", 303)
 
 
@@ -615,6 +632,12 @@ async def admin_delete_backup(
         msg = "deleted"
     except Exception:
         msg = "error"
+    try:
+        from web.audit import log_admin_action
+        log_admin_action(request, user, "backup_delete",
+                         target=filename, details=f"result={msg}")
+    except Exception:
+        pass
     return RedirectResponse(f"/admin/backups?msg={msg}", 303)
 
 

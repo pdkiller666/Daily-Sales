@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Настройка 2FA{% endblock %}
+{% block breadcrumb %}
+<a href="/settings" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Настройки</a>
+<span class="mx-1 text-slate-300">/</span>
+<span class="font-medium text-slate-700 dark:text-slate-200">Двухфакторная аутентификация</span>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+    <div class="card p-6">
+        <h1 class="text-lg font-bold text-slate-800 dark:text-slate-100 mb-1">🛡️ Настройка двухфакторной аутентификации</h1>
+        <p class="text-sm text-slate-500 mb-5">Отсканируйте QR-код в приложении (Google Authenticator, Authy, 1Password и т.п.), затем введите 6-значный код для подтверждения.</p>
+
+        <div class="flex flex-col items-center mb-5">
+            {% if qr %}
+            <img src="{{ qr }}" alt="QR" class="w-44 h-44 rounded-lg border border-slate-200 dark:border-slate-700 bg-white p-2">
+            {% endif %}
+            <p class="text-xs text-slate-500 mt-3">Не удаётся отсканировать? Введите ключ вручную:</p>
+            <code class="mt-1 px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-sm font-mono tracking-wider select-all">{{ secret }}</code>
+        </div>
+
+        <div class="mb-5 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <p class="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">🔑 Коды восстановления</p>
+            <p class="text-xs text-amber-700 dark:text-amber-400 mb-3">Сохраните их в надёжном месте. Каждый код одноразовый — поможет войти, если нет доступа к приложению. Больше они не будут показаны.</p>
+            <div class="grid grid-cols-2 gap-2">
+                {% for c in recovery_codes %}
+                <code class="px-2 py-1 rounded bg-white dark:bg-slate-900 text-sm font-mono text-center select-all">{{ c }}</code>
+                {% endfor %}
+            </div>
+        </div>
+
+        <form method="post" action="/settings/2fa/enable" class="space-y-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300">Код подтверждения</label>
+            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="6" autofocus placeholder="000000"
+                   class="w-full text-center tracking-[0.4em] text-xl font-mono border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800">
+            <div class="flex gap-3">
+                <button type="submit" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors">Включить 2FA</button>
+                <a href="/settings" class="px-4 py-2.5 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700">Отмена</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

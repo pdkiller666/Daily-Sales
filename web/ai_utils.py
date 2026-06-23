@@ -31,6 +31,26 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+
+def _ai_log(provider: str, event: str, latency_ms: int | None = None,
+            feature: str = "", **extra) -> None:
+    """Структурная JSON-строка для AI-вызовов (provider/event/latency/feature).
+
+    Никогда не бросает — логирование не должно ломать основной путь.
+    event: success | empty | short | error | skip_circuit | exhausted
+    """
+    try:
+        payload = {"ai": True, "provider": provider, "event": event}
+        if latency_ms is not None:
+            payload["latency_ms"] = latency_ms
+        if feature:
+            payload["feature"] = feature
+        if extra:
+            payload.update(extra)
+        logger.info("ai_event %s", json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+
 _DEEPSEEK_KEY    = os.getenv("DEEPSEEK_API_KEY", "")
 _GEMINI_KEY      = os.getenv("GEMINI_API_KEY", "")
 _OPENROUTER_KEY  = os.getenv("OPENROUTER_API_KEY", "")
@@ -422,23 +442,32 @@ async def ask_llm(
     for name, fn in providers:
         if _cb_is_open(name):
             logger.debug("ask_llm: circuit OPEN for %s — skipping", name)
+            _ai_log(name, "skip_circuit", feature=feature)
             continue
+        _t0 = time.monotonic()
         try:
             result = await fn(prompt, sys_prompt, max_tokens, temperature, feature)  # type: ignore[operator]
+            _ms = int((time.monotonic() - _t0) * 1000)
             if result and len(result.strip()) >= 20:
                 logger.info("ask_llm: OK from %s (%d chars)", name, len(result))
+                _ai_log(name, "success", _ms, feature, chars=len(result))
                 _cb_success(name)
                 return result
             if result:
                 logger.warning("ask_llm: %s returned suspiciously short response (%d chars) — skipping", name, len(result))
+                _ai_log(name, "short", _ms, feature, chars=len(result))
             else:
                 logger.warning("ask_llm: %s returned empty string", name)
+                _ai_log(name, "empty", _ms, feature)
             _cb_failure(name)
         except Exception as exc:
+            _ms = int((time.monotonic() - _t0) * 1000)
             logger.warning("ask_llm: provider %s failed — %s: %s", name, type(exc).__name__, exc)
+            _ai_log(name, "error", _ms, feature, error=type(exc).__name__)
             _cb_failure(name)
 
     logger.warning("ask_llm: all %d provider(s) failed or returned empty", len(providers))
+    _ai_log("-", "exhausted", feature=feature, providers=len(providers))
     return None
 
 
@@ -613,16 +642,24 @@ async def _ask_with_messages(
     for name, fn in providers:
         if _cb_is_open(name):
             logger.debug("_ask_with_messages: circuit OPEN for %s — skipping", name)
+            _ai_log(name, "skip_circuit", feature="chat_messages")
             continue
+        _t0 = time.monotonic()
         try:
             result = await fn(messages)  # type: ignore[operator]
+            _ms = int((time.monotonic() - _t0) * 1000)
             if result:
+                _ai_log(name, "success", _ms, "chat_messages", chars=len(result))
                 _cb_success(name)
                 return result
+            _ai_log(name, "empty", _ms, "chat_messages")
         except Exception as exc:
+            _ms = int((time.monotonic() - _t0) * 1000)
             logger.warning("_ask_with_messages: %s failed — %s", name, exc)
+            _ai_log(name, "error", _ms, "chat_messages", error=type(exc).__name__)
             _cb_failure(name)
 
+    _ai_log("-", "exhausted", feature="chat_messages", providers=len(providers))
     return None
 
 

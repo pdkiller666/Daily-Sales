@@ -69,6 +69,78 @@ def _add_org_mapping(synthetic_tg_id: int, org_id: int, role: str = 'user'):
         logger.error("_add_org_mapping: %s", exc)
 
 
+def _make_2fa_pending(cred_id: int) -> str:
+    """Short-lived signed token proving 'password stage passed' for cred_id."""
+    import hmac, hashlib, time as _t
+    from web.auth import _SECRET
+    exp = int(_t.time()) + 300
+    body = f"{cred_id}.{exp}"
+    sig = hmac.new(_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{body}.{sig}"
+
+
+def _check_2fa_pending(token: str) -> int | None:
+    import hmac, hashlib, time as _t
+    from web.auth import _SECRET
+    try:
+        cred_id, exp, sig = token.split(".")
+        body = f"{cred_id}.{exp}"
+        expect = hmac.new(_SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+        if not hmac.compare_digest(expect, sig):
+            return None
+        if int(exp) < int(_t.time()):
+            return None
+        return int(cred_id)
+    except Exception:
+        return None
+
+
+def _issue_session_response(request: Request, cred: dict, tg_id: int):
+    """Build the authenticated session cookie + redirect for a verified cred.
+    Shared by password-only login and the post-2FA path."""
+    from web.auth import create_session_token, COOKIE_NAME
+    from web.deps import (get_user_org_db_path, get_user_role_from_db,
+                          get_first_available_org_db)
+    from env_manager import env_manager
+
+    org_db = get_user_org_db_path(tg_id)
+    role = get_user_role_from_db(tg_id)
+
+    if env_manager.is_super_admin(tg_id):
+        role = 'super_admin'
+        if not org_db:
+            org_db = get_first_available_org_db()
+
+    if not org_db:
+        org_db = cred.get('org_db') or SHOP_BOT_DB
+
+    first_name = cred.get('first_name') or _name_from_org(tg_id, org_db)
+
+    try:
+        _shop_db().update_web_last_login(cred['id'])
+    except Exception:
+        pass
+
+    token = create_session_token(tg_id, first_name, org_db, role)
+
+    try:
+        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
+        from bot_holder import get_bot as _get_bot
+        import asyncio as _aio
+        _notif_ip = _real_ip(request)
+        if check_and_record_ip(tg_id, _notif_ip):
+            _bot = _get_bot()
+            if _bot:
+                _aio.create_task(notify_new_ip(_bot, tg_id, _notif_ip, first_name))
+    except Exception:
+        pass
+
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(COOKIE_NAME, token, httponly=True, samesite='lax',
+                        secure=True, max_age=TOKEN_EXPIRE_DAYS * 24 * 3600)
+    return response
+
+
 # ── POST /auth/email  (email + password login) ────────────────────────────────
 
 @router.post("/auth/email")
@@ -121,43 +193,79 @@ async def email_login(
     if not tg_id:
         return _err("Аккаунт не привязан к организации. Обратитесь к администратору.")
 
-    org_db = get_user_org_db_path(tg_id)
-    role = get_user_role_from_db(tg_id)
+    # Двухфакторная аутентификация (TOTP): пароль верен — спрашиваем код
+    if cred.get('totp_enabled') and cred.get('totp_secret'):
+        return templates.TemplateResponse(request, "auth/twofa.html", {
+            "pending": _make_2fa_pending(cred['id']),
+            "login_nonce": generate_login_nonce(),
+            "error": "",
+        })
 
-    if env_manager.is_super_admin(tg_id):
-        role = 'super_admin'
-        if not org_db:
-            org_db = get_first_available_org_db()
+    return _issue_session_response(request, cred, tg_id)
 
-    if not org_db:
-        org_db = cred.get('org_db') or SHOP_BOT_DB
 
-    first_name = cred.get('first_name') or _name_from_org(tg_id, org_db)
+# ── POST /auth/2fa  (второй фактор после пароля) ──────────────────────────────
+
+@router.post("/auth/2fa")
+async def email_login_2fa(
+    request: Request,
+    code: str = Form(default=""),
+    pending: str = Form(default=""),
+    login_nonce: str = Form(default=""),
+):
+    from web.auth import verify_login_nonce, generate_login_nonce
+    from web import totp_utils
+
+    templates = request.app.state.templates
+
+    def _err(msg: str, keep_pending: str = ""):
+        return templates.TemplateResponse(request, "auth/twofa.html", {
+            "pending": keep_pending or _make_2fa_pending(_check_2fa_pending(pending) or 0),
+            "login_nonce": generate_login_nonce(),
+            "error": msg,
+        })
+
+    if not verify_login_nonce(login_nonce):
+        return RedirectResponse(url="/login", status_code=302)
+
+    ip = request.client.host if request.client else "unknown"
+    if not _rate_ok(ip, prefix='email_2fa'):
+        return _err("Слишком много попыток. Подождите 10 минут.")
+
+    cred_id = _check_2fa_pending(pending)
+    if not cred_id:
+        return RedirectResponse(url="/login", status_code=302)
 
     try:
-        db.update_web_last_login(cred['id'])
-    except Exception:
-        pass
+        db = _shop_db()
+        cred = db.get_web_credential_by_id(cred_id)
+    except Exception as exc:
+        logger.error("email_2fa db: %s", exc)
+        return _err("Ошибка сервера. Попробуйте позже.")
 
-    token = create_session_token(tg_id, first_name, org_db, role)
+    if not cred or not cred.get('totp_enabled'):
+        return RedirectResponse(url="/login", status_code=302)
 
-    # Уведомление при входе с нового IP (только для реальных tg_id > 0)
-    try:
-        from web.login_notif import _real_ip, check_and_record_ip, notify_new_ip
-        from bot_holder import get_bot as _get_bot
-        import asyncio as _aio
-        _notif_ip = _real_ip(request)
-        if check_and_record_ip(tg_id, _notif_ip):
-            _bot = _get_bot()
-            if _bot:
-                _aio.create_task(notify_new_ip(_bot, tg_id, _notif_ip, first_name))
-    except Exception:
-        pass
+    tg_id = cred.get('telegram_id') or cred.get('synthetic_tg_id')
+    if not tg_id:
+        return RedirectResponse(url="/login", status_code=302)
 
-    response = RedirectResponse(url="/dashboard", status_code=302)
-    response.set_cookie(COOKIE_NAME, token, httponly=True, samesite='lax',
-                        secure=True, max_age=TOKEN_EXPIRE_DAYS * 24 * 3600)
-    return response
+    code = (code or "").strip()
+    ok = totp_utils.verify_code(cred.get('totp_secret') or "", code)
+    if not ok:
+        # Попытка использовать код восстановления
+        used, new_json = totp_utils.consume_recovery_code(cred.get('totp_recovery'), code)
+        if used:
+            try:
+                db.set_web_totp(cred_id, cred.get('totp_secret'), 1, new_json)
+            except Exception:
+                pass
+            ok = True
+
+    if not ok:
+        return _err("Неверный код. Попробуйте ещё раз.", keep_pending=_make_2fa_pending(cred_id))
+
+    return _issue_session_response(request, cred, tg_id)
 
 
 # ── GET /register  (Phase 2 — new user without Telegram) ──────────────────────

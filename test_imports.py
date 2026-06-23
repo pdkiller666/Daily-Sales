@@ -753,6 +753,190 @@ try:
 except Exception as _e:
     _fn_fail("GS motivation network alias", _e)
 
+# R. CSRF per-request: токены уникальны, валидны для текущей сессии,
+#    принимаются через заголовок, back-compat со старым форматом
+try:
+    from web.auth import get_csrf_token as _gct, verify_csrf_token as _vct, COOKIE_NAME as _CN
+    import web.auth as _wa
+
+    class _ReqCsrf:
+        def __init__(self, jwt="sess-jwt-123", header=None):
+            self.cookies = {_CN: jwt}
+            self._h = {"X-CSRF-Token": header} if header else {}
+        @property
+        def cookies_get(self):
+            return self.cookies.get
+        class _C(dict):
+            pass
+    # cookies must support .get — dict already does
+    _r1 = _ReqCsrf()
+    _t_a = _gct(_r1)
+    _t_b = _gct(_r1)
+    assert _t_a != _t_b, "токены должны быть уникальны на каждый рендер"
+    assert _vct(_r1, _t_a) and _vct(_r1, _t_b), "оба валидных токена должны приниматься"
+    # Чужой/битый токен отвергается
+    assert not _vct(_r1, "deadbeef.deadbeef"), "поддельный токен должен быть отвергнут"
+    assert not _vct(_r1, ""), "пустой токен → отказ"
+    # Токен другой сессии не подходит
+    _r2 = _ReqCsrf(jwt="other-jwt-999")
+    assert not _vct(_r2, _t_a), "токен чужой сессии должен быть отвергнут"
+    # Заголовок X-CSRF-Token принимается при пустом form-поле
+    _r_hdr = _ReqCsrf()
+    _t_hdr = _gct(_r_hdr)
+    _r_hdr._h = {"X-CSRF-Token": _t_hdr}
+    # подменим headers.get
+    class _Hdr(dict):
+        pass
+    _r_hdr.headers = _Hdr(_r_hdr._h)
+    assert _vct(_r_hdr, "") is True, "валидный токен в заголовке должен приниматься при пустом form"
+    # Back-compat: старый детерминированный 32-символьный токен
+    _legacy = _wa._legacy_csrf_token(_r1)
+    assert _vct(_r1, _legacy), "старый формат токена должен приниматься (back-compat)"
+    _fn_ok("CSRF: per-request уникальность + header + back-compat + изоляция сессий")
+except Exception as _e:
+    _fn_fail("CSRF per-request", _e)
+
+# O. AI fallback chain: DeepSeek падает → Gemini отвечает → результат Gemini
+try:
+    import asyncio as _aio_ai, os as _os_ai
+    import web.ai_utils as _aiu
+    # Ключи нужны, чтобы провайдеры попали в цепочку; реальные вызовы замоканы.
+    _os_ai.environ["DEEPSEEK_API_KEY"] = "test-ds"
+    _os_ai.environ["GEMINI_API_KEY"] = "test-gm"
+    _os_ai.environ["OPENROUTER_API_KEY"] = ""
+    _orig_ds, _orig_gm = _aiu._ask_deepseek, _aiu._ask_gemini
+    _calls = []
+
+    async def _ds_fail(*a, **kw):
+        _calls.append("deepseek")
+        raise RuntimeError("simulated DeepSeek outage")
+
+    async def _gm_ok(*a, **kw):
+        _calls.append("gemini")
+        return "Это корректный ответ от резервного провайдера длиной более двадцати символов."
+
+    _aiu._ask_deepseek, _aiu._ask_gemini = _ds_fail, _gm_ok
+    # Сбросим circuit breaker, чтобы DeepSeek не был в карантине от прошлых тестов
+    with _aiu._CB_LOCK:
+        _aiu._circuit.clear()
+    try:
+        _res_ai = _aio_ai.run(_aiu.ask_llm("тест", feature="selftest"))
+    finally:
+        _aiu._ask_deepseek, _aiu._ask_gemini = _orig_ds, _orig_gm
+        with _aiu._CB_LOCK:
+            _aiu._circuit.clear()
+        _os_ai.environ["DEEPSEEK_API_KEY"] = ""
+        _os_ai.environ["GEMINI_API_KEY"] = ""
+
+    assert _res_ai and "резервного" in _res_ai, f"ожидался ответ Gemini, получено {_res_ai!r}"
+    assert _calls == ["deepseek", "gemini"], f"неверный порядок цепочки: {_calls}"
+    _fn_ok("AI fallback: DeepSeek падает → Gemini отвечает (цепочка + circuit breaker)")
+except Exception as _e:
+    _fn_fail("AI fallback chain", _e)
+
+# P. Concurrency: 20 параллельных add_sale в одну org-БД не теряют записи
+try:
+    import threading as _th_c, tempfile as _tf_c, os as _os_c
+    from database import Database as _Db_c
+
+    _tmp_c = _tf_c.mktemp(suffix='.db')
+    _dbc = _Db_c(_tmp_c)
+    _dbc.create_tables()
+    _dbc.add_user(telegram_id=9090, first_name="Конк", last_name="Ур")
+    _pid_c = _dbc.add_product("Concurrency Item", "Тест", 100)
+    assert _pid_c, "add_product failed"
+    _dbc.update_inventory("Тест-магазин", _pid_c, 1000)
+    # Каждый поток открывает своё соединение (потокобезопасность), пишет одну продажу
+    _N = 20
+    _errs_c = []
+
+    def _worker_c(i):
+        try:
+            _d = _Db_c(_tmp_c)
+            _d.add_sale(_pid_c, "Тест-магазин", 1, 9090, sale_price=100)
+        except Exception as _ex:
+            _errs_c.append(repr(_ex))
+
+    _threads_c = [_th_c.Thread(target=_worker_c, args=(i,)) for i in range(_N)]
+    for _t in _threads_c:
+        _t.start()
+    for _t in _threads_c:
+        _t.join()
+
+    assert not _errs_c, f"ошибки в потоках: {_errs_c[:3]}"
+    _verify = _Db_c(_tmp_c)
+    _conn_c = _verify.get_connection()
+    _cnt_c = _conn_c.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
+    assert _cnt_c == _N, f"ожидалось {_N} продаж, записано {_cnt_c}"
+    _os_c.unlink(_tmp_c)
+    _fn_ok(f"Concurrency: {_N} параллельных add_sale → все записи сохранены")
+except Exception as _e:
+    _fn_fail("concurrency add_sale", _e)
+
+# Q. rate_store fail-closed: при сбое бэкенда лимит не должен «открываться»
+try:
+    import web.rate_store as _rs_q
+    # check_and_increment_ai_for_org должен возвращать False (запрет) если лимит исчерпан,
+    # и не пропускать сверх лимита даже под параллельной нагрузкой.
+    _org_q = f"selftest_org_{__import__('time').time()}"
+    _limit_q = 5
+    _allowed_q = sum(
+        1 for _ in range(_limit_q + 3)
+        if _rs_q.check_and_increment_ai_for_org(_org_q, _limit_q)
+    )
+    assert _allowed_q == _limit_q, f"должно пройти ровно {_limit_q}, прошло {_allowed_q}"
+    # Доп. вызов сверх лимита → строго False (fail-closed по исчерпанию)
+    assert _rs_q.check_and_increment_ai_for_org(_org_q, _limit_q) is False, \
+        "сверх лимита должно быть запрещено"
+    _fn_ok("rate_store: per-org AI лимит fail-closed (не пропускает сверх лимита)")
+except Exception as _e:
+    _fn_fail("rate_store fail-closed", _e)
+
+# S. TOTP-2FA: верный код принимается, неверный отвергается; recovery code одноразовый
+try:
+    from web import totp_utils as _tu
+    _sec = _tu.generate_secret()
+    assert _sec and len(_sec) >= 16, "secret слишком короткий"
+    import pyotp as _pyotp
+    _good = _pyotp.TOTP(_sec).now()
+    assert _tu.verify_code(_sec, _good), "верный TOTP-код должен приниматься"
+    assert not _tu.verify_code(_sec, "000000"), "неверный код должен отвергаться"
+    assert not _tu.verify_code(_sec, ""), "пустой код → отказ"
+    # Recovery codes: одноразовость
+    _plain, _hashed = _tu.generate_recovery_codes()
+    assert _plain and _hashed, "recovery codes не сгенерированы"
+    _used, _new_json = _tu.consume_recovery_code(_hashed, _plain[0])
+    assert _used, "валидный recovery-код должен приниматься"
+    _used2, _ = _tu.consume_recovery_code(_new_json, _plain[0])
+    assert not _used2, "recovery-код одноразовый — повторное использование запрещено"
+    _fn_ok("TOTP-2FA: верный/неверный код + одноразовый recovery-код")
+except Exception as _e:
+    _fn_fail("TOTP-2FA", _e)
+
+# T. Audit-log супер-админа: запись пишется и читается; money-методы не затронуты
+try:
+    import tempfile as _tf_au, os as _os_au, time as _tm_au
+    from database import Database as _Db_au
+    # Таблица admin_audit_log живёт только в shop_bot.db (гейт по имени файла)
+    _tmp_au = _os_au.path.join(_tf_au.gettempdir(), f'shop_bot_audit_{_tm_au.time()}.db')
+    _dbau = _Db_au(_tmp_au)
+    _dbau.create_tables()
+    _dbau.add_admin_audit(actor_tg_id=123, actor_name="Тест Админ",
+                          action="module_grant", target="user:42",
+                          details="module=chat", ip="1.2.3.4")
+    _dbau.add_admin_audit(actor_tg_id=123, actor_name="Тест Админ",
+                          action="module_revoke", target="user:42",
+                          details="module=chat", ip="1.2.3.4")
+    _rows_au = _dbau.get_admin_audit(limit=10, offset=0)
+    assert len(_rows_au) == 2, f"ожидалось 2 записи, получено {len(_rows_au)}"
+    # Новейшая запись — первой (DESC)
+    assert _rows_au[0]["action"] == "module_revoke", "сортировка должна быть DESC по времени"
+    assert _rows_au[0]["actor_tg_id"] == 123 and _rows_au[0]["target"] == "user:42"
+    _os_au.unlink(_tmp_au)
+    _fn_ok("Audit-log: запись/чтение действий супер-админа (DESC, поля)")
+except Exception as _e:
+    _fn_fail("Audit-log", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)
