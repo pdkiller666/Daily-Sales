@@ -105,12 +105,50 @@ def _safe_filename(original: str) -> str:
     return name[:120] or "file"
 
 
-def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None) -> dict:
+def _reply_snippet(p: dict) -> str:
+    """Короткая выжимка текста родителя для цитаты (escape делает фронт через x-text)."""
+    msg = (p.get("message") or "").strip()
+    if msg:
+        return msg[:90]
+    if p.get("file_name"):
+        return f"📎 {p['file_name']}"
+    return "📎 Вложение"
+
+
+def _resolve_reply(reply_to_id, reply_map: dict):
+    """Построить объект цитаты для сообщения. None — не ответ.
+    Удалённый/отсутствующий родитель → {deleted:True, snippet:'сообщение удалено'}."""
+    if not reply_to_id:
+        return None
+    p = reply_map.get(reply_to_id)
+    if not p or p.get("is_deleted"):
+        return {"id": int(reply_to_id), "author": "", "snippet": "сообщение удалено", "deleted": True}
+    return {"id": p["id"], "author": p["author"], "snippet": _reply_snippet(p), "deleted": False}
+
+
+def _chat_reply_map(db, rows) -> dict:
+    """Превью родителей для списка строк chat_messages (reply_to_id в row[-1])."""
+    try:
+        return db.get_chat_reply_previews([r[-1] for r in rows])
+    except Exception:
+        return {}
+
+
+def _dm_reply_map(db, rows) -> dict:
+    """Превью родителей для списка строк direct_messages (reply_to_id в row[-1])."""
+    try:
+        return db.get_dm_reply_previews([r[-1] for r in rows])
+    except Exception:
+        return {}
+
+
+def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactions=None, reply=None) -> dict:
     """Форматировать строку chat_messages.
     files=None  → использовать legacy-колонки file_path/file_name/... из row
     files=[]    → новое сообщение без вложений
     files=[...] → список dicts из chat_message_files
     reactions   → список [{emoji,count,mine}] или None
+    reply       → объект цитаты {id,author,snippet,deleted} или None
     """
     mid, user_id, message, file_path, file_name, file_type, file_size, created_at, fn, ln, uname, *_ = row
     if user_id == 0:
@@ -170,6 +208,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
         "created_at": ts,
         "can_delete": is_admin or (my_db_id > 0 and user_id == my_db_id),
         "reactions": reactions or [],
+        "reply": reply,
     }
 
 
@@ -799,7 +838,8 @@ def chat_page(request: Request, topic: int = 1):
                 _ai_since = 0
             rows = db.get_chat_messages(limit=50, topic_id=topic, since_id=_ai_since)
             _react_map = db.get_chat_reactions_bulk([r[0] for r in rows], user_db_id or 0)
-            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0])) for r in rows]
+            _reply_map = _chat_reply_map(db, rows)
+            ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin, reactions=_react_map.get(r[0]), reply=_resolve_reply(r[-1], _reply_map)) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
 
             # Текущая тема открыта → помечаем прочитанной + обнуляем её бейдж
@@ -855,6 +895,7 @@ async def chat_send(
     csrf_token: str = Form(default=""),
     message: str = Form(default=""),
     topic_id: int = Form(default=1),
+    reply_to_id: int = Form(default=0),
     files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -897,7 +938,17 @@ async def chat_send(
         if not text and not saved_files:
             return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
 
-        new_id = db.add_chat_message(user_id=user_db_id, message=text, topic_id=topic_id)
+        # Валидация цитаты: родитель существует, не удалён и в ТОЙ ЖЕ теме
+        valid_reply = 0
+        if reply_to_id:
+            try:
+                _pm = db.get_chat_reply_previews([reply_to_id]).get(reply_to_id)
+                if _pm and not _pm.get("is_deleted") and int(_pm.get("topic_id") or 0) == int(topic_id):
+                    valid_reply = int(reply_to_id)
+            except Exception:
+                valid_reply = 0
+
+        new_id = db.add_chat_message(user_id=user_db_id, message=text, topic_id=topic_id, reply_to_id=valid_reply)
         if saved_files:
             db.add_chat_message_files(new_id, saved_files)
 
@@ -929,7 +980,8 @@ async def chat_send(
         new_msgs = db.get_chat_messages_since(new_id - 1, topic_id=topic_id)
         msg_ids = [r[0] for r in new_msgs]
         files_map = _load_msg_files_bulk(db, msg_ids)
-        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in new_msgs]
+        reply_map = _chat_reply_map(db, new_msgs)
+        result = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in new_msgs]
         return JSONResponse({"ok": True, "messages": result, "latest_id": new_id})
 
     except Exception as exc:
@@ -974,7 +1026,8 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
         rows = db.get_chat_messages_since(eff_since, topic_id=topic_id)
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
+        reply_map = _chat_reply_map(db, rows)
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in rows]
         latest = msgs[-1]["id"] if msgs else since_id
 
         # Удаления у всех в реальном времени (с момента прошлого опроса)
@@ -1048,7 +1101,8 @@ def chat_topic_messages(request: Request, topic_id: int):
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
         react_map = db.get_chat_reactions_bulk(msg_ids, user_db_id)
-        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0])) for r in rows]
+        reply_map = _chat_reply_map(db, rows)
+        msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0]), reactions=react_map.get(r[0]), reply=_resolve_reply(r[-1], reply_map)) for r in rows]
         latest = db.get_chat_latest_id(topic_id=topic_id)
         try:
             db.set_chat_read(user_db_id, topic_id, latest)
@@ -1543,12 +1597,13 @@ def _fmt_ts(raw) -> str:
         return s
 
 
-def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None) -> dict:
+def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None) -> dict:
     """Форматировать строку direct_messages.
     files=None  → legacy single-file из колонок
     files=[]    → нет вложений
     files=[...] → список dicts из dm_message_files
     reactions   → список [{emoji,count,mine}] или None
+    reply       → объект цитаты {id,author,snippet,deleted} или None
     """
     (mid, from_id, to_id, message, file_path, file_name,
      file_type, file_size, created_at, is_read,
@@ -1601,6 +1656,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None) -> dict:
         "display_name": display,
         "can_delete": is_mine,
         "reactions": reactions or [],
+        "reply": reply,
     }
 
 
@@ -1799,7 +1855,8 @@ def dm_conversation_page_legacy(request: Request, peer_id: int):
                     dm_ids = [r[0] for r in rows]
                     dm_files_map = _load_dm_files_bulk(db, dm_ids)
                     dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
-                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0])) for r in rows]
+                    dm_reply_map = _dm_reply_map(db, rows)
+                    ctx["messages"] = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map)) for r in rows]
                     db.mark_dm_read(user_db_id, peer_id)
             try:
                 from billing_utils import has_extension
@@ -1936,7 +1993,8 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         dm_ids = [r[0] for r in page]
         dm_files_map = _load_dm_files_bulk(db, dm_ids)
         dm_react_map = db.get_dm_reactions_bulk(dm_ids, user_db_id)
-        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0])) for r in page]
+        dm_reply_map = _dm_reply_map(db, page)
+        msgs = [_fmt_dm(r, my_db_id=user_db_id, files=dm_files_map.get(r[0]), reactions=dm_react_map.get(r[0]), reply=_resolve_reply(r[-1], dm_reply_map)) for r in page]
         return JSONResponse({"ok": True, "messages": msgs, "has_more": has_more})
     except Exception as exc:
         logger.error(f"api_dm_conversation error: {exc}")
@@ -1986,6 +2044,7 @@ async def dm_send(
     csrf_token: str = Form(default=""),
     to_user_id: int = Form(default=0),
     message: str = Form(default=""),
+    reply_to_id: int = Form(default=0),
     files: List[UploadFile] = File(default=[]),
 ):
     from web.auth import get_session_user, verify_csrf_token
@@ -2052,8 +2111,24 @@ async def dm_send(
         if not text and not saved_files:
             return JSONResponse({"ok": False, "error": "Пустое сообщение"}, status_code=400)
 
+        # Валидация цитаты: родитель существует, не удалён и в этом диалоге
+        valid_reply = 0
+        reply_obj = None
+        if reply_to_id:
+            try:
+                _pm = db.get_dm_reply_previews([reply_to_id]).get(reply_to_id)
+                _pf = int(_pm.get("from_user_id", -999)) if _pm else -999
+                _pt = int(_pm.get("to_user_id", -999)) if _pm else -999
+                _conv = (user_db_id, to_user_id)
+                if _pm and not _pm.get("is_deleted") and _pf in _conv and _pt in _conv:
+                    valid_reply = int(reply_to_id)
+                    reply_obj = _resolve_reply(valid_reply, {valid_reply: _pm})
+            except Exception:
+                valid_reply = 0
+                reply_obj = None
+
         # Для DM legacy-колонки оставляем пустыми, файлы идут в dm_message_files
-        new_id = db.add_dm(user_db_id, to_user_id, text, "", "", "", 0)
+        new_id = db.add_dm(user_db_id, to_user_id, text, "", "", "", 0, reply_to_id=valid_reply)
         if not new_id:
             return JSONResponse({"ok": False, "error": "Ошибка сервера"}, status_code=500)
 
@@ -2099,6 +2174,7 @@ async def dm_send(
             "files": ws_files,
             "created_at": now_str,
             "is_read": False,
+            "reply": reply_obj,
         }
         try:
             await dm_manager.send_to_user(org_db, to_user_id, payload)
@@ -2135,6 +2211,7 @@ async def dm_send(
              user.get("name", ""), "", ""),
             my_db_id=user_db_id,
             files=fresh_files,
+            reply=reply_obj,
         )
         return JSONResponse({"ok": True, "message": msg})
 

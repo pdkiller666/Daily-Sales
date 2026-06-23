@@ -124,6 +124,29 @@ html.dark .react-picker { background:#0f172a;border-color:#334155; }
 .react-picker button:hover { transform:scale(1.25);background:#f1f5f9; }
 html.dark .react-picker button:hover { background:#1e293b; }
 
+/* ── Reply / quote ── */
+.reply-quote { display:block;border-left:3px solid #3b82f6;background:rgba(59,130,246,.08);
+               border-radius:6px;padding:3px 8px;margin-bottom:5px;cursor:pointer;
+               max-width:100%;transition:background .12s; }
+.reply-quote:hover { background:rgba(59,130,246,.16); }
+.reply-quote-author { display:block;font-size:.7rem;font-weight:600;color:#2563eb;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+html.dark .reply-quote-author { color:#60a5fa; }
+.reply-quote-text { display:block;font-size:.75rem;opacity:.75;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.reply-quote-deleted { cursor:default;border-left-color:#94a3b8;background:rgba(148,163,184,.12);font-style:italic; }
+.reply-quote-deleted:hover { background:rgba(148,163,184,.12); }
+.msg-mine .reply-quote { border-left-color:rgba(255,255,255,.7);background:rgba(255,255,255,.14); }
+.msg-mine .reply-quote-author { color:rgba(255,255,255,.92); }
+.msg-mine .reply-quote-text { color:rgba(255,255,255,.85);opacity:.9; }
+.dm-bubble-mine .reply-quote { border-left-color:rgba(255,255,255,.7);background:rgba(255,255,255,.14); }
+.dm-bubble-mine .reply-quote-author { color:rgba(255,255,255,.92); }
+.dm-bubble-mine .reply-quote-text { color:rgba(255,255,255,.85);opacity:.9; }
+.reply-bar { background:#f1f5f9;border-radius:10px;padding:6px 10px; }
+html.dark .reply-bar { background:#1e293b; }
+@keyframes replyHl { 0%{background:rgba(59,130,246,.28);} 100%{background:transparent;} }
+.reply-flash { animation:replyHl 1.6s ease-out; border-radius:12px; }
+
 /* ── Scroll ── */
 #chat-scroll::-webkit-scrollbar { width:4px; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
@@ -551,6 +574,14 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                     <p class="text-[10px] font-semibold mb-1"
                        :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai_error ? 'text-amber-600 dark:text-amber-400' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600'))"
                        x-text="msg.is_ai_error ? 'AI-ассистент · Ошибка' : msg.display_name"></p>
+                    <!-- Цитата ответа -->
+                    <template x-if="msg.reply">
+                        <div class="reply-quote" :class="msg.reply.deleted ? 'reply-quote-deleted' : ''"
+                             @click="!msg.reply.deleted && scrollToMsg(msg.reply.id)">
+                            <span x-show="!msg.reply.deleted" class="reply-quote-author" x-text="msg.reply.author"></span>
+                            <span class="reply-quote-text" x-text="msg.reply.snippet"></span>
+                        </div>
+                    </template>
                     <!-- Text -->
                     <template x-if="msg.message">
                         <p class="text-sm leading-relaxed whitespace-pre-wrap" x-text="msg.message"></p>
@@ -601,6 +632,10 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 </template>
                             </div>
                         </div>
+                        <button @click="startReply(msg)"
+                                class="text-[12px] leading-none touch-manipulation px-0.5"
+                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
+                                title="Ответить">↩</button>
                         <button x-show="msg.can_delete"
                                 @click="deleteMsg(msg.id)"
                                 class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
@@ -664,6 +699,15 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             <template x-if="imagePreview">
                 <img :src="imagePreview" class="h-12 rounded-lg border border-blue-200 object-cover">
             </template>
+        </div>
+
+        <!-- Бар-превью ответа -->
+        <div x-show="replyTo" x-cloak class="mb-2 flex items-center gap-2 reply-bar">
+            <div class="flex-1 min-w-0 border-l-2 border-blue-500 pl-2">
+                <p class="text-[11px] font-semibold text-blue-600 dark:text-blue-400" x-text="replyTo ? ('Ответ: ' + replyTo.author) : ''"></p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="replyTo ? replyTo.snippet : ''"></p>
+            </div>
+            <button type="button" @click="replyTo = null" class="shrink-0 text-slate-400 hover:text-red-500 leading-none text-xl px-1">×</button>
         </div>
 
         <form @submit.prevent="sendMessage()" class="flex items-end gap-2">
@@ -886,6 +930,14 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                      class="flex flex-col max-w-[72%]">
                                     <div class="px-3 py-2 text-sm leading-relaxed shadow-sm"
                                          :class="m.is_mine ? 'dm-bubble-mine' : (m.is_ai_error ? 'dm-bubble-ai-error' : 'dm-bubble-other')">
+                                        <!-- Цитата ответа (DM) -->
+                                        <template x-if="m.reply">
+                                            <div class="reply-quote" :class="m.reply.deleted ? 'reply-quote-deleted' : ''"
+                                                 @click="!m.reply.deleted && scrollToDmMsg(m.reply.id)">
+                                                <span x-show="!m.reply.deleted" class="reply-quote-author" x-text="m.reply.author"></span>
+                                                <span class="reply-quote-text" x-text="m.reply.snippet"></span>
+                                            </div>
+                                        </template>
                                         <!-- AI error label -->
                                         <template x-if="m.is_ai_error">
                                             <p class="text-[10px] font-semibold mb-1 text-amber-600 dark:text-amber-400">⚠️ AI-ассистент · Ошибка</p>
@@ -920,6 +972,11 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                                 </template>
                                             </span>
                                         </span>
+                                        <!-- Ответить -->
+                                        <button @click="startDmReply(m)"
+                                                class="ml-1.5 text-[12px]"
+                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
+                                                title="Ответить">↩</button>
                                         <!-- Delete -->
                                         <button x-show="m.can_delete"
                                                 @click="dmDeleteMsg(m.id)"
@@ -986,6 +1043,15 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 </div>
                             </template>
                         </div>
+                        <!-- Бар-превью ответа (DM) -->
+                        <div x-show="dmReplyTo" x-cloak class="mb-2 flex items-center gap-2 reply-bar">
+                            <div class="flex-1 min-w-0 border-l-2 border-blue-500 pl-2">
+                                <p class="text-[11px] font-semibold text-blue-600 dark:text-blue-400" x-text="dmReplyTo ? ('Ответ: ' + dmReplyTo.author) : ''"></p>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="dmReplyTo ? dmReplyTo.snippet : ''"></p>
+                            </div>
+                            <button type="button" @click="dmReplyTo = null" class="shrink-0 text-slate-400 hover:text-red-500 leading-none text-xl px-1">×</button>
+                        </div>
+
                         <form @submit.prevent="dmSend()" class="flex items-end gap-2">
                             <!-- Кнопка «Новый диалог» — только в AI ЛС -->
                             <button x-show="dmPeerId === -1" x-cloak type="button"
@@ -1063,6 +1129,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         REACTIONS: ['👍','❤️','😂','😮','😢','🙏','🔥','✅'],
         openReact: null,      /* id сообщения с открытым пикером (группа) */
         dmOpenReact: null,    /* id сообщения с открытым пикером (ЛС) */
+
+        /* ── reply / quote ── */
+        replyTo: null,        /* {id, author, snippet} — цитата в группе */
+        dmReplyTo: null,      /* {id, author, snippet} — цитата в ЛС */
 
         /* ── send form ── */
         text: '',
@@ -1489,11 +1559,13 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 fd.append('csrf_token', this.csrfToken);
                 fd.append('message', txt);
                 fd.append('topic_id', this.currentTopicId);
+                if (this.replyTo) fd.append('reply_to_id', this.replyTo.id);
                 for (const f of this.attachedFiles) fd.append('files', f);
 
                 const res = await fetch('/chat/send', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (data.ok) {
+                    this.replyTo = null;
                     /* Show AI thinking indicator if sending to the AI topic */
                     if (this.currentTopicIsAi && txt) {
                         this.aiThinking = true;
@@ -1750,8 +1822,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (!txt && !this.dmAttachedFiles.length) return;
             this.dmSending = true;
 
-            /* WS fast path — text only, no files. AI-тред (-1) всегда по HTTP. */
-            if (this.dmPeerId !== -1 && !this.dmAttachedFiles.length && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
+            /* WS fast path — text only, no files, без цитаты. AI-тред (-1) всегда по HTTP. */
+            if (this.dmPeerId !== -1 && !this.dmAttachedFiles.length && !this.dmReplyTo && this.dmWs && this.dmWs.readyState === WebSocket.OPEN) {
                 const clientId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
                 this.dmWs.send(JSON.stringify({type: 'message', to_user_id: this.dmPeerId, message: txt, client_id: clientId}));
                 const now = new Date();
@@ -1775,10 +1847,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 fd.append('csrf_token', this.csrfToken);
                 fd.append('to_user_id', this.dmPeerId);
                 fd.append('message', txt);
+                if (this.dmReplyTo) fd.append('reply_to_id', this.dmReplyTo.id);
                 for (const f of this.dmAttachedFiles) fd.append('files', f);
                 const res  = await fetch('/chat/dm/send', {method: 'POST', body: fd});
                 const data = await res.json();
                 if (data.ok) {
+                    this.dmReplyTo = null;
                     /* Show AI thinking indicator when sending to the AI peer */
                     if (this.dmPeerId === -1 && txt) {
                         this.dmAiThinking = true;
@@ -1938,6 +2012,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         file_url: data.file_url || '', file_name: data.file_name || '',
                         created_at: data.created_at || '', is_mine: false, can_delete: false,
                         is_ai: isAi, is_ai_error: !!data.is_ai_error,
+                        reply: data.reply || null,
                     });
                     this._dmScrollBottom();
                     /* WS заведомо открыт (только что получили) — HTTP-фолбэк не нужен */
@@ -2024,6 +2099,41 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const data = await res.json();
                 if (data.ok && idx >= 0) this.dmMessages[idx].reactions = data.reactions || [];
             } catch(e) { /* тихо */ }
+        },
+
+        /* ── Ответы / цитирование ── */
+        _replySnippet(msg) {
+            const t = (msg.message || '').trim();
+            if (t) return t.slice(0, 90);
+            if (msg.files && msg.files.length) return '📎 ' + (msg.files[0].file_name || 'Вложение');
+            if (msg.file_name) return '📎 ' + msg.file_name;
+            return '📎 Вложение';
+        },
+        startReply(msg) {
+            this.replyTo = { id: msg.id, author: msg.display_name || '', snippet: this._replySnippet(msg) };
+            this.openReact = null;
+            this.$nextTick(() => { document.querySelector('#chat-scroll ~ div textarea, textarea')?.focus(); });
+        },
+        startDmReply(m) {
+            const author = m.is_mine ? 'Вы' : (this.dmPeerName || '');
+            this.dmReplyTo = { id: m.id, author: author, snippet: this._replySnippet(m) };
+            this.dmOpenReact = null;
+            this.$nextTick(() => { document.querySelector('#dm-panel textarea')?.focus(); });
+        },
+        _flashMsg(el) {
+            if (!el) return;
+            el.classList.remove('reply-flash');
+            void el.offsetWidth;
+            el.classList.add('reply-flash');
+            setTimeout(() => el.classList.remove('reply-flash'), 1700);
+        },
+        scrollToMsg(id) {
+            const el = document.getElementById('msg-' + id);
+            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); this._flashMsg(el); }
+        },
+        scrollToDmMsg(id) {
+            const el = document.querySelector('[data-dmid="' + id + '"]');
+            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); this._flashMsg(el); }
         }
     };
 }

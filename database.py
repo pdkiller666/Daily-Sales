@@ -12712,14 +12712,14 @@ class Database:
     def add_chat_message(self, user_id: int, message: str = '',
                          file_path: str = '', file_name: str = '',
                          file_type: str = '', file_size: int = 0,
-                         topic_id: int = 1) -> int:
+                         topic_id: int = 1, reply_to_id: int = 0) -> int:
         """Добавить сообщение в чат. Возвращает id нового сообщения."""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO chat_messages (user_id, topic_id, message, file_path, file_name, file_type, file_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (user_id, topic_id, message, file_path, file_name, file_type, file_size))
+            INSERT INTO chat_messages (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, topic_id, message, file_path, file_name, file_type, file_size, reply_to_id))
         new_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -12740,7 +12740,7 @@ class Database:
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
                    u.first_name, u.last_name, u.username,
-                   m.is_session_break, m.is_ai_summary
+                   m.is_session_break, m.is_ai_summary, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
@@ -12759,7 +12759,7 @@ class Database:
         cursor.execute('''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username
+                   u.first_name, u.last_name, u.username, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
@@ -13137,6 +13137,74 @@ class Database:
             conn.close()
         return result
 
+    # ── Превью родителей для ответов/цитат ──────────────────────────────────
+    def get_chat_reply_previews(self, parent_ids: list) -> dict:
+        """{parent_id: {id, user_id, author, message, file_name, is_deleted}}
+        для цитат-ответов в темах. Удалённые родители ВКЛЮЧАЮТСЯ (is_deleted=1),
+        чтобы фронт показал «сообщение удалено»."""
+        ids = [int(i) for i in {p for p in parent_ids if p}]
+        if not ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(ids))
+            rows = conn.execute(
+                f"""SELECT m.id, m.user_id, m.message, m.file_name,
+                           COALESCE(m.is_deleted,0), m.topic_id,
+                           u.first_name, u.last_name, u.username
+                    FROM chat_messages m
+                    LEFT JOIN users u ON u.id = m.user_id
+                    WHERE m.id IN ({ph})""",
+                ids
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for mid, uid, msg, fname, deleted, tid, fn, ln, uname in rows:
+            if uid == 0:
+                author = "AI-ассистент"
+            else:
+                author = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{uid}"
+            result[mid] = {
+                "id": mid, "user_id": uid, "author": author,
+                "message": msg or "", "file_name": fname or "",
+                "is_deleted": bool(deleted), "topic_id": tid,
+            }
+        return result
+
+    def get_dm_reply_previews(self, parent_ids: list) -> dict:
+        """{parent_id: {id, from_user_id, author, message, file_name, is_deleted}}
+        для цитат-ответов в ЛС. Удалённые родители включаются."""
+        ids = [int(i) for i in {p for p in parent_ids if p}]
+        if not ids:
+            return {}
+        conn = self.get_connection()
+        try:
+            ph = ','.join('?' * len(ids))
+            rows = conn.execute(
+                f"""SELECT d.id, d.from_user_id, d.to_user_id, d.message, d.file_name,
+                           COALESCE(d.is_deleted,0),
+                           u.first_name, u.last_name, u.username
+                    FROM direct_messages d
+                    LEFT JOIN users u ON u.id = d.from_user_id
+                    WHERE d.id IN ({ph})""",
+                ids
+            ).fetchall()
+        finally:
+            conn.close()
+        result: dict = {}
+        for mid, fromid, toid, msg, fname, deleted, fn, ln, uname in rows:
+            if fromid == 0:
+                author = "AI-ассистент"
+            else:
+                author = f"{fn or ''} {ln or ''}".strip() or uname or f"User#{fromid}"
+            result[mid] = {
+                "id": mid, "from_user_id": fromid, "to_user_id": toid, "author": author,
+                "message": msg or "", "file_name": fname or "",
+                "is_deleted": bool(deleted),
+            }
+        return result
+
     def get_chat_topics(self) -> list:
         """Все не-архивные темы чата, отсортированные по sort_order."""
         conn = self.get_connection()
@@ -13355,7 +13423,8 @@ class Database:
     def add_dm(self, from_user_id: int, to_user_id: int,
                message: str = '', file_path: str = '',
                file_name: str = '', file_type: str = '',
-               file_size: int = 0, ai_peer_id: int = 0) -> int:
+               file_size: int = 0, ai_peer_id: int = 0,
+               reply_to_id: int = 0) -> int:
         """Сохранить личное сообщение. Возвращает id записи.
 
         ai_peer_id — для ответов AI (from_user_id=0): id собеседника, в переписке
@@ -13365,9 +13434,9 @@ class Database:
             conn = self.get_connection()
             cur = conn.execute(
                 '''INSERT INTO direct_messages
-                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id)
+                   (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (from_user_id, to_user_id, message, file_path, file_name, file_type, file_size, ai_peer_id, reply_to_id)
             )
             conn.commit()
             new_id = cur.lastrowid
@@ -13401,7 +13470,7 @@ class Database:
                 f'''SELECT d.id, d.from_user_id, d.to_user_id,
                            d.message, d.file_path, d.file_name, d.file_type, d.file_size,
                            d.created_at, d.is_read,
-                           uf.first_name, uf.last_name, uf.username
+                           uf.first_name, uf.last_name, uf.username, d.reply_to_id
                     FROM direct_messages d
                     LEFT JOIN users uf ON uf.id = d.from_user_id
                     WHERE ((d.from_user_id = ? AND d.to_user_id = ?)
