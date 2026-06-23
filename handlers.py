@@ -1548,6 +1548,11 @@ async def process_profile_timezone(callback: CallbackQuery, state: FSMContext):
         
         await callback.message.edit_text(f"✅ Часовой пояс изменен на {new_tz}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button("user_profile")]]))
         await clear_state_keep_org(state)
+        try:
+            from main import _invalidate_sched_index
+            _invalidate_sched_index()
+        except Exception:
+            pass
     except Exception as e:
         await callback.message.edit_text(
             f"❌ Ошибка при изменении часового пояса: {e}",

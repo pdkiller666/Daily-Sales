@@ -7,7 +7,15 @@ description: Why notification minute-jobs read an in-memory index instead of sca
 
 Минутные джобы (`send_sales_alerts`, `send_payment_alerts`, `send_personalized_notifications`, `send_daily_reports`) больше НЕ открывают каждую org-базу раз в минуту. Вместо этого `main.py` держит in-memory индекс `{notif_type: {(hhmm_local, tz_name): [entry]}}`, где `entry=(db_path,user_id,telegram_id,first_name,shop_name,threshold)`. Джоб зовёт `await _ensure_sched_index()` затем `_get_sched_hits(notif_type, current_utc)` — это O(уникальных (hhmm,tz)) пар, без диска.
 
-**Когда индекс перестраивается:** dirty-флаг ИЛИ ts==0 (cold start) ИЛИ TTL>900с. `_invalidate_sched_index()` (ставит dirty=True) вызывается при смене настроек уведомлений: в вебе (`web/routes/settings.py` — notif POST + timezone POST) и в боте (`notifications_handlers.py` — toggle/threshold/notification_time). Lazy-import `from main import _invalidate_sched_index` чтобы не плодить циклы импорта.
+**Когда индекс перестраивается:** dirty-флаг ИЛИ ts==0 (cold start) ИЛИ TTL>900с. `_invalidate_sched_index()` (ставит dirty=True) вызывается при смене настроек уведомлений:
+- Веб: `web/routes/settings.py` — notif POST + timezone POST
+- Бот: `notifications_handlers.py` — toggle / threshold / notification_time
+- Бот: `handlers.py` — смена timezone пользователем (profile)
+- Бот: `admin_handlers.py` — смена timezone пользователя через admin
+
+Lazy-import `from main import _invalidate_sched_index` чтобы не плодить циклы импорта. Wrap в try/except чтобы сбой импорта не ломал основную логику.
+
+**Что НЕ требует инвалидации:** `shift_remind_minutes` (обрабатывает `shift_start_notifier`, не индекс), `plan_coeff_enabled/cap` (зарплата, не расписание).
 
 ## Правило: dirty-флагом владеет ТОЛЬКО `_ensure_sched_index`
 `_rebuild_sched_index()` НЕ трогает `_sched_index_dirty`. `_ensure_sched_index` снимает dirty=False **ДО** запуска сборки (не после).

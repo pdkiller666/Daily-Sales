@@ -2479,6 +2479,11 @@ async def process_admin_edit_timezone(callback: CallbackQuery, state: FSMContext
         await callback.answer()
         await callback.message.edit_text(f"✅ Часовой пояс обновлен на: {new_tz}", 
                                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_button(f"admin_user_{telegram_id}")]]))
+        try:
+            from main import _invalidate_sched_index
+            _invalidate_sched_index()
+        except Exception:
+            pass
     except Exception as e:
         await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
     await clear_state_keep_org(state)
