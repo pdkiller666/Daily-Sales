@@ -1105,6 +1105,13 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                        :class="m.is_mine ? 'text-right' : ''">
                                         <span x-text="m.created_at"></span>
                                         <span x-show="m.edited" class="italic opacity-70">· изм.</span>
+                                        <!-- Галочки доставки/прочтения (только мои, не AI) -->
+                                        <span x-show="m.is_mine && dmPeerId !== -1 && !m.is_ai"
+                                              x-cloak
+                                              class="ml-0.5 font-semibold"
+                                              :class="m.is_read ? 'text-blue-500' : 'text-slate-400'"
+                                              :title="m.is_read ? 'Прочитано' : 'Доставлено'"
+                                              x-text="m.is_read ? '✓✓' : '✓'"></span>
                                     </p>
                                 </div>
                             </div>
@@ -2257,6 +2264,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 /* live-реакция: обновляем чипы у обоих собеседников */
                 const idx = this.dmMessages.findIndex(m => m.id === data.id);
                 if (idx >= 0) this.dmMessages[idx].reactions = data.reactions || [];
+            } else if (data.type === 'read') {
+                /* квитанция прочтения: собеседник прочитал мои сообщения → ✓ → ✓✓ */
+                if (data.by_user_id === this.dmPeerId) {
+                    this.dmMessages = this.dmMessages.map(m =>
+                        m.is_mine && !m.is_read ? { ...m, is_read: true } : m);
+                }
             } else if (data.type === 'typing' && data.from_user_id === this.dmPeerId) {
                 this.dmTypingText = this.dmPeerName + ' печатает…';
                 clearTimeout(this.dmTypingHideTimer);

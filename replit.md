@@ -74,7 +74,7 @@ This project is a professional, multi-tenant Telegram bot designed for comprehen
 
 ## Product (summary)
 
-Sales/inventory/daily reports · multi-org with invite codes & roles · sales plans + milestone alerts · dashboards · contests · work schedules + shift templates · salary transparency · subscriptions/payments (SBP + YooKassa) + modular billing · rankings · Excel import/export · Google Sheets integration · internal org chat (topics + DM; реакции/ответы/упоминания @/правка/закреп (группы)/live-WS) · push & browser notifications · email/password login · flexible org structure.
+Sales/inventory/daily reports · multi-org with invite codes & roles · sales plans + milestone alerts · dashboards · contests · work schedules + shift templates · salary transparency · subscriptions/payments (SBP + YooKassa) + modular billing · rankings · Excel import/export · Google Sheets integration · internal org chat (topics + DM; реакции/ответы/упоминания @/правка/закреп (группы)/двойные галочки ✓✓ (ЛС)/live-WS) · push & browser notifications · email/password login · flexible org structure.
 
 Полный список фич с деталями — `PROJECT_MAP.md` §10.3.
 
