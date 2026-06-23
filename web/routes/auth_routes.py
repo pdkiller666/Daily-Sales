@@ -338,6 +338,78 @@ def _get_display_name(telegram_id: int, org_db: str) -> str:
     return "Пользователь"
 
 
+@router.get("/auth/miniapp-entry", include_in_schema=False)
+async def miniapp_entry(request: Request):
+    """Точка входа для Telegram Mini App: минимальная HTML-страница,
+    которая читает initData из хэша URL (#tgWebAppData=...) и
+    POST-ит на /auth/miniapp для создания сессии, затем редиректит на /dashboard."""
+    from web.auth import get_session_user
+    if get_session_user(request):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    html = """<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DailySales</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:sans-serif;color:#94a3b8}
+.wrap{text-align:center}.ico{font-size:2.5rem;margin-bottom:.75rem}.msg{font-size:.95rem}</style>
+</head><body><div class="wrap"><div class="ico">⏳</div><div class="msg">Вход в DailySales…</div></div>
+<script>
+(async function(){
+  var p=new URLSearchParams(location.hash.slice(1));
+  var d=p.get('tgWebAppData');
+  if(!d){location.href='/login';return;}
+  try{
+    var fd=new FormData();fd.append('init_data',d);
+    var r=await fetch('/auth/miniapp',{method:'POST',body:fd,credentials:'same-origin'});
+    var j=await r.json();
+    location.href=(j&&j.redirect)||'/dashboard';
+  }catch(e){location.href='/login';}
+})();
+</script></body></html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
+
+
+@router.post("/auth/miniapp")
+async def miniapp_auth(request: Request, init_data: str = Form(default="")):
+    """Авторизация через Telegram Mini App initData.
+    Валидирует подпись, создаёт JWT-сессию, возвращает JSON {ok, redirect}."""
+    from fastapi.responses import JSONResponse
+    from web.auth import verify_miniapp_init_data, create_session_token, COOKIE_NAME
+    from web.deps import get_user_org_db_path, get_user_role_from_db, get_first_available_org_db
+    from env_manager import env_manager
+
+    if not init_data:
+        return JSONResponse({"ok": False, "error": "no_data"}, status_code=400)
+
+    ok, telegram_id, first_name = verify_miniapp_init_data(init_data)
+    if not ok or not telegram_id:
+        return JSONResponse({"ok": False, "error": "invalid"}, status_code=403)
+
+    org_db = get_user_org_db_path(telegram_id)
+    role = get_user_role_from_db(telegram_id)
+
+    if env_manager.is_super_admin(telegram_id):
+        role = 'super_admin'
+        if not org_db:
+            org_db = get_first_available_org_db()
+
+    if not org_db:
+        org_db = 'data/shop_bot.db'
+
+    token = create_session_token(telegram_id, first_name, org_db, role)
+
+    response = JSONResponse({"ok": True, "redirect": "/dashboard"})
+    response.set_cookie(
+        COOKIE_NAME, token,
+        httponly=True,
+        samesite='lax',
+        secure=True,
+        max_age=TOKEN_EXPIRE_DAYS * 24 * 3600,
+    )
+    return response
+
+
 @router.post("/logout")
 async def logout(request: Request):
     from web.auth import COOKIE_NAME, verify_csrf_token

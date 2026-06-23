@@ -1274,6 +1274,30 @@ window.dsRefreshBadge = function() {
 })();
 
 /* ══════════════════════════════════════════════════
+   4a. Android APK download banner
+   Показываем Android-пользователям в обычном браузере (не TWA/standalone/TgWebView),
+   один раз — до закрытия (sessionStorage).
+══════════════════════════════════════════════════ */
+(function () {
+    var isAndroid = /android/i.test(navigator.userAgent);
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    var isTgWebView = /wv\)/.test(navigator.userAgent) || !!window.TelegramWebviewProxy;
+    if (isAndroid && !isStandalone && !isTgWebView &&
+        sessionStorage.getItem('ds_apk_dismissed') !== '1') {
+        setTimeout(function () {
+            var el = document.getElementById('ds-apk-banner');
+            if (el) el.classList.remove('hidden');
+        }, 2000);
+    }
+})();
+
+window.dsApkBannerDismiss = function () {
+    var el = document.getElementById('ds-apk-banner');
+    if (el) el.classList.add('hidden');
+    sessionStorage.setItem('ds_apk_dismissed', '1');
+};
+
+/* ══════════════════════════════════════════════════
    4. Dark mode toggle
 ══════════════════════════════════════════════════ */
 function _dsApplyDark(isDark) {
@@ -2225,6 +2249,14 @@ function mainApp() {
                 <button id="ds-pwa-copy-btn" onclick="dsPwaCopyLink()" style="display:none" class="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors whitespace-nowrap">Скопировать ссылку</button>
             </div>
             <button onclick="dsPwaDismiss()" class="shrink-0 text-emerald-400 hover:text-emerald-600 text-base leading-none px-1">×</button>
+        </div>
+
+        <!-- Android APK banner: показываем Android-пользователям в браузере (не TWA/standalone) один раз за сессию -->
+        <div id="ds-apk-banner" class="hidden flex items-center gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-800">
+            <span class="text-lg shrink-0">🤖</span>
+            <span class="flex-1 leading-snug">Скачайте приложение DailySales для Android — работает быстрее браузера</span>
+            <a href="/download/android" class="shrink-0 px-2.5 py-1 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">Скачать</a>
+            <button onclick="dsApkBannerDismiss()" class="shrink-0 text-blue-400 hover:text-blue-600 text-base leading-none px-1">×</button>
         </div>
 
     </div>

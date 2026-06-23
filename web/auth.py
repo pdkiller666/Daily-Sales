@@ -53,6 +53,53 @@ COOKIE_NAME = "web_session"
 TOKEN_EXPIRE_DAYS = 7
 
 
+def verify_miniapp_init_data(init_data_str: str) -> tuple[bool, int, str]:
+    """Validate Telegram Mini App initData string.
+
+    Algorithm differs from Login Widget: secret key = HMAC-SHA256(key=b"WebAppData", msg=bot_token).
+    Returns (valid, telegram_id, first_name).
+    """
+    import json
+    from urllib.parse import parse_qs
+
+    token = os.getenv('BOT_TOKEN', '')
+    if not token or not init_data_str:
+        return False, 0, ''
+
+    try:
+        params = parse_qs(init_data_str, keep_blank_values=True)
+        flat = {k: v[0] for k, v in params.items()}
+    except Exception:
+        return False, 0, ''
+
+    received_hash = flat.pop('hash', '')
+    if not received_hash:
+        return False, 0, ''
+
+    secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+    data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(flat.items()))
+    computed = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed, received_hash):
+        return False, 0, ''
+
+    auth_date = int(flat.get('auth_date', 0))
+    if time.time() - auth_date > 86400:
+        return False, 0, ''
+
+    try:
+        user_data = json.loads(flat.get('user', '{}'))
+        telegram_id = int(user_data.get('id', 0))
+        first_name = user_data.get('first_name', 'Пользователь')
+    except Exception:
+        return False, 0, ''
+
+    if not telegram_id:
+        return False, 0, ''
+
+    return True, telegram_id, first_name
+
+
 def verify_telegram_auth(data: dict) -> bool:
     token = os.getenv('BOT_TOKEN', '')
     if not token:

@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.155.0"
+CURRENT_VERSION = "1.156.0"
 
 ENTRIES = [
+    {
+        "version": "1.156.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Update roadmap and preferences to reflect completed tasks",
+        ],
+    },
     {
         "version": "1.155.0",
         "date": "23 июня 2026",

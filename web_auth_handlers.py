@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -128,7 +128,12 @@ async def process_setweblogin_email(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "web_open_hub")
 async def cb_web_open_hub(callback: CallbackQuery):
-    """Генерирует magic link для входа в веб-интерфейс и показывает кнопку."""
+    """Генерирует magic link для входа в веб-интерфейс и показывает кнопки.
+
+    Кнопка «📱 Открыть приложение» — Telegram Mini App (WebAppInfo): открывает
+    веб-кабинет прямо в Telegram без одноразовой ссылки (auth через initData).
+    Кнопка «🔑 Войти в браузере» — magic link для входа через внешний браузер.
+    """
     telegram_id = callback.from_user.id
     try:
         from keyboards import _get_web_interface_url
@@ -140,16 +145,18 @@ async def cb_web_open_hub(callback: CallbackQuery):
         from web_login_codes import generate_code
         code = generate_code(telegram_id)
         login_url = f"{web_url.rstrip('/')}/auth/code/auto?c={code}"
+        miniapp_url = f"{web_url.rstrip('/')}/auth/miniapp-entry"
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔑 Войти в веб-интерфейс", url=login_url)],
+            [InlineKeyboardButton(text="📱 Открыть приложение", web_app=WebAppInfo(url=miniapp_url))],
+            [InlineKeyboardButton(text="🔑 Войти в браузере", url=login_url)],
             [InlineKeyboardButton(text="◀️ Главное меню", callback_data="main_menu")],
         ])
         await callback.message.edit_text(
             f"🌐 <b>Веб-интерфейс</b>\n\n"
-            f"Нажмите кнопку ниже для входа.\n"
-            f"⏱ Ссылка одноразовая, действует <b>5 минут</b>.\n\n"
-            f"<i>Каждое нажатие генерирует новую ссылку — старые сгорают.</i>",
+            f"📱 <b>Открыть приложение</b> — прямо здесь в Telegram, без ссылок.\n"
+            f"🔑 <b>Войти в браузере</b> — одноразовая ссылка на 5 минут.\n\n"
+            f"<i>Ссылка для браузера генерируется заново при каждом нажатии.</i>",
             parse_mode="HTML",
             reply_markup=kb,
         )
