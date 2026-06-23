@@ -962,6 +962,11 @@ async def toggle_notification_setting(callback: CallbackQuery, state: FSMContext
     settings = await current_db.get_notification_settings(user_id)
     new_value = not settings.get(setting_type, False)
     await current_db.update_notification_settings(user_id, **{setting_type: new_value})
+    try:
+        from main import _invalidate_sched_index
+        _invalidate_sched_index()
+    except Exception:
+        pass
     
     await callback.answer(f"✅ Настройка изменена")
     await notification_settings_menu(callback, state)
@@ -1045,6 +1050,11 @@ async def process_stock_threshold(message: Message, state: FSMContext):
         data = await state.get_data()
         current_db = await get_db(message.from_user.id, state)
         await current_db.update_notification_settings(data['user_id'], stock_threshold=threshold)
+        try:
+            from main import _invalidate_sched_index
+            _invalidate_sched_index()
+        except Exception:
+            pass
         await fsm_edit(state, message, f"✅ Порог установлен: {threshold} шт.",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
         await clear_state_keep_org(state)
@@ -1063,6 +1073,11 @@ async def process_notification_time(message: Message, state: FSMContext):
     try:
         current_db = await get_db(message.from_user.id, state)
         await current_db.update_notification_settings(data['user_id'], notification_time=time_text)
+        try:
+            from main import _invalidate_sched_index
+            _invalidate_sched_index()
+        except Exception:
+            pass
         await fsm_edit(state, message, f"✅ Время установлено: {time_text}",
                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ Настройки", callback_data="notification_settings")]]))
     except Exception as e:

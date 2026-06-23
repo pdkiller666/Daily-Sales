@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.152.0"
+CURRENT_VERSION = "1.153.0"
 
 ENTRIES = [
+    {
+        "version": "1.153.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Improve mobile display of buttons across various pages",
+        ],
+    },
     {
         "version": "1.152.0",
         "date": "23 июня 2026",

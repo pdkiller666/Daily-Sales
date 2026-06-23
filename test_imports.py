@@ -977,6 +977,38 @@ try:
 except Exception as _e:
     _fn_fail("Audit-log", _e)
 
+# U. Schedule Index (roadmap 2.1): индекс матчит по (hhmm, tz); инвалидация ставит dirty
+try:
+    import main as _m_si
+    import pytz as _pytz_si
+    from datetime import datetime as _dt_si
+    # Подменяем индекс синтетическими entry без обращения к БД
+    _entry = ('data/tenants/org_test.db', 7, 12345, 'Тест', 'Магазин', 5)
+    # Берём московское время 09:00 → вычисляем UTC-момент, когда в МСК ровно 09:00
+    _msk = _pytz_si.timezone('Europe/Moscow')
+    _now_msk = _msk.localize(_dt_si(2026, 6, 23, 9, 0, 0))
+    _now_utc = _now_msk.astimezone(_pytz_si.UTC)
+    _m_si._sched_index = {
+        'sales': {}, 'payment': {('09:00', 'Europe/Moscow'): [_entry]},
+        'daily_report': {}, 'low_stock': {},
+    }
+    _m_si._sched_index_ts = 1.0  # «построен»
+    _hits = _m_si._get_sched_hits('payment', _now_utc)
+    assert len(_hits) == 1 and _hits[0][2] == 12345, f"ожидался 1 hit, получено {_hits}"
+    # В 09:01 МСК того же дня — не должно быть совпадения
+    _no = _m_si._get_sched_hits('payment', (_now_utc).replace())
+    _later = _msk.localize(_dt_si(2026, 6, 23, 9, 1, 0)).astimezone(_pytz_si.UTC)
+    assert _m_si._get_sched_hits('payment', _later) == [], "в 09:01 совпадений быть не должно"
+    # Тип без entry → пустой список
+    assert _m_si._get_sched_hits('sales', _now_utc) == [], "sales пуст → []"
+    # Инвалидация ставит dirty
+    _m_si._sched_index_dirty = False
+    _m_si._invalidate_sched_index()
+    assert _m_si._sched_index_dirty is True, "инвалидация должна ставить dirty=True"
+    _fn_ok("Schedule Index: матч по (hhmm,tz), мисс вне минуты, инвалидация → dirty")
+except Exception as _e:
+    _fn_fail("Schedule Index", _e)
+
 print("=" * 55)
 print(f"  Итог: {fn_passed} ОК, {fn_failed} ошибок")
 print("=" * 55)

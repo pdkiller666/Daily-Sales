@@ -213,6 +213,105 @@ def _get_scheduler_db_paths() -> list:
     return paths
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Schedule Index (roadmap 2.1) — событийная модель вместо O(N)-обхода орг каждую минуту.
+# Вместо того чтобы 4 минутных джоба открывали КАЖДУЮ org-базу раз в минуту,
+# строим индекс {notif_type: {(hhmm_local, tz_name): [entry, ...]}} раз в TTL
+# (или при dirty-инвалидации). Минутный джоб делает O(уникальных (hhmm,tz)) поиск.
+# entry = (db_path, user_id, telegram_id, first_name, shop_name, threshold)
+_SCHED_NOTIF_TYPES = ('sales', 'payment', 'daily_report', 'low_stock')
+_sched_index: dict = {}            # {notif_type: {(hhmm, tz_name): [entry, ...]}}
+_sched_index_ts: float = 0.0       # monotonic; 0 == ещё не строился
+_sched_index_dirty: bool = True    # старт «грязный» → первый джоб построит индекс
+_SCHED_INDEX_TTL = 900.0           # 15 мин — backstop-перестройка
+
+
+def _rebuild_sched_index() -> None:
+    """Скан всех org DB → построение индекса расписания уведомлений.
+    Синхронная (вызывать через asyncio.to_thread). Никогда не бросает наружу."""
+    global _sched_index, _sched_index_ts
+    new_index: dict = {nt: {} for nt in _SCHED_NOTIF_TYPES}
+    # db_paths за пределами per-path try: фатальная ошибка здесь → raise,
+    # чтобы _ensure_sched_index() оставил прежний индекс и пометил dirty для ретрая.
+    db_paths = _get_scheduler_db_paths()
+    for path in db_paths:
+        try:
+            cur = Database(path)
+            tz_cache: dict = {}  # telegram_id → tz_name (в пределах одной БД)
+            for nt in _SCHED_NOTIF_TYPES:
+                try:
+                    users = cur.get_users_for_notifications(nt)
+                except Exception:
+                    continue
+                for u in users:
+                    try:
+                        user_id, telegram_id, first_name, shop_name, threshold, ntime = u
+                    except Exception:
+                        continue
+                    if not telegram_id or not ntime:
+                        continue
+                    tz_name = tz_cache.get(telegram_id)
+                    if tz_name is None:
+                        try:
+                            tz_name = cur.get_user_timezone(telegram_id) or 'UTC'
+                        except Exception:
+                            tz_name = 'UTC'
+                        tz_cache[telegram_id] = tz_name
+                    key = (ntime, tz_name)
+                    new_index[nt].setdefault(key, []).append(
+                        (path, user_id, telegram_id, first_name, shop_name, threshold)
+                    )
+        except Exception as e:
+            logging.error(f"_rebuild_sched_index: БД {path}: {e}")
+    # Публикуем индекс атомарной переподвязкой ссылок (не трогаем dirty —
+    # им владеет _ensure_sched_index, иначе инвалидация во время сборки теряется).
+    _sched_index = new_index
+    _sched_index_ts = _time.monotonic()
+
+
+async def _ensure_sched_index() -> None:
+    """Перестроить индекс при необходимости (dirty / не строился / истёк TTL).
+    dirty снимается ДО сборки: инвалидация во время сборки снова поставит dirty,
+    и следующий цикл перестроит индекс (не теряем изменения настроек)."""
+    global _sched_index_dirty
+    need = (
+        _sched_index_dirty
+        or _sched_index_ts == 0.0
+        or (_time.monotonic() - _sched_index_ts > _SCHED_INDEX_TTL)
+    )
+    if not need:
+        return
+    _sched_index_dirty = False  # снять ДО сборки — инвалидация во время неё переставит флаг
+    try:
+        await asyncio.to_thread(_rebuild_sched_index)
+    except Exception as e:
+        _sched_index_dirty = True  # сборка упала → повторить в следующем цикле, прежний индекс жив
+        logging.error(f"_ensure_sched_index: {e}")
+
+
+def _get_sched_hits(notif_type: str, current_utc) -> list:
+    """Вернуть entries, у которых (hhmm, tz) совпадает с current_utc.
+    O(уникальных (hhmm,tz) пар) — без открытия БД."""
+    type_idx = _sched_index.get(notif_type)
+    if not type_idx:
+        return []
+    hits: list = []
+    for (hhmm, tz_name), entries in type_idx.items():
+        try:
+            if current_utc.astimezone(pytz.timezone(tz_name)).strftime('%H:%M') == hhmm:
+                hits.extend(entries)
+        except Exception:
+            continue
+    return hits
+
+
+def _invalidate_sched_index() -> None:
+    """Пометить индекс «грязным» — следующий минутный джоб перестроит его.
+    Безопасно вызывать из любого потока/контекста (атомарная установка флага)."""
+    global _sched_index_dirty
+    _sched_index_dirty = True
+
+
 _TRIAL_FEATURES_LOST = (
     "• 📊 Экспорт отчётов в Excel\n"
     "• 📈 Расширенная аналитика и рейтинги\n"
@@ -275,127 +374,121 @@ async def send_payment_alerts(bot: Bot):
         from datetime import datetime
         import pytz
 
+        await _ensure_sched_index()
         shop_bot_db = Database('data/shop_bot.db')
-        db_paths = _get_scheduler_db_paths()
         current_utc = datetime.now(pytz.UTC)
+        hits = _get_sched_hits('payment', current_utc)
+        db_by_path: dict = {}
 
-        for path in db_paths:
-            await asyncio.sleep(0)  # уступаем event loop между DB-файлами
-            current_db = Database(path)
+        for entry in hits:
+            await asyncio.sleep(0)  # уступаем event loop между пользователями
             try:
-                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'payment')
+                path, user_id, telegram_id, first_name, shop_name, threshold = entry
 
-                for user_data in users:
-                    await asyncio.sleep(0)  # уступаем event loop между пользователями
-                    user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
+                if not telegram_id:
+                    continue
 
-                    if not telegram_id or not notification_time_str:
-                        continue
+                current_db = db_by_path.get(path)
+                if current_db is None:
+                    current_db = Database(path)
+                    db_by_path[path] = current_db
 
-                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
-                    try:
-                        user_tz = pytz.timezone(user_timezone)
-                        user_now = current_utc.astimezone(user_tz)
-                        if user_now.strftime('%H:%M') != notification_time_str:
-                            continue
-                    except Exception:
-                        continue
+                shop_bot_user = await asyncio.to_thread(shop_bot_db.get_user, telegram_id)
+                if not shop_bot_user:
+                    continue
+                subscription = await asyncio.to_thread(shop_bot_db.get_user_subscription, shop_bot_user[0])
+                if not subscription:
+                    continue
 
-                    shop_bot_user = await asyncio.to_thread(shop_bot_db.get_user, telegram_id)
-                    if not shop_bot_user:
-                        continue
-                    subscription = await asyncio.to_thread(shop_bot_db.get_user_subscription, shop_bot_user[0])
-                    if not subscription:
-                        continue
+                plan_type = subscription[2]
+                end_date = subscription[4]
+                is_trial = bool(subscription[5]) if len(subscription) > 5 else False
+                shop_user_id = shop_bot_user[0]
 
-                    plan_type = subscription[2]
-                    end_date = subscription[4]
-                    is_trial = bool(subscription[5]) if len(subscription) > 5 else False
-                    shop_user_id = shop_bot_user[0]
+                # Бессрочные подписки (Бесплатный) не напоминаем
+                if end_date.startswith('9999'):
+                    continue
 
-                    # Бессрочные подписки (Бесплатный) не напоминаем
-                    if end_date.startswith('9999'):
-                        continue
+                try:
+                    end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    days_remaining = (end_dt - current_utc).days
+                except Exception:
+                    continue
 
-                    try:
-                        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                        days_remaining = (end_dt - current_utc).days
-                    except Exception:
-                        continue
+                # Для каждого порога — отправляем первый неотправленный
+                for t in THRESHOLDS:
+                    if days_remaining <= t:
+                        if await asyncio.to_thread(shop_bot_db.has_sent_reminder, shop_user_id, t, end_date):
+                            continue  # этот порог уже отправлен, проверяем следующий
 
-                    # Для каждого порога — отправляем первый неотправленный
-                    for t in THRESHOLDS:
-                        if days_remaining <= t:
-                            if await asyncio.to_thread(shop_bot_db.has_sent_reminder, shop_user_id, t, end_date):
-                                continue  # этот порог уже отправлен, проверяем следующий
-
-                            # ── Формируем сообщение ──────────────────────────────────
-                            if is_trial:
-                                # Пробный период — специальные сообщения с upsell
-                                if days_remaining <= 0:
-                                    reminder = (
-                                        "🚨 <b>Пробный период завершается!</b>\n\n"
-                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                        "После окончания будет недоступно:\n"
-                                        f"{_TRIAL_FEATURES_LOST}\n\n"
-                                        "💎 Оформите подписку прямо сейчас!"
-                                    )
-                                elif days_remaining == 1:
-                                    reminder = (
-                                        "⚠️ <b>Пробный период заканчивается завтра!</b>\n\n"
-                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                        "С этого момента будет недоступно:\n"
-                                        f"{_TRIAL_FEATURES_LOST}\n\n"
-                                        "💎 Успейте оформить подписку!"
-                                    )
-                                elif days_remaining <= 3:
-                                    reminder = (
-                                        f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
-                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                        "Оцените, что останется недоступным:\n"
-                                        f"{_TRIAL_FEATURES_LOST}\n\n"
-                                        "💎 Выберите тариф и продолжайте без ограничений!"
-                                    )
-                                else:
-                                    reminder = (
-                                        f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
-                                        f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                        "Используйте оставшееся время по максимуму — "
-                                        "все премиум-функции доступны прямо сейчас."
-                                    )
-                                markup = _sub_markup()
-                            else:
-                                # Обычная платная подписка — стандартное напоминание
-                                if days_remaining <= 0:
-                                    urgency, days_text = "🚨", "уже истекла!"
-                                elif days_remaining == 1:
-                                    urgency, days_text = "⚠️", "истекает <b>завтра</b>!"
-                                else:
-                                    urgency, days_text = "⏰", f"истекает через <b>{days_remaining} дн.</b>"
+                        # ── Формируем сообщение ──────────────────────────────────
+                        if is_trial:
+                            # Пробный период — специальные сообщения с upsell
+                            if days_remaining <= 0:
                                 reminder = (
-                                    f"💰 <b>Уведомление о подписке</b>\n\n"
-                                    f"{urgency} Ваша подписка <b>{plan_type}</b> {days_text}\n"
-                                    f"📅 Дата окончания: {end_dt.strftime('%d.%m.%Y')}\n\n"
-                                    "💡 Пожалуйста, продлите подписку вовремя."
+                                    "🚨 <b>Пробный период завершается!</b>\n\n"
+                                    f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                    "После окончания будет недоступно:\n"
+                                    f"{_TRIAL_FEATURES_LOST}\n\n"
+                                    "💎 Оформите подписку прямо сейчас!"
                                 )
-                                markup = add_read_btn()
+                            elif days_remaining == 1:
+                                reminder = (
+                                    "⚠️ <b>Пробный период заканчивается завтра!</b>\n\n"
+                                    f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                    "С этого момента будет недоступно:\n"
+                                    f"{_TRIAL_FEATURES_LOST}\n\n"
+                                    "💎 Успейте оформить подписку!"
+                                )
+                            elif days_remaining <= 3:
+                                reminder = (
+                                    f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
+                                    f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                    "Оцените, что останется недоступным:\n"
+                                    f"{_TRIAL_FEATURES_LOST}\n\n"
+                                    "💎 Выберите тариф и продолжайте без ограничений!"
+                                )
+                            else:
+                                reminder = (
+                                    f"⏰ <b>Пробный период заканчивается через {days_remaining} дн.</b>\n\n"
+                                    f"📅 Окончание: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                    "Используйте оставшееся время по максимуму — "
+                                    "все премиум-функции доступны прямо сейчас."
+                                )
+                            markup = _sub_markup()
+                        else:
+                            # Обычная платная подписка — стандартное напоминание
+                            if days_remaining <= 0:
+                                urgency, days_text = "🚨", "уже истекла!"
+                            elif days_remaining == 1:
+                                urgency, days_text = "⚠️", "истекает <b>завтра</b>!"
+                            else:
+                                urgency, days_text = "⏰", f"истекает через <b>{days_remaining} дн.</b>"
+                            reminder = (
+                                f"💰 <b>Уведомление о подписке</b>\n\n"
+                                f"{urgency} Ваша подписка <b>{plan_type}</b> {days_text}\n"
+                                f"📅 Дата окончания: {end_dt.strftime('%d.%m.%Y')}\n\n"
+                                "💡 Пожалуйста, продлите подписку вовремя."
+                            )
+                            markup = add_read_btn()
 
+                        try:
+                            await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=markup)
+                            await asyncio.sleep(0.05)
+                            await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
+                            await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
                             try:
-                                await bot.send_message(telegram_id, reminder, parse_mode="HTML", reply_markup=markup)
-                                await asyncio.sleep(0.05)
-                                await asyncio.to_thread(shop_bot_db.mark_reminder_sent, shop_user_id, t, end_date)
-                                await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'payment', reminder)
-                                try:
-                                    from web.push_utils import send_web_push
-                                    _pb = re.sub(r'<[^>]+>', '', reminder)[:120].strip()
-                                    await asyncio.to_thread(send_web_push, telegram_id, "💳 Подписка", _pb, "/settings")
-                                except Exception:
-                                    pass
-                            except Exception as send_err:
-                                logging.error(f"Ошибка отправки напоминания {telegram_id}: {send_err}")
-                            break  # отправляем только самый срочный непосланный порог
+                                from web.push_utils import send_web_push
+                                _pb = re.sub(r'<[^>]+>', '', reminder)[:120].strip()
+                                await asyncio.to_thread(send_web_push, telegram_id, "💳 Подписка", _pb, "/settings")
+                            except Exception:
+                                pass
+                        except Exception as send_err:
+                            logging.error(f"Ошибка отправки напоминания {telegram_id}: {send_err}")
+                        break  # отправляем только самый срочный непосланный порог
             except Exception as e:
-                logging.error(f"Ошибка при обработке БД {path}: {e}")
+                logging.error(f"send_payment_alerts: пропуск записи: {e}")
+                continue
     except Exception as e:
         logging.error(f"Ошибка в send_payment_alerts: {e}")
 
@@ -405,60 +498,59 @@ async def send_sales_alerts(bot: Bot):
         from datetime import datetime, timedelta
         import pytz
 
-        db_paths = _get_scheduler_db_paths()
+        await _ensure_sched_index()
         current_utc = datetime.now(pytz.UTC)
+        hits = _get_sched_hits('sales', current_utc)
+        db_by_path: dict = {}
 
-        for path in db_paths:
+        for entry in hits:
             await asyncio.sleep(0)
-            current_db = Database(path)
             try:
-                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'sales')
-                for user_data in users:
-                    await asyncio.sleep(0)
-                    user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
-                    if not telegram_id or not notification_time_str: continue
+                path, user_id, telegram_id, first_name, shop_name, threshold = entry
+                if not telegram_id: continue
 
-                    # Gate: smart_alerts extension required per user
+                current_db = db_by_path.get(path)
+                if current_db is None:
+                    current_db = Database(path)
+                    db_by_path[path] = current_db
+
+                # Gate: smart_alerts extension required per user
+                try:
+                    from billing_utils import has_extension as _hex_sa
+                    if not _hex_sa(int(telegram_id), "smart_alerts"):
+                        continue
+                except Exception:
+                    pass
+
+                yesterday = (datetime.now() - timedelta(days=1)).isoformat()
+                today = datetime.now().isoformat()
+                recent_sales = await asyncio.to_thread(current_db.get_user_sales_by_date, user_id, yesterday, today)
+
+                if recent_sales:
+                    message = f"🛍️ <b>Уведомление о новых продажах</b>\n\n"
+                    if shop_name: message += f"🏪 Магазин: {he(shop_name)}\n\n"
+                    message += f"📈 За последние 24 часа:\n\n"
+
+                    for sale in recent_sales[:5]:
+                        product_name = sale[7] if len(sale) > 7 else "Неизвестный товар"
+                        total_amount = sale[3] * (sale[4] or 0)
+                        message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
+
                     try:
-                        from billing_utils import has_extension as _hex_sa
-                        if not _hex_sa(int(telegram_id), "smart_alerts"):
-                            continue
-                    except Exception:
-                        pass
-
-                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
-                    try:
-                        user_tz = pytz.timezone(user_timezone)
-                        if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str: continue
-                    except Exception: continue
-
-                    yesterday = (datetime.now() - timedelta(days=1)).isoformat()
-                    today = datetime.now().isoformat()
-                    recent_sales = await asyncio.to_thread(current_db.get_user_sales_by_date, user_id, yesterday, today)
-
-                    if recent_sales:
-                        message = f"🛍️ <b>Уведомление о новых продажах</b>\n\n"
-                        if shop_name: message += f"🏪 Магазин: {he(shop_name)}\n\n"
-                        message += f"📈 За последние 24 часа:\n\n"
-
-                        for sale in recent_sales[:5]:
-                            product_name = sale[7] if len(sale) > 7 else "Неизвестный товар"
-                            total_amount = sale[3] * (sale[4] or 0)
-                            message += f"• {he(product_name)}: {sale[3]} шт. ({total_amount:,.2f} ₽)\n"
-
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        await asyncio.sleep(0.05)
+                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
                         try:
-                            await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                            await asyncio.sleep(0.05)
-                            await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'sales', message)
-                            try:
-                                from web.push_utils import send_web_push
-                                _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
-                                await asyncio.to_thread(send_web_push, telegram_id, "🛍️ Уведомление о продажах", _pb, "/sales")
-                            except Exception:
-                                pass
-                        except Exception as _send_err:
-                            logging.warning(f"send_sales_alerts: skip {telegram_id}: {_send_err}")
-            except Exception: continue
+                            from web.push_utils import send_web_push
+                            _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                            await asyncio.to_thread(send_web_push, telegram_id, "🛍️ Уведомление о продажах", _pb, "/sales")
+                        except Exception:
+                            pass
+                    except Exception as _send_err:
+                        logging.warning(f"send_sales_alerts: skip {telegram_id}: {_send_err}")
+            except Exception as e:
+                logging.error(f"send_sales_alerts: пропуск записи: {e}")
+                continue
     except Exception as e:
         logging.error(f"Error in send_sales_alerts: {e}")
 
@@ -468,60 +560,59 @@ async def send_personalized_notifications(bot: Bot):
         from datetime import datetime
         import pytz
 
-        db_paths = _get_scheduler_db_paths()
+        await _ensure_sched_index()
         current_utc = datetime.now(pytz.UTC)
+        hits = _get_sched_hits('low_stock', current_utc)
+        db_by_path: dict = {}
 
-        for path in db_paths:
+        for entry in hits:
             await asyncio.sleep(0)
-            current_db = Database(path)
             try:
-                users = await asyncio.to_thread(current_db.get_users_for_notifications, 'low_stock')
-                for user_data in users:
-                    await asyncio.sleep(0)
-                    user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
-                    if not telegram_id or not notification_time_str: continue
+                path, user_id, telegram_id, first_name, shop_name, threshold = entry
+                if not telegram_id: continue
 
-                    user_timezone = await asyncio.to_thread(current_db.get_user_timezone, telegram_id)
+                current_db = db_by_path.get(path)
+                if current_db is None:
+                    current_db = Database(path)
+                    db_by_path[path] = current_db
+
+                low_stock_items = await asyncio.to_thread(current_db.get_low_stock_items_for_user, user_id, shop_name, threshold or 5)
+                if low_stock_items:
+                    message = f"📦 <b>Уведомление о низких остатках</b>\n\n"
+                    if shop_name: message += f"🏪 Магазин: {he(shop_name)}\n\n"
+                    for item in low_stock_items[:10]:
+                        message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
+
                     try:
-                        user_tz = pytz.timezone(user_timezone)
-                        if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str: continue
-                    except Exception: continue
-
-                    low_stock_items = await asyncio.to_thread(current_db.get_low_stock_items_for_user, user_id, shop_name, threshold or 5)
-                    if low_stock_items:
-                        message = f"📦 <b>Уведомление о низких остатках</b>\n\n"
-                        if shop_name: message += f"🏪 Магазин: {he(shop_name)}\n\n"
-                        for item in low_stock_items[:10]:
-                            message += f"⚠️ <b>{he(item[0])}</b>: {item[1]} шт.\n"
-                        
+                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
+                        await asyncio.sleep(0.05)
+                        await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
                         try:
-                            await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=add_read_btn())
-                            await asyncio.sleep(0.05)
-                            await asyncio.to_thread(current_db.add_notification_to_history, user_id, 'low_stock', message)
-                            try:
-                                from web.push_utils import send_web_push
-                                _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
-                                await asyncio.to_thread(send_web_push, telegram_id, "📦 Низкий остаток", _pb, "/inventory")
-                            except Exception:
-                                pass
-                        except Exception as _send_err:
-                            logging.warning(f"send_personalized_notifications: skip {telegram_id}: {_send_err}")
+                            from web.push_utils import send_web_push
+                            _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                            await asyncio.to_thread(send_web_push, telegram_id, "📦 Низкий остаток", _pb, "/inventory")
+                        except Exception:
+                            pass
+                    except Exception as _send_err:
+                        logging.warning(f"send_personalized_notifications: skip {telegram_id}: {_send_err}")
 
-                        # Авто-задачи при низком остатке (tasks_pro, если включено)
-                        try:
-                            from billing_utils import has_module as _has_module
-                            ns = await asyncio.to_thread(current_db.get_notification_settings, user_id)
-                            if ns.get('auto_tasks_low_stock') and _has_module(telegram_id, 'tasks_pro'):
-                                for item in low_stock_items[:20]:
-                                    _pname, _qty = item[0], item[1]
-                                    _shop = item[2] if len(item) > 2 else (shop_name or '')
-                                    await asyncio.to_thread(
-                                        current_db.create_auto_low_stock_task,
-                                        _pname, _shop or '', int(_qty or 0), user_id
-                                    )
-                        except Exception as _at_err:
-                            logging.debug("auto_tasks_low_stock: %s", _at_err)
-            except Exception: continue
+                    # Авто-задачи при низком остатке (tasks_pro, если включено)
+                    try:
+                        from billing_utils import has_module as _has_module
+                        ns = await asyncio.to_thread(current_db.get_notification_settings, user_id)
+                        if ns.get('auto_tasks_low_stock') and _has_module(telegram_id, 'tasks_pro'):
+                            for item in low_stock_items[:20]:
+                                _pname, _qty = item[0], item[1]
+                                _shop = item[2] if len(item) > 2 else (shop_name or '')
+                                await asyncio.to_thread(
+                                    current_db.create_auto_low_stock_task,
+                                    _pname, _shop or '', int(_qty or 0), user_id
+                                )
+                    except Exception as _at_err:
+                        logging.debug("auto_tasks_low_stock: %s", _at_err)
+            except Exception as e:
+                logging.error(f"send_personalized_notifications: пропуск записи: {e}")
+                continue
     except Exception as e:
         logging.error(f"Error in send_personalized_notifications: {e}")
 
@@ -533,97 +624,93 @@ async def send_daily_reports(bot: Bot):
         from db_utils import is_any_admin
         from dashboard_handlers import build_admin_daily_text, build_user_daily_text
 
-        db_paths = _get_scheduler_db_paths()
+        await _ensure_sched_index()
         current_utc = datetime.now(pytz.UTC)
         yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
+        hits = _get_sched_hits('daily_report', current_utc)
+        db_by_path: dict = {}
 
-        for path in db_paths:
+        for entry in hits:
             await asyncio.sleep(0)
-            current_db = wrap_db(Database(path))
             try:
-                users = await current_db.get_users_for_notifications('daily_report')
-                for user_data in users:
-                    await asyncio.sleep(0)
-                    user_id, telegram_id, first_name, shop_name, threshold, notification_time_str = user_data
-                    if not telegram_id or not notification_time_str:
-                        continue
+                path, user_id, telegram_id, first_name, shop_name, threshold = entry
+                if not telegram_id:
+                    continue
 
-                    user_timezone = await current_db.get_user_timezone(telegram_id)
+                current_db = db_by_path.get(path)
+                if current_db is None:
+                    current_db = wrap_db(Database(path))
+                    db_by_path[path] = current_db
+
+                # Для администраторов: один магический код на весь блок сообщения.
+                # Используется и для seller deep-links внутри текста, и для кнопки.
+                _admin_staff_link_base = None
+                _admin_button_url = None
+                if is_any_admin(telegram_id):
                     try:
-                        user_tz = pytz.timezone(user_timezone)
-                        if current_utc.astimezone(user_tz).strftime('%H:%M') != notification_time_str:
-                            continue
+                        from keyboards import _get_web_interface_url as _gwiu_dr
+                        from urllib.parse import quote as _uq_dr
+                        _wu_dr = _gwiu_dr()
+                        if _wu_dr:
+                            from web_login_codes import generate_code as _gc_dr
+                            _code_dr = _gc_dr(telegram_id)
+                            _base_dr = f"{_wu_dr.rstrip('/')}/auth/code/auto?c={_code_dr}&next="
+                            _admin_staff_link_base = _base_dr
+                            _nxt_dr = f"/reports?period=custom&date_from={yesterday}&date_to={yesterday}"
+                            _admin_button_url = f"{_base_dr}{_uq_dr(_nxt_dr, safe='')}"
                     except Exception:
-                        continue
+                        pass
 
-                    # Для администраторов: один магический код на весь блок сообщения.
-                    # Используется и для seller deep-links внутри текста, и для кнопки.
-                    _admin_staff_link_base = None
-                    _admin_button_url = None
+                try:
                     if is_any_admin(telegram_id):
+                        from db_utils import get_user_org_scope
+                        _sct, _scv = get_user_org_scope(telegram_id)
+                        message = await build_admin_daily_text(
+                            current_db, yesterday, shop_name,
+                            scope_type=_sct, scope_values=_scv,
+                            staff_link_base=_admin_staff_link_base,
+                        )
+                    else:
+                        message = await build_user_daily_text(
+                            current_db, user_id, yesterday, shop_name
+                        )
+                except Exception as e:
+                    logging.error(f"send_daily_reports: ошибка формирования текста для {telegram_id}: {e}")
+                    sales = await current_db.get_user_sales_by_date(user_id, yesterday, yesterday)
+                    message = f"📊 <b>Ежедневный отчёт за {yesterday}</b>\n\n"
+                    if shop_name:
+                        message += f"🏪 Магазин: {he(shop_name)}\n\n"
+                    if sales:
+                        total_revenue = sum(s[4] for s in sales if s[4])
+                        message += f"📦 Продано: {sum(s[3] for s in sales)} шт.\n💰 Выручка: {total_revenue:,.2f} ₽"
+                    else:
+                        message += "ℹ️ Продаж не было."
+
+                try:
+                    _daily_markup = add_read_btn()
+                    if _admin_button_url:
                         try:
-                            from keyboards import _get_web_interface_url as _gwiu_dr
-                            from urllib.parse import quote as _uq_dr
-                            _wu_dr = _gwiu_dr()
-                            if _wu_dr:
-                                from web_login_codes import generate_code as _gc_dr
-                                _code_dr = _gc_dr(telegram_id)
-                                _base_dr = f"{_wu_dr.rstrip('/')}/auth/code/auto?c={_code_dr}&next="
-                                _admin_staff_link_base = _base_dr
-                                _nxt_dr = f"/reports?period=custom&date_from={yesterday}&date_to={yesterday}"
-                                _admin_button_url = f"{_base_dr}{_uq_dr(_nxt_dr, safe='')}"
+                            from aiogram.types import InlineKeyboardMarkup as _IKM, InlineKeyboardButton as _IKB
+                            _daily_markup = add_read_btn(_IKM(inline_keyboard=[
+                                [_IKB(text="🌐 Отчёт в вебе", url=_admin_button_url)]
+                            ]))
                         except Exception:
                             pass
-
+                    await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=_daily_markup)
+                    await asyncio.sleep(0.05)
+                    await current_db.add_notification_to_history(user_id, 'daily_report', message)
                     try:
-                        if is_any_admin(telegram_id):
-                            from db_utils import get_user_org_scope
-                            _sct, _scv = get_user_org_scope(telegram_id)
-                            message = await build_admin_daily_text(
-                                current_db, yesterday, shop_name,
-                                scope_type=_sct, scope_values=_scv,
-                                staff_link_base=_admin_staff_link_base,
-                            )
-                        else:
-                            message = await build_user_daily_text(
-                                current_db, user_id, yesterday, shop_name
-                            )
-                    except Exception as e:
-                        logging.error(f"send_daily_reports: ошибка формирования текста для {telegram_id}: {e}")
-                        sales = await current_db.get_user_sales_by_date(user_id, yesterday, yesterday)
-                        message = f"📊 <b>Ежедневный отчёт за {yesterday}</b>\n\n"
-                        if shop_name:
-                            message += f"🏪 Магазин: {he(shop_name)}\n\n"
-                        if sales:
-                            total_revenue = sum(s[4] for s in sales if s[4])
-                            message += f"📦 Продано: {sum(s[3] for s in sales)} шт.\n💰 Выручка: {total_revenue:,.2f} ₽"
-                        else:
-                            message += "ℹ️ Продаж не было."
-
-                    try:
-                        _daily_markup = add_read_btn()
-                        if _admin_button_url:
-                            try:
-                                from aiogram.types import InlineKeyboardMarkup as _IKM, InlineKeyboardButton as _IKB
-                                _daily_markup = add_read_btn(_IKM(inline_keyboard=[
-                                    [_IKB(text="🌐 Отчёт в вебе", url=_admin_button_url)]
-                                ]))
-                            except Exception:
-                                pass
-                        await bot.send_message(telegram_id, message, parse_mode="HTML", reply_markup=_daily_markup)
-                        await asyncio.sleep(0.05)
-                        await current_db.add_notification_to_history(user_id, 'daily_report', message)
-                        try:
-                            from web.push_utils import send_web_push
-                            from web.routes.api import _notif_url as _nu
-                            _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
-                            _push_url = _nu("daily_report", message)
-                            await asyncio.to_thread(send_web_push, telegram_id, "📊 Ежедневный отчёт", _pb, _push_url)
-                        except Exception:
-                            pass
-                    except Exception as _send_err:
-                        logging.warning(f"send_daily_reports: skip {telegram_id}: {_send_err}")
-            except Exception:
+                        from web.push_utils import send_web_push
+                        from web.routes.api import _notif_url as _nu
+                        _pb = re.sub(r'<[^>]+>', '', message)[:120].strip()
+                        _push_url = _nu("daily_report", message)
+                        await asyncio.to_thread(send_web_push, telegram_id, "📊 Ежедневный отчёт", _pb, _push_url)
+                    except Exception:
+                        pass
+                except Exception as _send_err:
+                    logging.warning(f"send_daily_reports: skip {telegram_id}: {_send_err}")
+            except Exception as e:
+                logging.error(f"send_daily_reports: пропуск записи: {e}")
                 continue
     except Exception as e:
         logging.error(f"Error in send_daily_reports: {e}")

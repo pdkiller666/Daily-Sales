@@ -516,6 +516,11 @@ async def settings_save(
                 notification_time=notification_time or "09:00",
                 auto_tasks_low_stock=1 if auto_tasks_low_stock == "on" else 0,
             )
+            try:
+                from main import _invalidate_sched_index
+                _invalidate_sched_index()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -545,6 +550,11 @@ async def settings_timezone(
         try:
             db = get_web_db(telegram_id, org_db)
             db.set_user_timezone(telegram_id, tz)
+            try:
+                from main import _invalidate_sched_index
+                _invalidate_sched_index()
+            except Exception:
+                pass
         except Exception:
             pass
 
