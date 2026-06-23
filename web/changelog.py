@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.162.0"
+CURRENT_VERSION = "1.163.0"
 
 ENTRIES = [
+    {
+        "version": "1.163.0",
+        "date": "23 июня 2026",
+        "items": [
+            "Add real-time chat message delivery using WebSockets",
+        ],
+    },
     {
         "version": "1.162.0",
         "date": "23 июня 2026",

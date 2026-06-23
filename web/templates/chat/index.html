@@ -330,6 +330,7 @@ html.dark .search-result-item mark { background:#713f12; }
 <script>
 const _chatTopics    = {{ topics | tojson }};
 const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batch */
+const _initPinned    = {{ pinned | tojson }};    /* закреплённое сообщение темы (или null) */
 </script>
 
 <div id="chat-wrapper" class="flex flex-col bg-white dark:bg-slate-900 relative"
@@ -582,6 +583,26 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
             </div>
         </div>
 
+        <!-- Закреплённое сообщение (бар вверху темы) -->
+        <div x-show="pinnedMsg" x-cloak
+             class="sticky top-0 z-[5] -mx-4 sm:-mx-6 px-4 sm:px-6 py-2 mb-2
+                    bg-amber-50/95 dark:bg-amber-900/30 backdrop-blur
+                    border-b border-amber-200 dark:border-amber-700/50
+                    flex items-center gap-2">
+            <span class="text-amber-500 dark:text-amber-400 shrink-0" title="Закреплено">📌</span>
+            <button type="button" @click="pinnedMsg && scrollToMsg(pinnedMsg.id)"
+                    class="flex-1 min-w-0 text-left">
+                <span class="block text-[10px] font-semibold text-amber-700 dark:text-amber-300 truncate"
+                      x-text="pinnedMsg ? pinnedMsg.display_name : ''"></span>
+                <span class="block text-xs text-slate-600 dark:text-slate-300 truncate"
+                      x-text="pinnedMsg ? (pinnedMsg.message || (pinnedMsg.has_file ? '📎 ' + (pinnedMsg.file_name || 'Вложение') : '')) : ''"></span>
+            </button>
+            <button type="button" x-show="pinnedMsg && pinnedMsg.can_pin"
+                    @click="unpinMessage(pinnedMsg.id)"
+                    class="shrink-0 text-[12px] text-amber-600 dark:text-amber-400 px-1 touch-manipulation"
+                    title="Открепить">✕</button>
+        </div>
+
         <!-- All messages — single unified Alpine template -->
         <template x-for="msg in msgs" :key="msg.id">
             <div class="flex gap-2.5 mb-3"
@@ -680,6 +701,11 @@ const _initMessages  = {{ messages | tojson }};  /* server-rendered initial batc
                                 class="text-[12px] leading-none touch-manipulation px-0.5"
                                 :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
                                 title="Редактировать">✎</button>
+                        <button x-show="msg.can_pin"
+                                @click="togglePin(msg)"
+                                class="text-[12px] leading-none touch-manipulation px-0.5"
+                                :class="(pinnedMsg && pinnedMsg.id === msg.id) ? 'text-amber-500' : (msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500')"
+                                :title="(pinnedMsg && pinnedMsg.id === msg.id) ? 'Открепить' : 'Закрепить'">📌</button>
                         <button x-show="msg.can_delete"
                                 @click="deleteMsg(msg.id)"
                                 class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
@@ -1216,6 +1242,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             return !!(t && t.is_ai);
         },
         msgs:             [],          /* single source of truth for all messages */
+        pinnedMsg:        (typeof _initPinned !== 'undefined' ? _initPinned : null) || null,
         loadingTopic:     false,
         myUserId,
         isAdmin,
@@ -1505,6 +1532,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                     }
                 }
 
+                /* закреплённое сообщение — синхронизация бара (закреп/откреп другими) */
+                this.pinnedMsg = data.pinned || null;
+
                 /* счётчики непрочитанного по темам.
                    Пока вкладка скрыта — текущая тема тоже копит непрочитанное. */
                 if (data.topic_unread && typeof data.topic_unread === 'object') {
@@ -1561,12 +1591,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
             let loaded = [];
             let loadedLatest = 0;
+            let loadedPinned = null;
             try {
                 const res = await fetch(`/chat/topics/${topicId}/messages`);
                 const data = await res.json();
                 if (data.ok) {
                     loaded = data.messages;
                     loadedLatest = data.latest_id;
+                    loadedPinned = data.pinned || null;
                 }
             } catch(e) {}
 
@@ -1574,6 +1606,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (seq !== this._topicReqSeq) return;
 
             this.msgs = loaded;
+            this.pinnedMsg = loadedPinned;
             this.latestId = loadedLatest;
             this.currentTopicId = topicId;
             const found = this.topicsList.find(t => t.id === topicId);
@@ -2371,6 +2404,28 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         scrollToMsg(id) {
             const el = document.getElementById('msg-' + id);
             if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); this._flashMsg(el); }
+        },
+        /* ── Закрепление сообщений (группа) ── */
+        async togglePin(msg) {
+            const isPinned = this.pinnedMsg && this.pinnedMsg.id === msg.id;
+            await this._setPin(msg.id, isPinned ? 0 : 1);
+        },
+        async unpinMessage(id) {
+            await this._setPin(id, 0);
+        },
+        async _setPin(id, pinned) {
+            try {
+                const fd = new FormData();
+                fd.append('csrf_token', this.csrfToken);
+                fd.append('pinned', pinned);
+                const res = await fetch(`/chat/message/${id}/pin`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.ok) {
+                    this.pinnedMsg = data.pinned || null;
+                } else {
+                    alert(data.error || 'Не удалось закрепить');
+                }
+            } catch(e) { alert('Ошибка соединения'); }
         },
         scrollToDmMsg(id) {
             const el = document.querySelector('[data-dmid="' + id + '"]');

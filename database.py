@@ -12740,7 +12740,7 @@ class Database:
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
                    u.first_name, u.last_name, u.username,
-                   m.is_session_break, m.is_ai_summary, m.edited_at, m.reply_to_id
+                   m.is_session_break, m.is_ai_summary, m.is_pinned, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ?
@@ -12759,7 +12759,7 @@ class Database:
         cursor.execute('''
             SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
                    m.file_type, m.file_size, m.created_at,
-                   u.first_name, u.last_name, u.username, m.edited_at, m.reply_to_id
+                   u.first_name, u.last_name, u.username, m.is_pinned, m.edited_at, m.reply_to_id
             FROM chat_messages m
             LEFT JOIN users u ON u.id = m.user_id
             WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.id > ?
@@ -12818,6 +12818,48 @@ class Database:
         conn.commit()
         conn.close()
         return affected > 0
+
+    def set_chat_message_pinned(self, msg_id: int, pinned: bool) -> bool:
+        """Закрепить/открепить сообщение темы (проверка прав — в роуте)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        if pinned:
+            cursor.execute(
+                """UPDATE chat_messages SET is_pinned = 1, pinned_at = datetime('now')
+                   WHERE id = ? AND is_deleted = 0""",
+                (msg_id,)
+            )
+        else:
+            cursor.execute(
+                "UPDATE chat_messages SET is_pinned = 0, pinned_at = NULL WHERE id = ?",
+                (msg_id,)
+            )
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return affected > 0
+
+    def get_pinned_chat_messages(self, topic_id: int, limit: int = 1) -> list:
+        """Закреплённые сообщения темы (последний закреп первым).
+
+        Колонки совпадают с get_chat_messages_since (is_pinned=row[-3],
+        edited_at=row[-2], reply_to_id=row[-1]) — можно передавать в _fmt_msg.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.id, m.user_id, m.message, m.file_path, m.file_name,
+                   m.file_type, m.file_size, m.created_at,
+                   u.first_name, u.last_name, u.username, m.is_pinned, m.edited_at, m.reply_to_id
+            FROM chat_messages m
+            LEFT JOIN users u ON u.id = m.user_id
+            WHERE m.is_deleted = 0 AND m.topic_id = ? AND m.is_pinned = 1
+            ORDER BY m.pinned_at DESC, m.id DESC
+            LIMIT ?
+        ''', (topic_id, limit))
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
 
     def get_chat_edited_since(self, topic_id: int, since_ts: str) -> list:
         """Сообщения темы, отредактированные после since_ts (для polling-синхрона).

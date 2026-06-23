@@ -824,14 +824,19 @@ web/
                          GET /chat/file/attachment/{id},
                          POST /chat/message/{id}/delete, POST /chat/topics/create,
                          POST /chat/topics/{id}/rename, POST /chat/topics/{id}/archive,
+                         POST /chat/message/{id}/react   ← реакции-эмодзи (toggle)
+                         POST /chat/message/{id}/edit    ← правка автором (метка «изм.»)
+                         POST /chat/message/{id}/pin     ← закреп/откреп (admin или автор); бар вверху темы; ТОЛЬКО группы (DM без pin)
                          GET /chat/search?q=&topic_id=  ← поиск (topic_id=0 = темы+DM)
+                         WS  /ws/topic  ← «поке» {type:'new'} → клиент делает poll
                          ── DM (Direct Messages) ──
                          GET /chat/dm, GET /chat/dm/{peer_id},
                          GET /chat/dm/file/{msg_id}, GET /chat/dm/file/attachment/{att_id},
                          POST /chat/dm/send, POST /chat/dm/{msg_id}/delete,
+                         POST /chat/dm/{msg_id}/react, POST /chat/dm/{msg_id}/edit,
                          GET /api/dm/contacts, GET /api/dm/members,
                          GET /api/dm/conversation/{peer_id},
-                         WS  /ws/chat/dm  ← WebSocket (read-receipts + real-time)
+                         WS  /ws/chat/dm  ← WebSocket (read-receipts + real-time + reaction/edit)
                         ── AI Sessions ──
                         POST /chat/ai/reset         ← явный разрыв AI DM сессии (CSRF)
                         POST /chat/topic/ai/reset   ← явный разрыв AI chat-темы (CSRF)
@@ -961,6 +966,7 @@ web/
 - **Event-loop offload (web)**: тяжёлые/блокирующие пути не держат event loop: admin delete-org / create-backup объявлены `def` (FastAPI исполняет в threadpool); цикл записи продаж в `pos_checkout` вынесен в `anyio.to_thread.run_sync`. Соединения `check_same_thread=False` + threading.local pool — thread-safe
 - **Browser notifications**: polling `/api/sales-feed?since=ISO` every 60s; permission prompt in «Ещё» sheet; `localStorage.ds_notif_since` checkpoint; fires only when `document.hidden`
 - **Internal org chat (DM)**: `direct_messages` table in org_*.db; 9 DB-methods (add_dm, get_dm_conversation, get_dm_contacts, get_dm_org_members, mark_dm_read, get_dm_unread_count, get_dm_message, soft_delete_dm, search_dm_messages) + 4 file methods; WS /ws/chat/dm for real-time delivery; `chat_search?topic_id=0` merges topic+DM results; FAB badge = topicNew + dmUnread (`/api/unread-count .dms`)
+- **Messenger-feel upgrade (чат, фазированно)**: реакции-эмодзи (`message_reactions`/`dm_reactions`, toggle, чипы + bulk-load) · ответы/цитаты (`reply_to_id`, кликабельная цитата → скролл к оригиналу) · упоминания `@имя` (резолв в участников, адресный web push + подсветка, автокомплит) · правка автором (`edited_at`, метка «изм.») · **live-доставка тем по WS** (`/ws/topic` + `TopicConnectionManager`: «поке» `{type:'new'}` из async `chat_send` → клиент делает мгновенный per-user `poll()`; poll = 4-сек фоллбэк; sync edit/delete/react остаются на poll). Все фичи зеркалятся: группы (chat_messages, poll/poke) ↔ ЛС (direct_messages, WS). Детали — `.agents/memory/chat-*.md`
 - **Dark mode**: early script in `<head>` sets `.dark` on `<html>` from `localStorage.ds_dark` (no flash); `tailwind.config={darkMode:'class'}`; 80+ CSS overrides in `<style>` for all UI regions; 🌙/☀️ toggle in topbar + CSS toggle switch in More sheet; `dsToggleDark()` persists to localStorage; `Alt+D` keyboard shortcut
 - **Keyboard shortcuts**: `Alt+D` dark mode; `Alt+N` primary action; `/` focus search; `Escape` close sheet; `?` show hint overlay (3.5s)
 - **Security headers**: `SecurityHeadersMiddleware` in `web/app.py` adds to every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(self)`, `X-XSS-Protection: 1; mode=block`; HSTS (`Strict-Transport-Security: max-age=31536000`) fires only when `request.url.scheme == "https"` — safe for both dev and prod. **⚠️ camera=(self)** — пустые скобки `camera=()` молча блокируют getUserMedia без промпта и без записи в разрешениях браузера; всегда разрешать камеру для своего origin
