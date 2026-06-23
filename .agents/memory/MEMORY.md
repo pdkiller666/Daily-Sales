@@ -62,6 +62,7 @@
 - [AI DM replies break unread counter](dm-ai-unread.md) — AI-ответы в ЛС (from_user_id=0) счётчик считает, а mark-read/contacts по from_user_id их теряли; трактовать как переписку с ai_peer_id
 - [Dedicated AI DM thread](ai-dedicated-dm-thread.md) — AI вынесен в отдельного собеседника: routing peer=-1, storage from=0/to=0+ai_peer_id=0; legacy in-dialog (ai_peer_id>=1) не трогать; гейт _ai_ext_ok на всех AI-путях
 - [Dedicated AI chat topic](ai-chat-topic.md) — org-chat AI переехал из префикса @ии в выделенную тему (chat_topics.is_ai, partial UNIQUE); триггер = topic==get_ai_topic_id(); воркер повторно гейтит has_extension
+- [AI session-break in ALL loaders](ai-session-break-loaders.md) — «Новый диалог» вставляет break-маркер, не удаляет; каждый display/poll-загрузчик AI обязан клампить since_id на последний break, иначе диалог возвращается после перезахода
 - [Comprehensive audit 2026-06-17](audit-2026-06.md) — итоги 4-этапного аудита: что исправлено, что уже было OK, что осознанно отложено
 - [AI prompt engineering conventions](ai-prompt-conventions.md) — температура по задаче, anti-hallucination clause, min-length retry, адаптивный max_tokens для отчётов
 - [Label design presets](label-presets.md) — пресеты ценников = отдельная библиотека поверх активного singleton; apply копирует в singleton; поля не из формы (logo_path) мёржить из активных настроек иначе apply обнулит

@@ -783,7 +783,13 @@ def chat_page(request: Request, topic: int = 1):
             )
 
             is_admin = user.get("role") in ("owner", "admin", "super_admin")
-            rows = db.get_chat_messages(limit=50, topic_id=topic)
+            _ai_since = 0
+            try:
+                if db.get_ai_topic_id() == topic:
+                    _ai_since = db.get_last_ai_chat_session_break_id(topic)
+            except Exception:
+                _ai_since = 0
+            rows = db.get_chat_messages(limit=50, topic_id=topic, since_id=_ai_since)
             ctx["messages"] = [_fmt_msg(r, my_db_id=user_db_id or 0, is_admin=is_admin) for r in rows]
             ctx["latest_id"] = db.get_chat_latest_id(topic_id=topic)
 
@@ -950,7 +956,13 @@ def chat_poll(request: Request, since_id: int = 0, topic_id: int = 1, del_since:
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
-        rows = db.get_chat_messages_since(since_id, topic_id=topic_id)
+        eff_since = since_id
+        try:
+            if db.get_ai_topic_id() == topic_id:
+                eff_since = max(since_id, db.get_last_ai_chat_session_break_id(topic_id))
+        except Exception:
+            eff_since = since_id
+        rows = db.get_chat_messages_since(eff_since, topic_id=topic_id)
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
         msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
@@ -1009,7 +1021,13 @@ def chat_topic_messages(request: Request, topic_id: int):
 
         user_db_id = _get_user_db_id(db, telegram_id) or 0
         is_admin = user.get("role") in ("owner", "admin", "super_admin")
-        rows = db.get_chat_messages(limit=50, topic_id=topic_id)
+        _ai_since = 0
+        try:
+            if db.get_ai_topic_id() == topic_id:
+                _ai_since = db.get_last_ai_chat_session_break_id(topic_id)
+        except Exception:
+            _ai_since = 0
+        rows = db.get_chat_messages(limit=50, topic_id=topic_id, since_id=_ai_since)
         msg_ids = [r[0] for r in rows]
         files_map = _load_msg_files_bulk(db, msg_ids)
         msgs = [_fmt_msg(r, my_db_id=user_db_id, is_admin=is_admin, files=files_map.get(r[0])) for r in rows]
@@ -1787,7 +1805,8 @@ def api_dm_conversation(request: Request, peer_id: int, before_id: int = 0):
         if peer_id == AI_PEER_ID:
             if not _ai_ext_ok(db, telegram_id):
                 return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=403)
-            rows = db.get_ai_dm_conversation(user_db_id, limit=51, before_id=before_id)
+            ai_break_id = db.get_last_ai_dm_session_break_id(user_db_id)
+            rows = db.get_ai_dm_conversation(user_db_id, limit=51, before_id=before_id, since_id=ai_break_id)
         elif peer_id <= 0:
             # peer_id=0 — технический «AI-маркер» в хранилище, не реальный диалог.
             return JSONResponse({"ok": False, "messages": [], "has_more": False}, status_code=400)
