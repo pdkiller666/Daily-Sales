@@ -854,19 +854,21 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     <template x-if="msg.files && msg.files.length > 0">
                         <div class="mt-1.5 flex flex-col gap-1">
                             <template x-for="f in msg.files" :key="f.id + '_' + f.file_name">
-                                <template x-if="f.is_image">
-                                    <a :href="f.file_url" target="_blank">
-                                        <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
-                                    </a>
-                                </template>
-                                <template x-if="f.is_audio">
-                                    <voice-msg :src="f.file_url"></voice-msg>
-                                </template>
-                                <template x-if="!f.is_image && !f.is_audio">
-                                    <a :href="f.file_url" target="_blank" class="attach-chip">
-                                        <span>📎</span><span class="truncate" x-text="f.file_name"></span>
-                                    </a>
-                                </template>
+                                <div>
+                                    <template x-if="f.is_image">
+                                        <a :href="f.file_url" target="_blank">
+                                            <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
+                                        </a>
+                                    </template>
+                                    <template x-if="f.is_audio">
+                                        <voice-msg :src="f.file_url"></voice-msg>
+                                    </template>
+                                    <template x-if="!f.is_image && !f.is_audio">
+                                        <a :href="f.file_url" target="_blank" class="attach-chip">
+                                            <span>📎</span><span class="truncate" x-text="f.file_name"></span>
+                                        </a>
+                                    </template>
+                                </div>
                             </template>
                         </div>
                     </template>
@@ -1249,19 +1251,21 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                         <template x-if="m.files && m.files.length > 0">
                                             <div class="mb-1 flex flex-col gap-1">
                                                 <template x-for="f in m.files" :key="f.id + '_' + f.file_name">
-                                                    <template x-if="f.is_image">
-                                                        <a :href="f.file_url" target="_blank">
-                                                            <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
-                                                        </a>
-                                                    </template>
-                                                    <template x-if="f.is_audio">
-                                                        <voice-msg :src="f.file_url"></voice-msg>
-                                                    </template>
-                                                    <template x-if="!f.is_image && !f.is_audio">
-                                                        <a :href="f.file_url" target="_blank" class="attach-chip">
-                                                            <span>📎</span><span class="truncate" x-text="f.file_name"></span>
-                                                        </a>
-                                                    </template>
+                                                    <div>
+                                                        <template x-if="f.is_image">
+                                                            <a :href="f.file_url" target="_blank">
+                                                                <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
+                                                            </a>
+                                                        </template>
+                                                        <template x-if="f.is_audio">
+                                                            <voice-msg :src="f.file_url"></voice-msg>
+                                                        </template>
+                                                        <template x-if="!f.is_image && !f.is_audio">
+                                                            <a :href="f.file_url" target="_blank" class="attach-chip">
+                                                                <span>📎</span><span class="truncate" x-text="f.file_name"></span>
+                                                            </a>
+                                                        </template>
+                                                    </div>
                                                 </template>
                                             </div>
                                         </template>
@@ -2314,7 +2318,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 /* Если переслали в открытый сейчас ЛС-диалог — показать сразу */
                 if (dstKind === 'dm' && this.dmMode && data.message && data.peer_id === this.dmPeerId) {
                     const ids = new Set(this.dmMessages.map(m => m.id));
-                    if (!ids.has(data.message.id)) this.dmMessages.push(data.message);
+                    if (!ids.has(data.message.id)) this.dmMessages.push({...data.message, created_at: this._localTs(data.message.created_at)});
                     this.$nextTick(() => this.scrollDmBottom(true));
                 }
                 this.closeForward();
@@ -2525,9 +2529,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 const res = await fetch(url);
                 const data = await res.json();
                 if (data.ok) {
+                    const _cvt = (msgs) => (msgs || []).map(m => ({...m, created_at: this._localTs(m.created_at)}));
                     this.dmMessages = beforeId
-                        ? [...(data.messages || []), ...this.dmMessages]
-                        : (data.messages || []);
+                        ? [..._cvt(data.messages), ...this.dmMessages]
+                        : _cvt(data.messages);
                     this.dmHasMore = !!data.has_more;
                 }
             } catch(e) {}
@@ -2595,7 +2600,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         clearTimeout(this._dmAiThinkingTimer);
                         this._dmAiThinkingTimer = setTimeout(() => { this.dmAiThinking = false; }, 60000);
                     }
-                    this.dmMessages.push({...data.message, is_mine: true, can_delete: true});
+                    /* Override server UTC timestamp with JS local time (same as WS fast path) */
+                    const _now = new Date();
+                    const _ts = String(_now.getDate()).padStart(2,'0') + '.'
+                              + String(_now.getMonth()+1).padStart(2,'0') + '.'
+                              + _now.getFullYear() + ' '
+                              + String(_now.getHours()).padStart(2,'0') + ':'
+                              + String(_now.getMinutes()).padStart(2,'0');
+                    this.dmMessages.push({...data.message, is_mine: true, can_delete: true, created_at: _ts});
                     this.dmText = '';
                     this.dmClearFile();
                     this._dmScrollBottom();
@@ -2758,6 +2770,21 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 }
             }
         },
+        /* Convert server UTC timestamp "DD.MM.YYYY HH:MM" → local time string */
+        _localTs(s) {
+            try {
+                const [dt, tm] = (s || '').split(' ');
+                const [d, m, y] = dt.split('.');
+                const [h, mn]  = tm.split(':');
+                const utc = new Date(Date.UTC(+y, +m - 1, +d, +h, +mn));
+                if (isNaN(utc)) return s || '';
+                return String(utc.getDate()).padStart(2,'0') + '.'
+                     + String(utc.getMonth()+1).padStart(2,'0') + '.'
+                     + utc.getFullYear() + ' '
+                     + String(utc.getHours()).padStart(2,'0') + ':'
+                     + String(utc.getMinutes()).padStart(2,'0');
+            } catch(e) { return s || ''; }
+        },
         _dmWsSend(obj) {
             if (this.dmWs && this.dmWs.readyState === WebSocket.OPEN)
                 this.dmWs.send(JSON.stringify(obj));
@@ -2792,7 +2819,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         has_file: !!data.has_file, is_image: !!data.is_image,
                         file_url: data.file_url || '', file_name: data.file_name || '',
                         files: data.files || [],
-                        created_at: data.created_at || '', is_mine: false, can_delete: false,
+                        created_at: this._localTs(data.created_at), is_mine: false, can_delete: false,
                         is_ai: isAi, is_ai_error: !!data.is_ai_error,
                         reply: data.reply || null,
                         forwarded_from: data.forwarded_from || '',

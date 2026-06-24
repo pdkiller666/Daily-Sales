@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.172.0"
+CURRENT_VERSION = "1.173.0"
 
 ENTRIES = [
+    {
+        "version": "1.173.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Add a message context menu and improve deployment stability",
+        ],
+    },
     {
         "version": "1.172.0",
         "date": "24 июня 2026",
