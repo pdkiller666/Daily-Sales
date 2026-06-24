@@ -167,6 +167,25 @@ html.dark .chat-code { background:rgba(15,23,42,.55);color:#e2e8f0; }
 .chat-link { color:#2563eb;text-decoration:underline;word-break:break-all; }
 html.dark .chat-link { color:#93c5fd; }
 .msg-mine .chat-link, .dm-bubble-mine .chat-link { color:#fff;text-decoration:underline; }
+.link-preview-card { display:flex;flex-direction:column;margin-top:6px;max-width:320px;
+                     border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;
+                     background:#f8fafc;text-decoration:none;transition:background .15s; }
+.link-preview-card:hover { background:#f1f5f9; }
+html.dark .link-preview-card { border-color:#334155;background:#1e293b; }
+html.dark .link-preview-card:hover { background:#243245; }
+.msg-mine .link-preview-card, .dm-bubble-mine .link-preview-card { border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.12); }
+.msg-mine .link-preview-card:hover, .dm-bubble-mine .link-preview-card:hover { background:rgba(255,255,255,.2); }
+.link-preview-img { width:100%;max-height:160px;object-fit:cover;background:#e2e8f0; }
+.link-preview-body { padding:8px 10px;min-width:0; }
+.link-preview-site { font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.02em;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+html.dark .link-preview-site { color:#94a3b8; }
+.msg-mine .link-preview-site, .dm-bubble-mine .link-preview-site { color:rgba(255,255,255,.75); }
+.link-preview-title { font-size:13px;font-weight:600;color:#0f172a;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+html.dark .link-preview-title { color:#e2e8f0; }
+.msg-mine .link-preview-title, .dm-bubble-mine .link-preview-title { color:#fff; }
+.link-preview-desc { font-size:12px;color:#475569;line-height:1.35;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+html.dark .link-preview-desc { color:#94a3b8; }
+.msg-mine .link-preview-desc, .dm-bubble-mine .link-preview-desc { color:rgba(255,255,255,.85); }
 .mention-dropdown { position:absolute;bottom:calc(100% + 6px);left:0;z-index:40;
                     width:min(280px,90vw);max-height:220px;overflow-y:auto;
                     background:#fff;border:1px solid #e2e8f0;border-radius:12px;
@@ -696,7 +715,20 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     </template>
                     <!-- Text -->
                     <template x-if="msg.message && editId !== msg.id">
-                        <p class="text-sm leading-relaxed whitespace-pre-wrap" x-html="formatMsg(msg.message)"></p>
+                        <p class="text-sm leading-relaxed whitespace-pre-wrap" x-html="formatMsg(msg.message)" x-init="loadLinkPreview('g'+msg.id, msg.message)"></p>
+                    </template>
+                    <!-- Link preview (OpenGraph) -->
+                    <template x-if="linkPreviews['g'+msg.id] && linkPreviews['g'+msg.id].title">
+                        <a :href="linkPreviews['g'+msg.id].url" target="_blank" rel="noopener noreferrer" class="link-preview-card">
+                            <template x-if="linkPreviews['g'+msg.id].image">
+                                <img :src="linkPreviews['g'+msg.id].image" class="link-preview-img" loading="lazy" referrerpolicy="no-referrer">
+                            </template>
+                            <div class="link-preview-body">
+                                <div class="link-preview-site" x-show="linkPreviews['g'+msg.id].site_name" x-text="linkPreviews['g'+msg.id].site_name"></div>
+                                <div class="link-preview-title" x-text="linkPreviews['g'+msg.id].title"></div>
+                                <div class="link-preview-desc" x-show="linkPreviews['g'+msg.id].description" x-text="linkPreviews['g'+msg.id].description"></div>
+                            </div>
+                        </a>
                     </template>
                     <!-- Edit mode -->
                     <template x-if="editId === msg.id">
@@ -1135,7 +1167,20 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                             </a>
                                         </template>
                                         <!-- Text -->
-                                        <span x-show="m.message && dmEditId !== m.id" x-html="formatMsg(m.message)"></span>
+                                        <span x-show="m.message && dmEditId !== m.id" x-html="formatMsg(m.message)" x-init="loadLinkPreview('d'+m.id, m.message)"></span>
+                                        <!-- Link preview (OpenGraph) -->
+                                        <template x-if="linkPreviews['d'+m.id] && linkPreviews['d'+m.id].title">
+                                            <a :href="linkPreviews['d'+m.id].url" target="_blank" rel="noopener noreferrer" class="link-preview-card">
+                                                <template x-if="linkPreviews['d'+m.id].image">
+                                                    <img :src="linkPreviews['d'+m.id].image" class="link-preview-img" loading="lazy" referrerpolicy="no-referrer">
+                                                </template>
+                                                <div class="link-preview-body">
+                                                    <div class="link-preview-site" x-show="linkPreviews['d'+m.id].site_name" x-text="linkPreviews['d'+m.id].site_name"></div>
+                                                    <div class="link-preview-title" x-text="linkPreviews['d'+m.id].title"></div>
+                                                    <div class="link-preview-desc" x-show="linkPreviews['d'+m.id].description" x-text="linkPreviews['d'+m.id].description"></div>
+                                                </div>
+                                            </a>
+                                        </template>
                                         <!-- Edit mode -->
                                         <template x-if="dmEditId === m.id">
                                             <span class="block mt-1">
@@ -1368,6 +1413,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         forwardSrcKind: '',   /* 'topic' | 'dm' источника */
         forwardSrcId:   0,
         forwardSending: false,
+
+        /* ── link previews (OpenGraph) ── */
+        linkPreviews:  {},
 
         /* ── edit ── */
         editId: null,         /* id редактируемого сообщения (группа) */
@@ -2464,6 +2512,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (data.ok) {
                     const idx = this.msgs.findIndex(m => m.id === msg.id);
                     if (idx >= 0) this.msgs[idx] = { ...this.msgs[idx], message: data.message, edited: true };
+                    delete this.linkPreviews['g'+msg.id];  /* перечитать превью для нового текста */
                     this.cancelEdit();
                 } else {
                     alert(data.error || 'Не удалось изменить сообщение');
@@ -2492,6 +2541,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                 if (data.ok) {
                     const idx = this.dmMessages.findIndex(x => x.id === m.id);
                     if (idx >= 0) this.dmMessages[idx] = { ...this.dmMessages[idx], message: data.message, edited: true };
+                    delete this.linkPreviews['d'+m.id];  /* перечитать превью для нового текста */
                     this.cancelDmEdit();
                 } else {
                     alert(data.error || 'Не удалось изменить сообщение');
@@ -2599,6 +2649,25 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         scrollToDmMsg(id) {
             const el = document.querySelector('[data-dmid="' + id + '"]');
             if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); this._flashMsg(el); }
+        },
+        /* ── превью ссылок (OpenGraph) ── */
+        extractUrl(text) {
+            if (!text) return '';
+            const m = text.match(/https?:\/\/[^\s<>"']+/i);
+            if (!m) return '';
+            /* отрезаем хвостовую пунктуацию */
+            return m[0].replace(/[.,!?;:)\]}»"'>]+$/, '');
+        },
+        loadLinkPreview(key, text) {
+            /* идемпотентно: undefined = ещё не пробовали, false = пусто/нет превью */
+            if (this.linkPreviews[key] !== undefined) return;
+            const url = this.extractUrl(text);
+            if (!url) { this.linkPreviews[key] = false; return; }
+            this.linkPreviews[key] = false; /* помечаем «в процессе» */
+            fetch('/api/chat/link-preview?url=' + encodeURIComponent(url))
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d && d.ok && d.preview && d.preview.title) this.linkPreviews[key] = d.preview; })
+                .catch(() => {});
         },
         /* ── @упоминания ── */
         formatMsg(text) {

@@ -2341,6 +2341,37 @@ def api_dm_members(request: Request):
         return JSONResponse({"ok": False, "members": []})
 
 
+# ── API: OpenGraph link preview (JSON) ────────────────────────────────────────
+
+_LINK_PREVIEW_RATE: dict[int, list[float]] = {}
+
+
+@router.get("/api/chat/link-preview")
+async def api_link_preview(request: Request, url: str = ""):
+    """Вернуть OG-превью первой http(s)-ссылки. Кэш + SSRF-защита в link_preview.py."""
+    from web.auth import get_session_user
+
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"ok": False}, status_code=401)
+
+    telegram_id = int(user["sub"])
+    if _get_chat_min_plan() == "Отключён" or not _chat_access_ok(telegram_id):
+        return JSONResponse({"ok": False}, status_code=403)
+    if not _rate_ok(_LINK_PREVIEW_RATE, telegram_id, 40, 60.0):
+        return JSONResponse({"ok": False}, status_code=429)
+
+    try:
+        from web.link_preview import get_preview
+        data = await get_preview(url)
+        if not data or not data.get("ok"):
+            return JSONResponse({"ok": False})
+        return JSONResponse({"ok": True, "preview": data})
+    except Exception as exc:
+        logger.error(f"api_link_preview error: {exc}")
+        return JSONResponse({"ok": False})
+
+
 # ── API: contacts (JSON) ──────────────────────────────────────────────────────
 
 @router.get("/api/dm/contacts")

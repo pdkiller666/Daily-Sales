@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.166.0"
+CURRENT_VERSION = "1.167.0"
 
 ENTRIES = [
+    {
+        "version": "1.167.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Add ability to view multiple files in direct messages",
+        ],
+    },
     {
         "version": "1.166.0",
         "date": "24 июня 2026",
