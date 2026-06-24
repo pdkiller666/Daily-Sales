@@ -87,3 +87,4 @@
 - [Chat pinned messages](chat-pinned-messages.md) — закреп ТОЛЬКО в группах (DM без pin-колонок); новую хвостовую колонку ленты вставлять ПЕРЕД edited_at в ОБОИХ feed-SELECT → читать row[-3]/-2/-1; клиентский pinnedMsg через локальную переменную (race)
 - [AsyncDatabase double-wrap](async-db-double-wrap.md) — get_db() возвращает AsyncDatabase (сама оборачивает методы в to_thread); asyncio.to_thread(current_db.method) = двойная обёртка → coroutine вместо результата (truthy/TypeError); всегда await current_db.method()
 - [Schedule Index notif scheduler](schedule-index.md) — минутные джобы читают in-memory индекс {type:{(hhmm,tz):[entry]}} вместо скана всех org-баз; dirty-флагом владеет только _ensure (снимать ДО сборки); per-entry try обязателен
+- [Chat voice messages player](chat-voice-messages.md) — кастомный <voice-msg> заменил нативный <audio>; чинит webm Infinity-duration (currentTime=1e101); button НЕ наследует color → нужен color:inherit

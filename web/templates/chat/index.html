@@ -210,8 +210,21 @@ html.dark .mention-item-name { color:#e2e8f0; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
 /* ── Files ── */
 .file-preview-img { max-height:200px;border-radius:0.5rem;cursor:pointer; }
-.voice-player { width:min(260px,70vw);height:38px;outline:none; }
-.msg-mine .voice-player, .dm-bubble-mine .voice-player { filter:invert(1) hue-rotate(180deg); }
+/* ── Голосовое сообщение (кастомный плеер) ── */
+voice-msg { display:block;margin-top:2px; }
+.vmsg { display:flex;align-items:center;gap:9px;width:min(240px,64vw);padding:3px 2px;color:inherit; }
+.vmsg-btn { flex:0 0 auto;width:34px;height:34px;border:none;cursor:pointer;padding:0;border-radius:50%;color:inherit;
+            display:flex;align-items:center;justify-content:center;background:currentColor; }
+.vmsg-btn svg { width:16px;height:16px;display:block; }
+.vmsg-btn svg path { fill:#fff; }
+.msg-mine .vmsg-btn svg path, .dm-bubble-mine .vmsg-btn svg path { fill:#2563eb; }
+.vmsg-mid { flex:1;min-width:0;display:flex;flex-direction:column;gap:3px; }
+.vmsg-track { height:4px;border-radius:2px;background:rgba(148,163,184,.45);position:relative;cursor:pointer; }
+.vmsg-fill { position:absolute;left:0;top:0;bottom:0;width:0;border-radius:2px;background:currentColor; }
+.vmsg-dot { position:absolute;top:50%;width:10px;height:10px;border-radius:50%;background:currentColor;
+            transform:translate(-50%,-50%);left:0;opacity:0;transition:opacity .15s; }
+.vmsg:hover .vmsg-dot, .vmsg-playing .vmsg-dot { opacity:1; }
+.vmsg-time { font-size:11px;font-variant-numeric:tabular-nums;opacity:.75;line-height:1; }
 .rec-bar { display:flex;align-items:center;gap:8px;flex:1;background:#fef2f2;border:1px solid #fecaca;
            border-radius:0.75rem;padding:8px 12px; }
 html.dark .rec-bar { background:#3b1d1d;border-color:#7f1d1d; }
@@ -763,7 +776,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                     </a>
                                 </template>
                                 <template x-if="f.is_audio">
-                                    <audio controls preload="none" :src="f.file_url" class="voice-player"></audio>
+                                    <voice-msg :src="f.file_url"></voice-msg>
                                 </template>
                                 <template x-if="!f.is_image && !f.is_audio">
                                     <a :href="f.file_url" target="_blank" class="attach-chip">
@@ -1179,7 +1192,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                                         </a>
                                                     </template>
                                                     <template x-if="f.is_audio">
-                                                        <audio controls preload="none" :src="f.file_url" class="voice-player"></audio>
+                                                        <voice-msg :src="f.file_url"></voice-msg>
                                                     </template>
                                                     <template x-if="!f.is_image && !f.is_audio">
                                                         <a :href="f.file_url" target="_blank" class="attach-chip">
@@ -1431,6 +1444,121 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
         </div>
     </div>
 </div>
+
+<script>
+/* ── Голосовое сообщение: кастомный Web Component <voice-msg src="..."> ──
+   Нативный <audio controls> заменён, чтобы: (1) единый вид «как в Telegram»
+   (play/пауза + дорожка перемотки + длительность), (2) починить классический
+   баг webm/opus от MediaRecorder — у blob нет метаданных длины, audio.duration
+   == Infinity, нативная перемотка не работает. Форсируем расчёт длительности
+   сидом на огромный currentTime. */
+(function () {
+  if (window.customElements && customElements.get('voice-msg')) return;
+  const ICON_PLAY  = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+  function fmt(t) {
+    if (!isFinite(t) || t < 0) t = 0;
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  class VoiceMsg extends HTMLElement {
+    static get observedAttributes() { return ['src']; }
+    connectedCallback() {
+      if (this._built) return;
+      this._built = true;
+      this._dur = 0;
+      this.innerHTML =
+        '<div class="vmsg">' +
+          '<button type="button" class="vmsg-btn" aria-label="Воспроизвести">' + ICON_PLAY + '</button>' +
+          '<div class="vmsg-mid">' +
+            '<div class="vmsg-track"><div class="vmsg-fill"></div><span class="vmsg-dot"></span></div>' +
+            '<span class="vmsg-time">0:00</span>' +
+          '</div>' +
+        '</div>';
+      this._wrap  = this.querySelector('.vmsg');
+      this._btn   = this.querySelector('.vmsg-btn');
+      this._fill  = this.querySelector('.vmsg-fill');
+      this._dot   = this.querySelector('.vmsg-dot');
+      this._time  = this.querySelector('.vmsg-time');
+      this._track = this.querySelector('.vmsg-track');
+      this._audio = new Audio();
+      this._audio.preload = 'metadata';
+      const src = this.getAttribute('src');
+      if (src) this._audio.src = src;
+
+      this._btn.addEventListener('click', () => this._toggle());
+      this._track.addEventListener('click', (e) => this._seek(e));
+      this._audio.addEventListener('loadedmetadata', () => this._onMeta());
+      this._audio.addEventListener('timeupdate', () => this._onTime());
+      this._audio.addEventListener('play',  () => { this._btn.innerHTML = ICON_PAUSE; this._wrap.classList.add('vmsg-playing'); });
+      this._audio.addEventListener('pause', () => { this._btn.innerHTML = ICON_PLAY;  this._wrap.classList.remove('vmsg-playing'); });
+      this._audio.addEventListener('ended', () => {
+        this._btn.innerHTML = ICON_PLAY; this._wrap.classList.remove('vmsg-playing');
+        this._audio.currentTime = 0; this._paint(0);
+      });
+    }
+    attributeChangedCallback(name, oldV, newV) {
+      if (name === 'src' && this._audio && newV && this._audio.src !== newV) {
+        this._audio.src = newV;
+        this._dur = 0; this._fixed = false;
+        if (this._time) this._time.textContent = '0:00';
+      }
+    }
+    _onMeta() {
+      const d = this._audio.duration;
+      if (d === Infinity || isNaN(d)) {
+        if (this._fixed) return;
+        this._fixed = true;
+        const onFix = () => {
+          this._audio.removeEventListener('timeupdate', onFix);
+          this._dur = this._audio.duration;
+          this._audio.currentTime = 0;
+          this._paint(0);
+        };
+        this._audio.addEventListener('timeupdate', onFix);
+        try { this._audio.currentTime = 1e101; } catch (_) {}
+      } else {
+        this._dur = d; this._paint(0);
+      }
+    }
+    _onTime() {
+      const d = this._dur || this._audio.duration || 0;
+      const cur = this._audio.currentTime || 0;
+      if (this._wrap.classList.contains('vmsg-playing') || cur > 0) {
+        this._time.textContent = fmt(cur) + (isFinite(d) && d ? ' / ' + fmt(d) : '');
+      }
+      this._paint(d ? cur / d : 0);
+    }
+    _paint(ratio) {
+      ratio = Math.max(0, Math.min(1, ratio || 0));
+      this._fill.style.width = (ratio * 100) + '%';
+      this._dot.style.left = (ratio * 100) + '%';
+      if (!this._wrap.classList.contains('vmsg-playing') && (this._audio.currentTime || 0) === 0) {
+        this._time.textContent = fmt(this._dur || 0);
+      }
+    }
+    _seek(e) {
+      const d = this._dur || this._audio.duration || 0;
+      if (!d || !isFinite(d)) return;
+      const r = this._track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      try { this._audio.currentTime = ratio * d; } catch (_) {}
+      this._paint(ratio);
+    }
+    _toggle() {
+      document.querySelectorAll('voice-msg').forEach((el) => {
+        if (el !== this && el._audio && !el._audio.paused) el._audio.pause();
+      });
+      if (this._audio.paused) this._audio.play().catch(() => {});
+      else this._audio.pause();
+    }
+    disconnectedCallback() {
+      try { this._audio && this._audio.pause(); } catch (_) {}
+    }
+  }
+  customElements.define('voice-msg', VoiceMsg);
+})();
+</script>
 
 <script>
 const _CHAT_MY_USER_ID = {{ my_db_id or 0 }};
