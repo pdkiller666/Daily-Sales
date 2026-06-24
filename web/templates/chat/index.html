@@ -115,6 +115,15 @@ html.dark .react-chip { background:#1e293b;border-color:#334155;color:#cbd5e1; }
 html.dark .react-chip:hover { background:#334155; }
 html.dark .react-chip-mine { background:#1e3a5f;border-color:#3b82f6; }
 .react-chip .rc-count { font-size:0.7rem;font-weight:600;opacity:.8; }
+.date-sep { display:flex;justify-content:center;margin:14px 0 10px; pointer-events:none; }
+.date-sep > span { background:rgba(100,116,139,.14);color:#475569;font-size:11px;font-weight:600;
+  padding:3px 12px;border-radius:999px; }
+html.dark .date-sep > span { background:rgba(148,163,184,.16);color:#cbd5e1; }
+.unread-sep { display:flex;align-items:center;gap:8px;margin:8px 0 10px;color:#2563eb;
+  font-size:11px;font-weight:600;text-transform:none; }
+.unread-sep::before,.unread-sep::after { content:"";height:1px;flex:1;background:rgba(37,99,235,.25); }
+html.dark .unread-sep { color:#60a5fa; }
+html.dark .unread-sep::before,html.dark .unread-sep::after { background:rgba(96,165,250,.3); }
 .react-picker { position:absolute;bottom:100%;margin-bottom:4px;z-index:30;
                 display:flex;gap:2px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;
                 padding:4px 6px;box-shadow:0 6px 20px rgba(0,0,0,.14); }
@@ -670,7 +679,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
     </div>
 
     <!-- ══ Messages area ══ -->
-    <div x-show="!dmMode" id="chat-scroll" class="flex-1 overflow-y-auto py-3 space-y-3 px-4 sm:px-6 relative">
+    <div x-show="!dmMode" id="chat-scroll" class="flex-1 overflow-y-auto py-3 px-4 sm:px-6 relative">
 
         <!-- Loading overlay when switching topics -->
         <div x-show="loadingTopic" x-cloak
@@ -705,19 +714,35 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
         </div>
 
         <!-- All messages — single unified Alpine template -->
-        <template x-for="msg in msgs" :key="msg.id">
-            <div class="flex gap-2.5 mb-3"
-                 :class="msg.user_id === myUserId ? 'msg-mine flex-row-reverse' : (msg.is_ai_error ? 'msg-other msg-ai msg-ai-error' : (msg.is_ai ? 'msg-other msg-ai' : 'msg-other'))"
+        <template x-for="(msg, mi) in msgs" :key="msg.id">
+          <div>
+            <!-- Date separator -->
+            <template x-if="showDateSep(msgs, mi)">
+                <div class="date-sep"><span x-text="dateLabel(msg.created_at)"></span></div>
+            </template>
+            <!-- Unread divider -->
+            <template x-if="groupUnreadAnchorId && msg.id === groupUnreadAnchorId">
+                <div class="unread-sep">непрочитанные сообщения</div>
+            </template>
+            <div class="flex gap-2.5"
+                 :class="[
+                    msg.user_id === myUserId ? 'msg-mine flex-row-reverse' : (msg.is_ai_error ? 'msg-other msg-ai msg-ai-error' : (msg.is_ai ? 'msg-other msg-ai' : 'msg-other')),
+                    lastInGroup(msgs, mi) ? 'mb-3' : 'mb-0.5'
+                 ]"
                  :id="'msg-' + msg.id">
-                <!-- Avatar (only for other people's messages) -->
-                <template x-if="msg.user_id !== myUserId">
+                <!-- Avatar (only for other people's messages, last in group) -->
+                <template x-if="msg.user_id !== myUserId && lastInGroup(msgs, mi)">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-auto"
                          :class="msg.is_ai ? 'msg-ai-avatar' : 'bg-gradient-to-br from-slate-400 to-slate-600'"
                          x-text="msg.is_ai_error ? '⚠️' : msg.initial"></div>
                 </template>
+                <!-- Avatar spacer (other people's, grouped follow-ups) -->
+                <template x-if="msg.user_id !== myUserId && !lastInGroup(msgs, mi)">
+                    <div class="w-8 shrink-0"></div>
+                </template>
                 <!-- Bubble -->
                 <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
-                    <p class="text-[10px] font-semibold mb-1"
+                    <p x-show="firstInGroup(msgs, mi)" class="text-[10px] font-semibold mb-1"
                        :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai_error ? 'text-amber-600 dark:text-amber-400' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600'))"
                        x-text="msg.is_ai_error ? 'AI-ассистент · Ошибка' : msg.display_name"></p>
                     <!-- Метка пересылки -->
@@ -854,6 +879,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     </div>
                 </div>
             </div>
+          </div>
         </template>
 
         <!-- Empty state -->
@@ -1139,7 +1165,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     </div>
 
                     <!-- Messages scroll -->
-                    <div id="dm-conv-scroll" class="flex-1 overflow-y-auto p-4 flex flex-col gap-2"
+                    <div id="dm-conv-scroll" class="flex-1 overflow-y-auto p-4 flex flex-col"
                          style="scrollbar-width:thin">
                         <!-- Load more -->
                         <div x-show="dmHasMore" class="text-center py-1 shrink-0">
@@ -1149,15 +1175,27 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                         </div>
 
                         <!-- Messages -->
-                        <template x-for="m in dmMessages" :key="m.id">
+                        <template x-for="(m, mi) in dmMessages" :key="m.id">
+                          <div>
+                            <!-- Date separator (DM) -->
+                            <template x-if="showDateSep(dmMessages, mi)">
+                                <div class="date-sep"><span x-text="dateLabel(m.created_at)"></span></div>
+                            </template>
+                            <!-- Unread divider (DM) -->
+                            <template x-if="dmUnreadAnchorId && m.id === dmUnreadAnchorId">
+                                <div class="unread-sep">непрочитанные сообщения</div>
+                            </template>
                             <div class="flex items-end gap-1.5"
-                                 :class="m.is_mine ? 'flex-row-reverse' : ''"
+                                 :class="[m.is_mine ? 'flex-row-reverse' : '', lastInGroup(dmMessages, mi) ? 'mb-2' : 'mb-0.5']"
                                  :data-dmid="m.id">
-                                <template x-if="!m.is_mine">
+                                <template x-if="!m.is_mine && lastInGroup(dmMessages, mi)">
                                     <div class="dm-avatar shrink-0"
                                          style="width:28px;height:28px;font-size:.75rem"
                                          :style="(m.is_ai || dmPeerId === -1) ? 'width:28px;height:28px;font-size:.75rem;background:#14b8a6' : 'width:28px;height:28px;font-size:.75rem'"
                                          x-text="dmPeerInitial"></div>
+                                </template>
+                                <template x-if="!m.is_mine && !lastInGroup(dmMessages, mi)">
+                                    <div class="shrink-0" style="width:28px"></div>
                                 </template>
                                 <div :class="m.is_mine ? 'items-end' : 'items-start'"
                                      class="flex flex-col max-w-[72%]">
@@ -1307,6 +1345,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                     </p>
                                 </div>
                             </div>
+                          </div>
                         </template>
 
                         <!-- Empty state -->
@@ -1578,6 +1617,8 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         msgs:             [],          /* single source of truth for all messages */
         pinnedMsg:        (typeof _initPinned !== 'undefined' ? _initPinned : null) || null,
         loadingTopic:     false,
+        groupUnreadAnchorId: null,     /* id первого непрочитанного (группа) */
+        dmUnreadAnchorId:    null,     /* id первого непрочитанного (ЛС) */
         myUserId,
         isAdmin,
         csrfToken,
@@ -1720,6 +1761,12 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         init() {
             /* pre-populate with server-side messages so they show immediately */
             this.msgs = Array.isArray(initMessages) ? initMessages : [];
+            /* Разделитель непрочитанного для темы, в которую открыли страницу */
+            const _t0 = this.topicsList.find(t => t.id === this.currentTopicId);
+            const _u0 = _t0 ? (_t0.unread || 0) : 0;
+            this.groupUnreadAnchorId = (_u0 > 0 && this.msgs.length)
+                ? ((this.msgs[Math.max(0, this.msgs.length - _u0)] || {}).id || null)
+                : null;
             /* Фиксируем высоту строго между шапкой и нижним меню */
             this._fitHeight();
             this.$nextTick(() => this._fitHeight());
@@ -1934,7 +1981,43 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             } catch(e) {}
         },
 
-        /* ── Topic switch ── */
+        /* ── Date separators & message grouping helpers ── */
+        sameDay(a, b) {
+            return !!a && !!b && a.slice(0, 10) === b.slice(0, 10);
+        },
+        showDateSep(list, i) {
+            if (i === 0) return true;
+            return !this.sameDay(list[i] && list[i].created_at, list[i-1] && list[i-1].created_at);
+        },
+        dateLabel(ts) {
+            const d = (ts || '').slice(0, 10);          /* DD.MM.YYYY */
+            const p = d.split('.');
+            if (p.length !== 3) return d;
+            const dd = parseInt(p[0], 10), mm = parseInt(p[1], 10), yy = parseInt(p[2], 10);
+            const pad = n => String(n).padStart(2, '0');
+            const now = new Date();
+            const todayKey = pad(now.getDate()) + '.' + pad(now.getMonth()+1) + '.' + now.getFullYear();
+            const y = new Date(now); y.setDate(now.getDate() - 1);
+            const yKey = pad(y.getDate()) + '.' + pad(y.getMonth()+1) + '.' + y.getFullYear();
+            if (d === todayKey) return 'Сегодня';
+            if (d === yKey) return 'Вчера';
+            const months = ['января','февраля','марта','апреля','мая','июня','июля',
+                            'августа','сентября','октября','ноября','декабря'];
+            const label = dd + ' ' + (months[mm-1] || '');
+            return (yy === now.getFullYear()) ? label : (label + ' ' + yy);
+        },
+        _sameSender(a, b) {
+            if (!a || !b) return false;
+            if (a.user_id !== undefined && b.user_id !== undefined) return a.user_id === b.user_id;
+            return !!a.is_mine === !!b.is_mine;
+        },
+        firstInGroup(list, i) {
+            return i === 0 || this.showDateSep(list, i) || !this._sameSender(list[i], list[i-1]);
+        },
+        lastInGroup(list, i) {
+            return i === list.length - 1 || this.showDateSep(list, i+1) || !this._sameSender(list[i], list[i+1]);
+        },
+
         async switchTopic(topicId) {
             if (topicId === this.currentTopicId) return;
             const seq = ++this._topicReqSeq;   /* race guard: помечаем это переключение */
@@ -1964,6 +2047,10 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.currentTopicId = topicId;
             const found = this.topicsList.find(t => t.id === topicId);
             this.currentTopicName = found ? found.name : '?';
+            const _prevUnread = found ? (found.unread || 0) : 0;
+            this.groupUnreadAnchorId = (_prevUnread > 0 && this.msgs.length)
+                ? ((this.msgs[Math.max(0, this.msgs.length - _prevUnread)] || {}).id || null)
+                : null;
             if (found) found.unread = 0;
             this.markTopicRead(topicId, this.latestId);
 
@@ -2417,9 +2504,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             this.dmAiThinking   = false;
             /* clear unread badge */
             const c = this.dmContacts.find(x => x.id === contact.id);
+            const _prevUnread = c ? (c.unread || 0) : 0;
             if (c) { this.dmTotalUnread -= (c.unread || 0); c.unread = 0; if (this.dmTotalUnread < 0) this.dmTotalUnread = 0; }
+            this.dmUnreadAnchorId = null;
             history.replaceState(null, '', '/chat?dm=1&peer=' + contact.id);
             await this._dmFetchMessages(0);
+            this.dmUnreadAnchorId = (_prevUnread > 0 && this.dmMessages.length)
+                ? ((this.dmMessages[Math.max(0, this.dmMessages.length - _prevUnread)] || {}).id || null)
+                : null;
             this._dmScrollBottom(true);
             this._dmMarkRead(contact.id);
         },
