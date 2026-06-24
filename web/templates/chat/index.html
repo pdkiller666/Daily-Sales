@@ -1105,14 +1105,30 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                         <template x-if="m.is_ai_error">
                                             <p class="text-[10px] font-semibold mb-1 text-amber-600 dark:text-amber-400">⚠️ AI-ассистент · Ошибка</p>
                                         </template>
-                                        <!-- Image -->
-                                        <template x-if="m.has_file && m.is_image">
+                                        <!-- Files (multi-file support) -->
+                                        <template x-if="m.files && m.files.length > 0">
+                                            <div class="mb-1 flex flex-col gap-1">
+                                                <template x-for="f in m.files" :key="f.id + '_' + f.file_name">
+                                                    <template x-if="f.is_image">
+                                                        <a :href="f.file_url" target="_blank">
+                                                            <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
+                                                        </a>
+                                                    </template>
+                                                    <template x-if="!f.is_image">
+                                                        <a :href="f.file_url" target="_blank" class="attach-chip">
+                                                            <span>📎</span><span class="truncate" x-text="f.file_name"></span>
+                                                        </a>
+                                                    </template>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        <!-- Legacy single-file fallback (old DM without files array) -->
+                                        <template x-if="m.has_file && (!m.files || !m.files.length) && m.is_image">
                                             <a :href="m.file_url" target="_blank">
                                                 <img :src="m.file_url" :alt="m.file_name" class="file-preview-img mb-1">
                                             </a>
                                         </template>
-                                        <!-- File -->
-                                        <template x-if="m.has_file && !m.is_image">
+                                        <template x-if="m.has_file && (!m.files || !m.files.length) && !m.is_image">
                                             <a :href="m.file_url" target="_blank" class="attach-chip mb-1">
                                                 <span>📎</span>
                                                 <span class="truncate" x-text="m.file_name"></span>
@@ -2368,6 +2384,7 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
                         id: data.id, message: data.message || '',
                         has_file: !!data.has_file, is_image: !!data.is_image,
                         file_url: data.file_url || '', file_name: data.file_name || '',
+                        files: data.files || [],
                         created_at: data.created_at || '', is_mine: false, can_delete: false,
                         is_ai: isAi, is_ai_error: !!data.is_ai_error,
                         reply: data.reply || null,

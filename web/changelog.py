@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.165.0"
+CURRENT_VERSION = "1.166.0"
 
 ENTRIES = [
+    {
+        "version": "1.166.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Add markdown formatting to chat messages for improved readability",
+        ],
+    },
     {
         "version": "1.165.0",
         "date": "24 июня 2026",
