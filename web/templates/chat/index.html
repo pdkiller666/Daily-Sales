@@ -133,6 +133,30 @@ html.dark .react-picker { background:#0f172a;border-color:#334155; }
 .react-picker button:hover { transform:scale(1.25);background:#f1f5f9; }
 html.dark .react-picker button:hover { background:#1e293b; }
 
+/* ── Контекстное меню сообщения (Telegram-style) ── */
+.ctx-overlay { position:fixed; inset:0; z-index:60; }
+.ctx-menu { position:fixed; width:236px; background:#fff; border-radius:14px;
+            box-shadow:0 8px 32px rgba(0,0,0,.20); overflow:hidden; padding:4px 0;
+            transform-origin:top left; animation:ctxIn .12s ease-out; }
+html.dark .ctx-menu { background:#1e293b; box-shadow:0 8px 32px rgba(0,0,0,.55); }
+@keyframes ctxIn { from{opacity:0;transform:scale(.94)} to{opacity:1;transform:scale(1)} }
+.ctx-react-row { display:flex; gap:2px; padding:7px 10px; justify-content:space-between;
+                 border-bottom:1px solid #f1f5f9; }
+html.dark .ctx-react-row { border-color:#334155; }
+.ctx-react-row button { font-size:1.35rem; line-height:1; padding:2px; border-radius:8px;
+                        transition:transform .1s; cursor:pointer; }
+.ctx-react-row button:hover { transform:scale(1.3); }
+.ctx-item { display:flex; align-items:center; gap:13px; width:100%; text-align:left;
+            padding:10px 16px; font-size:.875rem; color:#1e293b; transition:background .1s;
+            cursor:pointer; }
+html.dark .ctx-item { color:#e2e8f0; }
+.ctx-item:hover { background:#f1f5f9; }
+html.dark .ctx-item:hover { background:#334155; }
+.ctx-item .ctx-ic { font-size:1rem; width:20px; text-align:center; opacity:.85; }
+.ctx-item.ctx-danger { color:#dc2626; }
+html.dark .ctx-item.ctx-danger { color:#f87171; }
+.msg-bubble, [class*="dm-bubble-"] { cursor:pointer; }
+
 /* ── Reply / quote ── */
 .reply-quote { display:block;border-left:3px solid #3b82f6;background:rgba(59,130,246,.08);
                border-radius:6px;padding:3px 8px;margin-bottom:5px;cursor:pointer;
@@ -633,6 +657,39 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
         </div>
     </div>
 
+    <!-- ══ Контекстное меню сообщения (Telegram-style) ══ -->
+    <template x-if="ctxMenu.open">
+        <div class="ctx-overlay" @click="closeCtxMenu()" @contextmenu.prevent="closeCtxMenu()">
+            <div class="ctx-menu" :style="ctxMenuStyle()" @click.stop>
+                <!-- Ряд реакций -->
+                <div class="ctx-react-row">
+                    <template x-for="e in REACTIONS" :key="e">
+                        <button type="button" @click="ctxReact(e)" x-text="e"></button>
+                    </template>
+                </div>
+                <!-- Действия -->
+                <button class="ctx-item" @click="ctxAction('reply')">
+                    <span>↩</span><span>Ответить</span>
+                </button>
+                <button class="ctx-item" @click="ctxAction('copy')">
+                    <span>⧉</span><span>Копировать</span>
+                </button>
+                <button class="ctx-item" @click="ctxAction('forward')">
+                    <span>↪</span><span>Переслать</span>
+                </button>
+                <button class="ctx-item" x-show="ctxCan('edit')" @click="ctxAction('edit')">
+                    <span>✎</span><span>Редактировать</span>
+                </button>
+                <button class="ctx-item" x-show="ctxCan('pin')" @click="ctxAction('pin')">
+                    <span>📌</span><span x-text="ctxPinLabel()"></span>
+                </button>
+                <button class="ctx-item ctx-danger" x-show="ctxCan('delete')" @click="ctxAction('delete')">
+                    <span>🗑</span><span>Удалить</span>
+                </button>
+            </div>
+        </div>
+    </template>
+
     <!-- ══ Forward modal (выбор назначения пересылки) ══ -->
     <div x-show="forwardOpen" x-cloak
          @keydown.escape.window="closeForward()"
@@ -741,7 +798,9 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                     <div class="w-8 shrink-0"></div>
                 </template>
                 <!-- Bubble -->
-                <div class="msg-bubble px-3.5 py-2.5 shadow-sm">
+                <div class="msg-bubble px-3.5 py-2.5 shadow-sm"
+                     @click="openCtxMenu($event,'topic',msg)"
+                     @contextmenu="openCtxMenu($event,'topic',msg)">
                     <p x-show="firstInGroup(msgs, mi)" class="text-[10px] font-semibold mb-1"
                        :class="msg.user_id === myUserId ? 'text-white/70' : (msg.is_ai_error ? 'text-amber-600 dark:text-amber-400' : (msg.is_ai ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600'))"
                        x-text="msg.is_ai_error ? 'AI-ассистент · Ошибка' : msg.display_name"></p>
@@ -822,48 +881,12 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                             <span>📎</span><span class="truncate" x-text="msg.file_name"></span>
                         </a>
                     </template>
-                    <!-- Meta + delete + react -->
+                    <!-- Meta (действия — в контекстном меню по клику на сообщение) -->
                     <div class="msg-meta mt-1 flex items-center gap-1.5"
                          :class="msg.user_id === myUserId ? 'justify-end' : ''">
                         <span class="text-[10px] opacity-60" x-text="msg.created_at"></span>
                         <span x-show="msg.edited" class="text-[10px] opacity-50 italic">изм.</span>
-                        <div class="relative">
-                            <button @click="openReact = (openReact === msg.id ? null : msg.id)"
-                                    class="react-btn text-[12px] leading-none touch-manipulation px-0.5"
-                                    :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
-                                    title="Реакция">🙂</button>
-                            <div x-show="openReact === msg.id" x-cloak
-                                 @click.outside="openReact = null"
-                                 class="react-picker">
-                                <template x-for="e in REACTIONS" :key="e">
-                                    <button type="button" @click="toggleReaction(msg, e); openReact = null"
-                                            x-text="e"></button>
-                                </template>
-                            </div>
-                        </div>
-                        <button @click="startReply(msg)"
-                                class="text-[12px] leading-none touch-manipulation px-0.5"
-                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
-                                title="Ответить">↩</button>
-                        <button @click="openForward('topic', msg.id)"
-                                class="text-[12px] leading-none touch-manipulation px-0.5"
-                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
-                                title="Переслать">↪</button>
-                        <button x-show="msg.can_edit"
-                                @click="startEdit(msg)"
-                                class="text-[12px] leading-none touch-manipulation px-0.5"
-                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
-                                title="Редактировать">✎</button>
-                        <button x-show="msg.can_pin"
-                                @click="togglePin(msg)"
-                                class="text-[12px] leading-none touch-manipulation px-0.5"
-                                :class="(pinnedMsg && pinnedMsg.id === msg.id) ? 'text-amber-500' : (msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500')"
-                                :title="(pinnedMsg && pinnedMsg.id === msg.id) ? 'Открепить' : 'Закрепить'">📌</button>
-                        <button x-show="msg.can_delete"
-                                @click="deleteMsg(msg.id)"
-                                class="msg-del-btn text-[11px] leading-none touch-manipulation px-0.5"
-                                :class="msg.user_id === myUserId ? 'text-white' : 'text-slate-400 dark:text-slate-500'"
-                                title="Удалить сообщение">✕</button>
+                        <span x-show="(pinnedMsg && pinnedMsg.id === msg.id)" class="text-[10px] text-amber-500" title="Закреплено">📌</span>
                     </div>
                     <!-- Чипы реакций -->
                     <div x-show="msg.reactions && msg.reactions.length" x-cloak
@@ -1200,7 +1223,9 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 <div :class="m.is_mine ? 'items-end' : 'items-start'"
                                      class="flex flex-col max-w-[72%]">
                                     <div class="px-3 py-2 text-sm leading-relaxed shadow-sm"
-                                         :class="m.is_mine ? 'dm-bubble-mine' : (m.is_ai_error ? 'dm-bubble-ai-error' : 'dm-bubble-other')">
+                                         :class="m.is_mine ? 'dm-bubble-mine' : (m.is_ai_error ? 'dm-bubble-ai-error' : 'dm-bubble-other')"
+                                         @click="openCtxMenu($event,'dm',m)"
+                                         @contextmenu="openCtxMenu($event,'dm',m)">
                                         <!-- Метка пересылки (DM) -->
                                         <template x-if="m.forwarded_from">
                                             <p class="text-[11px] italic mb-1 flex items-center gap-1"
@@ -1281,43 +1306,7 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                                 </span>
                                             </span>
                                         </template>
-                                        <!-- Реакция -->
-                                        <span class="relative inline-block">
-                                            <button @click="dmOpenReact = (dmOpenReact === m.id ? null : m.id)"
-                                                    class="react-btn ml-1.5 text-[12px]"
-                                                    :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
-                                                    title="Реакция">🙂</button>
-                                            <span x-show="dmOpenReact === m.id" x-cloak
-                                                  @click.outside="dmOpenReact = null"
-                                                  class="react-picker">
-                                                <template x-for="e in REACTIONS" :key="e">
-                                                    <button type="button" @click="dmToggleReaction(m, e); dmOpenReact = null"
-                                                            x-text="e"></button>
-                                                </template>
-                                            </span>
-                                        </span>
-                                        <!-- Ответить -->
-                                        <button @click="startDmReply(m)"
-                                                class="ml-1.5 text-[12px]"
-                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
-                                                title="Ответить">↩</button>
-                                        <!-- Переслать -->
-                                        <button @click="openForward('dm', m.id)"
-                                                class="ml-1.5 text-[12px]"
-                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
-                                                title="Переслать">↪</button>
-                                        <!-- Редактировать -->
-                                        <button x-show="m.can_edit"
-                                                @click="startDmEdit(m)"
-                                                class="ml-1.5 text-[12px]"
-                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
-                                                title="Редактировать">✎</button>
-                                        <!-- Delete -->
-                                        <button x-show="m.can_delete"
-                                                @click="dmDeleteMsg(m.id)"
-                                                class="msg-del-btn ml-1.5 text-[11px]"
-                                                :class="m.is_mine ? 'text-white/70' : 'text-slate-400'"
-                                                title="Удалить">✕</button>
+                                        <!-- Действия — в контекстном меню по клику на сообщение -->
                                     </div>
                                     <!-- Чипы реакций (DM) -->
                                     <div x-show="m.reactions && m.reactions.length" x-cloak
@@ -1627,6 +1616,9 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         REACTIONS: ['👍','❤️','😂','😮','😢','🙏','🔥','✅'],
         openReact: null,      /* id сообщения с открытым пикером (группа) */
         dmOpenReact: null,    /* id сообщения с открытым пикером (ЛС) */
+
+        /* ── контекстное меню сообщения (Telegram-style) ── */
+        ctxMenu: { open: false, x: 0, y: 0, kind: 'topic', msg: null },
 
         /* ── reply / quote ── */
         replyTo: null,        /* {id, author, snippet} — цитата в группе */
@@ -2968,6 +2960,100 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             if (msg.files && msg.files.length) return '📎 ' + (msg.files[0].file_name || 'Вложение');
             if (msg.file_name) return '📎 ' + msg.file_name;
             return '📎 Вложение';
+        },
+        /* ── Контекстное меню сообщения (Telegram-style) ── */
+        openCtxMenu(ev, kind, msg) {
+            if (ev && ev.target && ev.target.closest('a, button, textarea, input, voice-msg, .react-chip, .reply-quote, .link-preview-card')) return;
+            if (ev) ev.preventDefault();
+            this.openReact = null;
+            this.dmOpenReact = null;
+            const x = ev ? (ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || 0) : 0;
+            const y = ev ? (ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0) : 0;
+            this.ctxMenu = { open: true, x: x, y: y, kind: kind, msg: msg };
+        },
+        closeCtxMenu() {
+            this.ctxMenu = { open: false, x: 0, y: 0, kind: this.ctxMenu.kind, msg: null };
+        },
+        ctxMenuStyle() {
+            const W = 236;
+            let items = 3;                       /* Ответить, Копировать, Переслать */
+            if (this.ctxCan('edit')) items++;
+            if (this.ctxCan('pin')) items++;
+            if (this.ctxCan('delete')) items++;
+            const H = 46 + items * 40 + 14;      /* ряд реакций + пункты + паддинги */
+            const vw = window.innerWidth, vh = window.innerHeight, pad = 8;
+            let left = this.ctxMenu.x;
+            let top = this.ctxMenu.y;
+            if (left + W + pad > vw) left = vw - W - pad;
+            if (left < pad) left = pad;
+            if (top + H + pad > vh) top = vh - H - pad;
+            if (top < pad) top = pad;
+            return `left:${Math.round(left)}px;top:${Math.round(top)}px;`;
+        },
+        ctxCan(what) {
+            const c = this.ctxMenu;
+            if (!c.msg) return false;
+            if (c.kind === 'topic') {
+                if (what === 'edit') return !!c.msg.can_edit;
+                if (what === 'pin') return !!c.msg.can_pin;
+                if (what === 'delete') return !!c.msg.can_delete;
+            } else {
+                if (what === 'edit') return !!c.msg.can_edit;
+                if (what === 'pin') return false;          /* в ЛС закрепа нет */
+                if (what === 'delete') return !!c.msg.can_delete;
+            }
+            return false;
+        },
+        ctxPinLabel() {
+            const m = this.ctxMenu.msg;
+            return (this.pinnedMsg && m && this.pinnedMsg.id === m.id) ? 'Открепить' : 'Закрепить';
+        },
+        ctxReact(emoji) {
+            const c = this.ctxMenu;
+            if (!c.msg) { this.closeCtxMenu(); return; }
+            if (c.kind === 'topic') this.toggleReaction(c.msg, emoji);
+            else this.dmToggleReaction(c.msg, emoji);
+            this.closeCtxMenu();
+        },
+        ctxAction(action) {
+            const c = this.ctxMenu;
+            const m = c.msg;
+            if (!m) { this.closeCtxMenu(); return; }
+            const kind = c.kind;
+            if (action === 'reply') {
+                kind === 'topic' ? this.startReply(m) : this.startDmReply(m);
+            } else if (action === 'copy') {
+                this.copyMsgText(m.message || '');
+            } else if (action === 'forward') {
+                this.openForward(kind === 'topic' ? 'topic' : 'dm', m.id);
+            } else if (action === 'edit') {
+                kind === 'topic' ? this.startEdit(m) : this.startDmEdit(m);
+            } else if (action === 'pin') {
+                if (kind === 'topic') this.togglePin(m);
+            } else if (action === 'delete') {
+                kind === 'topic' ? this.deleteMsg(m.id) : this.dmDeleteMsg(m.id);
+            }
+            this.closeCtxMenu();
+        },
+        copyMsgText(text) {
+            text = text || '';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => this._copyFallback(text));
+            } else {
+                this._copyFallback(text);
+            }
+        },
+        _copyFallback(text) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.focus(); ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            } catch (e) { /* no-op */ }
         },
         startReply(msg) {
             this.replyTo = { id: msg.id, author: msg.display_name || '', snippet: this._replySnippet(msg) };

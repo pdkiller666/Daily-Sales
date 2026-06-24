@@ -1,6 +1,17 @@
-CURRENT_VERSION = "1.171.0"
+CURRENT_VERSION = "1.172.0"
 
 ENTRIES = [
+    {
+        "version": "1.172.0",
+        "date": "24 июня 2026",
+        "items": [
+            "- Чат: единое меню сообщения в стиле Telegram — кликните по сообщению, и появится всплывающее меню с реакциями и действиями (Ответить, Копировать, Переслать, Редактировать, Закрепить, Удалить) вместо мелких кнопок при наведении.",
+            "- Чат: новое действие «Копировать» — текст сообщения копируется в буфер обмена одним нажатием.",
+            "Address security vulnerabilities and improve performance in chat and subscription features",
+            "Securely access direct message files and improve chat functionality",
+            "Add screenshot of Telegram message context menu",
+        ],
+    },
     {
         "version": "1.171.0",
         "date": "24 июня 2026",

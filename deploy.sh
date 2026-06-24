@@ -78,7 +78,7 @@ echo "0. Сборка changelog (фрагменты + git)..."
 # контент-хэш в <link ...?v=> в base.html (cache-bust без бампа SW). Ошибка сборки
 # НЕ валит деплой — уедет уже закоммиченный app.css.
 echo "0b. Сборка Tailwind CSS (статический app.css)..."
-if ( cd "$SOURCE_DIR" && npx --yes tailwindcss@3.4.17 -c tailwind.config.js \
+if ( cd "$SOURCE_DIR" && timeout 120 npx --yes tailwindcss@3.4.17 -c tailwind.config.js \
        -i web/static/tailwind.input.css -o web/static/app.css --minify >/dev/null 2>&1 ); then
   CSS_HASH=$(md5sum "$SOURCE_DIR/web/static/app.css" | cut -c1-10)
   # Cache-bust во ВСЕХ шаблонах со ссылкой на app.css (base.html + standalone:
