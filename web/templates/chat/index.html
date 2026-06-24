@@ -3011,10 +3011,14 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             const vw = window.innerWidth, vh = window.innerHeight, pad = 8;
             let left = this.ctxMenu.x;
             let top = this.ctxMenu.y;
+            /* горизонталь — стандартный clamp */
             if (left + W + pad > vw) left = vw - W - pad;
             if (left < pad) left = pad;
-            if (top + H + pad > vh) top = vh - H - pad;
-            if (top < pad) top = pad;
+            /* вертикаль: если снизу не хватает места — открываем вверх */
+            if (top + H + pad > vh) {
+                top = top - H;
+                if (top < pad) top = pad;
+            }
             return `left:${Math.round(left)}px;top:${Math.round(top)}px;`;
         },
         ctxCan(what) {

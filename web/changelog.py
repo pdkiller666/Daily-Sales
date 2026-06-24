@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.174.0"
+CURRENT_VERSION = "1.175.0"
 
 ENTRIES = [
+    {
+        "version": "1.175.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Update navigation icons to prevent duplicates and fix messaging bugs",
+        ],
+    },
     {
         "version": "1.174.0",
         "date": "24 июня 2026",
