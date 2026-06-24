@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.173.0"
+CURRENT_VERSION = "1.174.0"
 
 ENTRIES = [
+    {
+        "version": "1.174.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Fix audio message rendering and standardize time display for messages",
+        ],
+    },
     {
         "version": "1.173.0",
         "date": "24 июня 2026",
