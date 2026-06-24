@@ -1496,6 +1496,9 @@ def chat_file_attachment(request: Request, att_id: int):
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
 
+    if not _chat_access_ok(telegram_id):
+        return Response(content="Доступ запрещён", status_code=403)
+
     try:
         db = get_web_db(telegram_id, org_db)
         row = db.get_chat_message_file(att_id)
@@ -1530,6 +1533,9 @@ def chat_file(request: Request, msg_id: int):
 
     telegram_id = int(user["sub"])
     org_db = user.get("org_db") or ""
+
+    if not _chat_access_ok(telegram_id):
+        return Response(content="Доступ запрещён", status_code=403)
 
     try:
         db = get_web_db(telegram_id, org_db)
@@ -2489,6 +2495,22 @@ def dm_file_attachment(request: Request, att_id: int):
             return Response(content="Файл не найден", status_code=404)
 
         fpath, fname, ftype, dm_id = row
+
+        # IDOR: проверяем, что текущий пользователь — участник этого ЛС
+        user_db_id = _get_user_db_id(db, telegram_id) or 0
+        if not user_db_id:
+            return Response(content="Доступ запрещён", status_code=403)
+        _c = db.get_connection()
+        try:
+            _dm_row = _c.execute(
+                "SELECT id FROM direct_messages WHERE id = ? AND (from_user_id = ? OR to_user_id = ?)",
+                (dm_id, user_db_id, user_db_id)
+            ).fetchone()
+        finally:
+            _c.close()
+        if not _dm_row:
+            return Response(content="Доступ запрещён", status_code=403)
+
         if not os.path.isfile(fpath):
             return Response(content="Файл не найден на диске", status_code=404)
 

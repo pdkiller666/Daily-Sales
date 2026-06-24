@@ -377,8 +377,12 @@ def _get_tariff_overview(telegram_id: int) -> dict | None:
         from datetime import datetime as _dt
         db_path = tenant_manager.get_user_db_path(telegram_id)
         db = Database(db_path)
-        used_products = len(db.get_all_products())
-        used_shops = len(db.get_all_shops())
+        _cnt_conn = db.get_connection()
+        try:
+            used_products = _cnt_conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+            used_shops = _cnt_conn.execute("SELECT COUNT(*) FROM shops").fetchone()[0]
+        finally:
+            _cnt_conn.close()
         month_start = _dt.now().strftime("%Y-%m-01")
         conn = db.get_connection()
         try:

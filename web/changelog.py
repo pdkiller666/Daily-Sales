@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.170.0"
+CURRENT_VERSION = "1.171.0"
 
 ENTRIES = [
+    {
+        "version": "1.171.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Add a visual indicator for unread messages in chat conversations",
+        ],
+    },
     {
         "version": "1.170.0",
         "date": "24 июня 2026",
