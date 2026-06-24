@@ -639,6 +639,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{% set ls = label_settings %}
 <script>
 /* ─── Данные из сервера ─────────────────────────────────────────────────── */
 const CSRF   = {{ csrf_token | tojson }};

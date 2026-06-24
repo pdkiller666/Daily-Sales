@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.175.0"
+CURRENT_VERSION = "1.176.0"
 
 ENTRIES = [
+    {
+        "version": "1.176.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Improve context menu display and update navigation icons",
+        ],
+    },
     {
         "version": "1.175.0",
         "date": "24 июня 2026",
