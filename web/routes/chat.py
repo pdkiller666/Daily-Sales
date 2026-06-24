@@ -203,6 +203,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
                 "id": f["id"], "file_name": f["file_name"],
                 "file_type": f["file_type"], "file_size": f["file_size"],
                 "is_image": (f["file_type"] or "").startswith("image/"),
+                "is_audio": (f["file_type"] or "").startswith("audio/"),
                 "file_url": f"/chat/file/attachment/{f['id']}",
             }
             for f in files
@@ -212,6 +213,7 @@ def _fmt_msg(row, my_db_id: int = 0, is_admin: bool = False, files=None, reactio
             "id": 0, "file_name": file_name or "",
             "file_type": file_type or "", "file_size": file_size or 0,
             "is_image": bool(file_type and file_type.startswith("image/")),
+            "is_audio": bool(file_type and file_type.startswith("audio/")),
             "file_url": f"/chat/file/{mid}",
         }]
     else:
@@ -1248,6 +1250,7 @@ async def chat_forward(
                 "file_name": f.get("file_name", ""), "file_type": f.get("file_type", ""),
                 "file_size": f.get("file_size", 0),
                 "is_image": (f.get("file_type") or "").startswith("image/"),
+                "is_audio": (f.get("file_type") or "").startswith("audio/"),
                 "file_url": f"/chat/dm/file/attachment/{f.get('id', 0)}",
             }
             for f in fresh_files
@@ -2043,6 +2046,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edit
                 "id": f["id"], "file_name": f["file_name"],
                 "file_type": f["file_type"], "file_size": f["file_size"],
                 "is_image": (f["file_type"] or "").startswith("image/"),
+                "is_audio": (f["file_type"] or "").startswith("audio/"),
                 "file_url": f"/chat/dm/file/attachment/{f['id']}",
             }
             for f in files
@@ -2052,6 +2056,7 @@ def _fmt_dm(row, my_db_id: int = 0, files=None, reactions=None, reply=None, edit
             "id": 0, "file_name": file_name or "",
             "file_type": file_type or "", "file_size": file_size or 0,
             "is_image": bool(file_type and file_type.startswith("image/")),
+            "is_audio": bool(file_type and file_type.startswith("audio/")),
             "file_url": f"/chat/dm/file/{mid}",
         }]
     else:
@@ -2612,6 +2617,7 @@ async def dm_send(
                 "file_name": f.get("file_name", ""), "file_type": f.get("file_type", ""),
                 "file_size": f.get("file_size", 0),
                 "is_image": (f.get("file_type") or "").startswith("image/"),
+                "is_audio": (f.get("file_type") or "").startswith("audio/"),
                 "file_url": f"/chat/dm/file/attachment/{f.get('id', 0)}",
             }
             for f in fresh_files

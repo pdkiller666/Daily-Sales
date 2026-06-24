@@ -210,6 +210,15 @@ html.dark .mention-item-name { color:#e2e8f0; }
 #chat-scroll::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:2px; }
 /* ── Files ── */
 .file-preview-img { max-height:200px;border-radius:0.5rem;cursor:pointer; }
+.voice-player { width:min(260px,70vw);height:38px;outline:none; }
+.msg-mine .voice-player, .dm-bubble-mine .voice-player { filter:invert(1) hue-rotate(180deg); }
+.rec-bar { display:flex;align-items:center;gap:8px;flex:1;background:#fef2f2;border:1px solid #fecaca;
+           border-radius:0.75rem;padding:8px 12px; }
+html.dark .rec-bar { background:#3b1d1d;border-color:#7f1d1d; }
+.rec-dot { width:10px;height:10px;border-radius:50%;background:#ef4444;animation:recpulse 1s infinite; }
+@keyframes recpulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
+.rec-time { font-variant-numeric:tabular-nums;font-weight:600;color:#b91c1c;font-size:14px; }
+html.dark .rec-time { color:#fca5a5; }
 .attach-chip { display:inline-flex;align-items:center;gap:6px;background:#eff6ff;border:1px solid #bfdbfe;
                border-radius:8px;padding:4px 10px;font-size:0.75rem;color:#1d4ed8;max-width:240px;overflow:hidden; }
 html.dark .attach-chip { background:#1e3a5f;border-color:#3b82f6;color:#93c5fd; }
@@ -753,7 +762,10 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                         <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
                                     </a>
                                 </template>
-                                <template x-if="!f.is_image">
+                                <template x-if="f.is_audio">
+                                    <audio controls preload="none" :src="f.file_url" class="voice-player"></audio>
+                                </template>
+                                <template x-if="!f.is_image && !f.is_audio">
                                     <a :href="f.file_url" target="_blank" class="attach-chip">
                                         <span>📎</span><span class="truncate" x-text="f.file_name"></span>
                                     </a>
@@ -915,8 +927,28 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                 <input type="file" class="hidden" multiple
                        @change="onFileChange($event)">
             </label>
+            <!-- Кнопка записи голосового — скрыта в AI-теме -->
+            <button x-show="!currentTopicIsAi && !(recActive && recField==='group')" type="button"
+                    @click="startRecording('group')"
+                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors" title="Записать голосовое">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
+                </svg>
+            </button>
+            <!-- Полоса записи (группа) -->
+            <template x-if="recActive && recField==='group'">
+                <div class="rec-bar">
+                    <span class="rec-dot"></span>
+                    <span class="rec-time" x-text="recTimeLabel()"></span>
+                    <span class="text-xs text-red-700 dark:text-red-300">Идёт запись…</span>
+                    <button type="button" @click="cancelRecording()" class="ml-auto text-slate-500 hover:text-slate-700 dark:text-slate-300 text-xs font-medium px-2 py-1">Отмена</button>
+                    <button type="button" @click="stopRecording(true)" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-1.5 hover:bg-blue-700">Отправить</button>
+                </div>
+            </template>
 
             <textarea
+                x-show="!(recActive && recField==='group')"
                 x-model="text"
                 @keydown.enter.exact.prevent="(mentionOpen && mentionField==='group') ? applyMentionSelected() : sendMessage()"
                 @keydown.enter.shift.exact="text += '\n'"
@@ -1146,7 +1178,10 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                                             <img :src="f.file_url" :alt="f.file_name" class="file-preview-img">
                                                         </a>
                                                     </template>
-                                                    <template x-if="!f.is_image">
+                                                    <template x-if="f.is_audio">
+                                                        <audio controls preload="none" :src="f.file_url" class="voice-player"></audio>
+                                                    </template>
+                                                    <template x-if="!f.is_image && !f.is_audio">
                                                         <a :href="f.file_url" target="_blank" class="attach-chip">
                                                             <span>📎</span><span class="truncate" x-text="f.file_name"></span>
                                                         </a>
@@ -1342,7 +1377,27 @@ const _initPinned    = {{ pinned | tojson }};    /* закреплённое с�
                                 <input type="file" class="hidden" multiple
                                        @change="onDmFileChange($event)">
                             </label>
+                            <!-- Кнопка записи голосового — скрыта в AI ЛС -->
+                            <button x-show="dmPeerId !== -1 && !(recActive && recField==='dm')" type="button"
+                                    @click="startRecording('dm')"
+                                    class="shrink-0 p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-slate-700 transition-colors" title="Записать голосовое">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M19 11a7 7 0 01-14 0m7 7v3m0-3a4 4 0 01-4-4V7a4 4 0 118 0v4a4 4 0 01-4 4z"/>
+                                </svg>
+                            </button>
+                            <!-- Полоса записи (ЛС) -->
+                            <template x-if="recActive && recField==='dm'">
+                                <div class="rec-bar">
+                                    <span class="rec-dot"></span>
+                                    <span class="rec-time" x-text="recTimeLabel()"></span>
+                                    <span class="text-xs text-red-700 dark:text-red-300">Идёт запись…</span>
+                                    <button type="button" @click="cancelRecording()" class="ml-auto text-slate-500 hover:text-slate-700 dark:text-slate-300 text-xs font-medium px-2 py-1">Отмена</button>
+                                    <button type="button" @click="stopRecording(true)" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-1.5 hover:bg-blue-700">Отправить</button>
+                                </div>
+                            </template>
                             <textarea
+                                x-show="!(recActive && recField==='dm')"
                                 x-model="dmText"
                                 @keydown.enter.exact.prevent="(mentionOpen && mentionField==='dm') ? applyMentionSelected() : dmSend()"
                                 @keydown.enter.shift.exact="dmText += '\n'"
@@ -1416,6 +1471,16 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
 
         /* ── link previews (OpenGraph) ── */
         linkPreviews:  {},
+
+        /* ── голосовые сообщения (запись) ── */
+        recActive:  false,    /* идёт запись */
+        recField:   '',       /* 'group' | 'dm' */
+        recSeconds: 0,
+        _recMR:     null,
+        _recChunks: [],
+        _recStream: null,
+        _recTimer:  null,
+        _recSend:   false,
 
         /* ── edit ── */
         editId: null,         /* id редактируемого сообщения (группа) */
@@ -1869,6 +1934,88 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
             }
         },
         clearFile() { this.attachedFiles = []; this.imagePreview = null; },
+
+        /* ── Голосовые сообщения ── */
+        recTimeLabel() {
+            const m = Math.floor(this.recSeconds / 60);
+            const s = this.recSeconds % 60;
+            return m + ':' + (s < 10 ? '0' : '') + s;
+        },
+        async startRecording(field) {
+            if (this.recActive) return;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+                alert('Запись голосовых не поддерживается этим браузером');
+                return;
+            }
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch(e) {
+                alert('Нет доступа к микрофону. Разрешите доступ в настройках браузера.');
+                return;
+            }
+            try {
+                this._recStream = stream;
+                let mime = '';
+                for (const c of ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4']) {
+                    if (MediaRecorder.isTypeSupported(c)) { mime = c; break; }
+                }
+                const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+                this._recChunks = [];
+                mr.ondataavailable = e => { if (e.data && e.data.size) this._recChunks.push(e.data); };
+                mr.onstop = () => this._finishRecording();
+                this._recMR = mr;
+                this.recField = field;
+                this.recActive = true;
+                this.recSeconds = 0;
+                this._recSend = false;
+                mr.start();
+                this._recTimer = setInterval(() => {
+                    this.recSeconds++;
+                    if (this.recSeconds >= 300) this.stopRecording(true);  /* лимит 5 мин */
+                }, 1000);
+            } catch(e) {
+                alert('Не удалось начать запись');
+                this._cleanupRec();
+            }
+        },
+        stopRecording(doSend) {
+            if (!this.recActive || !this._recMR) return;
+            this._recSend = !!doSend;
+            if (this._recTimer) { clearInterval(this._recTimer); this._recTimer = null; }
+            try { this._recMR.stop(); } catch(_) {}
+        },
+        cancelRecording() { this.stopRecording(false); },
+        _finishRecording() {
+            const send   = this._recSend;
+            const field  = this.recField;
+            const chunks = this._recChunks || [];
+            const type   = (this._recMR && this._recMR.mimeType) || 'audio/webm';
+            this._cleanupRec();
+            if (!send || !chunks.length) return;
+            const blob = new Blob(chunks, { type });
+            if (!blob.size) return;
+            const ext = type.includes('ogg') ? 'ogg' : (type.includes('mp4') ? 'm4a' : 'webm');
+            const file = new File([blob], 'voice-' + Date.now() + '.' + ext, { type });
+            if (field === 'dm') {
+                if (this.dmAttachedFiles.length < 10) this.dmAttachedFiles.push(file);
+                this.dmSend();
+            } else {
+                if (this.attachedFiles.length < 10) this.attachedFiles.push(file);
+                this.sendMessage();
+            }
+        },
+        _cleanupRec() {
+            if (this._recTimer) { clearInterval(this._recTimer); this._recTimer = null; }
+            if (this._recStream) { try { this._recStream.getTracks().forEach(t => t.stop()); } catch(_) {} }
+            this._recStream = null;
+            this._recMR = null;
+            this._recChunks = [];
+            this.recActive = false;
+            this.recField = '';
+            this.recSeconds = 0;
+            this._recSend = false;
+        },
         autoResize(el) {
             el.style.height = 'auto';
             el.style.height = Math.min(el.scrollHeight, 120) + 'px';

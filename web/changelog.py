@@ -1,6 +1,14 @@
-CURRENT_VERSION = "1.167.0"
+CURRENT_VERSION = "1.168.0"
 
 ENTRIES = [
+    {
+        "version": "1.168.0",
+        "date": "24 июня 2026",
+        "items": [
+            "Add link preview functionality to chat messages",
+            "Add voice message recording and playback functionality to chat",
+        ],
+    },
     {
         "version": "1.167.0",
         "date": "24 июня 2026",
