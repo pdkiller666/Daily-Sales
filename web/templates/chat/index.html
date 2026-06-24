@@ -152,6 +152,21 @@ html.dark .reply-bar { background:#1e293b; }
            border-radius:4px;padding:0 2px; }
 html.dark .mention { color:#93c5fd;background:rgba(59,130,246,.18); }
 .msg-mine .mention, .dm-bubble-mine .mention { color:#fff;background:rgba(255,255,255,.22); }
+/* ── Markdown-форматирование сообщений ── */
+.chat-inline-code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+           font-size:.82em;background:rgba(100,116,139,.16);color:#0f172a;
+           border-radius:4px;padding:1px 5px; }
+html.dark .chat-inline-code { background:rgba(148,163,184,.22);color:#e2e8f0; }
+.msg-mine .chat-inline-code, .dm-bubble-mine .chat-inline-code { background:rgba(255,255,255,.20);color:#fff; }
+.chat-code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+           font-size:.82em;background:rgba(100,116,139,.14);color:#0f172a;
+           border-radius:8px;padding:8px 10px;margin:4px 0;overflow-x:auto;
+           white-space:pre-wrap;word-break:break-word; }
+html.dark .chat-code { background:rgba(15,23,42,.55);color:#e2e8f0; }
+.msg-mine .chat-code, .dm-bubble-mine .chat-code { background:rgba(255,255,255,.16);color:#fff; }
+.chat-link { color:#2563eb;text-decoration:underline;word-break:break-all; }
+html.dark .chat-link { color:#93c5fd; }
+.msg-mine .chat-link, .dm-bubble-mine .chat-link { color:#fff;text-decoration:underline; }
 .mention-dropdown { position:absolute;bottom:calc(100% + 6px);left:0;z-index:40;
                     width:min(280px,90vw);max-height:220px;overflow-y:auto;
                     background:#fff;border:1px solid #e2e8f0;border-radius:12px;
@@ -2571,9 +2586,36 @@ function chatApp(initTopicId, initLatestId, csrfToken, initTopics, myUserId, isA
         /* ── @упоминания ── */
         formatMsg(text) {
             if (!text) return '';
-            const safe = this.esc(text);
-            return safe.replace(/(^|\s)@([\wА-Яа-яЁё]+)/g,
+            /* esc() ПЕРВЫМ — весь HTML экранируется до вставки своих тегов (XSS) */
+            let safe = this.esc(text);
+            /* Код прячем в плейсхолдеры с per-call nonce, чтобы markdown/ссылки не
+               трогали его нутро И чтобы юзер не подделал маркер в своём тексте */
+            const codes = [];
+            const nonce = 'MDTOK' + Math.random().toString(36).slice(2, 10);
+            const stash = (html) => { codes.push(html); return '\u0001' + nonce + (codes.length - 1) + '\u0001'; };
+            /* блок ```...``` (многострочный) */
+            safe = safe.replace(/```([\s\S]+?)```/g, (m, c) =>
+                stash('<pre class="chat-code">' + c.replace(/^\n/, '').replace(/\n$/, '') + '</pre>'));
+            /* инлайн `code` */
+            safe = safe.replace(/`([^`\n]+?)`/g, (m, c) =>
+                stash('<code class="chat-inline-code">' + c + '</code>'));
+            /* жирный **text** (до курсива, иначе * съест **) */
+            safe = safe.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+            /* зачёркнутый ~~text~~ */
+            safe = safe.replace(/~~([^~\n]+?)~~/g, '<del>$1</del>');
+            /* курсив *text* и _text_ (с защитой от слипания) */
+            safe = safe.replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+            safe = safe.replace(/(^|[^_\w])_([^_\n]+?)_(?![_\w])/g, '$1<em>$2</em>');
+            /* авто-ссылки (только http/https — без javascript:) */
+            safe = safe.replace(/(https?:\/\/[^\s<]+)/g, (m) =>
+                '<a href="' + m + '" target="_blank" rel="noopener noreferrer" class="chat-link">' + m + '</a>');
+            /* упоминания @имя */
+            safe = safe.replace(/(^|\s)@([\wА-Яа-яЁё]+)/g,
                 '$1<span class="mention">@$2</span>');
+            /* возвращаем код на место */
+            safe = safe.replace(new RegExp('\u0001' + nonce + '(\\d+)\u0001', 'g'),
+                (m, i) => codes[+i] || '');
+            return safe;
         },
         mentionInput(el, field) {
             if (!el) { this.mentionClose(); return; }
