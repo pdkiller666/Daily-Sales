@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.207.0"
+CURRENT_VERSION = "1.208.0"
 
 ENTRIES = [
+    {
+        "version": "1.208.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Update security measures and user consent tracking for Telegram logins",
+        ],
+    },
     {
         "version": "1.207.0",
         "date": "25 июня 2026",

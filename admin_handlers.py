@@ -163,6 +163,22 @@ async def execute_delete_org(callback: CallbackQuery, state: FSMContext):
         if data.get("selected_org_id") == org_id:
             await state.update_data(selected_org_id=None, selected_org_name=None, selected_org_db=None)
 
+        # Аудит-лог (best-effort, не блокирует ответ)
+        try:
+            _audit_db = Database('data/shop_bot.db')
+            _actor = callback.from_user
+            _actor_name = (_actor.full_name or "").strip() or str(_actor.id)
+            _audit_db.add_admin_audit(
+                actor_tg_id=_actor.id,
+                actor_name=_actor_name,
+                action="org_delete",
+                target=str(result),
+                details=f"org_id={org_id}; via=bot",
+                ip="bot",
+            )
+        except Exception:
+            pass
+
         await callback.answer()
         await callback.message.edit_text(
             f"✅ <b>Организация «{he(result)}» успешно удалена.</b>\n\n"
