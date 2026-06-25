@@ -1,6 +1,13 @@
-CURRENT_VERSION = "1.199.0"
+CURRENT_VERSION = "1.200.0"
 
 ENTRIES = [
+    {
+        "version": "1.200.0",
+        "date": "25 июня 2026",
+        "items": [
+            "Improve mobile chat experience by removing unnecessary dividers",
+        ],
+    },
     {
         "version": "1.199.0",
         "date": "25 июня 2026",

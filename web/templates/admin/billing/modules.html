@@ -150,7 +150,11 @@
                 <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
                 <input name="price_monthly" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
             </div>
-            <div class="flex items-end">
+            <div>
+                <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/год <span class="text-slate-400">(0 = без года)</span></label>
+                <input name="price_annual" type="number" step="1" value="0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+            </div>
+            <div class="flex items-end col-span-2">
                 <button type="submit" class="w-full bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors">Добавить</button>
             </div>
         </form>
@@ -177,6 +181,7 @@
                     {% if ext.is_active %}<span class="text-xs px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Активно</span>
                     {% else %}<span class="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-400 rounded-full">Откл.</span>{% endif %}
                     <span class="text-sm font-semibold text-violet-600">{{ ext.price_monthly|int }} ₽/мес</span>
+                    {% if ext.price_annual and ext.price_annual > 0 %}<span class="text-xs text-emerald-600 dark:text-emerald-400">· {{ ext.price_annual|int }} ₽/год</span>{% endif %}
                 </div>
                 {% if ext.description %}<p class="text-xs text-slate-400 mt-0.5">{{ ext.description }}</p>{% endif %}
             </div>
@@ -284,6 +289,10 @@
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/мес</label>
                         <input name="price_monthly" type="number" step="1" :value="editExt.price_monthly" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Цена ₽/год <span class="text-slate-400">(0 = без года)</span></label>
+                        <input name="price_annual" type="number" step="1" :value="editExt.price_annual || 0" class="w-full border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 mb-1">Порядок (sort)</label>

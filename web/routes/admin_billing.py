@@ -213,6 +213,7 @@ async def billing_ext_add(
     icon: str = Form("⚡"),
     description: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
 ):
     user = get_session_user(request)
@@ -223,7 +224,7 @@ async def billing_ext_add(
         return RedirectResponse("/admin/billing/modules?msg=bad_input&tab=extensions", 303)
     ok = _db().upsert_billing_extension(
         module_key, key, name.strip(), icon.strip() or "⚡",
-        description.strip(), price_monthly, sort_order
+        description.strip(), price_monthly, sort_order, price_annual=price_annual
     )
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/modules?msg={msg}&tab=extensions", 303)
@@ -239,6 +240,7 @@ async def billing_ext_save(
     icon: str = Form("⚡"),
     description: str = Form(""),
     price_monthly: float = Form(0.0),
+    price_annual: float = Form(0.0),
     sort_order: int = Form(0),
 ):
     user = get_session_user(request)
@@ -252,7 +254,8 @@ async def billing_ext_save(
     ok = db.upsert_billing_extension(
         module_key or ext["module_key"], ext["key"],
         name.strip() or ext["name"], icon.strip() or ext["icon"],
-        description.strip(), price_monthly, sort_order, int(ext["is_active"])
+        description.strip(), price_monthly, sort_order, int(ext["is_active"]),
+        price_annual=price_annual
     )
     msg = "saved" if ok else "error"
     return RedirectResponse(f"/admin/billing/modules?msg={msg}&tab=extensions", 303)

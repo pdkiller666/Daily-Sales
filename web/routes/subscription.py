@@ -166,7 +166,8 @@ def _get_all_billing_extensions() -> list[dict]:
         conn = sqlite3.connect(SHOP_BOT_DB)
         try:
             rows = conn.execute(
-                """SELECT module_key, key, name, icon, description, price_monthly
+                """SELECT module_key, key, name, icon, description, price_monthly,
+                          COALESCE(price_annual,0)
                    FROM billing_extensions WHERE is_active=1
                    ORDER BY module_key, sort_order, id"""
             ).fetchall()
@@ -174,9 +175,9 @@ def _get_all_billing_extensions() -> list[dict]:
             conn.close()
         result = []
         for r in rows:
-            module_key, key, name, icon, desc, price = r
+            module_key, key, name, icon, desc, price, price_annual = r
             _icon = icon or "🔧"
-            result.append({
+            item = {
                 "module_key": module_key,
                 "key": key,
                 "name": name,
@@ -185,7 +186,10 @@ def _get_all_billing_extensions() -> list[dict]:
                 "description": desc or "",
                 "price_monthly": int(price or 0),
                 "price_fmt": f"{int(price or 0):,}".replace(",", "\u00a0") + "\u00a0₽/мес.",
-            })
+                "price_annual": int(price_annual or 0),
+            }
+            item.update(_annual_fields(int(price or 0), int(price_annual or 0)))
+            result.append(item)
         return result
     except Exception:
         return []
@@ -571,8 +575,12 @@ def _get_item_price(plan_type: str) -> int | None:
                     price = int(row[0] or 0)
             elif plan_type.startswith("extension_"):
                 key = plan_type[10:]
+                _col = "price_monthly"
+                if key.startswith("annual_"):
+                    key = key[len("annual_"):]
+                    _col = "COALESCE(price_annual,0)"
                 row = conn.execute(
-                    "SELECT price_monthly FROM billing_extensions WHERE key=? AND is_active=1 LIMIT 1",
+                    f"SELECT {_col} FROM billing_extensions WHERE key=? AND is_active=1 LIMIT 1",
                     (key,),
                 ).fetchone()
                 if row:

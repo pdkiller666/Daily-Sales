@@ -510,7 +510,7 @@
 <div class="sticky top-0 z-20 -mx-4 px-4 pt-1 pb-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 mb-6">
 
     {# Переключатель Мес / Год — показывается только если есть модули или пакеты с годовой ценой #}
-    {% set _has_annual = modules|selectattr('has_annual')|list or bundles|selectattr('has_annual')|list %}
+    {% set _has_annual = modules|selectattr('has_annual')|list or bundles|selectattr('has_annual')|list or extensions|selectattr('has_annual')|list %}
     {% if _has_annual %}
     <div class="flex justify-end mb-2">
         <div class="inline-flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 text-xs">
@@ -905,7 +905,12 @@
                 {% endif %}
             </div>
             <div class="shrink-0 flex flex-col items-end gap-1.5">
-                <span class="text-sm font-extrabold text-slate-700 dark:text-slate-200">{{ ext2.price_fmt }}</span>
+                <span class="text-sm font-extrabold text-slate-700 dark:text-slate-200"
+                      x-text="period === 'annual' && {{ 'true' if ext2.has_annual else 'false' }} ? '{{ ext2.annual_per_month_fmt }}' : '{{ ext2.price_fmt }}'">{{ ext2.price_fmt }}</span>
+                {% if ext2.has_annual %}
+                <span x-show="period !== 'annual'" class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">или {{ ext2.annual_per_month_fmt }} за год · −{{ ext2.annual_save_pct }}%</span>
+                <span x-show="period === 'annual'" x-cloak class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{{ ext2.price_annual_fmt }} · −{{ ext2.annual_save_pct }}%</span>
+                {% endif %}
 
                 {% if not parent_active %}
                 <span class="text-[11px] text-slate-400 italic">нужен модуль</span>
@@ -916,13 +921,15 @@
                 {% elif is_ext_active %}
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
+                    <input type="hidden" name="plan_type"
+                           :value="period === 'annual' && {{ 'true' if ext2.has_annual else 'false' }} ? 'extension_annual_{{ ext2.key }}' : 'extension_{{ ext2.key }}'">
                     <button type="submit" class="btn-renew" {{ 'disabled' if has_pending else '' }}>🔄 Продлить</button>
                 </form>
                 {% else %}
                 <form method="POST" action="/subscription/module-request">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="plan_type" value="extension_{{ ext2.key }}">
+                    <input type="hidden" name="plan_type"
+                           :value="period === 'annual' && {{ 'true' if ext2.has_annual else 'false' }} ? 'extension_annual_{{ ext2.key }}' : 'extension_{{ ext2.key }}'">
                     <button type="submit" class="btn-connect" {{ 'disabled' if (has_pending or not parent_active) else '' }}>Подключить</button>
                 </form>
                 {% endif %}

@@ -16150,20 +16150,23 @@ class Database:
             cursor = conn.cursor()
             if module_key:
                 cursor.execute(
-                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active '
+                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active,'
+                    'COALESCE(price_annual,0) '
                     'FROM billing_extensions WHERE module_key=? ORDER BY sort_order,id',
                     (module_key,)
                 )
             else:
                 cursor.execute(
-                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active '
+                    'SELECT id,module_key,key,name,icon,description,price_monthly,sort_order,is_active,'
+                    'COALESCE(price_annual,0) '
                     'FROM billing_extensions ORDER BY module_key,sort_order,id'
                 )
             rows = cursor.fetchall()
             conn.close()
             return [
                 {'id': r[0], 'module_key': r[1], 'key': r[2], 'name': r[3], 'icon': r[4],
-                 'description': r[5], 'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8])}
+                 'description': r[5], 'price_monthly': r[6], 'sort_order': r[7], 'is_active': bool(r[8]),
+                 'price_annual': r[9]}
                 for r in rows
             ]
         except Exception as exc:
@@ -16173,18 +16176,19 @@ class Database:
     def upsert_billing_extension(
         self, module_key: str, key: str, name: str, icon: str,
         description: str, price_monthly: float,
-        sort_order: int = 0, is_active: int = 1
+        sort_order: int = 0, is_active: int = 1, price_annual: float = 0
     ) -> bool:
         try:
             conn = self.get_connection()
             conn.execute(
-                '''INSERT INTO billing_extensions (module_key,key,name,icon,description,price_monthly,sort_order,is_active,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+                '''INSERT INTO billing_extensions (module_key,key,name,icon,description,price_monthly,price_annual,sort_order,is_active,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
                    ON CONFLICT(module_key,key) DO UPDATE SET
                        name=excluded.name, icon=excluded.icon,
                        description=excluded.description, price_monthly=excluded.price_monthly,
+                       price_annual=excluded.price_annual,
                        sort_order=excluded.sort_order, is_active=excluded.is_active, updated_at=datetime('now')''',
-                (module_key, key, name, icon, description, price_monthly, sort_order, is_active)
+                (module_key, key, name, icon, description, price_monthly, price_annual, sort_order, is_active)
             )
             conn.commit()
             conn.close()
